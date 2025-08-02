@@ -240,6 +240,10 @@ DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_timeout_num, Met
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_time_ms, MetricUnit::MILLISECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_cnt, MetricUnit::NOUNIT);
 
+#ifdef BE_TEST
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(real_read_byte_local_total, MetricUnit::OPERATIONS);
+#endif
+
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
 
@@ -397,6 +401,10 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, get_remote_tablet_slow_cnt);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, pipeline_task_queue_size);
+
+#ifdef BE_TEST
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, real_read_byte_local_total);
+#endif
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,

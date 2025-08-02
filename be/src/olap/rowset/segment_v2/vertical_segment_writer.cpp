@@ -317,8 +317,9 @@ Status VerticalSegmentWriter::init() {
             _short_key_index_builder.reset(
                     new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
         }
-        _primary_key_index_builder.reset(
-                new PrimaryKeyIndexBuilder(_file_writer, seq_col_length, rowid_length));
+        bool is_limit_io = (_opts.rowset_ctx != nullptr) && (_opts.rowset_ctx->is_limit_io);
+        _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(_file_writer, seq_col_length,
+                                                                    rowid_length, is_limit_io));
         RETURN_IF_ERROR(_primary_key_index_builder->init());
     } else {
         _short_key_index_builder.reset(
@@ -1418,7 +1419,8 @@ Status VerticalSegmentWriter::_write_short_key_index() {
     RETURN_IF_ERROR(_short_key_index_builder->finalize(_row_count, &body, &footer));
     PagePointer pp;
     // short key index page is not compressed right now
-    RETURN_IF_ERROR(PageIO::write_page(_file_writer, body, footer, &pp));
+    bool is_limit_io = (_opts.rowset_ctx != nullptr) && (_opts.rowset_ctx->is_limit_io);
+    RETURN_IF_ERROR(PageIO::write_page(_file_writer, body, footer, &pp, is_limit_io));
     pp.to_proto(_footer.mutable_short_key_index_page());
     return Status::OK();
 }
@@ -1452,7 +1454,8 @@ Status VerticalSegmentWriter::_write_footer() {
 }
 
 Status VerticalSegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
-    RETURN_IF_ERROR(_file_writer->appendv(&slices[0], slices.size()));
+    bool is_limit_io = (_opts.rowset_ctx != nullptr) && (_opts.rowset_ctx->is_limit_io);
+    RETURN_IF_ERROR(_file_writer->appendv(&slices[0], slices.size(), is_limit_io));
     return Status::OK();
 }
 

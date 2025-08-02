@@ -45,7 +45,7 @@ public:
     ~BrokerFileWriter() override;
     Status close(bool non_block = false) override;
 
-    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status appendv(const Slice* data, size_t data_cnt, bool is_limit_io = false) override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _cur_offset; }
     State state() const override { return _state; }

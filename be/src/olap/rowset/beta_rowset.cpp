@@ -70,17 +70,17 @@ Status BetaRowset::init() {
     return Status::OK(); // no op
 }
 
-Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows, bool is_limit_io) {
     DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
 
-    RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this, is_limit_io] {
         auto segment_count = num_segments();
         _segments_rows.resize(segment_count);
         for (int64_t i = 0; i != segment_count; ++i) {
             SegmentCacheHandle segment_cache_handle;
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
                     std::static_pointer_cast<BetaRowset>(shared_from_this()), i,
-                    &segment_cache_handle, false, false));
+                    &segment_cache_handle, false, false, nullptr, is_limit_io));
             const auto& tmp_segments = segment_cache_handle.get_segments();
             _segments_rows[i] = tmp_segments[0]->num_rows();
         }
@@ -180,7 +180,7 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
 }
 
 Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
-                                segment_v2::SegmentSharedPtr* segment) {
+                                segment_v2::SegmentSharedPtr* segment, bool is_limit_io) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -199,7 +199,7 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
     auto s = segment_v2::Segment::open(
             fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
             _schema, reader_options, segment,
-            _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats);
+            _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats, is_limit_io);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();

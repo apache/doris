@@ -234,7 +234,7 @@ Status S3FileWriter::_close_impl() {
     return Status::OK();
 }
 
-Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
+Status S3FileWriter::appendv(const Slice* data, size_t data_cnt, bool is_limit_io) {
     if (state() != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}",
                                      _obj_storage_path_opts.path.native());

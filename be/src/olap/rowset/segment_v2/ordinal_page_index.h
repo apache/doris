@@ -48,7 +48,8 @@ class OrdinalIndexPB;
 // the file pointer to that data page directly in index meta (OrdinalIndexPB).
 class OrdinalIndexWriter {
 public:
-    OrdinalIndexWriter() : _page_builder(new IndexPageBuilder(0, true)) {}
+    OrdinalIndexWriter(bool is_limit_io = false)
+            : _page_builder(new IndexPageBuilder(0, true)), _is_limit_io(is_limit_io) {}
 
     void append_entry(ordinal_t ordinal, const PagePointer& data_pp);
 
@@ -60,6 +61,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(OrdinalIndexWriter);
     std::unique_ptr<IndexPageBuilder> _page_builder;
     PagePointer _last_pp;
+    bool _is_limit_io;
 };
 
 class OrdinalPageIndexIterator;

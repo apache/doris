@@ -70,7 +70,7 @@ public:
 
     Status append(const Slice& data) { return appendv(&data, 1); }
 
-    virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
+    virtual Status appendv(const Slice* data, size_t data_cnt, bool is_limit_io = false) = 0;
 
     virtual const Path& path() const = 0;
 

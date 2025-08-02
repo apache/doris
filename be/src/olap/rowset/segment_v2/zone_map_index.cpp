@@ -43,7 +43,8 @@ struct uint24_t;
 namespace segment_v2 {
 
 template <PrimitiveType Type>
-TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(Field* field) : _field(field) {
+TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(Field* field, bool is_limit_io)
+        : _field(field), _is_limit_io(is_limit_io) {
     _page_zone_map.min_value = _field->allocate_zone_map_value(_arena);
     _page_zone_map.max_value = _field->allocate_zone_map_value(_arena);
     _reset_zone_map(&_page_zone_map);
@@ -128,6 +129,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
+    options.is_limit_io = _is_limit_io;
     options.encoding = EncodingInfo::get_default_encoding(type_info, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
@@ -210,21 +212,22 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DECIMAL128I)          \
     M(TYPE_DECIMAL256)
 
-Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res) {
+Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res,
+                                  bool is_limit_io) {
     switch (field->type()) {
-#define M(NAME)                                              \
-    case FieldType::OLAP_FIELD_##NAME: {                     \
-        res.reset(new TypedZoneMapIndexWriter<NAME>(field)); \
-        return Status::OK();                                 \
+#define M(NAME)                                                           \
+    case FieldType::OLAP_FIELD_##NAME: {                                  \
+        res.reset(new TypedZoneMapIndexWriter<NAME>(field, is_limit_io)); \
+        return Status::OK();                                              \
     }
         APPLY_FOR_PRIMITITYPE(M)
 #undef M
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        res.reset(new TypedZoneMapIndexWriter<TYPE_DECIMALV2>(field));
+        res.reset(new TypedZoneMapIndexWriter<TYPE_DECIMALV2>(field, is_limit_io));
         return Status::OK();
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        res.reset(new TypedZoneMapIndexWriter<TYPE_BOOLEAN>(field));
+        res.reset(new TypedZoneMapIndexWriter<TYPE_BOOLEAN>(field, is_limit_io));
         return Status::OK();
     }
     default:

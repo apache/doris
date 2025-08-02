@@ -72,7 +72,7 @@ Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space
 }
 
 Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body,
-                          const PageFooterPB& footer, PagePointer* result) {
+                          const PageFooterPB& footer, PagePointer* result, bool is_limit_io) {
     // sanity check of page footer
     CHECK(footer.has_type()) << "type must be set";
     CHECK(footer.has_uncompressed_size()) << "uncompressed_size must be set";
@@ -108,7 +108,7 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     page.emplace_back(checksum_buf, sizeof(uint32_t));
 
     uint64_t offset = writer->bytes_appended();
-    RETURN_IF_ERROR(writer->appendv(&page[0], page.size()));
+    RETURN_IF_ERROR(writer->appendv(&page[0], page.size(), is_limit_io));
 
     result->offset = offset;
     result->size = cast_set<uint32_t>(writer->bytes_appended() - offset);

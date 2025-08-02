@@ -19,6 +19,8 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include "rocksdb/rate_limiter.h"
+
 namespace doris {
 
 enum class ReaderType : uint8_t {
@@ -85,6 +87,8 @@ struct IOContext {
     // if is_dryrun, read IO will download data to cache but return no data to reader
     // useful to skip cache data read from local disk to accelarate warm up
     bool is_dryrun = false;
+    // use rate_limiter
+    bool is_limit_io = false;
 };
 
 } // namespace io

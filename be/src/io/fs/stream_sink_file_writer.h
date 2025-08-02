@@ -42,7 +42,7 @@ public:
     void init(PUniqueId load_id, int64_t partition_id, int64_t index_id, int64_t tablet_id,
               int32_t segment_id, FileType file_type = FileType::SEGMENT_FILE);
 
-    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status appendv(const Slice* data, size_t data_cnt, bool is_limit_io = false) override;
 
     size_t bytes_appended() const override { return _bytes_appended; }
 
