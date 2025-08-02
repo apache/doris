@@ -42,15 +42,19 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -81,6 +85,9 @@ import javax.annotation.Nullable;
  */
 public class CascadesContext implements ScheduleContext {
     private static final Logger LOG = LogManager.getLogger(CascadesContext.class);
+
+    private static final Plan DUMMY_PLAN = new LogicalOneRowRelation(new RelationId(0),
+            ImmutableList.of(new Alias(new TinyIntLiteral((byte) 0))));
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
@@ -159,6 +166,21 @@ public class CascadesContext implements ScheduleContext {
             this.isEnableExprTrace = false;
         }
         this.isLeadingDisableJoinReorder = isLeadingDisableJoinReorder;
+    }
+
+    /** init a temporary context to rewrite expression */
+    public static CascadesContext initTempContext() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            connectContext = new ConnectContext();
+        }
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext == null) {
+            statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+        }
+        return newContext(Optional.empty(), Optional.empty(),
+                statementContext, DUMMY_PLAN,
+                new CTEContext(), PhysicalProperties.ANY, false);
     }
 
     /**

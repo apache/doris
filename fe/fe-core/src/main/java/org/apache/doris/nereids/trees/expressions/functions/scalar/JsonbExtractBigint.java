@@ -51,13 +51,18 @@ public class JsonbExtractBigint extends ScalarFunction
         super("jsonb_extract_bigint", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonbExtractBigint(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonbExtractBigint withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new JsonbExtractBigint(children.get(0), children.get(1));
+        return new JsonbExtractBigint(getFunctionParams(children));
     }
 
     @Override

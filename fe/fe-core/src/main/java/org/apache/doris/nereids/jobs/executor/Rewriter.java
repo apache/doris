@@ -170,6 +170,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -689,5 +690,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
         } else {
             return true;
         }
+    }
+
+    @Override
+    public void execute() {
+        MoreFieldsThread.keepFunctionSignature(() -> {
+            super.execute();
+            return null;
+        });
     }
 }

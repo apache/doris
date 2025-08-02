@@ -66,6 +66,11 @@ public class RegrSlope extends AggregateFunction
         super("regr_slope", distinct, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private RegrSlope(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
         DataType arg0Type = left().getDataType();
@@ -82,7 +87,7 @@ public class RegrSlope extends AggregateFunction
     @Override
     public RegrSlope withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new RegrSlope(distinct, children.get(0), children.get(1));
+        return new RegrSlope(getFunctionParams(distinct, children));
     }
 
     @Override

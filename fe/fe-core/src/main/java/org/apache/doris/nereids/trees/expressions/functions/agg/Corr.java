@@ -67,18 +67,23 @@ public class Corr extends NullableAggregateFunction
         super("corr", distinct, alwaysNullable, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Corr(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public Corr withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Corr(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new Corr(getFunctionParams(distinct, children));
     }
 
     @Override
     public Corr withAlwaysNullable(boolean alwaysNullable) {
-        return new Corr(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new Corr(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

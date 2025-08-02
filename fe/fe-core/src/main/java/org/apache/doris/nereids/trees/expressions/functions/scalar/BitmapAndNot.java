@@ -47,13 +47,18 @@ public class BitmapAndNot extends ScalarFunction
         super("bitmap_and_not", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapAndNot(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapAndNot withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new BitmapAndNot(children.get(0), children.get(1));
+        return new BitmapAndNot(getFunctionParams(children));
     }
 
     @Override

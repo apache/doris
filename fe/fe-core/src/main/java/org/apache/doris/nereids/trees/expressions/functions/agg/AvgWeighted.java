@@ -57,18 +57,23 @@ public class AvgWeighted extends NullableAggregateFunction
         super("avg_weighted", distinct, alwaysNullable, arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private AvgWeighted(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public AvgWeighted withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new AvgWeighted(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new AvgWeighted(getFunctionParams(distinct, children));
     }
 
     @Override
     public AvgWeighted withAlwaysNullable(boolean alwaysNullable) {
-        return new AvgWeighted(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new AvgWeighted(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

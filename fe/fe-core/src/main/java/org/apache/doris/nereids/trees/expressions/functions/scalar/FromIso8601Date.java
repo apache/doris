@@ -50,6 +50,11 @@ public class FromIso8601Date extends ScalarFunction
         super("from_iso8601_date", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FromIso8601Date(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
@@ -61,7 +66,7 @@ public class FromIso8601Date extends ScalarFunction
     @Override
     public FromIso8601Date withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new FromIso8601Date(children.get(0));
+        return new FromIso8601Date(getFunctionParams(children));
     }
 
     @Override

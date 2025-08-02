@@ -81,22 +81,18 @@ public class AesDecrypt extends AesCryptoFunction {
         super("aes_decrypt", arg0, arg1, arg2, arg3, arg4);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private AesDecrypt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public AesDecrypt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2 && children.size() <= 5);
-        if (children.size() == 2) {
-            return new AesDecrypt(children.get(0), children.get(1));
-        } else if (children().size() == 3) {
-            return new AesDecrypt(children.get(0), children.get(1), children.get(2));
-        } else if (children().size() == 4) {
-            return new AesDecrypt(children.get(0), children.get(1), children.get(2), children.get(3));
-        } else {
-            return new AesDecrypt(children.get(0), children.get(1), children.get(2), children.get(3),
-                    children.get(4));
-        }
+        return new AesDecrypt(getFunctionParams(children));
     }
 
     @Override

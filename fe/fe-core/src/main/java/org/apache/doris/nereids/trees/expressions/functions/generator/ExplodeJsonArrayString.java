@@ -47,13 +47,18 @@ public class ExplodeJsonArrayString extends TableGeneratingFunction implements U
         super("explode_json_array_string", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayString(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayString withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayString(children.get(0));
+        return new ExplodeJsonArrayString(getFunctionParams(children));
     }
 
     @Override

@@ -80,6 +80,11 @@ public class UnixTimestamp extends ScalarFunction implements ExplicitlyCastableS
         super("unix_timestamp", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private UnixTimestamp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * [['unix_timestamp'], 'INT', [], 'ALWAYS_NOT_NULLABLE'],
      * [['unix_timestamp'], 'INT', ['DATETIME'], 'DEPEND_ON_ARGUMENT'],
@@ -127,13 +132,7 @@ public class UnixTimestamp extends ScalarFunction implements ExplicitlyCastableS
         Preconditions.checkArgument(children.isEmpty()
                 || children.size() == 1
                 || children.size() == 2);
-        if (children.isEmpty() && arity() == 0) {
-            return this;
-        } else if (children.size() == 1) {
-            return new UnixTimestamp(children.get(0));
-        } else {
-            return new UnixTimestamp(children.get(0), children.get(1));
-        }
+        return new UnixTimestamp(getFunctionParams(children));
     }
 
     @Override

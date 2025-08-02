@@ -67,18 +67,23 @@ public class Covar extends NullableAggregateFunction
         super("covar", distinct, alwaysNullable, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Covar(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public Covar withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Covar(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new Covar(getFunctionParams(distinct, children));
     }
 
     @Override
     public Covar withAlwaysNullable(boolean alwaysNullable) {
-        return new Covar(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new Covar(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

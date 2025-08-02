@@ -66,6 +66,11 @@ public class Random extends ScalarFunction
         super("random", lchild, rchild);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Random(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         // align with original planner behavior, refer to:
@@ -94,14 +99,10 @@ public class Random extends ScalarFunction
      */
     @Override
     public Random withChildren(List<Expression> children) {
-        if (children.isEmpty()) {
-            return new Random();
-        } else if (children.size() == 1) {
-            return new Random(children.get(0));
-        } else if (children.size() == 2) {
-            return new Random(children.get(0), children.get(1));
+        if (children.size() > 2) {
+            throw new AnalysisException("random function only accept 0-2 arguments");
         }
-        throw new AnalysisException("random function only accept 0-2 arguments");
+        return new Random(getFunctionParams(children));
     }
 
     @Override

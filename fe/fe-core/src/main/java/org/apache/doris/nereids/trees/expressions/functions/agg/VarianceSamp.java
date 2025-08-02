@@ -67,18 +67,23 @@ public class VarianceSamp extends NullableAggregateFunction
         super("variance_samp", distinct, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private VarianceSamp(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public VarianceSamp withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new VarianceSamp(distinct, alwaysNullable, children.get(0));
+        return new VarianceSamp(getFunctionParams(distinct, children));
     }
 
     @Override
     public VarianceSamp withAlwaysNullable(boolean alwaysNullable) {
-        return new VarianceSamp(distinct, alwaysNullable, children.get(0));
+        return new VarianceSamp(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

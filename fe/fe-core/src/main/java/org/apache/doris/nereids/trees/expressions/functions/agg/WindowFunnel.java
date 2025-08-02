@@ -73,6 +73,11 @@ public class WindowFunnel extends NullableAggregateFunction
                 ExpressionUtils.mergeArguments(arg0, arg1, arg2, arg3, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private WindowFunnel(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
@@ -114,16 +119,12 @@ public class WindowFunnel extends NullableAggregateFunction
     @Override
     public WindowFunnel withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 4);
-        return new WindowFunnel(distinct, alwaysNullable, children.get(0), children.get(1),
-                children.get(2), children.get(3),
-                children.subList(4, children.size()).toArray(new Expression[0]));
+        return new WindowFunnel(getFunctionParams(distinct, children));
     }
 
     @Override
     public WindowFunnel withAlwaysNullable(boolean alwaysNullable) {
-        return new WindowFunnel(distinct, alwaysNullable, children.get(0), children.get(1),
-                children.get(2), children.get(3),
-                children.subList(4, children.size()).toArray(new Expression[0]));
+        return new WindowFunnel(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

@@ -44,10 +44,15 @@ public class SecondTimestamp extends ScalarFunction
         super("second_timestamp", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SecondTimestamp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public SecondTimestamp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new SecondTimestamp(children.get(0));
+        return new SecondTimestamp(getFunctionParams(children));
     }
 
     @Override

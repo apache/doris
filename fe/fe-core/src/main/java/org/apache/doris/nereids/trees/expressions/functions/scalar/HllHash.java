@@ -50,13 +50,18 @@ public class HllHash extends ScalarFunction
         super("hll_hash", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private HllHash(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public HllHash withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new HllHash(children.get(0));
+        return new HllHash(getFunctionParams(children));
     }
 
     @Override

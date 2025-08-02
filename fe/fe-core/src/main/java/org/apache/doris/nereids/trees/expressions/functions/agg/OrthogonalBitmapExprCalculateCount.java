@@ -60,6 +60,11 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
                 ExpressionUtils.mergeArguments(bitmap, filterColumn, inputString));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private OrthogonalBitmapExprCalculateCount(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
         return aggregatePhase == AggregatePhase.TWO;
@@ -75,8 +80,7 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
         Preconditions.checkArgument(children.size() == 3
                 && children.get(2).getDataType() instanceof CharacterType
                 && children.get(2).getDataType() instanceof VarcharType);
-        return new OrthogonalBitmapExprCalculateCount(
-                distinct, children.get(0), children.get(1), (VarcharLiteral) children.get(2));
+        return new OrthogonalBitmapExprCalculateCount(getFunctionParams(distinct, children));
     }
 
     @Override

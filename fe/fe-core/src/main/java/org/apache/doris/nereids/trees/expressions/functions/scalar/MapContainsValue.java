@@ -57,13 +57,18 @@ public class MapContainsValue extends ScalarFunction
         super("map_contains_value", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MapContainsValue(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapContainsValue withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MapContainsValue(children.get(0), children.get(1));
+        return new MapContainsValue(getFunctionParams(children));
     }
 
     @Override

@@ -44,10 +44,15 @@ public class MilliSecondTimestamp extends ScalarFunction
         super("millisecond_timestamp", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MilliSecondTimestamp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MilliSecondTimestamp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MilliSecondTimestamp(children.get(0));
+        return new MilliSecondTimestamp(getFunctionParams(children));
     }
 
     @Override

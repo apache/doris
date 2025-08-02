@@ -48,6 +48,11 @@ public class NormalCdf extends ScalarFunction
         super("normal_cdf", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private NormalCdf(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
@@ -59,7 +64,7 @@ public class NormalCdf extends ScalarFunction
     @Override
     public NormalCdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new NormalCdf(children.get(0), children.get(1), children.get(2));
+        return new NormalCdf(getFunctionParams(children));
     }
 
     @Override

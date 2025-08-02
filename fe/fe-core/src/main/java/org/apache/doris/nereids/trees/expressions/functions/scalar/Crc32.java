@@ -50,13 +50,18 @@ public class Crc32 extends ScalarFunction
         super("crc32", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Crc32(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Crc32 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Crc32(children.get(0));
+        return new Crc32(getFunctionParams(children));
     }
 
     @Override

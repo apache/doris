@@ -69,6 +69,11 @@ public class ArrayProduct extends ScalarFunction implements ExplicitlyCastableSi
         super("array_product", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayProduct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -84,7 +89,7 @@ public class ArrayProduct extends ScalarFunction implements ExplicitlyCastableSi
     @Override
     public ArrayProduct withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayProduct(children.get(0));
+        return new ArrayProduct(getFunctionParams(children));
     }
 
     @Override

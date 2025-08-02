@@ -55,13 +55,18 @@ public class ArrayPushBack extends ScalarFunction
         super("array_pushback", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayPushBack(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayPushBack withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayPushBack(children.get(0), children.get(1));
+        return new ArrayPushBack(getFunctionParams(children));
     }
 
     @Override

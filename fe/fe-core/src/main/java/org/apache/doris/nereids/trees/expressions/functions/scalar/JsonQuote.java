@@ -47,13 +47,18 @@ public class JsonQuote extends ScalarFunction
         super("json_quote", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonQuote(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonQuote withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new JsonQuote(children.get(0));
+        return new JsonQuote(getFunctionParams(children));
     }
 
     @Override

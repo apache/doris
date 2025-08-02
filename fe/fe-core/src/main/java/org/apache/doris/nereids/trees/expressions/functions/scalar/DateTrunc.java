@@ -50,6 +50,11 @@ public class DateTrunc extends ScalarFunction
         super("date_trunc", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DateTrunc(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         boolean firstArgIsStringLiteral =
@@ -82,7 +87,7 @@ public class DateTrunc extends ScalarFunction
     @Override
     public DateTrunc withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new DateTrunc(children.get(0), children.get(1));
+        return new DateTrunc(getFunctionParams(children));
     }
 
     @Override
