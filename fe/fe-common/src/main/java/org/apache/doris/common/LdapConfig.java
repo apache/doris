@@ -157,4 +157,10 @@ public class LdapConfig extends ConfigBase {
      */
     @ConfigBase.ConfField
     public static boolean ldap_pool_test_while_idle = false;
+
+    /**
+     * Whether to allow LDAP users to log in with an empty password
+     */
+    @ConfigBase.ConfField
+    public static boolean ldap_allow_empty_password = true;
 }
