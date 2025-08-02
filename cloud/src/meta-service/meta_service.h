@@ -188,6 +188,18 @@ public:
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void prepare_restore_job(::google::protobuf::RpcController* controller,
+                             const RestoreJobRequest* request, RestoreJobResponse* response,
+                             ::google::protobuf::Closure* done) override;
+
+    void commit_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override;
+
+    void finish_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override;
+
     void get_tablet_stats(::google::protobuf::RpcController* controller,
                           const GetTabletStatsRequest* request, GetTabletStatsResponse* response,
                           ::google::protobuf::Closure* done) override;
@@ -401,6 +413,22 @@ private:
     bool is_version_read_enabled(std::string_view instance_id) const;
     bool is_version_write_enabled(std::string_view instance_id) const;
 
+    void commit_txn_immediately(
+            const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+            std::string& msg, const std::string& instance_id, int64_t db_id,
+            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+            TxnErrorCode& err, KVStats& stats);
+
+    void commit_txn_eventually(
+            const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+            std::string& msg, const std::string& instance_id, int64_t db_id,
+            const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+            KVStats& stats);
+
+    void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse* response,
+                                 MetaServiceCode& code, std::string& msg,
+                                 const std::string& instance_id, KVStats& stats);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
@@ -578,6 +606,24 @@ public:
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::drop_partition, controller, request, response, done);
+    }
+
+    void prepare_restore_job(::google::protobuf::RpcController* controller,
+                             const RestoreJobRequest* request, RestoreJobResponse* response,
+                             ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::prepare_restore_job, controller, request, response, done);
+    }
+
+    void commit_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_restore_job, controller, request, response, done);
+    }
+
+    void finish_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::finish_restore_job, controller, request, response, done);
     }
 
     void get_tablet_stats(::google::protobuf::RpcController* controller,

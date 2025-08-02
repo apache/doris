@@ -505,20 +505,6 @@ MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const
                              assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
 }
 
-ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
-    // Make a temp column array for reusing its replicate function
-    auto k_arr =
-            ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-                    ->replicate(offsets);
-    auto v_arr =
-            ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
-                    ->replicate(offsets);
-    auto res = ColumnMap::create(assert_cast<const ColumnArray&>(*k_arr).get_data_ptr(),
-                                 assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
-                                 assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
-    return res;
-}
-
 void ColumnMap::shrink_padding_chars() {
     keys_column->shrink_padding_chars();
     values_column->shrink_padding_chars();

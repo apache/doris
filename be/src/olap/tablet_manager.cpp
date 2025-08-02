@@ -61,7 +61,6 @@
 #include "util/histogram.h"
 #include "util/metrics.h"
 #include "util/path_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"

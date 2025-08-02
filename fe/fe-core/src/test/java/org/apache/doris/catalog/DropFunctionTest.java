@@ -17,10 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -63,8 +63,13 @@ public class DropFunctionTest {
     public void testDropGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         // 1. create database db1
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database db1;", ctx);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        String sql = "create database db1;";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         String createFuncStr
                 = "create global alias function id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";

@@ -785,6 +785,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
 
+    public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1323,10 +1325,6 @@ public class SessionVariable implements Serializable, Writable {
             "Ignore the rf when it encounters an error" })
     public boolean ignoreRuntimeFilterError = false;
 
-    @VariableMgr.VarAttr(name = "enable_fixed_len_to_uint32_v2", needForward = true, description = {
-            "使用新版本fixed_len_to_uint32_v2,对datetimev2类型bloom filter做了优化",
-            "Using the new version fixed_len_to_uint32_v2, the datetimev2 type bloom filter has been optimized" })
-    public boolean enableFixedLenToUint32V2 = true;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
@@ -2754,6 +2752,14 @@ public class SessionVariable implements Serializable, Writable {
                     + "1-65535=manual expansion multiplier)"
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
+
+    @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
+            description = {
+                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
+                    "Defines the default LLM resource to be used when no specific LLM resource is specified "
+                            + "in the function arguments."
+            })
+    public String defaultLLMResource = "";
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -4391,7 +4397,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
-        tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
         tResult.setProfileLevel(getProfileLevel());
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 

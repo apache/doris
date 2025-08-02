@@ -36,6 +36,7 @@
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_decimal.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -400,31 +401,9 @@ size_t ColumnDecimal<T>::filter(const IColumn::Filter& filter) {
     }
 
     const auto result_size = result_data - data.data();
-    data.set_end_ptr(result_data);
+    data.resize(result_size);
 
     return result_size;
-}
-
-template <PrimitiveType T>
-ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
-    size_t size = data.size();
-    column_match_offsets_size(size, offsets.size());
-
-    auto res = this->create(0, scale);
-    if (0 == size) return res;
-
-    typename Self::Container& res_data = res->get_data();
-    res_data.reserve(offsets.back());
-
-    IColumn::Offset prev_offset = 0;
-    for (size_t i = 0; i < size; ++i) {
-        size_t size_to_replicate = offsets[i] - prev_offset;
-        prev_offset = offsets[i];
-
-        for (size_t j = 0; j < size_to_replicate; ++j) res_data.push_back(data[i]);
-    }
-
-    return res;
 }
 
 template <PrimitiveType T>
@@ -460,31 +439,6 @@ void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
     }
 }
 
-template <>
-Decimal32 ColumnDecimal<TYPE_DECIMAL32>::get_scale_multiplier() const {
-    return common::exp10_i32(scale);
-}
-
-template <>
-Decimal64 ColumnDecimal<TYPE_DECIMAL64>::get_scale_multiplier() const {
-    return common::exp10_i64(scale);
-}
-
-template <>
-Decimal128V2 ColumnDecimal<TYPE_DECIMALV2>::get_scale_multiplier() const {
-    return common::exp10_i128(scale);
-}
-
-template <>
-Decimal128V3 ColumnDecimal<TYPE_DECIMAL128I>::get_scale_multiplier() const {
-    return common::exp10_i128(scale);
-}
-
-template <>
-Decimal256 ColumnDecimal<TYPE_DECIMAL256>::get_scale_multiplier() const {
-    return Decimal256(common::exp10_i256(scale));
-}
-
 template <PrimitiveType T>
 void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
@@ -495,6 +449,15 @@ void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_m
     for (size_t i = 0; i < s; ++i) {
         data[i] = null_map[i] ? value_type() : data[i];
     }
+}
+
+template <PrimitiveType T>
+ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_intergral_part(size_t n) const {
+    return data[n].value / DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
+}
+template <PrimitiveType T>
+ColumnDecimal<T>::CppNativeType ColumnDecimal<T>::get_fractional_part(size_t n) const {
+    return data[n].value % DataTypeDecimal<value_type::PType>::get_scale_multiplier(scale);
 }
 
 template class ColumnDecimal<TYPE_DECIMAL32>;

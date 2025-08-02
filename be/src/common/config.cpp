@@ -686,6 +686,8 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
+
+DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
 
@@ -1019,7 +1021,6 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
@@ -1324,8 +1325,6 @@ DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
 
-DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
-
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
@@ -1552,7 +1551,7 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_quorum_success_write, "true");
 DEFINE_mDouble(quorum_success_max_wait_multiplier, "0.2");
-DEFINE_mInt64(quorum_success_min_wait_seconds, "10");
+DEFINE_mInt64(quorum_success_min_wait_seconds, "60");
 DEFINE_mInt32(quorum_success_remaining_timeout_seconds, "30");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
@@ -1570,6 +1569,9 @@ DEFINE_String(fuzzy_test_type, "");
 DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
 DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
+
+// The maximum number of threads supported when executing LLMFunction
+DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
 // clang-format off
 #ifdef BE_TEST

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StringLiteral;
@@ -25,6 +24,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -105,7 +105,7 @@ public class CreateFunctionTest {
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
         UnionNode unionNode = (UnionNode) fragment.getPlanRoot();
-        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
+        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "materializedConstExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
@@ -160,7 +160,7 @@ public class CreateFunctionTest {
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
         UnionNode unionNode = (UnionNode) fragment.getPlanRoot();
-        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
+        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "materializedConstExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         if (isStringLiteral) {
@@ -181,8 +181,13 @@ public class CreateFunctionTest {
     }
 
     private void createDatabase(ConnectContext ctx, String createDbStmtStr) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(ctx, stmtExecutor);
+        }
+
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
     }
 

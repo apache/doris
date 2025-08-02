@@ -34,7 +34,7 @@
 #include "vec/common/arena.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 namespace io {
 class FileWriter;
 } // namespace io
@@ -162,7 +162,7 @@ public:
 
     const std::vector<ZoneMapPB>& page_zone_maps() const { return _page_zone_maps; }
 
-    int32_t num_pages() const { return _page_zone_maps.size(); }
+    size_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
     Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>,
@@ -180,4 +180,5 @@ private:
 };
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -96,12 +96,13 @@ std::string DataTypeNumberBase<T>::to_string(
 template <PrimitiveType T>
 Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(column);
+    StringRef str_ref {rb.position(), rb.count()};
     if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, UInt128>::value) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
     } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
         typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!read_float_text_fast_impl(val, rb)) {
+        if (!try_read_float_text(val, str_ref)) {
             return Status::InvalidArgument("parse number fail, string: '{}'",
                                            std::string(rb.position(), rb.count()).c_str());
         }
@@ -109,14 +110,14 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
     } else if constexpr (T == TYPE_BOOLEAN) {
         // Note: here we should handle the bool type
         typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!try_read_bool_text(val, rb)) {
+        if (!try_read_bool_text(val, str_ref)) {
             return Status::InvalidArgument("parse boolean fail, string: '{}'",
                                            std::string(rb.position(), rb.count()).c_str());
         }
         column_data->insert_value(val);
     } else if constexpr (is_int_or_bool(T)) {
         typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!read_int_text_impl(val, rb)) {
+        if (!try_read_int_text(val, str_ref)) {
             return Status::InvalidArgument("parse number fail, string: '{}'",
                                            std::string(rb.position(), rb.count()).c_str());
         }
@@ -325,6 +326,17 @@ MutableColumnPtr DataTypeNumberBase<T>::create_column() const {
 template <PrimitiveType T>
 Status DataTypeNumberBase<T>::check_column(const IColumn& column) const {
     return check_column_non_nested_type<typename PrimitiveTypeTraits<T>::ColumnType>(column);
+}
+
+template <PrimitiveType T>
+FieldWithDataType DataTypeNumberBase<T>::get_field_with_data_type(const IColumn& column,
+                                                                  size_t row_num) const {
+    const auto& column_data =
+            assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column);
+    Field field;
+    column_data.get(row_num, field);
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type()};
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

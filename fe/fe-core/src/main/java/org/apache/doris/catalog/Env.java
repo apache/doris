@@ -30,14 +30,12 @@ import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
@@ -120,6 +118,7 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
@@ -164,6 +163,7 @@ import org.apache.doris.master.PartitionInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
@@ -191,15 +191,19 @@ import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -1898,8 +1902,6 @@ public class Env {
             txnCleaner.start();
             // Consistency checker
             getConsistencyChecker().start();
-            // Backup handler
-            getBackupHandler().start();
             // start daemon thread to update global partition version and in memory information periodically
             partitionInfoCollector.start();
         }
@@ -1908,6 +1910,8 @@ public class Env {
         transientTaskManager.start();
         // Alter
         getAlterInstance().start();
+        // Backup handler
+        getBackupHandler().start();
         // catalog recycle bin
         getRecycleBin().start();
         // time printer
@@ -3340,17 +3344,6 @@ public class Env {
     }
 
     // The interface which DdlExecutor needs.
-    public void createDb(CreateDbStmt stmt) throws DdlException {
-        CatalogIf<?> catalogIf;
-        if (StringUtils.isEmpty(stmt.getCtlName())) {
-            catalogIf = getCurrentCatalog();
-        } else {
-            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
-        }
-        catalogIf.createDb(stmt.getFullDbName(), stmt.isSetIfNotExists(), stmt.getProperties());
-    }
-
-    // The interface which DdlExecutor needs.
     public void createDb(CreateDatabaseCommand command) throws DdlException {
         CatalogIf<?> catalogIf;
         if (StringUtils.isEmpty(command.getCtlName())) {
@@ -3375,10 +3368,6 @@ public class Env {
                 externalCatalog.replayCreateDb(dbInfo.getDbName());
             }
         }
-    }
-
-    public void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDb(stmt.getCtlName(), stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void dropDb(String catalogName, String dbName, boolean ifExists, boolean force) throws DdlException {
@@ -3455,6 +3444,35 @@ public class Env {
 
     public void replayRenameDatabase(String dbName, String newDbName) {
         getInternalCatalog().replayRenameDatabase(dbName, newDbName);
+    }
+
+    /**
+     * Following is the step to create an olap table:
+     * 1. create columns
+     * 2. create partition info
+     * 3. create distribution info
+     * 4. set table id and base index id
+     * 5. set bloom filter columns
+     * 6. set and build TableProperty includes:
+     * 6.1. dynamicProperty
+     * 6.2. replicationNum
+     * 6.3. inMemory
+     * 6.4. storageFormat
+     * 6.5. compressionType
+     * 7. set index meta
+     * 8. check colocation properties
+     * 9. create tablet in BE
+     * 10. add this table to FE's meta
+     * 11. add this table to ColocateGroup if necessary
+     * @return if CreateTableStmt.isIfNotExists is true, return true if table already exists
+     * otherwise return false
+     */
+    public boolean createTable(CreateTableCommand command) throws UserException {
+        org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo createTableInfo =
+                command.getCreateTableInfo();
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(createTableInfo.getCtlName(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        return catalogIf.createTable(command);
     }
 
     /**
@@ -3594,7 +3612,7 @@ public class Env {
         }
     }
 
-    private static void addMTMVPartitionInfo(MTMV mtmv, StringBuilder sb) {
+    private static void addMTMVPartitionInfo(MTMV mtmv, StringBuilder sb) throws AnalysisException {
         MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return;
@@ -3603,7 +3621,7 @@ public class Env {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
             sb.append("`" + mvPartitionInfo.getPartitionCol() + "`");
         } else {
-            sb.append(mvPartitionInfo.getExpr().toSql());
+            sb.append(MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr()).toSql(mvPartitionInfo));
         }
         sb.append(")");
     }
@@ -3904,6 +3922,409 @@ public class Env {
 
         if (olapTable.isInAtomicRestore()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
+        }
+    }
+
+    /**.
+     *
+     * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
+     */
+    public static void getCreateTableLikeStmt(CreateTableLikeInfo createTableLikeInfo, String dbName,
+                                              TableIf table, List<String> createTableStmt,
+                                              List<String> addPartitionStmt, List<String> createRollupStmt,
+                                              boolean separatePartition,
+                                              boolean hidePassword, boolean getDdlForLike, long specificVersion,
+                                              boolean getBriefDdl, boolean getDdlForSync) {
+        StringBuilder sb = new StringBuilder();
+
+        // 1. create table
+        // 1.1 view
+        if (table.getType() == TableType.VIEW) {
+            View view = (View) table;
+
+            sb.append("CREATE VIEW `").append(table.getName()).append("`");
+            if (StringUtils.isNotBlank(table.getComment())) {
+                sb.append(" COMMENT '").append(table.getComment()).append("'");
+            }
+            sb.append(" AS ").append(view.getInlineViewDef());
+            createTableStmt.add(sb + ";");
+            return;
+        }
+
+        // 1.2 other table type
+        sb.append("CREATE ");
+        if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL
+                || table.getType() == TableType.ELASTICSEARCH || table.getType() == TableType.BROKER
+                || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
+            sb.append("EXTERNAL ");
+        }
+
+        // create table like a temporary table
+        if (createTableLikeInfo.isTemp()) {
+            sb.append("TEMPORARY ");
+        }
+
+        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
+
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("`").append(dbName).append("`.");
+        }
+        if (table.isTemporary()) {
+            sb.append("`").append(Util.getTempTableDisplayName(table.getName())).append("`");
+        } else {
+            sb.append("`").append(table.getName()).append("`");
+        }
+
+
+        sb.append(" (\n");
+        int idx = 0;
+        List<Column> columns = table.getBaseSchema(false);
+        for (Column column : columns) {
+            if (idx++ != 0) {
+                sb.append(",\n");
+            }
+            // There MUST BE 2 space in front of each column description line
+            // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
+            if (table.isManagedTable()) {
+                sb.append("  ").append(
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+            } else {
+                sb.append("  ").append(column.toSql());
+            }
+        }
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
+                for (Index index : olapTable.getIndexes()) {
+                    sb.append(",\n");
+                    sb.append("  ").append(index.toSql());
+                }
+            }
+        }
+        sb.append("\n) ENGINE=");
+        sb.append(table.getType().name());
+
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            // keys
+            String keySql = olapTable.getKeysType().toSql();
+            if (olapTable.isDuplicateWithoutKey()) {
+                // after #18621, use can create a DUP_KEYS olap table without key columns
+                // and get a ddl schema without key type and key columns
+            } else {
+                sb.append("\n").append(keySql).append("(");
+                List<String> keysColumnNames = Lists.newArrayList();
+                Map<Integer, String> clusterKeysColumnNamesToId = new TreeMap<>();
+                for (Column column : olapTable.getBaseSchema()) {
+                    if (column.isKey()) {
+                        keysColumnNames.add("`" + column.getName() + "`");
+                    }
+                    if (column.isClusterKey()) {
+                        clusterKeysColumnNamesToId.put(column.getClusterKeyId(), column.getName());
+                    }
+                }
+                sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+                // show cluster keys
+                if (!clusterKeysColumnNamesToId.isEmpty()) {
+                    sb.append("\n").append("CLUSTER BY (`");
+                    sb.append(Joiner.on("`, `").join(clusterKeysColumnNamesToId.values())).append("`)");
+                }
+            }
+
+            if (specificVersion != -1) {
+                // for copy tablet operation
+                sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
+                    .append(") BUCKETS 1");
+                sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
+                        + specificVersion + "\"\n" + ")");
+                createTableStmt.add(sb + ";");
+                return;
+            }
+
+            addTableComment(olapTable, sb);
+
+            // partition
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            List<Long> partitionId = null;
+            if (separatePartition) {
+                partitionId = Lists.newArrayList();
+            }
+            if (!getBriefDdl && (partitionInfo.getType() == PartitionType.RANGE
+                    || partitionInfo.getType() == PartitionType.LIST)) {
+                sb.append("\n").append(partitionInfo.toSql(olapTable, partitionId));
+            }
+
+            // distribution
+            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            sb.append("\n").append(distributionInfo.toSql());
+
+            // rollup index
+            ArrayList<String> rollupNames = createTableLikeInfo.getRollupNames();
+            boolean withAllRollup = createTableLikeInfo.isWithAllRollup();
+            List<Long> addIndexIdList = Lists.newArrayList();
+
+            if (!CollectionUtils.isEmpty(rollupNames)) {
+                for (String rollupName : rollupNames) {
+                    addIndexIdList.add(olapTable.getIndexIdByName(rollupName));
+                }
+            } else if (withAllRollup) {
+                addIndexIdList = olapTable.getIndexIdListExceptBaseIndex();
+            }
+
+            if (!addIndexIdList.isEmpty()) {
+                sb.append("\n").append("rollup (");
+            }
+
+            int size = addIndexIdList.size();
+            int index = 1;
+            for (long indexId : addIndexIdList) {
+                String indexName = olapTable.getIndexNameById(indexId);
+                sb.append("\n").append(indexName).append("(");
+                List<Column> indexSchema = olapTable.getSchemaByIndexId(indexId, false);
+                for (int i = 0; i < indexSchema.size(); i++) {
+                    Column column = indexSchema.get(i);
+                    sb.append(column.getName());
+                    if (i != indexSchema.size() - 1) {
+                        sb.append(", ");
+                    }
+                }
+                if (index != size) {
+                    sb.append("),");
+                } else {
+                    sb.append(")");
+                    sb.append("\n)");
+                }
+                index++;
+            }
+
+            // with all rollup
+            do {
+                if (!getDdlForSync) {
+                    break;
+                }
+                List<Long> indexIds = new ArrayList<>(olapTable.getIndexIdToMeta().keySet());
+                if (indexIds.size() == 1 && indexIds.get(0) == olapTable.getBaseIndexId()) {
+                    break;
+                }
+                indexIds = indexIds.stream().filter(item -> item != olapTable.getBaseIndexId())
+                    .collect(Collectors.toList());
+                sb.append("\nROLLUP (\n");
+                for (int i = 0; i < indexIds.size(); i++) {
+                    Long indexId = indexIds.get(i);
+
+                    MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexIdToMeta().get(indexId);
+                    String indexName = olapTable.getIndexNameById(indexId);
+                    sb.append(indexName).append(" (");
+
+                    List<Column> indexSchema = materializedIndexMeta.getSchema();
+                    for (int j = 0; j < indexSchema.size(); j++) {
+                        Column column = indexSchema.get(j);
+                        sb.append(column.getName());
+                        if (j != indexSchema.size() - 1) {
+                            sb.append(", ");
+                        }
+                    }
+                    sb.append(")");
+                    if (i != indexIds.size() - 1) {
+                        sb.append(",\n");
+                    }
+                }
+                sb.append("\n)");
+            } while (false);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
+            sb.append("\n)");
+        } else if (table.getType() == TableType.MYSQL) {
+            MysqlTable mysqlTable = (MysqlTable) table;
+
+            addTableComment(mysqlTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            if (mysqlTable.getOdbcCatalogResourceName() == null) {
+                sb.append("\"host\" = \"").append(mysqlTable.getHost()).append("\",\n");
+                sb.append("\"port\" = \"").append(mysqlTable.getPort()).append("\",\n");
+                sb.append("\"user\" = \"").append(mysqlTable.getUserName()).append("\",\n");
+                sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
+                sb.append("\"charset\" = \"").append(mysqlTable.getCharset()).append("\",\n");
+            } else {
+                sb.append("\"odbc_catalog_resource\" = \"").append(mysqlTable.getOdbcCatalogResourceName())
+                    .append("\",\n");
+            }
+            sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
+            sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
+            sb.append(")");
+        } else if (table.getType() == TableType.ODBC) {
+            OdbcTable odbcTable = (OdbcTable) table;
+
+            addTableComment(odbcTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            if (odbcTable.getOdbcCatalogResourceName() == null) {
+                sb.append("\"host\" = \"").append(odbcTable.getHost()).append("\",\n");
+                sb.append("\"port\" = \"").append(odbcTable.getPort()).append("\",\n");
+                sb.append("\"user\" = \"").append(odbcTable.getUserName()).append("\",\n");
+                sb.append("\"password\" = \"").append(hidePassword ? "" : odbcTable.getPasswd()).append("\",\n");
+                sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
+                sb.append("\"odbc_type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
+                sb.append("\"charest\" = \"").append(odbcTable.getCharset()).append("\",\n");
+            } else {
+                sb.append("\"odbc_catalog_resource\" = \"").append(odbcTable.getOdbcCatalogResourceName())
+                    .append("\",\n");
+            }
+            sb.append("\"database\" = \"").append(odbcTable.getOdbcDatabaseName()).append("\",\n");
+            sb.append("\"table\" = \"").append(odbcTable.getOdbcTableName()).append("\"\n");
+            sb.append(")");
+        } else if (table.getType() == TableType.BROKER) {
+            BrokerTable brokerTable = (BrokerTable) table;
+
+            addTableComment(brokerTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"broker_name\" = \"").append(brokerTable.getBrokerName()).append("\",\n");
+            sb.append("\"path\" = \"").append(Joiner.on(",").join(brokerTable.getEncodedPaths())).append("\",\n");
+            sb.append("\"column_separator\" = \"").append(brokerTable.getReadableColumnSeparator()).append("\",\n");
+            sb.append("\"line_delimiter\" = \"").append(brokerTable.getReadableLineDelimiter()).append("\",\n");
+            sb.append(")");
+            if (!brokerTable.getBrokerProperties().isEmpty()) {
+                sb.append("\nBROKER PROPERTIES (\n");
+                sb.append(new PrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
+                        hidePassword).toString());
+                sb.append("\n)");
+            }
+        } else if (table.getType() == TableType.ELASTICSEARCH) {
+            EsTable esTable = (EsTable) table;
+
+            addTableComment(esTable, sb);
+
+            // partition
+            PartitionInfo partitionInfo = esTable.getPartitionInfo();
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                sb.append("\n");
+                sb.append("PARTITION BY RANGE(");
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+                for (Column column : rangePartitionInfo.getPartitionColumns()) {
+                    sb.append("`").append(column.getName()).append("`");
+                }
+                sb.append(")\n()");
+            }
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"hosts\" = \"").append(esTable.getHosts()).append("\",\n");
+            sb.append("\"user\" = \"").append(esTable.getUserName()).append("\",\n");
+            sb.append("\"password\" = \"").append(hidePassword ? "" : esTable.getPasswd()).append("\",\n");
+            sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\",\n");
+            if (esTable.getMappingType() != null) {
+                sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
+            }
+            sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isEnableDocValueScan()).append("\",\n");
+            sb.append("\"max_docvalue_fields\" = \"").append(esTable.getMaxDocValueFields()).append("\",\n");
+            sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isEnableKeywordSniff()).append("\",\n");
+            sb.append("\"nodes_discovery\" = \"").append(esTable.isNodesDiscovery()).append("\",\n");
+            sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\",\n");
+            sb.append("\"like_push_down\" = \"").append(esTable.isLikePushDown()).append("\"\n");
+            sb.append(")");
+        } else if (table.getType() == TableType.HIVE) {
+            HiveTable hiveTable = (HiveTable) table;
+
+            addTableComment(hiveTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
+            sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
+            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
+            sb.append("\n)");
+        } else if (table.getType() == TableType.JDBC) {
+            JdbcTable jdbcTable = (JdbcTable) table;
+            addTableComment(jdbcTable, sb);
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"resource\" = \"").append(jdbcTable.getResourceName()).append("\",\n");
+            sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\",\n");
+            sb.append("\"table_type\" = \"").append(jdbcTable.getJdbcTypeName()).append("\"");
+            sb.append("\n)");
+        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
+            addTableComment(table, sb);
+            IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
+            sb.append("\nPROPERTIES (");
+            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
+            while (iterator.hasNext()) {
+                Entry<String, String> prop = iterator.next();
+                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                if (iterator.hasNext()) {
+                    sb.append(",");
+                }
+            }
+            sb.append("\n)");
+        }
+
+        createTableStmt.add(sb + ";");
+
+        // 2. add partition
+        if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
+            if (((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE
+                    || ((OlapTable) table).getPartitionInfo().getType() == PartitionType.LIST) {
+                OlapTable olapTable = (OlapTable) table;
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                boolean first = true;
+                for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getPartitionItemEntryList(false, true)) {
+                    if (first) {
+                        first = false;
+                        continue;
+                    }
+                    sb = new StringBuilder();
+                    Partition partition = olapTable.getPartition(entry.getKey());
+                    sb.append("ALTER TABLE ").append(table.getName());
+                    sb.append(" ADD PARTITION ").append(partition.getName()).append(" VALUES ");
+                    if (partitionInfo.getType() == PartitionType.RANGE) {
+                        sb.append("[");
+                        sb.append(((RangePartitionItem) entry.getValue()).getItems().lowerEndpoint().toSql());
+                        sb.append(", ");
+                        sb.append(((RangePartitionItem) entry.getValue()).getItems().upperEndpoint().toSql());
+                        sb.append(")");
+                    } else if (partitionInfo.getType() == PartitionType.LIST) {
+                        sb.append("IN (");
+                        sb.append(((ListPartitionItem) entry.getValue()).toSql());
+                        sb.append(")");
+                    }
+                    sb.append("(\"version_info\" = \"");
+                    sb.append(partition.getVisibleVersion()).append("\"");
+                    sb.append(");");
+                    addPartitionStmt.add(sb + ";");
+                }
+            }
+        }
+
+        // 3. rollup
+        if (createRollupStmt != null && (table instanceof OlapTable)) {
+            OlapTable olapTable = (OlapTable) table;
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
+                if (entry.getKey() == olapTable.getBaseIndexId()) {
+                    continue;
+                }
+                MaterializedIndexMeta materializedIndexMeta = entry.getValue();
+                sb = new StringBuilder();
+                String indexName = olapTable.getIndexNameById(entry.getKey());
+                sb.append("ALTER TABLE ").append(table.getName()).append(" ADD ROLLUP ").append(indexName);
+                sb.append("(");
+
+                List<Column> indexSchema = materializedIndexMeta.getSchema();
+                for (int i = 0; i < indexSchema.size(); i++) {
+                    Column column = indexSchema.get(i);
+                    sb.append(column.getName());
+                    if (i != indexSchema.size() - 1) {
+                        sb.append(", ");
+                    }
+                }
+                sb.append(");");
+                createRollupStmt.add(sb + ";");
+            }
         }
     }
 
@@ -4253,6 +4674,21 @@ public class Env {
                 }
             }
             sb.append("\n)");
+        } else if (table.getType() == TableType.PAIMON_EXTERNAL_TABLE) {
+            addTableComment(table, sb);
+            PaimonExternalTable paimonExternalTable = (PaimonExternalTable) table;
+            Map<String, String> properties = paimonExternalTable.getTableProperties();
+            sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
+            sb.append("\nPROPERTIES (");
+            Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Entry<String, String> prop = iterator.next();
+                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                if (iterator.hasNext()) {
+                    sb.append(",");
+                }
+            }
+            sb.append("\n)");
         }
 
         createTableStmt.add(sb + ";");
@@ -4341,6 +4777,15 @@ public class Env {
     }
 
     // Drop table
+    public void dropTable(DropMTMVCommand command) throws DdlException {
+        if (command == null) {
+            throw new DdlException("DropMTMVCommand is null");
+        }
+        DropMTMVInfo dropMTMVInfo = command.getDropMTMVInfo();
+        dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false,
+                true, dropMTMVInfo.isIfExists(), true);
+    }
+
     public void dropTable(DropTableStmt stmt) throws DdlException {
         if (stmt == null) {
             throw new DdlException("DropTableStmt is null");

@@ -354,6 +354,40 @@ Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column
     return Status::OK();
 }
 
+Status DataTypeStructSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                          const JsonbValue* jsonb_value,
+                                                          CastParameters& castParms) const {
+    if (jsonb_value->isString()) {
+        RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
+        return Status::OK();
+    }
+    auto& struct_column = assert_cast<ColumnStruct&>(column);
+    if (!jsonb_value->isObject()) {
+        return Status::InvalidArgument("jsonb_value is not an object");
+    }
+    const auto* jsonb_object = jsonb_value->unpack<ObjectVal>();
+
+    if (jsonb_object->numElem() != elem_names.size()) {
+        return Status::InvalidArgument("jsonb_value field size {} is not equal to struct size {}",
+                                       jsonb_object->numElem(), struct_column.tuple_size());
+    }
+
+    for (const auto& field_name : elem_names) {
+        if (!jsonb_object->find(field_name.data(), (int)field_name.size())) {
+            return Status::InvalidArgument("jsonb_value does not have key {}", field_name);
+        }
+    }
+
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        const auto& field_name = elem_names[i];
+        JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->deserialize_column_from_jsonb(
+                struct_column.get_column(i), value, castParms));
+    }
+
+    return Status::OK();
+}
+
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
@@ -475,14 +509,14 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (auto row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, buffer_list));
+                    row_id + 1, arena));
         }
     }
 
