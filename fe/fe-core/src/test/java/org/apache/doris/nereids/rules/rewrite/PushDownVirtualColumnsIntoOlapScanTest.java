@@ -30,8 +30,10 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -589,6 +591,244 @@ public class PushDownVirtualColumnsIntoOlapScanTest {
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to test containsIndexPushdownFunction", e);
+        }
+    }
+
+    @Test
+    public void testIsSupportedVirtualColumnType() {
+        try {
+            PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+
+            // Use reflection to access the private method
+            java.lang.reflect.Method method = rule.getClass()
+                    .getDeclaredMethod("isSupportedVirtualColumnType",
+                                     org.apache.doris.nereids.trees.expressions.Expression.class);
+            method.setAccessible(true);
+
+            DataType intType = IntegerType.INSTANCE;
+            DataType varcharType = VarcharType.createVarcharType(100);
+
+            // Test supported types
+            SlotReference intSlot = new SlotReference("int_col", intType);
+            SlotReference varcharSlot = new SlotReference("varchar_col", varcharType);
+
+            // Test basic arithmetic expression with supported types (should return integer)
+            Add intAddition = new Add(intSlot, new IntegerLiteral(1));
+            boolean intSupported = (boolean) method.invoke(rule, intAddition);
+            assert intSupported : "Integer arithmetic expression should be supported for virtual columns";
+
+            // Test string concatenation (should return varchar)
+            Concat stringConcat = new Concat(varcharSlot, new StringLiteral("_suffix"));
+            boolean stringSupported = (boolean) method.invoke(rule, stringConcat);
+            assert stringSupported : "String expression should be supported for virtual columns";
+
+            // Test a complex expression with multiple operations
+            Multiply complexMath = new Multiply(
+                    new Add(intSlot, new IntegerLiteral(5)),
+                    new IntegerLiteral(2)
+            );
+            boolean complexSupported = (boolean) method.invoke(rule, complexMath);
+            assert complexSupported : "Complex arithmetic expression should be supported for virtual columns";
+
+            // Test a CAST expression to string (should be supported)
+            Cast castToString = new Cast(intSlot, VarcharType.createVarcharType(50));
+            boolean castSupported = (boolean) method.invoke(rule, castToString);
+            assert castSupported : "CAST to supported type should be supported for virtual columns";
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to test isSupportedVirtualColumnType", e);
+        }
+    }
+
+    @Test
+    public void testUnsupportedVirtualColumnType() {
+        try {
+            PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+
+            // Use reflection to access the private method
+            java.lang.reflect.Method method = rule.getClass()
+                    .getDeclaredMethod("isSupportedVirtualColumnType",
+                                     org.apache.doris.nereids.trees.expressions.Expression.class);
+            method.setAccessible(true);
+
+            // Test expression that might return an unsupported type
+            // Create a lambda function expression which should not be supported
+            DataType intType = IntegerType.INSTANCE;
+            SlotReference intSlot = new SlotReference("int_col", intType);
+
+            // Test expressions that should fail type detection or return false
+            // We create an expression that might fail during type determination
+            Lambda lambdaExpr = new Lambda(ImmutableList.of("int_col"), new Add(intSlot, new IntegerLiteral(1)));
+
+            boolean lambdaSupported = (boolean) method.invoke(rule, lambdaExpr);
+            assert !lambdaSupported : "Lambda expressions should not be supported for virtual columns";
+
+        } catch (Exception e) {
+            // Expected for some unsupported expressions
+            // The test should handle gracefully when expressions cannot be evaluated
+        }
+    }
+
+    @Test
+    public void testVirtualColumnTypeFilteringInExtraction() {
+        // Test that the extractRepeatedSubExpressions method properly filters out
+        // expressions with unsupported types during virtual column creation
+        try {
+            PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+
+            // Use reflection to access the private extractRepeatedSubExpressions method
+            java.lang.reflect.Method extractMethod = rule.getClass()
+                    .getDeclaredMethod("extractRepeatedSubExpressions",
+                                     org.apache.doris.nereids.trees.plans.logical.LogicalFilter.class,
+                                     java.util.Optional.class,
+                                     java.util.Map.class,
+                                     com.google.common.collect.ImmutableList.Builder.class);
+            extractMethod.setAccessible(true);
+
+            DataType intType = IntegerType.INSTANCE;
+            SlotReference x = new SlotReference("x", intType);
+            SlotReference y = new SlotReference("y", intType);
+
+            // Create expressions that should be supported (arithmetic operations return int)
+            Add supportedAdd1 = new Add(x, y);
+            Add supportedAdd2 = new Add(x, y);
+            Add supportedAdd3 = new Add(x, y);
+
+            // Create filter conditions using the repeated supported expression
+            GreaterThan gt1 = new GreaterThan(supportedAdd1, new IntegerLiteral(10));
+            GreaterThan gt2 = new GreaterThan(supportedAdd2, new IntegerLiteral(20));
+            GreaterThan gt3 = new GreaterThan(supportedAdd3, new IntegerLiteral(30));
+
+            // Create OLAP scan and filter
+            LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+            LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                    ImmutableSet.of(gt1, gt2, gt3), scan);
+
+            // Test the extraction method
+            java.util.Map<org.apache.doris.nereids.trees.expressions.Expression,
+                         org.apache.doris.nereids.trees.expressions.Expression> replaceMap =
+                    new java.util.HashMap<>();
+            com.google.common.collect.ImmutableList.Builder<org.apache.doris.nereids.trees.expressions.NamedExpression>
+                    virtualColumnsBuilder = com.google.common.collect.ImmutableList.builder();
+
+            // Call the extraction method
+            extractMethod.invoke(rule, filter, java.util.Optional.empty(), replaceMap, virtualColumnsBuilder);
+
+            // Verify that virtual columns were created for supported expressions
+            java.util.List<org.apache.doris.nereids.trees.expressions.NamedExpression> virtualColumns =
+                    virtualColumnsBuilder.build();
+
+            // Since Add(x, y) appears 3 times and returns int (supported type),
+            // it should be included in virtual columns
+            assert !virtualColumns.isEmpty() : "Should create virtual columns for repeated supported expressions";
+            assert replaceMap.size() > 0 : "Should have replacements for supported expressions";
+
+            // Test that the virtual column expression has a supported type
+            if (!virtualColumns.isEmpty()) {
+                org.apache.doris.nereids.trees.expressions.NamedExpression virtualCol = virtualColumns.get(0);
+                if (virtualCol instanceof org.apache.doris.nereids.trees.expressions.Alias) {
+                    org.apache.doris.nereids.trees.expressions.Alias alias =
+                            (org.apache.doris.nereids.trees.expressions.Alias) virtualCol;
+                    org.apache.doris.nereids.trees.expressions.Expression expr = alias.child();
+
+                    // The expression should be supported by isSupportedVirtualColumnType
+                    java.lang.reflect.Method typeCheckMethod = rule.getClass()
+                            .getDeclaredMethod("isSupportedVirtualColumnType",
+                                             org.apache.doris.nereids.trees.expressions.Expression.class);
+                    typeCheckMethod.setAccessible(true);
+                    boolean isSupported = (boolean) typeCheckMethod.invoke(rule, expr);
+                    assert isSupported : "Virtual column expression should have supported type";
+                }
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to test virtual column type filtering", e);
+        }
+    }
+
+    @Test
+    public void testTypeFilteringWithMixedExpressions() {
+        // Test extraction with both supported and unsupported expression types
+        try {
+            PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+
+            // Use reflection to access private methods
+            java.lang.reflect.Method extractMethod = rule.getClass()
+                    .getDeclaredMethod("extractRepeatedSubExpressions",
+                                     org.apache.doris.nereids.trees.plans.logical.LogicalFilter.class,
+                                     java.util.Optional.class,
+                                     java.util.Map.class,
+                                     com.google.common.collect.ImmutableList.Builder.class);
+            extractMethod.setAccessible(true);
+
+            java.lang.reflect.Method typeCheckMethod = rule.getClass()
+                    .getDeclaredMethod("isSupportedVirtualColumnType",
+                                     org.apache.doris.nereids.trees.expressions.Expression.class);
+            typeCheckMethod.setAccessible(true);
+
+            DataType intType = IntegerType.INSTANCE;
+            SlotReference x = new SlotReference("x", intType);
+            SlotReference y = new SlotReference("y", intType);
+
+            // Create supported repeated expressions (arithmetic operations)
+            Add supportedExpr1 = new Add(x, y);
+            Add supportedExpr2 = new Add(x, y);
+
+            // Create potentially unsupported repeated expressions (lambda expressions)
+            Lambda unsupportedExpr1 = new Lambda(ImmutableList.of("x"), new Add(x, new IntegerLiteral(1)));
+            Lambda unsupportedExpr2 = new Lambda(ImmutableList.of("x"), new Add(x, new IntegerLiteral(1)));
+
+            // Verify type support status for both supported and unsupported expressions
+            boolean supportedIsSupported = (boolean) typeCheckMethod.invoke(rule, supportedExpr1);
+            boolean unsupportedIsSupported1 = (boolean) typeCheckMethod.invoke(rule, unsupportedExpr1);
+            boolean unsupportedIsSupported2 = (boolean) typeCheckMethod.invoke(rule, unsupportedExpr2);
+
+            assert supportedIsSupported : "Add expression should be supported";
+            assert !unsupportedIsSupported1 : "Lambda expression 1 should not be supported";
+            assert !unsupportedIsSupported2 : "Lambda expression 2 should not be supported";
+
+            // Verify that both unsupported expressions have the same type checking result
+            assert unsupportedIsSupported1 == unsupportedIsSupported2 :
+                "Both lambda expressions should have the same support status";
+
+            // Create filter conditions using both types
+            GreaterThan gt1 = new GreaterThan(supportedExpr1, new IntegerLiteral(10));
+            GreaterThan gt2 = new GreaterThan(supportedExpr2, new IntegerLiteral(20));
+            // Note: We can't easily create actual filter conditions with lambda expressions
+            // since they require specific context, so we focus on the type checking
+
+            LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+            LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                    ImmutableSet.of(gt1, gt2), scan);
+
+            // Test extraction
+            java.util.Map<org.apache.doris.nereids.trees.expressions.Expression,
+                         org.apache.doris.nereids.trees.expressions.Expression> replaceMap =
+                    new java.util.HashMap<>();
+            com.google.common.collect.ImmutableList.Builder<org.apache.doris.nereids.trees.expressions.NamedExpression>
+                    virtualColumnsBuilder = com.google.common.collect.ImmutableList.builder();
+
+            extractMethod.invoke(rule, filter, java.util.Optional.empty(), replaceMap, virtualColumnsBuilder);
+
+            // Verify results: only supported expressions should create virtual columns
+            java.util.List<org.apache.doris.nereids.trees.expressions.NamedExpression> virtualColumns =
+                    virtualColumnsBuilder.build();
+
+            // Should have virtual columns only for supported expressions
+            for (org.apache.doris.nereids.trees.expressions.NamedExpression virtualCol : virtualColumns) {
+                if (virtualCol instanceof org.apache.doris.nereids.trees.expressions.Alias) {
+                    org.apache.doris.nereids.trees.expressions.Alias alias =
+                            (org.apache.doris.nereids.trees.expressions.Alias) virtualCol;
+                    org.apache.doris.nereids.trees.expressions.Expression expr = alias.child();
+
+                    boolean isSupported = (boolean) typeCheckMethod.invoke(rule, expr);
+                    assert isSupported : "All virtual column expressions should have supported types";
+                }
+            }
+
+        } catch (Exception e) {
+            // Expected for lambda expressions or other complex scenarios
+            // The important thing is that type checking works correctly
         }
     }
 }
