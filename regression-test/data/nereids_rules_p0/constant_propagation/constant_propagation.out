@@ -85,12 +85,12 @@ PhysicalResultSink
 -- !join_1_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalProject[t2.x, t2.y, t2.z]
-------filter(((cast(x as BIGINT) + cast(y as BIGINT)) = 1))
---------PhysicalOlapScan[t2]
 ----PhysicalProject[t1.a, t1.b, t1.c]
 ------filter((t1.a = 1) and (t1.b = 1))
 --------PhysicalOlapScan[t1]
+----PhysicalProject[t2.x, t2.y, t2.z]
+------filter(((cast(x as BIGINT) + cast(y as BIGINT)) = 1))
+--------PhysicalOlapScan[t2]
 
 -- !join_1_result --
 
@@ -190,12 +190,12 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t2.x = t3.a)) otherCondition=() build RFs:RF0 a->[x]
 ----NestedLoopJoin[CROSS_JOIN]
-------PhysicalProject[t2.x]
---------filter(((cast(x as BIGINT) * 10) = 10))
-----------PhysicalOlapScan[t2] apply RFs: RF0
 ------PhysicalProject[t1.a]
 --------filter((t1.a = 10))
 ----------PhysicalOlapScan[t1]
+------PhysicalProject[t2.x]
+--------filter(((cast(x as BIGINT) * 10) = 10))
+----------PhysicalOlapScan[t2] apply RFs: RF0
 ----PhysicalProject[t3.a]
 ------filter(((cast(a as BIGINT) * 10) = 10) and (t3.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[t3]
@@ -263,12 +263,12 @@ PhysicalResultSink
 -- !subquery_7_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalProject[t2.x]
-------filter(((cast(x as BIGINT) * 10) = 10))
---------PhysicalOlapScan[t2]
 ----PhysicalProject[t.a]
 ------filter((t1.a = 10))
 --------PhysicalOlapScan[t1]
+----PhysicalProject[t2.x]
+------filter(((cast(x as BIGINT) * 10) = 10))
+--------PhysicalOlapScan[t2]
 
 -- !subquery_7_result --
 10	1
@@ -288,7 +288,6 @@ PhysicalResultSink
 --------PhysicalOlapScan[t3]
 
 -- !subquery_8_result --
-10	2	2
 10	20	2
 
 -- !subquery_9_shape --
@@ -306,7 +305,6 @@ PhysicalResultSink
 --------PhysicalOlapScan[t3]
 
 -- !subquery_9_result --
-10	2	2
 
 -- !subquery_10_shape --
 PhysicalResultSink
@@ -528,7 +526,6 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t2]
 
 -- !union_5_result --
-3	-1	3
 
 -- !union_6_shape --
 PhysicalResultSink
@@ -541,8 +538,6 @@ PhysicalResultSink
 --------PhysicalOlapScan[t2]
 
 -- !union_6_result --
-3	-1	3
-3	-1	3
 
 -- !union_7_shape --
 PhysicalResultSink
@@ -705,7 +700,7 @@ PhysicalOlapTableSink
 ------PhysicalOlapScan[t3]
 
 -- !update_1_result --
-1	11	11	11
+1	\N	\N	11
 2	20	200	2000
 3	30	300	3000
 
