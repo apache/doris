@@ -1611,6 +1611,13 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
+struct TFetchFeMetricsRequest {
+}
+
+struct TFetchFeMetricsResult {
+    1: optional list<list<string>> metrics_list
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1713,4 +1720,6 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TFetchFeMetricsResult fetchFrontendMetrics(1: TFetchFeMetricsRequest request)
 }
