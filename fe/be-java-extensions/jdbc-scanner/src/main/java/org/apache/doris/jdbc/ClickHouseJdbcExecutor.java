@@ -43,7 +43,7 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected void initializeBlock(int columnCount, String[] replaceStringList, int batchSizeNum,
             VectorTable outputTable) {
-        for (int i = 0; i < columnCount; ++i) {
+        for (int i = 0; i < outputTable.getColumns().length; ++i) {
             if (outputTable.getColumnType(i).getType() == Type.ARRAY) {
                 block.add(new Object[batchSizeNum]);
             } else {
