@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -448,6 +449,11 @@ private:
                 part = (ts_arg.month() - 1) + (ts_arg.day() - 1) + ts_arg.hour() + ts_arg.minute() +
                        ts_arg.second();
             }
+            if constexpr (Flag::Unit == QUARTER) {
+                diff = ts_arg.year() * 4 + ts_arg.quarter() - 1;
+                part = (ts_arg.month() - 1) * 3 + (ts_arg.day() - 1) + ts_arg.hour() +
+                       ts_arg.minute() + ts_arg.second();
+            }
             if constexpr (Flag::Unit == MONTH) {
                 diff = ts_arg.year() * 12 + ts_arg.month() - 1;
                 part = (ts_arg.day() - 1) + ts_arg.hour() + ts_arg.minute() + ts_arg.second();
@@ -478,7 +484,7 @@ private:
                     diff++;
                 }
             }
-            TimeInterval interval(Flag::Unit, diff, 1);
+            TimeInterval interval(Flag::Unit, diff, true);
             return ts_res.template date_set_interval<Flag::Unit>(interval);
         }
     }
@@ -494,6 +500,12 @@ private:
                 diff = (ts_arg.year() - ts_res.year());
                 trivial_part_ts_arg = ts_arg.to_int64() % 10000000000;
                 trivial_part_ts_res = ts_res.to_int64() % 10000000000;
+            }
+            if constexpr (Flag::Unit == QUARTER) {
+                diff = (ts_arg.year() - ts_res.year()) * 4 + (ts_arg.quarter() - ts_res.quarter());
+                // For QUARTER, use same logic as MONTH to preserve month+day+time info
+                trivial_part_ts_arg = ts_arg.to_int64() % 100000000;
+                trivial_part_ts_res = ts_res.to_int64() % 100000000;
             }
             if constexpr (Flag::Unit == MONTH) {
                 diff = (ts_arg.year() - ts_res.year()) * 12 + (ts_arg.month() - ts_res.month());
@@ -534,6 +546,11 @@ private:
                 trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
                 trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
             }
+            if constexpr (Flag::Unit == QUARTER) {
+                diff = (ts_arg.year() - ts_res.year()) * 4 + (ts_arg.quarter() - ts_res.quarter());
+                trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
+                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
+            }
             if constexpr (Flag::Unit == MONTH) {
                 diff = (ts_arg.year() - ts_res.year()) * 12 + (ts_arg.month() - ts_res.month());
                 trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
@@ -570,6 +587,11 @@ private:
         } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
             if constexpr (Flag::Unit == YEAR) {
                 diff = (ts_arg.year() - ts_res.year());
+                trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
+                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
+            }
+            if constexpr (Flag::Unit == QUARTER) {
+                diff = (ts_arg.year() - ts_res.year()) * 4 + (ts_arg.quarter() - ts_res.quarter());
                 trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
                 trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
             }
@@ -636,7 +658,7 @@ private:
                         : delta_inside_period == 0 ? 0
                                                    : period);
         bool is_neg = step < 0;
-        TimeInterval interval(Flag::Unit, is_neg ? -step : step, is_neg);
+        TimeInterval interval(Flag::Unit, std::abs(step), is_neg);
         return ts_res.template date_add_interval<Flag::Unit>(interval);
     }
 
@@ -719,6 +741,14 @@ private:
         if constexpr (Flag::Unit == YEAR) {
             ts1.unchecked_set_time(ts2.year(), 1, 1, 0, 0, 0);
         }
+        if constexpr (Flag::Unit == QUARTER) {
+            uint8_t quarter = ts2.quarter() - 1;
+            uint8_t new_quarter = quarter / 4 * 4;
+            if (new_quarter >= 4) {
+                new_quarter = new_quarter % 4;
+            }
+            ts1.unchecked_set_time(ts2.year(), new_quarter + 1, 1, 0, 0, 0);
+        }
         if constexpr (Flag::Unit == MONTH) {
             ts1.unchecked_set_time(ts2.year(), ts2.month(), 1, 0, 0, 0);
         }
@@ -783,6 +813,7 @@ private:
                                       true>; /*DateTime and Date is same here*/
 
 TIME_ROUND(YearFloor, year_floor, YEAR, FLOOR);
+TIME_ROUND(QuarterFloor, quarter_floor, QUARTER, FLOOR);
 TIME_ROUND(MonthFloor, month_floor, MONTH, FLOOR);
 TIME_ROUND(WeekFloor, week_floor, WEEK, FLOOR);
 TIME_ROUND(DayFloor, day_floor, DAY, FLOOR);
@@ -791,6 +822,7 @@ TIME_ROUND(MinuteFloor, minute_floor, MINUTE, FLOOR);
 TIME_ROUND(SecondFloor, second_floor, SECOND, FLOOR);
 
 TIME_ROUND(YearCeil, year_ceil, YEAR, CEIL);
+TIME_ROUND(QuarterCeil, quarter_ceil, QUARTER, CEIL);
 TIME_ROUND(MonthCeil, month_ceil, MONTH, CEIL);
 TIME_ROUND(WeekCeil, week_ceil, WEEK, CEIL);
 TIME_ROUND(DayCeil, day_ceil, DAY, CEIL);
@@ -816,6 +848,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 #define REGISTER_FUNC(IMPL) REGISTER_FUNC_WITH_DELTA_TYPE(IMPL, Int32)
 
     REGISTER_FUNC(YearFloor);
+    REGISTER_FUNC(QuarterFloor);
     REGISTER_FUNC(MonthFloor);
     REGISTER_FUNC(WeekFloor);
     REGISTER_FUNC(DayFloor);
@@ -824,6 +857,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
     REGISTER_FUNC(SecondFloor);
 
     REGISTER_FUNC(YearCeil);
+    REGISTER_FUNC(QuarterCeil);
     REGISTER_FUNC(MonthCeil);
     REGISTER_FUNC(WeekCeil);
     REGISTER_FUNC(DayCeil);

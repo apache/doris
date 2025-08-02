@@ -112,6 +112,9 @@ struct TimeInterval {
         case YEAR:
             year = count;
             break;
+        case QUARTER: // reuse month so that we can use the same logic
+            month = 3 * count;
+            break;
         case MONTH:
             month = count;
             break;
@@ -501,7 +504,7 @@ public:
 
     uint16_t year() const { return _year; }
     uint8_t month() const { return _month; }
-    int quarter() const { return (_month - 1) / 3 + 1; }
+    uint8_t quarter() const { return (_month - 1) / 3 + 1; }
     int week() const { return week(mysql_week_mode(0)); } //00-53
     uint8_t day() const { return _day; }
     uint8_t hour() const { return _hour; }
@@ -1021,7 +1024,7 @@ public:
     uint16_t year() const { return date_v2_value_.year_; }
     uint16_t year_of_week() const;
     uint8_t month() const { return date_v2_value_.month_; }
-    int quarter() const { return (date_v2_value_.month_ - 1) / 3 + 1; }
+    uint8_t quarter() const { return (date_v2_value_.month_ - 1) / 3 + 1; }
     int week() const { return week(mysql_week_mode(0)); } //00-53
     uint8_t day() const { return date_v2_value_.day_; }
 
@@ -1494,7 +1497,7 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
                      ts_value1.to_datetime_int64() % 10000000000) > 0;
         }
         return year;
-    } else if constexpr (unit == MONTH) {
+    } else if constexpr (unit == QUARTER || unit == MONTH) {
         int month = (ts_value2.year() - ts_value1.year()) * 12 +
                     (ts_value2.month() - ts_value1.month());
         if (month > 0) {
@@ -1504,7 +1507,7 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
             month += (ts_value2.to_datetime_int64() % 100000000 -
                       ts_value1.to_datetime_int64() % 100000000) > 0;
         }
-        return month;
+        return unit == QUARTER ? month / 3 : month;
     } else if constexpr (unit == WEEK) {
         int day = ts_value2.daynr() - ts_value1.daynr();
         if (day > 0) {
@@ -1583,7 +1586,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         }
 
         return year;
-    } else if constexpr (UNIT == MONTH) {
+    } else if constexpr (UNIT == QUARTER || UNIT == MONTH) {
         int month = (ts_value2.year() - ts_value1.year()) * 12 +
                     (ts_value2.month() - ts_value1.month());
         if constexpr (std::is_same_v<T0, T1>) {
@@ -1625,7 +1628,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
                            (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             }
         }
-        return month;
+        return UNIT == QUARTER ? month / 3 : month;
     } else if constexpr (UNIT == WEEK) {
         return ts_value2.date_diff_in_days_round_to_zero_by_time(ts_value1) / 7;
     } else if constexpr (UNIT == DAY) {

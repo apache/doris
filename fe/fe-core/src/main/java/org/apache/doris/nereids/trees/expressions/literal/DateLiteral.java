@@ -484,6 +484,10 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         return year;
     }
 
+    public long getQuarter() {
+        return (month - 1) / 3 + 1;
+    }
+
     public long getMonth() {
         return month;
     }
