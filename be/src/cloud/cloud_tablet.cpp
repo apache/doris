@@ -721,7 +721,8 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
 int64_t CloudTablet::get_cloud_cumu_compaction_score() const {
     // TODO(plat1ko): Propose an algorithm that considers tablet's key type, number of delete rowsets,
     //  number of tablet versions simultaneously.
-    return _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
+    return _approximate_cumu_num_deltas.load(std::memory_order_relaxed) +
+           _approximate_cumu_num_rowsets.load(std::memory_order_relaxed);
 }
 
 // return a json string to show the compaction status of this tablet
