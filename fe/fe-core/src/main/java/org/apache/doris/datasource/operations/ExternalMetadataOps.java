@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -88,6 +89,20 @@ public interface ExternalMetadataOps {
     void afterDropDb(String dbName);
 
     /**
+     *
+     * @param createMTMVInfo
+     * @return return false means table does not exist and is created this time
+     * @throws UserException
+     */
+    default boolean createTable(CreateMTMVInfo createMTMVInfo) throws UserException {
+        boolean res = createTableImpl(createMTMVInfo);
+        if (!res) {
+            afterCreateTable(createMTMVInfo.getDbName(), createMTMVInfo.getTableName());
+        }
+        return res;
+    }
+
+    /**
      * @param createTableInfo
      * @return return false means table does not exist and is created this time
      * @throws UserException
@@ -113,6 +128,8 @@ public interface ExternalMetadataOps {
         }
         return res;
     }
+
+    boolean createTableImpl(CreateMTMVInfo createMTMVInfo) throws UserException;
 
     boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException;
 
