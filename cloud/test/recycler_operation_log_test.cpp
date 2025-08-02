@@ -720,3 +720,69 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLogWhenTxnIsNotVisible) {
     ASSERT_EQ(count_range(txn_kv.get()), 3)
             << "Should have TxnInfoPB, partition version and RowsetMetaCloudPB records";
 }
+
+TEST(RecycleOperationLogTest, RecycleUpdateTabletLog) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    uint64_t tablet_id = 1;
+    {
+        // Update the tablet meta
+        std::string tablet_meta_key = versioned::meta_tablet_key({instance_id, tablet_id});
+        doris::TabletMetaCloudPB tablet_meta;
+        tablet_meta.set_tablet_id(tablet_id);
+        tablet_meta.set_creation_time(::time(nullptr));
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), tablet_meta_key, tablet_meta.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        Versionstamp versionstamp;
+        TxnErrorCode err = meta_reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Put an update tablet log
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+        auto* update_tablet = operation_log.mutable_update_tablet();
+        update_tablet->add_tablet_ids(tablet_id);
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs.
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // The tablet meta should be removed
+    {
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        doris::TabletMetaCloudPB tablet_meta;
+        Versionstamp versionstamp;
+        TxnErrorCode err = meta_reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+    // The operation log should be removed
+    remove_instance_info(txn_kv.get());
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
+}
