@@ -1102,7 +1102,7 @@ public class CreateTableTest extends TestWithFeService {
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_property_duplicate");
         Assert.assertEquals(3, table.getDefaultReplicaAllocation().getTotalReplicaNum());
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class,
                 "duplicate properties: [replication_num] and [replication_allocation]",
                 () -> createTable("create table test.tbl_property_duplicate_invalid1\n"
                         + "(`uuid` varchar(255) NULL,\n"
@@ -1138,7 +1138,7 @@ public class CreateTableTest extends TestWithFeService {
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_property_duplicate_with_nereids");
         Assert.assertEquals(3, table.getDefaultReplicaAllocation().getTotalReplicaNum());
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class,
                 "duplicate properties: [replication_num] and [replication_allocation]",
                 () -> createTable("create table test.tbl_property_duplicate_invalid1\n"
                         + "(`uuid` varchar(255) NULL,\n"
