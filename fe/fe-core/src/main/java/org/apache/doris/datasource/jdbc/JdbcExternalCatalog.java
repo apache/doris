@@ -89,6 +89,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 getMetaNamesMapping());
     }
 
+    public JdbcClient getJdbcClient() {
+        return jdbcClient;
+    }
+
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
