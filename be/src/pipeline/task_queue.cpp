@@ -30,7 +30,7 @@ namespace doris::pipeline {
 
 TaskQueue::~TaskQueue() = default;
 
-PipelineTask* SubTaskQueue::try_take(bool is_steal) {
+PipelineTaskSPtr SubTaskQueue::try_take(bool is_steal) {
     if (_queue.empty()) {
         return nullptr;
     }
@@ -56,7 +56,7 @@ void PriorityTaskQueue::close() {
     DorisMetrics::instance()->pipeline_task_queue_size->increment(-_total_task_size);
 }
 
-PipelineTask* PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
+PipelineTaskSPtr PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
     if (_total_task_size == 0 || _closed) {
         return nullptr;
     }
@@ -93,13 +93,13 @@ int PriorityTaskQueue::_compute_level(uint64_t runtime) {
     return SUB_QUEUE_LEVEL - 1;
 }
 
-PipelineTask* PriorityTaskQueue::try_take(bool is_steal) {
+PipelineTaskSPtr PriorityTaskQueue::try_take(bool is_steal) {
     // TODO other efficient lock? e.g. if get lock fail, return null_ptr
     std::unique_lock<std::mutex> lock(_work_size_mutex);
     return _try_take_unprotected(is_steal);
 }
 
-PipelineTask* PriorityTaskQueue::take(uint32_t timeout_ms) {
+PipelineTaskSPtr PriorityTaskQueue::take(uint32_t timeout_ms) {
     std::unique_lock<std::mutex> lock(_work_size_mutex);
     auto task = _try_take_unprotected(false);
     if (task) {
@@ -114,7 +114,7 @@ PipelineTask* PriorityTaskQueue::take(uint32_t timeout_ms) {
     }
 }
 
-Status PriorityTaskQueue::push(PipelineTask* task) {
+Status PriorityTaskQueue::push(PipelineTaskSPtr task) {
     if (_closed) {
         return Status::InternalError("WorkTaskQueue closed");
     }
@@ -154,8 +154,8 @@ void MultiCoreTaskQueue::close() {
     }
 }
 
-PipelineTask* MultiCoreTaskQueue::take(int core_id) {
-    PipelineTask* task = nullptr;
+PipelineTaskSPtr MultiCoreTaskQueue::take(int core_id) {
+    PipelineTaskSPtr task = nullptr;
     while (!_closed) {
         DCHECK(_prio_task_queue_list->size() > core_id)
                 << " list size: " << _prio_task_queue_list->size() << " core_id: " << core_id
@@ -181,7 +181,7 @@ PipelineTask* MultiCoreTaskQueue::take(int core_id) {
     return task;
 }
 
-PipelineTask* MultiCoreTaskQueue::_steal_take(
+PipelineTaskSPtr MultiCoreTaskQueue::_steal_take(
         int core_id, std::vector<std::unique_ptr<PriorityTaskQueue>>& prio_task_queue_list) {
     DCHECK(core_id < _core_size);
     int next_id = core_id;
@@ -200,7 +200,7 @@ PipelineTask* MultiCoreTaskQueue::_steal_take(
     return nullptr;
 }
 
-Status MultiCoreTaskQueue::push_back(PipelineTask* task) {
+Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task) {
     int core_id = task->get_previous_core_id();
     if (core_id < 0) {
         core_id = _next_core.fetch_add(1) % _core_size;
@@ -208,7 +208,7 @@ Status MultiCoreTaskQueue::push_back(PipelineTask* task) {
     return push_back(task, core_id);
 }
 
-Status MultiCoreTaskQueue::push_back(PipelineTask* task, int core_id) {
+Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task, int core_id) {
     DCHECK(core_id < _core_size);
     task->put_in_runnable_queue();
     return (*_prio_task_queue_list)[core_id]->push(task);

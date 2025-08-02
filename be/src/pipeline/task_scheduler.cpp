@@ -66,19 +66,16 @@ Status TaskScheduler::start() {
     return Status::OK();
 }
 
-Status TaskScheduler::schedule_task(PipelineTask* task) {
+Status TaskScheduler::schedule_task(PipelineTaskSPtr task) {
     return _task_queue->push_back(task);
 }
 
 // after _close_task, task maybe destructed.
-void _close_task(PipelineTask* task, Status exec_status) {
+void _close_task(PipelineTask* task, Status exec_status, PipelineFragmentContext* ctx) {
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
-    // close_a_pipeline may delete fragment context and will core in some defer
-    // code, because the defer code will access fragment context it self.
-    auto lock_for_context = task->fragment_context()->shared_from_this();
     // is_pending_finish does not check status, so has to check status in close API.
     // For example, in async writer, the writer may failed during dealing with eos_block
     // but it does not return error status. Has to check the error status in close API.
@@ -86,16 +83,16 @@ void _close_task(PipelineTask* task, Status exec_status) {
     // for pending finish now. So that could call close directly.
     Status status = task->close(exec_status);
     if (!status.ok()) {
-        task->fragment_context()->cancel(status);
+        ctx->cancel(status);
     }
     task->finalize();
     task->set_running(false);
-    task->fragment_context()->close_a_pipeline(task->pipeline_id());
+    ctx->close_a_pipeline(task->pipeline_id());
 }
 
 void TaskScheduler::_do_work(size_t index) {
     while (_markers[index]) {
-        auto* task = _task_queue->take(index);
+        auto task = _task_queue->take(index);
         if (!task) {
             continue;
         }
@@ -106,11 +103,15 @@ void TaskScheduler::_do_work(size_t index) {
         if (task->is_finalized()) {
             continue;
         }
+        auto fragment_context = task->fragment_context().lock();
+        if (!fragment_context) {
+            // Fragment already finishedquery
+            continue;
+        }
         task->log_detail_if_need();
         task->set_running(true);
         task->set_task_queue(_task_queue.get());
-        auto* fragment_ctx = task->fragment_context();
-        bool canceled = fragment_ctx->is_canceled();
+        bool canceled = fragment_context->is_canceled();
 
         // If the state is PENDING_FINISH, then the task is come from blocked queue, its is_pending_finish
         // has to return false. The task is finished and need to close now.
@@ -121,7 +122,8 @@ void TaskScheduler::_do_work(size_t index) {
             // If pipeline is canceled, it will report after pipeline closed, and will propagate
             // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
-            _close_task(task, fragment_ctx->get_query_ctx()->exec_status());
+            _close_task(task.get(), fragment_context->get_query_ctx()->exec_status(),
+                        fragment_context.get());
             continue;
         }
 
@@ -137,7 +139,7 @@ void TaskScheduler::_do_work(size_t index) {
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(
                 //TODO: use a better enclose to abstracting these
                 if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
-                    TUniqueId query_id = task->query_context()->query_id();
+                    TUniqueId query_id = fragment_context->get_query_id();
                     std::string task_name = task->task_name();
 
                     std::thread::id tid = std::this_thread::get_id();
@@ -160,14 +162,14 @@ void TaskScheduler::_do_work(size_t index) {
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
 
             // exec failed，cancel all fragment instance
-            fragment_ctx->cancel(status);
+            fragment_context->cancel(status);
             LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
-                                        print_id(task->query_context()->query_id()),
+                                        print_id(fragment_context->get_query_ctx()->query_id()),
                                         status.to_string());
-            _close_task(task, status);
+            _close_task(task.get(), status, fragment_context.get());
             continue;
         }
-        fragment_ctx->trigger_report_if_necessary();
+        fragment_context->trigger_report_if_necessary();
 
         if (eos) {
             // is pending finish will add the task to dependency's blocking queue, and then the task will be
@@ -176,8 +178,8 @@ void TaskScheduler::_do_work(size_t index) {
                 // Only meet eos, should set task to PENDING_FINISH state
                 task->set_running(false);
             } else {
-                Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-                _close_task(task, exec_status);
+                Status exec_status = fragment_context->get_query_ctx()->exec_status();
+                _close_task(task.get(), exec_status, fragment_context.get());
             }
             continue;
         }
