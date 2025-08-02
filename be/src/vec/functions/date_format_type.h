@@ -159,17 +159,17 @@ struct yyyyImpl {
 using FormatImplVariant = std::variant<UserDefinedImpl, yyyyMMddImpl, yyyy_MM_ddImpl,
                                        yyyy_MM_dd_HH_mm_ssImpl, yyyy_MMImpl, yyyyMMImpl, yyyyImpl>;
 
-const static std::string default_format = "yyyy-MM-dd HH:mm:ss";
-const static std::string default_format_decimal = "%Y-%m-%d %H:%i:%s.%f";
-const static auto default_impl = yyyy_MM_dd_HH_mm_ssImpl {};
+const static std::string DEFAULT_FORMAT = "yyyy-MM-dd HH:mm:ss";
+const static std::string DEFAULT_FORMAT_DECIMAL = "%Y-%m-%d %H:%i:%s.%f";
+const static auto DEFAULT_IMPL = yyyy_MM_dd_HH_mm_ssImpl {};
 // this type hasn't be put into FormatImplVariant. we will use special judgment to handle it.
-const static auto default_impl_decimal = yyyy_MM_dd_HH_mm_ss_SSSSSSImpl {};
+const static auto DEFAULT_IMPL_DECIMAL = yyyy_MM_dd_HH_mm_ss_SSSSSSImpl {};
 inline FormatImplVariant string_to_impl(const std::string& format) {
     if (format == "yyyyMMdd" || format == "%Y%m%d") {
         return yyyyMMddImpl {};
     } else if (format == "yyyy-MM-dd" || format == "%Y-%m-%d") {
         return yyyy_MM_ddImpl {};
-    } else if (format == default_format || format == "%Y-%m-%d %H:%i:%s") {
+    } else if (format == DEFAULT_FORMAT || format == "%Y-%m-%d %H:%i:%s") {
         return yyyy_MM_dd_HH_mm_ssImpl {};
     } else if (format == "yyyy-MM") {
         return yyyy_MMImpl {};

@@ -93,10 +93,10 @@ public:
         if (context->get_num_args() == 1) {
             // default argument
             if constexpr (IsDecimal) {
-                state->format_str = time_format_type::default_format_decimal;
+                state->format_str = time_format_type::DEFAULT_FORMAT_DECIMAL;
             } else {
-                state->format_str = time_format_type::default_format;
-                state->format_type = time_format_type::default_impl;
+                state->format_str = time_format_type::DEFAULT_FORMAT;
+                state->format_type = time_format_type::DEFAULT_IMPL;
             }
             return IFunction::open(context, scope);
         }
@@ -197,7 +197,7 @@ public:
         if constexpr (IsDecimal) {
             // FromUnixTimeDecimalImpl
             size_t offset = 0;
-            if (format_state->format_str == time_format_type::default_format_decimal) {
+            if (format_state->format_str == time_format_type::DEFAULT_FORMAT_DECIMAL) {
                 for (int i = 0; i < len; ++i) {
                     null_map[i] = Transform::template execute_decimal<
                             time_format_type::yyyy_MM_dd_HH_mm_ss_SSSSSSImpl>(
