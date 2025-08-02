@@ -245,7 +245,7 @@ public:
     // everytime call this, should insert new cell to the end of column
     virtual Status from_string(StringRef& str, IColumn& column,
                                const FormatOptions& options) const {
-        return Status::NotSupported("from_string is not supported");
+        return Status::NotSupported("from_string is not supported {}", get_name());
     }
 
     // Similar to from_string, but in strict mode, we should not handle errors.

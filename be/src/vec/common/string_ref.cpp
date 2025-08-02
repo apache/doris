@@ -41,6 +41,35 @@ StringRef StringRef::trim() const {
     return StringRef(data + begin, end - begin + 1);
 }
 
+StringRef StringRef::trim_whitespace() const {
+    // Remove leading and trailing whitespace.
+    int64_t begin = 0;
+
+    while (begin < size && std::isspace(data[begin])) {
+        ++begin;
+    }
+
+    int64_t end = size - 1;
+
+    while (end > begin && std::isspace(data[end])) {
+        --end;
+    }
+
+    return StringRef(data + begin, end - begin + 1);
+}
+
+StringRef StringRef::trim_quote() const {
+    if (size < 2) {
+        return *this;
+    }
+    if (data[0] == '\'' && data[size - 1] == '\'') {
+        return StringRef(data + 1, size - 2);
+    } else if (data[0] == '"' && data[size - 1] == '"') {
+        return StringRef(data + 1, size - 2);
+    }
+    return *this;
+}
+
 // TODO: rewrite in AVX2
 size_t StringRef::find_first_of(char c) const {
     const char* p = static_cast<const char*>(memchr(data, c, size));

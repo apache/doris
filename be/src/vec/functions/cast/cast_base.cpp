@@ -171,4 +171,65 @@ WrapperType create_nothing_wrapper(const IDataType* to_type) {
         return Status::OK();
     };
 }
+
+Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
+                                        const ColumnNumbers& arguments, uint32_t result,
+                                        size_t input_rows_count,
+                                        const NullMap::value_type* null_map) {
+    const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+            block.get_by_position(arguments[0]).column.get());
+
+    auto to_type = block.get_by_position(result).type;
+    auto to_serde = remove_nullable(to_type)->get_serde();
+    MutableColumnPtr to_column = make_nullable(to_type)->create_column();
+    auto& nullable_col_to = assert_cast<ColumnNullable&>(*to_column);
+    auto& nested_column = nullable_col_to.get_nested_column();
+    DataTypeSerDe::FormatOptions options;
+    options.converted_from_string = true;
+    options.escape_char = '\\';
+    options.timezone = &context->state()->timezone_obj();
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (null_map && null_map[i]) {
+            nullable_col_to.insert_default();
+        } else {
+            auto str = col_from->get_data_at(i);
+            Status st = to_serde->from_string(str, nested_column, options);
+            if (st.ok()) {
+                nullable_col_to.get_null_map_data().push_back(0);
+            } else {
+                nullable_col_to.insert_default(); // fill null if fail
+            }
+        }
+    }
+
+    block.get_by_position(result).column = std::move(to_column);
+    return Status::OK();
+}
+
+Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Block& block,
+                                                    const ColumnNumbers& arguments, uint32_t result,
+                                                    size_t input_rows_count,
+                                                    const NullMap::value_type* null_map) {
+    const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+            block.get_by_position(arguments[0]).column.get());
+
+    auto to_type = block.get_by_position(result).type;
+    auto to_serde = remove_nullable(to_type)->get_serde();
+    MutableColumnPtr to_column = remove_nullable(to_type)->create_column();
+    DataTypeSerDe::FormatOptions options;
+    options.converted_from_string = true;
+    options.escape_char = '\\';
+    options.timezone = &context->state()->timezone_obj();
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        if (null_map && null_map[i]) {
+            to_column->insert_default();
+        } else {
+            auto str = col_from->get_data_at(i);
+            RETURN_IF_ERROR(to_serde->from_string_strict_mode(str, *to_column, options));
+        }
+    }
+    block.get_by_position(result).column = std::move(to_column);
+    return Status::OK();
+}
+
 } // namespace doris::vectorized::CastWrapper

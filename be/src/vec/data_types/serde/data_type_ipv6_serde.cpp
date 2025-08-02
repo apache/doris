@@ -285,4 +285,36 @@ Status DataTypeIPv6SerDe::from_string_strict_mode_batch(const ColumnString& str,
     return Status::OK();
 }
 
+Status DataTypeIPv6SerDe::from_string(StringRef& str, IColumn& column,
+                                      const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+
+    CastParameters params;
+    params.is_strict = false;
+
+    IPv6 val;
+    if (!CastToIPv6::from_string(str, val, params)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
+    }
+
+    column_to.insert_value(val);
+    return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                  const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+
+    CastParameters params;
+    params.is_strict = true;
+
+    IPv6 val;
+    if (!CastToIPv6::from_string(str, val, params)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
+    }
+
+    column_to.insert_value(val);
+    return Status::OK();
+}
+
 } // namespace doris::vectorized

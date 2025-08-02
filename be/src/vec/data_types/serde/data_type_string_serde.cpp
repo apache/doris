@@ -412,6 +412,13 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb(
     return Status::OK();
 }
 
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn& column,
+                                                        const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
+}
+
 template class DataTypeStringSerDeBase<ColumnString>;
 template class DataTypeStringSerDeBase<ColumnString64>;
 template class DataTypeStringSerDeBase<ColumnFixedLengthObject>;
