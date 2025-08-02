@@ -211,4 +211,59 @@ suite("test_aggregate_all_functions2") {
     qt_select_histogram_k11_all_null """SELECT histogram(k11, 11) FROM baseall"""
     qt_select_histogram_k12_all_null """SELECT histogram(k12, 12) FROM baseall"""
     qt_select_histogram_k13_all_null """SELECT histogram(k13, 13) FROM baseall"""
+
+    qt_ds_hll_count_distinct """
+        SELECT
+        ds_hll_count_distinct(`k0`),
+        ds_hll_count_distinct(`k1`),
+        ds_hll_count_distinct(`k2`),
+        ds_hll_count_distinct(`k3`),
+        ds_hll_count_distinct(`k4`),
+        ds_hll_count_distinct(`k5`),
+        ds_hll_count_distinct(`k6`),
+        ds_hll_count_distinct(`k10`),
+        ds_hll_count_distinct(`k11`),
+        ds_hll_count_distinct(`k7`),
+        ds_hll_count_distinct(`k8`),
+        ds_hll_count_distinct(`k9`),
+        ds_hll_count_distinct(`k12`),
+        ds_hll_count_distinct(`k13`)
+        FROM baseall
+    """
+    qt_ds_hll_count_distinct_p2 """
+        SELECT
+        ds_hll_count_distinct(`k0`, 21),
+        ds_hll_count_distinct(`k1`, 21),
+        ds_hll_count_distinct(`k2`, 21),
+        ds_hll_count_distinct(`k3`, 21),
+        ds_hll_count_distinct(`k4`, 21),
+        ds_hll_count_distinct(`k5`, 21),
+        ds_hll_count_distinct(`k6`, 21),
+        ds_hll_count_distinct(`k10`, 21),
+        ds_hll_count_distinct(`k11`, 21),
+        ds_hll_count_distinct(`k7`, 21),
+        ds_hll_count_distinct(`k8`, 21),
+        ds_hll_count_distinct(`k9`, 21),
+        ds_hll_count_distinct(`k12`, 21),
+        ds_hll_count_distinct(`k13`, 21)
+        FROM baseall
+    """
+    qt_ds_hll_count_distinct_p3 """
+        SELECT
+        ds_hll_count_distinct(`k0`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k1`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k2`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k3`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k4`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k5`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k6`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k10`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k11`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k7`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k8`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k9`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k12`, 21, 'HLL_6'),
+        ds_hll_count_distinct(`k13`, 21, 'HLL_6')
+        FROM baseall
+    """
 }
