@@ -1611,6 +1611,74 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
+struct TFetchBackendsRequest {
+}
+
+
+struct TBackendDetailInfo {
+    1: optional i64 backend_id
+    2: optional string host
+    3: optional Types.TPort heartbeat_port
+    4: optional Types.TPort be_port
+    5: optional Types.TPort http_port
+    6: optional Types.TPort brpc_port
+    7: optional Types.TPort arrowflightsqlport
+    8: optional string last_start_time
+    9: optional string last_heartbeat
+    10: optional bool alive
+    11: optional bool system_decommissioned
+    12: optional i32 tablet_num
+    13: optional i64 data_used_capacity
+    14: optional i64 trash_used_capacity
+    15: optional i64 avail_capacity
+    16: optional i64 total_capacity
+    17: optional double used_pct
+    18: optional double max_disk_used_pct
+    19: optional i64 remote_used_capacity
+    20: optional string tag
+    21: optional string errmsg
+    22: optional string version
+    23: optional string status
+    24: optional i32 heartbeat_failure_counter
+    25: optional string node_role
+    26: optional i32 cpu_cores
+    27: optional i64 memory
+}
+
+struct TFetchBackendsResult {
+    1: optional list<TBackendDetailInfo> backends
+}
+
+struct TFetchFrontendsRequest {
+}
+
+
+struct TFrontendDetailInfo {
+    1: optional string name
+    2: optional string host
+    3: optional Types.TPort edit_log_port
+    4: optional Types.TPort http_port
+    5: optional Types.TPort query_port
+    6: optional Types.TPort rpc_port
+    7: optional Types.TPort arrowflightsqlport
+    8: optional string role
+    9: optional bool is_master
+    10: optional i32 cluster_id
+    11: optional bool join
+    12: optional bool alive
+    13: optional i64 replayed_journal_id
+    14: optional string last_start_time
+    15: optional string last_heartbeat
+    16: optional bool is_helper
+    17: optional string err_msg
+    18: optional string version
+    19: optional bool current_connected
+}
+
+struct TFetchFrontendsResult {
+    1: optional list<TFrontendDetailInfo> frontends
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1713,4 +1781,8 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TFetchBackendsResult fetchBackends(1: TFetchBackendsRequest request)
+
+    TFetchFrontendsResult fetchFrontends(1: TFetchFrontendsRequest request)
 }
