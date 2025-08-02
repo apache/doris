@@ -110,6 +110,9 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
                 }
             } else if (newQualifier.isEmpty()) {
                 newQualifier.addAll(qualifier);
+            } else {
+                newQualifier.clear();
+                newQualifier.addAll(qualifier);
             }
 
             Slot qualified = originSlot
