@@ -712,6 +712,8 @@ private:
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
+
+    VExprSPtrs _push_down_exprs;
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {

@@ -27,6 +27,12 @@
 #include <algorithm>
 #include <cctype>
 
+#include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
+#include "vec/exprs/vslot_ref.h"
+#include "vec/exprs/vtopn_pred.h"
+
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <exception>
@@ -970,7 +976,8 @@ Status OrcReader::set_fill_columns(
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
-        if (auto* slot_ref = typeid_cast<VSlotRef*>(expr)) {
+        if (expr->is_slot_ref()) {
+            VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
             auto expr_name = slot_ref->expr_name();
             predicate_table_columns.emplace(
                     expr_name, std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
@@ -978,30 +985,52 @@ Status OrcReader::set_fill_columns(
                 _lazy_read_ctx.resize_first_column = false;
             }
             return;
-        } else if (auto* runtime_filter = typeid_cast<VRuntimeFilterWrapper*>(expr)) {
-            auto* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
-            if (auto* bloom_predicate = typeid_cast<VBloomPredicate*>(filter_impl)) {
-                for (const auto& child : bloom_predicate->children()) {
-                    visit_slot(child.get());
-                }
-            } else if (auto* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                if (!in_predicate->children().empty()) {
-                    visit_slot(in_predicate->children()[0].get());
-                }
-            } else {
-                for (const auto& child : filter_impl->children()) {
-                    visit_slot(child.get());
-                }
-            }
-        } else {
-            for (const auto& child : expr->children()) {
-                visit_slot(child.get());
-            }
+        }
+        for (auto& child : expr->children()) {
+            visit_slot(child.get());
         }
     };
 
-    for (auto& conjunct : _lazy_read_ctx.conjuncts) {
-        visit_slot(conjunct->root().get());
+    for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
+        auto expr = conjunct->root();
+
+        if (VRuntimeFilterWrapper* runtime_filter =
+                    typeid_cast<VRuntimeFilterWrapper*>(expr.get())) {
+            auto filter_impl = runtime_filter->get_impl();
+            if (VBloomPredicate* bloom_predicate =
+                        typeid_cast<VBloomPredicate*>(filter_impl.get())) {
+                for (auto& child : bloom_predicate->children()) {
+                    visit_slot(child.get());
+                }
+            } else if (VDirectInPredicate* in_predicate =
+                               typeid_cast<VDirectInPredicate*>(filter_impl.get())) {
+                if (in_predicate->get_num_children() > 0) {
+                    expr = runtime_filter->get_impl();
+
+                    visit_slot(in_predicate->children()[0].get());
+                }
+            } else {
+                for (auto& child : filter_impl->children()) {
+                    visit_slot(child.get());
+                }
+            }
+        } else if (VTopNPred* topn_pred = typeid_cast<VTopNPred*>(
+                           expr.get())) { // top runtime filter : only le && ge.
+            if (topn_pred->has_value()) {
+                expr = topn_pred->get_binary_expr();
+
+                DCHECK(topn_pred->children().size() > 0);
+                visit_slot(topn_pred->children()[0].get());
+            } else {
+                continue;
+            }
+        } else {
+            visit_slot(expr.get());
+        }
+
+        if (_check_expr_can_push_down(expr)) {
+            _push_down_exprs.emplace_back(expr);
+        }
     }
 
     if (_is_acid) {
