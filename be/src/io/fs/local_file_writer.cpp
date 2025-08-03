@@ -179,7 +179,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt, bool is_limi
     return Status::OK();
 }
 
-size_t LocalFileWriter::writev(const int fd, struct iovec* iov, size_t bytes) {
+ssize_t LocalFileWriter::writev(const int fd, struct iovec* iov, size_t bytes) {
     ssize_t r, nwrite = 0;
     size_t total_written = 0;
 
@@ -193,7 +193,7 @@ size_t LocalFileWriter::writev(const int fd, struct iovec* iov, size_t bytes) {
             return r;
         }
 
-        if ((size_t)r < to_write) {
+        if (static_cast<size_t>(r) < to_write) {
             iov->iov_base = static_cast<uint8_t*>(iov->iov_base) + r;
             iov->iov_len -= r;
             return total_written + r;

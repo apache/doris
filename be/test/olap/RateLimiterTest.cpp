@@ -454,7 +454,7 @@ INSTANTIATE_TEST_SUITE_P(
                 {UNIQUE_KEYS, false, true, true, 0},   {UNIQUE_KEYS, false, true, true, 1},
                 {UNIQUE_KEYS, true, true, true, 0},    {UNIQUE_KEYS, true, true, true, 1}}));
 
-TEST_P(RateLimiterTest, ratetest) {
+TEST_P(RateLimiterTest, RateTest) {
     auto [keys_type, enable_unique_key_merge_on_write, has_delete_handler, is_vertical_merger,
           compaction_flag] = GetParam();
 

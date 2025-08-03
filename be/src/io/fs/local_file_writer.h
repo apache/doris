@@ -44,7 +44,7 @@ private:
     Status _finalize();
     void _abort();
     Status _close(bool sync);
-    size_t writev(const int fd, struct iovec* iov, size_t bytes);
+    ssize_t writev(const int fd, struct iovec* iov, size_t bytes);
 
     Path _path;
     int _fd; // owned
