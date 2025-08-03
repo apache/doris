@@ -37,6 +37,7 @@ suite("test_txn_limit", 'nonConcurrent') {
     logger.info("configResult: ${configResult}")
 
     def create_db_and_table = { dbName, tableName ->
+        sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql "DROP DATABASE IF EXISTS ${dbName}"
         sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -59,7 +60,6 @@ suite("test_txn_limit", 'nonConcurrent') {
 
     def dbName = "test_txn_limit_db"
     def tableName = "${dbName}.test_txn_limit"
-    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
 
     create_db_and_table("${dbName}", "${tableName}")
 
