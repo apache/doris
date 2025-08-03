@@ -142,14 +142,15 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         } else {
             auto* block_file_cache = io::FileCacheFactory::instance()->get_by_path(cache_base_path);
             if (block_file_cache == nullptr) {
-                st = Status::InvalidArgument("file cache not found for base_path: {}", cache_base_path);
+                st = Status::InvalidArgument("file cache not found for base_path: {}",
+                                             cache_base_path);
             } else {
-            std::vector<std::string> inconsistencies;
-            RETURN_IF_ERROR(block_file_cache->report_file_cache_inconsistency(inconsistencies));
-            EasyJson json;
-            std::ranges::for_each(inconsistencies,
-                                  [&json](auto& x) { json.PushBack(std::move(x)); });
-            *json_metrics = json.ToString();
+                std::vector<std::string> inconsistencies;
+                RETURN_IF_ERROR(block_file_cache->report_file_cache_inconsistency(inconsistencies));
+                EasyJson json;
+                std::ranges::for_each(inconsistencies,
+                                      [&json](auto& x) { json.PushBack(std::move(x)); });
+                *json_metrics = json.ToString();
             }
         }
     } else {
