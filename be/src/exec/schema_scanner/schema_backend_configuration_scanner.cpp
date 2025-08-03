@@ -18,9 +18,12 @@
 #include "exec/schema_scanner/schema_backend_configuration_scanner.h"
 
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
 
 #include <string>
 
+#include "common/status.h"
+#include "exec/schema_scanner/schema_helper.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -44,7 +47,15 @@ SchemaBackendConfigurationScanner::SchemaBackendConfigurationScanner()
 SchemaBackendConfigurationScanner::~SchemaBackendConfigurationScanner() = default;
 
 Status SchemaBackendConfigurationScanner::start(doris::RuntimeState* state) {
-    _config_infos = config::get_config_info();
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TCheckCurrentUserPrivilegeRequest request;
+    TCheckCurrentUserPrivilegeResult result;
+    RETURN_IF_ERROR(SchemaHelper::check_current_user_privilege(master_addr.hostname,
+                                                               master_addr.port, request, &result));
+
+    if (result.check_res) {
+        _config_infos = config::get_config_info();
+    }
     return Status::OK();
 }
 
