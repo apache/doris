@@ -1404,6 +1404,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrcmp>();
     factory.register_function<FunctionNgramSearch>();
     factory.register_function<FunctionXPathString>();
+    factory.register_function<FunctionCrc32Internal>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
