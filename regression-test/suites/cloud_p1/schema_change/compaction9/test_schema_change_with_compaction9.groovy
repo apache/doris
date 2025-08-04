@@ -60,8 +60,10 @@ suite('test_schema_change_with_compaction9', 'docker') {
             // check load state
             while (true) {
                 def stateResult = sql "show load where Label = '${loadLabel}'"
+                logger.info("State result: " + stateResult)
                 def loadState = stateResult[stateResult.size() - 1][2].toString()
                 if ("CANCELLED".equalsIgnoreCase(loadState)) {
+                    logger.error("Load ${loadLabel} cancelled.")
                     throw new IllegalStateException("load ${loadLabel} failed.")
                 } else if ("FINISHED".equalsIgnoreCase(loadState)) {
                     break
@@ -164,6 +166,9 @@ suite('test_schema_change_with_compaction9', 'docker') {
             cluster.restartFrontends()
             sleep(30000)
             context.reconnectFe()
+        } catch (Exception e) {
+            logger.error("Exception: " + e.getMessage())
+            assertEquals(1, 2)
         } finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
