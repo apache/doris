@@ -99,6 +99,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                                        ss.str());
     }
 
+    // only test
+
     // here need handle the empty struct '{}'
     if (slice.size == 2) {
         for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
