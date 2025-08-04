@@ -24,6 +24,7 @@ import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
@@ -37,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;
+import mockit.Verifications;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -249,6 +251,28 @@ public class MysqlProtoTest {
         };
     }
 
+    private void mockInitCatalog(@Mocked CatalogMgr catalogMgr, ConnectContext context, String initCatalog)
+            throws Exception {
+        new Expectations() {
+            {
+                auth.getInitCatalog(anyString);
+                minTimes = 0;
+                result = initCatalog;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(anyString);
+                minTimes = 0;
+                result = catalog;
+
+                env.changeCatalog(context, anyString);
+                minTimes = 0;
+            }
+        };
+    }
+
     @Test
     public void testNegotiate() throws Exception {
         mockChannel("user", true);
@@ -258,6 +282,26 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
+    }
+
+    @Test
+    public void testNegotiateInitCatalog(@Mocked CatalogMgr catalogMgr) throws Exception {
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = new ConnectContext(streamConnection);
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        String initCatalog = "external_catalog";
+        mockInitCatalog(catalogMgr, context, initCatalog);
+        Assert.assertTrue(MysqlProto.negotiate(context));
+
+        new Verifications() {
+            {
+                env.changeCatalog(context, initCatalog);
+                times = 1;
+            }
+        };
     }
 
     @Test
@@ -346,5 +390,4 @@ public class MysqlProtoTest {
         Assert.assertEquals("i have dream", new String(MysqlProto.readNulTerminateString(buffer)));
         Assert.assertEquals("you have dream too", new String(MysqlProto.readEofString(buffer)));
     }
-
 }
