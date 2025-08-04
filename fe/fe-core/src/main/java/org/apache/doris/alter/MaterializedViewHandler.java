@@ -48,6 +48,8 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.IdGeneratorUtil;
@@ -273,8 +275,7 @@ public class MaterializedViewHandler extends AlterHandler {
             for (MVColumnItem mvColumnItem : createMvCommand.getMVColumnItemList()) {
                 String colName = mvColumnItem.getName();
                 if (!allColumnNames.add(colName)) {
-                    throw new AnalysisException(String.format("duplicate column name %s in full schema, "
-                            + "please use a new unique name xxx, like %s as xxx in select list", colName, colName));
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, colName);
                 }
             }
 

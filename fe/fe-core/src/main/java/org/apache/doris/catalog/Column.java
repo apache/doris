@@ -1186,6 +1186,9 @@ public class Column implements GsonPostProcessable {
         return defineExpr != null;
     }
 
+    // this function is try to get base column name for distribution column, partition column, key column
+    // or delete condition column in load job. So these columns are all simple SlotRef not other complex expr like a +_b
+    // under the assumption, we just try to get base column when the defineExpr is a simple SlotRef with a Column in tbl
     public String tryGetBaseColumnName() {
         String colName = name;
         if (defineExpr != null && defineExpr instanceof SlotRef) {

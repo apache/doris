@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -47,7 +46,7 @@ public class MVColumnItem {
     private Set<String> baseColumnNames;
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, Expr defineExpr) {
-        this.name = MaterializedIndexMeta.normalizeName(name);
+        this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;
         this.isAggregationTypeImplicit = false;
@@ -68,8 +67,8 @@ public class MVColumnItem {
         this(defineExpr.toSqlWithoutTbl(), defineExpr);
     }
 
-    public MVColumnItem(String name, Expr defineExpr) throws AnalysisException {
-        this.name = MaterializedIndexMeta.normalizeName(name);
+    public MVColumnItem(String name, Expr defineExpr) {
+        this.name = name;
         this.isAggregationTypeImplicit = false;
         this.defineExpr = defineExpr;
 
