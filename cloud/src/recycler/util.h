@@ -93,4 +93,6 @@ int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet
 
 int get_tablet_meta(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
                     TabletMetaCloudPB& tablet_meta);
+
+std::string normalize_uri(const std::string& uri);
 } // namespace doris::cloud
