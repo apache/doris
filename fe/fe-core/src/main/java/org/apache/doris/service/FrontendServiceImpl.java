@@ -2775,23 +2775,30 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend;
+                List<Backend> backends;
                 if (Config.isCloudMode()) {
-                    CloudReplica cloudReplica = (CloudReplica) replica;
-                    backend = cloudReplica.getPrimaryBackend(clusterId);
+                    if (request.isSetWarmUpJobId()) {
+                        CloudReplica cloudReplica = (CloudReplica) replica;
+                        Backend primaryBackend = cloudReplica.getPrimaryBackend(clusterId);
+                        backends = Lists.newArrayList(primaryBackend);
+                    } else {
+                        CloudReplica cloudReplica = (CloudReplica) replica;
+                        backends = cloudReplica.getAllPrimaryBes();
+                    }
                 } else {
-                    backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                    backends = Lists.newArrayList(backend);
                 }
-                if (backend != null) {
-                    TReplicaInfo replicaInfo = new TReplicaInfo();
-                    replicaInfo.setHost(backend.getHost());
-                    replicaInfo.setBePort(backend.getBePort());
-                    replicaInfo.setHttpPort(backend.getHttpPort());
-                    replicaInfo.setBrpcPort(backend.getBrpcPort());
-                    replicaInfo.setIsAlive(backend.isAlive());
-                    replicaInfo.setBackendId(backend.getId());
-                    replicaInfo.setReplicaId(replica.getId());
-                    replicaInfos.add(replicaInfo);
+                for (Backend backend : backends) {
+                    if (backend != null) {
+                        TReplicaInfo replicaInfo = new TReplicaInfo();
+                        replicaInfo.setHost(backend.getHost());
+                        replicaInfo.setBePort(backend.getBePort());
+                        replicaInfo.setHttpPort(backend.getHttpPort());
+                        replicaInfo.setBrpcPort(backend.getBrpcPort());
+                        replicaInfo.setReplicaId(replica.getId());
+                        replicaInfos.add(replicaInfo);
+                    }
                 }
             }
             tabletReplicaInfos.put(tabletId, replicaInfos);
