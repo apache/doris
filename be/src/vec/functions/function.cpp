@@ -24,6 +24,7 @@
 #include <memory>
 #include <numeric>
 
+#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -262,7 +263,7 @@ void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) 
             get_name(), number_of_arguments, expected_number_of_arguments);
     if (number_of_arguments != expected_number_of_arguments) {
         throw Exception(
-                ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH,
+                ErrorCode::INVALID_ARGUMENT,
                 "Number of arguments for function {} doesn't match: passed {} , should be {}",
                 get_name(), number_of_arguments, expected_number_of_arguments);
     }
