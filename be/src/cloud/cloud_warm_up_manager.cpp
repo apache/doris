@@ -76,6 +76,9 @@ bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_call_unix_ts(
         "file_cache_warm_up_rowset_last_call_unix_ts", 0);
 bvar::Adder<uint64_t> file_cache_warm_up_failed_task_num("file_cache_warm_up", "failed_task_num");
 
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
+        "file_cache_warm_up_rowset_wait_for_compaction_latency");
+
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
 }
@@ -489,7 +492,7 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
     return replicas;
 }
 
-void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
+void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
     auto replicas = get_replica_info(rs_meta.tablet_id());
     if (replicas.empty()) {
         LOG(INFO) << "There is no need to warmup tablet=" << rs_meta.tablet_id()
@@ -504,6 +507,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
     PWarmUpRowsetRequest request;
     request.add_rowset_metas()->CopyFrom(rs_meta.get_rowset_pb());
     request.set_unix_ts_us(now_ts);
+    request.set_sync_wait_timeout_ms(sync_wait_timeout_ms);
     for (auto& replica : replicas) {
         // send sync request
         std::string host = replica.host;
@@ -568,8 +572,18 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
         }
 
         brpc::Controller cntl;
+        if (sync_wait_timeout_ms > 0) {
+            cntl.set_timeout_ms(sync_wait_timeout_ms + 1000);
+        }
         PWarmUpRowsetResponse response;
+        MonotonicStopWatch watch;
+        watch.start();
         brpc_stub->warm_up_rowset(&cntl, &request, &response, nullptr);
+        if (sync_wait_timeout_ms > 0) {
+            auto cost_us = watch.elapsed_time_microseconds();
+            VLOG_DEBUG << "warm up rowset wait for compaction: " << cost_us << " us";
+            g_file_cache_warm_up_rowset_wait_for_compaction_latency << cost_us;
+        }
     }
 }
 

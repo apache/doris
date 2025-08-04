@@ -1042,8 +1042,24 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
         RETURN_IF_ERROR(
                 engine.get_schema_cloud_dictionary_cache().refresh_dict(rs_meta_pb.index_id()));
     }
+
+    int64_t timeout_ms = -1;
+    if (config::enable_warm_up_rowset_sync_wait_on_compaction && !job_id.empty()) {
+        // 1. assume the download speed is 100MB/s
+        // 2. we double the download time as timeout for safety
+        // 3. for small rowsets, the timeout we calculate maybe quite small, so we need a min_time_out
+        const double speed_mbps = 100.0; // 100MB/s
+        const double safety_factor = 2.0;
+        timeout_ms = std::min(
+                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.data_disk_size()) /
+                                              (speed_mbps * 1024 * 1024) * safety_factor * 1000),
+                         config::warm_up_rowset_sync_wait_min_timeout_ms),
+                config::warm_up_rowset_sync_wait_max_timeout_ms);
+    }
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-    manager.warm_up_rowset(rs_meta);
+    VLOG_DEBUG << "warm up rowset: " << rs_meta.version() << ", job_id: " << job_id
+               << ", timeout_ms: " << timeout_ms;
+    manager.warm_up_rowset(rs_meta, timeout_ms);
     return st;
 }
 
