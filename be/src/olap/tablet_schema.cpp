@@ -1151,8 +1151,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
             index = std::make_shared<TabletIndex>();
             index->init_from_pb(index_pb);
         }
-        _indexes.emplace_back(std::move(index));
         size_t index_pos = _indexes.size();
+        _indexes.emplace_back(std::move(index));
         for (int32_t col_uid : _indexes.back()->col_unique_ids()) {
             if (auto field_pattern = _indexes.back()->field_pattern(); !field_pattern.empty()) {
                 auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
@@ -1583,7 +1583,8 @@ const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
     const std::string escaped_suffix = escape_for_path_name(suffix_path);
     auto it = _col_id_suffix_to_index.find(
             std::make_tuple(IndexType::INVERTED, col_unique_id, escaped_suffix));
-    if (it != _col_id_suffix_to_index.end()) {
+    if (it != _col_id_suffix_to_index.end() && !it->second.empty() &&
+        it->second[0] < _indexes.size()) {
         return _indexes[it->second[0]].get();
     }
     return nullptr;
@@ -1687,7 +1688,7 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
     IndexKey index_key(IndexType::NGRAM_BF, col_unique_id, "");
     auto it = _col_id_suffix_to_index.find(index_key);
     if (it != _col_id_suffix_to_index.end()) {
-        if (!it->second.empty()) {
+        if (!it->second.empty() && it->second[0] < _indexes.size()) {
             return _indexes[it->second[0]].get();
         }
     }
