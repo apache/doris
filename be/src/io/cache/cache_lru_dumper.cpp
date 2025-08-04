@@ -20,6 +20,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/lru_queue_recorder.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
 
 namespace doris::io {
