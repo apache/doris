@@ -1169,6 +1169,8 @@ public class NereidsDataDescription {
             for (Expression expression : this.columnMappingList) {
                 if (expression != null) {
                     if (expression instanceof EqualTo) {
+                        // we should not cast right type to left type here, because we do the cast when 
+                        // creating load plan later, see NereidsLoadUtils.createLoadPlan for more details
                         Expr left = PlanUtils.translateToLegacyExpr(((EqualTo) expression).left(), null, ctx);
                         Expr right = PlanUtils.translateToLegacyExpr(((EqualTo) expression).right(), null, ctx);
                         legacyColumnMappingList.add(new BinaryPredicate(BinaryPredicate.Operator.EQ, left, right));
