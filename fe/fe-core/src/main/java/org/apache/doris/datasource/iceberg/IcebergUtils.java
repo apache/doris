@@ -49,7 +49,6 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CacheException;
@@ -637,13 +636,13 @@ public class IcebergUtils {
             case UUID:
             case DECIMAL:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 return value.toString();
             case FIXED:
             case BINARY:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 // Fixed and binary types are stored as ByteBuffer
                 ByteBuffer buffer = (ByteBuffer) value;
@@ -652,14 +651,14 @@ public class IcebergUtils {
                 return new String(res, StandardCharsets.UTF_8);
             case DATE:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 // Iceberg date is stored as days since epoch (1970-01-01)
                 LocalDate date = LocalDate.ofEpochDay((Integer) value);
                 return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 // Iceberg time is stored as microseconds since midnight
                 long micros = (Long) value;
@@ -667,7 +666,7 @@ public class IcebergUtils {
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 // Iceberg timestamp is stored as microseconds since epoch
                 // (1970-01-01T00:00:00)

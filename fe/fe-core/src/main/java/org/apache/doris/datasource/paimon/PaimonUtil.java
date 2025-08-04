@@ -25,7 +25,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -422,25 +421,25 @@ public class PaimonUtil {
             case VARCHAR:
             case CHAR:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 return value.toString();
             case BINARY:
             case VARBINARY:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 return new String((byte[]) value, StandardCharsets.UTF_8);
             case DATE:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 // Paimon date is stored as days since epoch
                 LocalDate date = LocalDate.ofEpochDay((Integer) value);
                 return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME_WITHOUT_TIME_ZONE:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 // Paimon time is stored as microseconds since midnight in utc
                 long micros = (Long) value;
@@ -448,13 +447,13 @@ public class PaimonUtil {
                 return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP_WITHOUT_TIME_ZONE:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 // Paimon timestamp is stored as Timestamp type in utc
                 return ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                 if (value == null) {
-                    return FeConstants.null_string;
+                    return null;
                 }
                 // Paimon timestamp with local time zone is stored as Timestamp type in utc
                 Timestamp timestamp = (Timestamp) value;

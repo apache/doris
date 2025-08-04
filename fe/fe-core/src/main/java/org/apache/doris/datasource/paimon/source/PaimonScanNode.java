@@ -243,14 +243,17 @@ public class PaimonScanNode extends FileQueryScanNode {
         tableFormatFileDesc.setPaimonParams(fileDesc);
         Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
         if (partitionValues != null) {
-            List<String> formPathKeys = new ArrayList<>();
-            List<String> formPathValues = new ArrayList<>();
+            List<String> fromPathKeys = new ArrayList<>();
+            List<String> fromPathValues = new ArrayList<>();
+            List<Boolean> fromPathIsNull = new ArrayList<>();
             for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                formPathKeys.add(entry.getKey());
-                formPathValues.add(entry.getValue());
+                fromPathKeys.add(entry.getKey());
+                fromPathValues.add(entry.getValue() != null ? entry.getValue() : "");
+                fromPathIsNull.add(entry.getValue() == null);
             }
-            rangeDesc.setColumnsFromPathKeys(formPathKeys);
-            rangeDesc.setColumnsFromPath(formPathValues);
+            rangeDesc.setColumnsFromPathKeys(fromPathKeys);
+            rangeDesc.setColumnsFromPath(fromPathValues);
+            rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
