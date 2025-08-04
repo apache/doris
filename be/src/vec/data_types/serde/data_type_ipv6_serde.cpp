@@ -201,8 +201,7 @@ Status DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::A
 Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                               const NullMap* null_map,
                                               orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                              int64_t end,
-                                              std::vector<StringRef>& buffer_list) const {
+                                              int64_t end, vectorized::Arena& arena) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
 
@@ -220,15 +219,11 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
         }
     }
     // Allocate continues memory based on calculated size
-    char* ptr = (char*)malloc(total_size);
+    char* ptr = arena.alloc(total_size);
     if (!ptr) {
         return Status::InternalError(
                 "malloc memory {} error when write variant column data to orc file.", total_size);
     }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = total_size;
-    buffer_list.emplace_back(bufferRef);
     // Second pass: copy data to allocated memory
     size_t offset = 0;
     for (size_t i = 0; i < serialized_values.size(); i++) {
@@ -241,8 +236,8 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
                     "exceed total_size {} . ",
                     offset, len, total_size);
         }
-        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
-        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+        memcpy(ptr + offset, serialized_value.data(), len);
+        cur_batch->data[row_id] = ptr + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
@@ -287,6 +282,38 @@ Status DataTypeIPv6SerDe::from_string_strict_mode_batch(const ColumnString& str,
                                            str.get_data_at(i).to_string());
         }
     }
+    return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::from_string(StringRef& str, IColumn& column,
+                                      const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+
+    CastParameters params;
+    params.is_strict = false;
+
+    IPv6 val;
+    if (!CastToIPv6::from_string(str, val, params)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
+    }
+
+    column_to.insert_value(val);
+    return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                  const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+
+    CastParameters params;
+    params.is_strict = true;
+
+    IPv6 val;
+    if (!CastToIPv6::from_string(str, val, params)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
+    }
+
+    column_to.insert_value(val);
     return Status::OK();
 }
 

@@ -448,17 +448,10 @@ TEST_F(DataTypeStructTest, writeColumnToOrc) {
     MutableColumnPtr struct_column = st->create_column();
     struct_column->insert(Field::create_field<TYPE_STRUCT>(test_data));
 
-    std::vector<StringRef> buffer_list;
-    Defer defer {[&]() {
-        for (auto& bufferRef : buffer_list) {
-            if (bufferRef.data) {
-                free(const_cast<char*>(bufferRef.data));
-            }
-        }
-    }};
+    vectorized::Arena arena;
 
-    Status status = serde->write_column_to_orc("UTC", *struct_column, nullptr, &structBatch, 0, 1,
-                                               buffer_list);
+    Status status =
+            serde->write_column_to_orc("UTC", *struct_column, nullptr, &structBatch, 0, 1, arena);
 
     EXPECT_EQ(status, Status::OK()) << "Failed to write column to orc: " << status;
     EXPECT_EQ(structBatch.numElements, 1);

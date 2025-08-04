@@ -818,14 +818,6 @@ TEST(MathFunctionTest, lcm_test) {
     std::string func_name = "lcm";
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT};
-
-        DataSet data_set = {{{TINYINT(2), TINYINT(4)}, TINYINT(4)}, {{TINYINT(2), Null()}, Null()}};
-
-        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
-    }
-
-    {
         InputTypeSet input_types = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT};
 
         DataSet data_set = {{{SMALLINT(2), SMALLINT(4)}, SMALLINT(4)},

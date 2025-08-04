@@ -152,6 +152,7 @@ suite("test_conditional_function") {
 
     sql "set enable_decimal256=true"
     sql """ drop table if exists t1; """
+     sql """ drop table if exists t2; """
     sql """ create table t1(
         k1 int,
         k2 date,
@@ -163,12 +164,35 @@ suite("test_conditional_function") {
     ) distributed by hash (k1) buckets 1
     properties ("replication_num"="1");
     """
+     sql """ create table t2(
+        k1 int,
+        k2 array<decimalv3(76, 6)>
+    ) distributed by hash (k1) buckets 1
+    properties ("replication_num"="1");
+    """
     sql """
     insert into t1 values
     (1, null, '2023-01-02', '2023-01-01 00:00:00', '2023-01-02 00:00:00',2222222222222222222222222222222222222222222222222222222222222222222222,3333333333333333333333333333333333333333333333333333333333333333333333),(2, '2023-02-01', null, '2023-02-01 00:00:00', '2023-02-02 00:00:00', null,5555555555555555555555555555555555555555555555555555555555555555555555),(3, '2023-03-01', '2023-03-02', null, '2023-03-02 00:00:00', null,666666666666666666666666666666666666666666666666)
     """
+    sql """
+    insert into t2 select k1, array_agg(k4) from t1 group by k1;
+    """
     qt_test "select k1, coalesce(k2, k22),coalesce(k3, k33) from t1 order by k1"
-    // fix after disable decimal256 disable implicit conversion to int128
-    // qt_test "select k1, coalesce(k2, k22),coalesce(k4, k44) from t1 order by k1"
+    qt_test "select k1, coalesce(k2, k22),coalesce(k4, k44) from t1 order by k1"
+    qt_test "select k1, case when k1 = 1 then k4 when k1 = 2 then k44 when k1 = 3 then k4 when k1 = 4 then k44 else k4 end from t1 order by k1"
 
+    qt_test "SELECT k1, width_bucket(k2, 1, 9999999999, 4),width_bucket(k3, 1, 9999999999, 4) AS w FROM t1 ORDER BY k1;"
+
+    qt_test "SELECT k1, width_bucket(k4, 1, 9999999999, 4),width_bucket(k44, 1, 9999999999, 4) AS w FROM t1 ORDER BY k1;"
+
+    qt_test "SELECT k1, width_bucket(k44, 1, 9999999999, 4),width_bucket(k44, 1, 9999999999, 4) AS w FROM t1 ORDER BY k1;"
+
+    qt_test "select array_join(array_agg(k44), '_', 'null') from t1 where k1=1;"
+
+    qt_test "select k1,avg_weighted(k4,1),avg_weighted(k44,1) from t1 group by k1 order by k1;"
+
+    qt_test "select array_cum_sum(k2) from t2 where k1=1;"
+
+    sql "set enable_decimal256=false"
+    qt_test "select array_cum_sum(k2) from t2 where k1=1;"
 }

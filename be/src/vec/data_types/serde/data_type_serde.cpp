@@ -26,7 +26,7 @@
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_jsonb_serde.h"
-
+#include "vec/functions/cast/cast_base.h"
 namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
@@ -136,6 +136,20 @@ Status DataTypeSerDe::serialize_column_to_jsonb_vector(const IColumn& from_colum
         to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     }
     return Status::OK();
+}
+
+Status DataTypeSerDe::parse_column_from_jsonb_string(IColumn& column, const JsonbValue* jsonb_value,
+                                                     CastParameters& castParms) const {
+    DCHECK(jsonb_value->isString());
+    const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+
+    Slice slice(blob->getBlob(), blob->getBlobLen());
+
+    DataTypeSerDe::FormatOptions format_options;
+    format_options.converted_from_string = true;
+    format_options.escape_char = '\\';
+
+    return deserialize_one_cell_from_json(column, slice, format_options);
 }
 
 Status DataTypeSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,

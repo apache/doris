@@ -383,6 +383,19 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
     return std::make_shared<DataTypeDecimal<TYPE_DECIMAL256>>(precision_value, scale_value);
 }
 
+template <PrimitiveType T>
+FieldWithDataType DataTypeDecimal<T>::get_field_with_data_type(const IColumn& column,
+                                                               size_t row_num) const {
+    const auto& decimal_column =
+            assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
+    Field field;
+    decimal_column.get(row_num, field);
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type(),
+                              .precision = static_cast<int>(precision),
+                              .scale = static_cast<int>(scale)};
+}
+
 /// Explicit template instantiations.
 template class DataTypeDecimal<TYPE_DECIMAL32>;
 template class DataTypeDecimal<TYPE_DECIMAL64>;

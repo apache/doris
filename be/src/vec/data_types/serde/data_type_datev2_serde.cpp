@@ -22,6 +22,7 @@
 
 #include <cstdint>
 
+#include "io/io_common.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -166,7 +167,7 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     const auto& col_data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
     for (size_t row_id = start; row_id < end; row_id++) {
@@ -258,6 +259,40 @@ Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res);
     }
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::from_string(StringRef& str, IColumn& column,
+                                        const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(column);
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    DateV2Value<DateV2ValueType> res;
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    if (!CastToDateV2::from_string_non_strict_mode(str, res, options.timezone, params))
+            [[unlikely]] {
+        return Status::InvalidArgument("parse datev2 fail, string: '{}'", str.to_string());
+    }
+    col_data.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res));
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                    const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(column);
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+
+    DateV2Value<DateV2ValueType> res;
+    CastToDateV2::from_string_strict_mode<true>(str, res, options.timezone, params);
+    // only after we called something with `IS_STRICT = true`, params.status will be set
+    RETURN_IF_ERROR(params.status);
+
+    col_data.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res));
     return Status::OK();
 }
 

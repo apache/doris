@@ -117,4 +117,13 @@ const char* DataTypeJsonb::deserialize(const char* buf, MutableColumnPtr* column
     return data_type_string.deserialize(buf, column, data_version);
 }
 
+FieldWithDataType DataTypeJsonb::get_field_with_data_type(const IColumn& column,
+                                                          size_t row_num) const {
+    const auto& column_data = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    Field field = Field::create_field<TYPE_JSONB>(JsonbField(
+            column_data.get_data_at(row_num).data, column_data.get_data_at(row_num).size));
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type()};
+}
+
 } // namespace doris::vectorized

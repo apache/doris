@@ -128,6 +128,11 @@ Status OlapScanner::init() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
+        LOG_WARNING("CloudTablet.capture_rs_readers.return e-230 init")
+                .tag("tablet_id", tablet->tablet_id());
+        return Status::Error<false>(-230, "injected error");
+    });
 
     for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
@@ -671,7 +676,7 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
-    COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.rows_dict_filtered);
+    COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.segment_dict_filtered);
     COUNTER_UPDATE(local_state->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_filtered);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_by_bitmap);

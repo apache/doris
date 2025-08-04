@@ -38,9 +38,12 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -127,8 +130,8 @@ static std::string next_rowset_id() {
     return std::to_string(++cnt);
 }
 
-static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
-                       int64_t partition_id, int64_t tablet_id) {
+void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id, int64_t partition_id,
+                int64_t tablet_id) {
     auto tablet = req.add_tablet_metas();
     tablet->set_table_id(table_id);
     tablet->set_index_id(index_id);
@@ -5067,10 +5070,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         GetDeleteBitmapUpdateLockResponse res;
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
                                       tablet_idxes, 5, 999999, -1, true);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
-        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
-        ASSERT_EQ(res.cumulative_points().size(), 0);
+        EXPECT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        EXPECT_EQ(res.base_compaction_cnts().size(), 3);
+        EXPECT_EQ(res.cumulative_compaction_cnts().size(), 3);
+        EXPECT_EQ(res.cumulative_points().size(), 3);
     }
 
     for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
@@ -8967,6 +8970,118 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
                             return name == vault.name();
                         }) != vaults.end());
         }
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
+TEST(MetaServiceTest, CreateVersionedTablet) {
+    auto meta_service = get_meta_service(false);
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string instance_id = "test_instance";
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key;
+        std::string val;
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+
+        InstanceInfoPB instance;
+        instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+    }
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        brpc::Controller cntl;
+        CreateTabletsRequest req;
+        CreateTabletsResponse res;
+        req.set_cloud_unique_id(fmt::format("1:{}:1", instance_id));
+        req.set_db_id(db_id);
+        add_tablet(req, table_id, index_id, partition_id, tablet_id);
+        meta_service->create_tablets(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
+    }
+
+    Versionstamp commit_versionstamp;
+    {
+        // verify versioned tablet meta is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        std::string key = versioned::meta_tablet_key({instance_id, tablet_id});
+        ASSERT_EQ(versioned_get(txn.get(), key, &commit_versionstamp, &val), TxnErrorCode::TXN_OK)
+                << hex(key);
+        TabletMetaCloudPB versioned_tablet_meta;
+        versioned_tablet_meta.ParseFromString(val);
+        ASSERT_EQ(versioned_tablet_meta.table_id(), table_id);
+        ASSERT_EQ(versioned_tablet_meta.index_id(), index_id)
+                << versioned_tablet_meta.ShortDebugString();
+        ASSERT_EQ(versioned_tablet_meta.partition_id(), partition_id);
+        ASSERT_EQ(versioned_tablet_meta.tablet_id(), tablet_id);
+    }
+
+    {
+        // verify versioned tablet index/inverted index is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_index_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        TabletIndexPB tablet_index;
+        tablet_index.ParseFromString(val);
+        ASSERT_EQ(tablet_index.db_id(), db_id);
+        ASSERT_EQ(tablet_index.table_id(), table_id);
+        ASSERT_EQ(tablet_index.index_id(), index_id);
+        ASSERT_EQ(tablet_index.partition_id(), partition_id);
+        ASSERT_EQ(tablet_index.tablet_id(), tablet_id);
+
+        key = versioned::tablet_inverted_index_key(
+                {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // verify the first versioned rowset meta is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        int64_t end_version = 1; // from add_tablet
+        std::string key = versioned::meta_rowset_load_key({instance_id, tablet_id, end_version});
+        RowsetMetaCloudPB rowset_meta;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &rowset_meta, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+    }
+
+    {
+        // verify the tablet load stats is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+        TabletStatsPB load_stats;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &load_stats, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
     }
 
     SyncPoint::get_instance()->disable_processing();

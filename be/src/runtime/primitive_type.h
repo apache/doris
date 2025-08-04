@@ -487,7 +487,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMALV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMALV2;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMALV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {

@@ -20,6 +20,7 @@
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
+#include "common/status.h"
 #include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -288,7 +289,7 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end,
-                                                 std::vector<StringRef>& buffer_list) const {
+                                                 vectorized::Arena& arena) const {
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
@@ -307,15 +308,11 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
         }
     }
     // Allocate continues memory based on calculated size
-    char* ptr = (char*)malloc(total_size);
+    char* ptr = arena.alloc(total_size);
     if (!ptr) {
         return Status::InternalError(
                 "malloc memory {} error when write variant column data to orc file.", total_size);
     }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = total_size;
-    buffer_list.emplace_back(bufferRef);
     // Second pass: copy data to allocated memory
     size_t offset = 0;
     for (size_t i = 0; i < serialized_values.size(); i++) {
@@ -328,8 +325,8 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
                     "exceed total_size {} . ",
                     offset, len, total_size);
         }
-        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
-        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+        memcpy(ptr + offset, serialized_value.data(), len);
+        cur_batch->data[row_id] = ptr + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
@@ -392,6 +389,44 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
 
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(res);
     }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                         const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnType&>(column);
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    CppType res;
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<IsDatetime>(str, res, options.timezone,
+                                                                       params)) [[unlikely]] {
+        return Status::InvalidArgument("parse date or datetime fail, string: '{}'",
+                                       str.to_string());
+    }
+    col_data.insert_value(binary_cast<CppType, NativeType>(res));
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                     const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnType&>(column);
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+
+    CppType res;
+    CastToDateOrDatetime::from_string_strict_mode<true, IsDatetime>(str, res, options.timezone,
+                                                                    params);
+    // only after we called something with `IS_STRICT = true`, params.status will be set
+    RETURN_IF_ERROR(params.status);
+    col_data.insert_value(binary_cast<CppType, NativeType>(res));
+
     return Status::OK();
 }
 

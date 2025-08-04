@@ -66,6 +66,12 @@ public:
             const ColumnString& str, IColumn& column, const FormatOptions& options,
             const NullMap::value_type* null_map = nullptr) const override;
 
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

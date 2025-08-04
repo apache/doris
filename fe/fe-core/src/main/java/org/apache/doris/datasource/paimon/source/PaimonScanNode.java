@@ -139,9 +139,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
 
     public PaimonScanNode(PlanNodeId id,
-            TupleDescriptor desc,
-            boolean needCheckColumnPriv,
-            SessionVariable sv) {
+                          TupleDescriptor desc,
+                          boolean needCheckColumnPriv,
+                          SessionVariable sv) {
         super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv, sv);
     }
 
@@ -421,14 +421,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
-        HashMap<String, String> map = new HashMap<>(source.getCatalog().getProperties());
-        source.getCatalog().getCatalogProperty().getHadoopProperties().forEach((k, v) -> {
-            if (!map.containsKey(k)) {
-                map.put(k, v);
-            }
-        });
-        return map;
+    protected Map<String, String> getLocationProperties() {
+        return source.getCatalog().getCatalogProperty().getBackendStorageProperties();
     }
 
     @Override

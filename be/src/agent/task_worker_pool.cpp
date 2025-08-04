@@ -95,7 +95,6 @@
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -297,7 +296,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                 job.process_alter_tablet(agent_task_req.alter_tablet_req_v2),
                 [&](const doris::Exception& ex) {
                     DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
-                    job.clean_up_on_failed();
+                    job.clean_up_on_failure();
                 });
         return Status::OK();
     }();
@@ -1721,7 +1720,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     RuntimeProfile* profile = &runtime_profile;
     MonotonicStopWatch watch;
     watch.start();
-    SCOPED_CLEANUP({
+    Defer defer = [&] {
         auto elapsed_time = static_cast<double>(watch.elapsed_time());
         if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
@@ -1729,7 +1728,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
             profile->pretty_print(&ss);
             LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
         }
-    });
+    };
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
     VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
 

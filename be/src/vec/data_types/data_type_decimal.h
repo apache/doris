@@ -277,6 +277,9 @@ public:
 
     bool parse_from_string(const std::string& str, FieldType* res) const;
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     static void check_type_precision(const UInt32 precision) {
         if (precision > max_decimal_precision<T>() || precision < 1) {
             throw Exception(ErrorCode::INTERNAL_ERROR,

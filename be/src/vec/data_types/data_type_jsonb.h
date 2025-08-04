@@ -68,6 +68,10 @@ public:
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override;
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }

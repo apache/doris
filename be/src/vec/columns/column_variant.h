@@ -411,8 +411,6 @@ public:
 
     void insert_default() override;
 
-    ColumnPtr replicate(const Offsets& offsets) const override;
-
     void pop_back(size_t length) override;
 
     Field operator[](size_t n) const override;

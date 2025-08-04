@@ -2597,10 +2597,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
+            // only if session variable: disable_variant_flatten_nested = false and
+            // table property: variant_enable_flatten_nested = true
+            // we can enable variant flatten nested otherwise throw error
+            if (ctx != null && !ctx.getSessionVariable().getDisableVariantFlattenNested()
+                    && variantEnableFlattenNested) {
+                olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
+            } else if (variantEnableFlattenNested) {
+                throw new DdlException("If you want to enable variant flatten nested, "
+                        + "please set session variable: disable_variant_flatten_nested = false");
+            } else {
+                // keep table property: variant_enable_flatten_nested = false
+                olapTable.setVariantEnableFlattenNested(false);
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
@@ -3473,16 +3485,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
-            // session variable: disable_variant_flatten_nested = true
-            // with table property: variant_enable_flatten_nested = true we should throw error
-            if (ctx.getSessionVariable().getDisableVariantFlattenNested() && variantEnableFlattenNested) {
+            // only if session variable: disable_variant_flatten_nested = false and
+            // table property: variant_enable_flatten_nested = true
+            // we can enable variant flatten nested otherwise throw error
+            if (ctx != null && !ctx.getSessionVariable().getDisableVariantFlattenNested()
+                    && variantEnableFlattenNested) {
+                olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
+            } else if (variantEnableFlattenNested) {
                 throw new DdlException("If you want to enable variant flatten nested, "
                         + "please set session variable: disable_variant_flatten_nested = false");
+            } else {
+                // keep table property: variant_enable_flatten_nested = false
+                olapTable.setVariantEnableFlattenNested(false);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2

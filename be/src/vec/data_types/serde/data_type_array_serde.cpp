@@ -20,6 +20,7 @@
 #include <arrow/array/builder_nested.h>
 
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -240,6 +241,38 @@ Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column,
     return Status::OK();
 }
 
+Status DataTypeArraySerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                         const JsonbValue* jsonb_value,
+                                                         CastParameters& castParms) const {
+    if (jsonb_value->isString()) {
+        RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
+        return Status::OK();
+    }
+    if (!jsonb_value->isArray()) {
+        return Status::InvalidArgument("JsonbValue type is not array, type: {}",
+                                       jsonb_value->typeName());
+    }
+
+    auto& array_column = assert_cast<ColumnArray&>(column);
+
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    DCHECK(nested_column.is_nullable());
+
+    const auto* jsonb_array = jsonb_value->unpack<ArrayVal>();
+    const auto array_size = jsonb_array->numElem();
+
+    for (int i = 0; i < array_size; ++i) {
+        const JsonbValue* elem = jsonb_array->get(i);
+        RETURN_IF_ERROR(
+                nested_serde->deserialize_column_from_jsonb(nested_column, elem, castParms));
+    }
+
+    offsets.push_back(offsets.back() + array_size);
+
+    return Status::OK();
+}
+
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                  Arena& arena, int32_t col_id,
                                                  int64_t row_num) const {
@@ -411,8 +444,7 @@ Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end,
-                                               std::vector<StringRef>& buffer_list) const {
+                                               int64_t end, vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -424,7 +456,7 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
         size_t next_offset = offsets[row_id];
         RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
                                                           cur_batch->elements.get(), offset,
-                                                          next_offset, buffer_list));
+                                                          next_offset, arena));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();
@@ -462,5 +494,53 @@ Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& a
         RETURN_IF_ERROR(nested_serde->read_column_from_pb(nested_column, arg.child_element(i)));
     }
     return Status::OK();
+}
+
+template <bool is_strict_mode>
+Status DataTypeArraySerDe::_from_string(StringRef& str, IColumn& column,
+                                        const FormatOptions& options) const {
+    if (str.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    DCHECK(nested_column.is_nullable());
+    if (str.front() != '[') {
+        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
+                                       str.to_string());
+    }
+    if (str.back() != ']') {
+        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
+                                       str.to_string());
+    }
+    // empty array []
+    if (str.size == 2) {
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
+        return Status::OK();
+    }
+    str = str.substring(1, str.size - 2); // remove '[' and ']'
+
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
+            str, [&](char c) { return c == options.collection_delim; });
+
+    for (auto& e : split_result) {
+        RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
+                nested_serde, nested_column, e.element, options));
+    }
+
+    offsets.emplace_back(offsets.back() + split_result.size());
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::from_string(StringRef& str, IColumn& column,
+                                       const FormatOptions& options) const {
+    return _from_string<false>(str, column, options);
+}
+Status DataTypeArraySerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                   const FormatOptions& options) const {
+    return _from_string<true>(str, column, options);
 }
 } // namespace doris::vectorized

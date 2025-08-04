@@ -22,7 +22,6 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <vector>
@@ -38,7 +37,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/var_int.h"
 
 template <typename T>
 struct HashCRC32;

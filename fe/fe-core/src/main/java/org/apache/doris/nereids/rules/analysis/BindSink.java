@@ -434,17 +434,10 @@ public class BindSink implements AnalysisRuleFactory {
                         // null, we use the literal string of the default value, or it may be
                         // default value function, like CURRENT_TIMESTAMP.
                         if (column.getDefaultValueExpr() == null) {
-                            try {
-                                columnToOutput.put(column.getName(),
-                                        new Alias(Literal.of(column.getDefaultValue())
-                                                .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                                                column.getName()));
-                            } catch (Exception ignored) {
-                                columnToOutput.put(column.getName(),
-                                        new Alias(Literal.of(column.getDefaultValue())
-                                                .deprecatingCheckedCastTo(DataType.fromCatalogType(column.getType())),
-                                                column.getName()));
-                            }
+                            columnToOutput.put(column.getName(),
+                                    new Alias(Literal.of(column.getDefaultValue())
+                                            .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
+                                            column.getName()));
                         } else {
                             Expression unboundDefaultValue = new NereidsParser().parseExpression(
                                     column.getDefaultValueExpr().toSqlWithoutTbl());

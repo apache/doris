@@ -1239,13 +1239,6 @@ refresh_stmt ::=
     :}
     ;
 
-clean_stmt ::=
-    KW_CLEAN KW_ALL KW_PROFILE
-    {:
-        RESULT = new CleanProfileStmt();
-    :}
-    ;
-
 // plugin statement
 install_plugin_stmt ::=
     KW_INSTALL KW_PLUGIN KW_FROM ident_or_text:source opt_properties:properties
@@ -2589,17 +2582,8 @@ ident_or_star ::=
 
 // Drop statement
 drop_stmt ::=
-    /* Database */
-    KW_DROP KW_DATABASE opt_if_exists:ifExists db_name:db opt_force:force
-    {:
-        RESULT = new DropDbStmt(ifExists, db, force);
-    :}
-    | KW_DROP KW_SCHEMA opt_if_exists:ifExists db_name:db opt_force:force
-    {:
-        RESULT = new DropDbStmt(ifExists, db, force);
-    :}
     /* Catalog */
-    | KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
+    KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
     {:
         RESULT = new DropCatalogStmt(ifExists, catalogName);
     :}
@@ -3575,19 +3559,6 @@ show_param ::=
     {:
         RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
     :}
-    /* show analyze job */
-    | KW_ANALYZE opt_table_name:tbl opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, false);
-    :}
-    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(jobId, parser.where);
-    :}
-    | KW_AUTO KW_ANALYZE opt_table_name:tbl opt_wild_where
-    {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
-    :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
@@ -4034,10 +4005,6 @@ set_stmt ::=
     | KW_SET KW_PROPERTY opt_user:user user_property_list:property_list
     {:
         RESULT = new SetUserPropertyStmt(user, property_list);
-    :}
-    | KW_SET ident:vaultName KW_AS KW_DEFAULT KW_STORAGE KW_VAULT
-    {:
-        RESULT = new SetDefaultStorageVaultStmt(vaultName);
     :}
     ;
 

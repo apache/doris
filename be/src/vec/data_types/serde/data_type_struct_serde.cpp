@@ -19,6 +19,7 @@
 
 #include "arrow/array/builder_nested.h"
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -354,6 +355,40 @@ Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column
     return Status::OK();
 }
 
+Status DataTypeStructSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                          const JsonbValue* jsonb_value,
+                                                          CastParameters& castParms) const {
+    if (jsonb_value->isString()) {
+        RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
+        return Status::OK();
+    }
+    auto& struct_column = assert_cast<ColumnStruct&>(column);
+    if (!jsonb_value->isObject()) {
+        return Status::InvalidArgument("jsonb_value is not an object");
+    }
+    const auto* jsonb_object = jsonb_value->unpack<ObjectVal>();
+
+    if (jsonb_object->numElem() != elem_names.size()) {
+        return Status::InvalidArgument("jsonb_value field size {} is not equal to struct size {}",
+                                       jsonb_object->numElem(), struct_column.tuple_size());
+    }
+
+    for (const auto& field_name : elem_names) {
+        if (!jsonb_object->find(field_name.data(), (int)field_name.size())) {
+            return Status::InvalidArgument("jsonb_value does not have key {}", field_name);
+        }
+    }
+
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        const auto& field_name = elem_names[i];
+        JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->deserialize_column_from_jsonb(
+                struct_column.get_column(i), value, castParms));
+    }
+
+    return Status::OK();
+}
+
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
@@ -475,14 +510,14 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
     for (auto row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
             RETURN_IF_ERROR(elem_serdes_ptrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
-                    row_id + 1, buffer_list));
+                    row_id + 1, arena));
         }
     }
 
@@ -515,6 +550,109 @@ Status DataTypeStructSerDe::read_column_from_pb(IColumn& column, const PValues& 
                                                                  arg.child_element(i)));
     }
     return Status::OK();
+}
+
+template <bool is_strict_mode>
+Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
+                                         const FormatOptions& options) const {
+    if (str.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+    auto& struct_column = assert_cast<ColumnStruct&, TypeCheckOnRelease::DISABLE>(column);
+
+    if (str.front() != '{') {
+        std::stringstream ss;
+        ss << str.front() << '\'';
+        return Status::InvalidArgument("Struct does not start with '{' character, found '" +
+                                       ss.str());
+    }
+    if (str.back() != '}') {
+        std::stringstream ss;
+        ss << str.back() << '\'';
+        return Status::InvalidArgument("Struct does not end with '}' character, found '" +
+                                       ss.str());
+    }
+
+    // here need handle the empty struct '{}'
+    if (str.size == 2) {
+        for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
+            struct_column.get_column(i).insert_default();
+        }
+        return Status::OK();
+    }
+    str = str.substring(1, str.size - 2); // remove '{' '}'
+
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(str, [&](char c) {
+        return c == options.map_key_delim || c == options.collection_delim;
+    });
+
+    const auto elem_size = elem_serdes_ptrs.size();
+
+    std::vector<StringRef> field_value;
+    // check syntax error
+    if (split_result.size() == elem_size) {
+        // no field name
+        for (int i = 0; i < split_result.size(); i++) {
+            if (i != split_result.size() - 1 &&
+                split_result[i].delimiter != options.collection_delim) {
+                return Status::InvalidArgument(
+                        "Struct field value {} is not separated by collection_delim.", i);
+            }
+            field_value.push_back(split_result[i].element);
+        }
+    } else if (split_result.size() == 2 * elem_size) {
+        // field name : field value
+        int field_pos = 0;
+        for (int i = 0; i < split_result.size(); i += 2) {
+            if (split_result[i].delimiter != options.map_key_delim) {
+                return Status::InvalidArgument(
+                        "Struct name-value pair does not have map key delimiter");
+            }
+            if (i != 0 && split_result[i - 1].delimiter != options.collection_delim) {
+                return Status::InvalidArgument(
+                        "Struct name-value pair does not have collection delimiter");
+            }
+            if (field_pos >= elem_size) {
+                return Status::InvalidArgument(
+                        "Struct field number is more than schema field number");
+            }
+            auto field_name = split_result[i].element.trim_quote();
+
+            if (!field_name.eq(StringRef(elem_names[field_pos]))) {
+                return Status::InvalidArgument("Cannot find struct field name {} in schema.",
+                                               split_result[i].element.to_string());
+            }
+            field_value.push_back(split_result[i + 1].element);
+            field_pos++;
+        }
+    } else {
+        return Status::InvalidArgument(
+                "Struct field number {} is not equal to schema field number {}.",
+                split_result.size(), elem_size);
+    }
+
+    for (int field_pos = 0; field_pos < elem_size; ++field_pos) {
+        if (Status st = ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
+                    elem_serdes_ptrs[field_pos], struct_column.get_column(field_pos),
+                    field_value[field_pos], options);
+            st != Status::OK()) {
+            // we should do column revert if error
+            for (size_t j = 0; j < field_pos; j++) {
+                struct_column.get_column(j).pop_back(1);
+            }
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::from_string(StringRef& str, IColumn& column,
+                                        const FormatOptions& options) const {
+    return _from_string<false>(str, column, options);
+}
+Status DataTypeStructSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                    const FormatOptions& options) const {
+    return _from_string<true>(str, column, options);
 }
 
 } // namespace vectorized

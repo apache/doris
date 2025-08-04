@@ -26,7 +26,6 @@
 #include <type_traits>
 
 #include "common/status.h"
-#include "util/debug/leak_annotations.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -115,12 +114,13 @@ template <typename A>
 struct SignImpl {
     static constexpr PrimitiveType ResultType = TYPE_TINYINT;
     static inline UInt8 apply(A a) {
-        if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>)
+        if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>) {
             return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
-        else if constexpr (IsSignedV<A>)
+        } else if constexpr (IsSignedV<A>) {
             return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
-        else if constexpr (IsUnsignedV<A>)
+        } else if constexpr (IsUnsignedV<A>) {
             return static_cast<UInt8>(a == 0 ? 0 : 1);
+        }
     }
 };
 
@@ -134,18 +134,19 @@ struct AbsImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfAbs<A>::Type;
 
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        if constexpr (IsDecimalNumber<A>)
+        if constexpr (IsDecimalNumber<A>) {
             return a < A(0) ? A(-a) : a;
-        else if constexpr (IsIntegralV<A> && IsSignedV<A>)
+        } else if constexpr (IsIntegralV<A> && IsSignedV<A>) {
             return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                                       ~a) +
                                       1
                             : a;
-        else if constexpr (IsIntegralV<A> && IsUnsignedV<A>)
+        } else if constexpr (IsIntegralV<A> && IsUnsignedV<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
-        else if constexpr (std::is_floating_point_v<A>)
+        } else if constexpr (std::is_floating_point_v<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                     std::abs(a));
+        }
     }
 };
 
@@ -251,31 +252,10 @@ struct NamePositive {
 
 using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
-struct UnaryFunctionPlainSin {
-    using Type = DataTypeFloat64;
+struct SinName {
     static constexpr auto name = "sin";
-    using FuncType = double (*)(double);
-
-    static FuncType get_sin_func() {
-#ifndef BE_TEST
-        void* handle = dlopen("libm.so.6", RTLD_LAZY);
-        if (handle) {
-            if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
-                return sin_func;
-            }
-            dlclose(handle);
-        }
-#endif
-        return std::sin;
-    }
-
-    static void execute(const double* src, double* dst) {
-        static auto sin_func = get_sin_func();
-        *dst = sin_func(*src);
-    }
 };
-
-using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
 
 struct SinhName {
     static constexpr auto name = "sinh";
@@ -371,7 +351,7 @@ struct BinImpl {
     using ReturnColumnType = ColumnString;
 
     static std::string bin_impl(Int64 value) {
-        uint64_t n = static_cast<uint64_t>(value);
+        auto n = static_cast<uint64_t>(value);
         const size_t max_bits = sizeof(uint64_t) * 8;
         char result[max_bits];
         uint32_t index = max_bits;
@@ -621,9 +601,9 @@ public:
             }
         }
 
-        auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
-        auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
-        auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
+        const auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
+        const auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
+        const auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
 
         result_column->reserve(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -718,8 +698,6 @@ struct LcmImpl {
     }
 };
 
-// TODO: Now math may cause one thread compile time too long, because the function in math
-// so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAcosh>();
@@ -769,7 +747,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMathBinary<GcdImpl<TYPE_INT>>>();
     factory.register_function<FunctionMathBinary<GcdImpl<TYPE_BIGINT>>>();
     factory.register_function<FunctionMathBinary<GcdImpl<TYPE_LARGEINT>>>();
-    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_TINYINT>>>();
     factory.register_function<FunctionMathBinary<LcmImpl<TYPE_SMALLINT>>>();
     factory.register_function<FunctionMathBinary<LcmImpl<TYPE_INT>>>();
     factory.register_function<FunctionMathBinary<LcmImpl<TYPE_BIGINT>>>();

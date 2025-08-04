@@ -19,6 +19,14 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
@@ -136,6 +144,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountSubstring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32Internal;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
@@ -762,6 +771,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Left.class, "left", "strleft"),
             scalar(Length.class, "length"),
             scalar(Crc32.class, "crc32"),
+            scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln", "dlog1"),
             scalar(Locate.class, "locate"),
@@ -987,7 +997,15 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SessionUser.class, "session_user"),
             scalar(LastQueryId.class, "last_query_id"),
             scalar(Compress.class, "compress"),
-            scalar(Uncompress.class, "uncompress"));
+            scalar(Uncompress.class, "uncompress"),
+            scalar(LLMTranslate.class, "llm_translate"),
+            scalar(LLMSentiment.class, "llm_sentiment"),
+            scalar(LLMFixGrammar.class, "llm_fixgrammar"),
+            scalar(LLMExtract.class, "llm_extract"),
+            scalar(LLMGenerate.class, "llm_generate"),
+            scalar(LLMClassify.class, "llm_classify"),
+            scalar(LLMMask.class, "llm_mask"),
+            scalar(LLMSummarize.class, "llm_summarize"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

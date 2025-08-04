@@ -660,6 +660,7 @@ message CommitTxnLogPB {
     // for recycle txn key
     optional int64 txn_id = 4;
     optional RecycleTxnPB recycle_txn = 5;
+    optional int64 db_id = 6;
 }
 
 message SchemaChangeLogPB {
@@ -693,8 +694,7 @@ message DropIndexLogPB {
 }
 
 message UpdateTabletLogPB {
-    optional int64 tablet_id = 1;
-    optional int64 prev_timestamp = 2;
+    repeated int64 tablet_ids = 1;
 }
 
 message UpdateDeleteBitmapLogPB {

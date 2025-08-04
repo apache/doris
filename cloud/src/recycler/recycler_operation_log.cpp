@@ -63,6 +63,10 @@ public:
 
     int recycle_drop_partition_log(const DropPartitionLogPB& drop_partition_log);
 
+    int recycle_commit_txn_log(const CommitTxnLogPB& commit_txn_log);
+
+    int recycle_update_tablet_log(const UpdateTabletLogPB& update_tablet_log);
+
     int commit();
 
 private:
@@ -96,12 +100,111 @@ int OperationLogRecycler::recycle_drop_partition_log(const DropPartitionLogPB& d
             return -1;
         }
         std::string recycle_key = recycle_partition_key({instance_id_, partition_id});
+        LOG_INFO("put recycle partition key")
+                .tag("recycle_key", hex(recycle_key))
+                .tag("partition_id", partition_id);
         kvs_.emplace_back(std::move(recycle_key), std::move(recycle_partition_value));
     }
 
     if (drop_partition_log.update_table_version()) {
         return recycle_table_version(drop_partition_log.table_id());
     }
+    return 0;
+}
+
+int OperationLogRecycler::recycle_commit_txn_log(const CommitTxnLogPB& commit_txn_log) {
+    MetaReader meta_reader(instance_id_, txn_kv_, log_version_);
+
+    int64_t txn_id = commit_txn_log.txn_id();
+    for (const auto& [partition_id, _] : commit_txn_log.partition_version_map()) {
+        Versionstamp prev_version;
+        TxnErrorCode err = meta_reader.get_partition_version(partition_id, nullptr, &prev_version);
+        if (err == TxnErrorCode::TXN_OK) {
+            std::string partition_version_key =
+                    versioned::partition_version_key({instance_id_, partition_id});
+            keys_to_remove_.emplace_back(encode_versioned_key(partition_version_key, prev_version));
+        } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG_WARNING("failed to get previous partition version for recycling")
+                    .tag("partition_id", partition_id)
+                    .tag("txn_id", txn_id)
+                    .tag("error_code", err);
+            return -1;
+        } else {
+            VLOG_DEBUG << "No previous partition version found for recycling"
+                       << " partition_id=" << partition_id << " txn_id=" << txn_id;
+        }
+    }
+
+    for (const auto& [tablet_id, _] : commit_txn_log.tablet_to_partition_map()) {
+        Versionstamp prev_version;
+        TxnErrorCode err = meta_reader.get_tablet_load_stats(tablet_id, nullptr, &prev_version);
+        if (err == TxnErrorCode::TXN_OK) {
+            std::string tablet_stats_key =
+                    versioned::tablet_load_stats_key({instance_id_, tablet_id});
+            keys_to_remove_.emplace_back(encode_versioned_key(tablet_stats_key, prev_version));
+        } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG_WARNING("failed to get tablet load stats for recycling")
+                    .tag("tablet_id", tablet_id)
+                    .tag("txn_id", txn_id)
+                    .tag("error_code", err);
+            return -1;
+        } else {
+            VLOG_DEBUG << "No previous tablet load stats found for recycling"
+                       << " tablet_id=" << tablet_id << " txn_id=" << txn_id;
+        }
+    }
+
+    for (int64_t table_id : commit_txn_log.table_ids()) {
+        int res = recycle_table_version(table_id);
+        if (res != 0) {
+            return res;
+        }
+    }
+
+    int64_t db_id = commit_txn_log.db_id();
+    std::string recycle_val;
+    std::string recycle_key = recycle_txn_key({instance_id_, db_id, txn_id});
+    RecycleTxnPB recycle_pb;
+    auto now_time = system_clock::now();
+    uint64_t visible_time = duration_cast<milliseconds>(now_time.time_since_epoch()).count();
+    recycle_pb.set_creation_time(visible_time);
+    recycle_pb.set_label(commit_txn_log.recycle_txn().label());
+
+    if (!recycle_pb.SerializeToString(&recycle_val)) {
+        LOG_ERROR("Failed to serialize RecycleTxnPB").tag("txn_id", txn_id).tag("db_id", db_id);
+        return -1;
+    }
+
+    LOG_INFO("put recycle txn key")
+            .tag("recycle_key", hex(recycle_key))
+            .tag("txn_id", txn_id)
+            .tag("db_id", db_id);
+    kvs_.emplace_back(std::move(recycle_key), std::move(recycle_val));
+
+    return 0;
+}
+
+int OperationLogRecycler::recycle_update_tablet_log(const UpdateTabletLogPB& update_tablet_log) {
+    MetaReader meta_reader(instance_id_, txn_kv_, log_version_);
+    for (int64_t tablet_id : update_tablet_log.tablet_ids()) {
+        // Find the previous tablet meta (overwrite) to remove.
+        TabletMetaCloudPB tablet_meta;
+        Versionstamp versionstamp;
+        TxnErrorCode err = meta_reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            // No tablet meta found, nothing to recycle.
+            continue;
+        } else if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get tablet meta for recycling operation log")
+                    .tag("tablet_id", tablet_id)
+                    .tag("error_code", err);
+            return -1;
+        }
+
+        std::string tablet_meta_key = versioned::meta_tablet_key({instance_id_, tablet_id});
+        keys_to_remove_.emplace_back(encode_versioned_key(tablet_meta_key, versionstamp));
+    }
+
     return 0;
 }
 
@@ -139,6 +242,7 @@ int OperationLogRecycler::recycle_table_version(int64_t table_id) {
     TxnErrorCode err = meta_reader.get_table_version(table_id, &prev_version);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // No operation log found, nothing to recycle.
+        return 0;
     } else if (err != TxnErrorCode::TXN_OK) {
         LOG_WARNING("failed to get table version for recycling operation log")
                 .tag("table_id", table_id)
@@ -147,8 +251,35 @@ int OperationLogRecycler::recycle_table_version(int64_t table_id) {
     }
 
     std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
+
     keys_to_remove_.emplace_back(encode_versioned_key(table_version_key, prev_version));
     return 0;
+}
+
+static TxnErrorCode get_txn_info(TxnKv* txn_kv, std::string_view instance_id, int64_t db_id,
+                                 int64_t txn_id, TxnInfoPB* txn_info) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    std::string key = txn_info_key({instance_id, db_id, txn_id});
+    std::string txn_info_value;
+    err = txn->get(key, &txn_info_value);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    if (!txn_info->ParseFromString(txn_info_value)) {
+        LOG_WARNING("failed to parse TxnInfoPB")
+                .tag("value_size", txn_info_value.size())
+                .tag("key", hex(key))
+                .tag("txn_id", txn_id);
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+
+    return TxnErrorCode::TXN_OK;
 }
 
 int InstanceRecycler::recycle_operation_logs() {
@@ -260,21 +391,66 @@ int InstanceRecycler::recycle_operation_logs() {
 
 int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
                                             OperationLogPB operation_log) {
-#define RECYCLE_OPERATION_LOG(log_type, method_name)                  \
-    if (operation_log.has_##log_type()) {                             \
-        int res = log_recycler.method_name(operation_log.log_type()); \
-        if (res != 0) {                                               \
-            LOG_WARNING("failed to recycle " #log_type " log")        \
-                    .tag("res", res)                                  \
-                    .tag("log_version", log_version.to_string());     \
-            return res;                                               \
-        }                                                             \
+    int recycle_log_count = 0;
+    OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version);
+
+#define RECYCLE_OPERATION_LOG(log_type, method_name)                      \
+    do {                                                                  \
+        if (operation_log.has_##log_type()) {                             \
+            int res = log_recycler.method_name(operation_log.log_type()); \
+            if (res != 0) {                                               \
+                LOG_WARNING("failed to recycle " #log_type " log")        \
+                        .tag("res", res)                                  \
+                        .tag("log_version", log_version.to_string());     \
+                return res;                                               \
+            }                                                             \
+            recycle_log_count++;                                          \
+        }                                                                 \
+    } while (0)
+
+    RECYCLE_OPERATION_LOG(commit_partition, recycle_commit_partition_log);
+    RECYCLE_OPERATION_LOG(drop_partition, recycle_drop_partition_log);
+    RECYCLE_OPERATION_LOG(update_tablet, recycle_update_tablet_log);
+#undef RECYCLE_OPERATION_LOG
+
+    if (operation_log.has_commit_txn()) {
+        const CommitTxnLogPB& commit_txn_log = operation_log.commit_txn();
+        TxnInfoPB txn_info;
+        TxnErrorCode err = get_txn_info(txn_kv_.get(), instance_id_, commit_txn_log.db_id(),
+                                        commit_txn_log.txn_id(), &txn_info);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get TxnInfoPB for recycling commit txn log")
+                    .tag("txn_id", commit_txn_log.txn_id())
+                    .tag("error_code", err);
+            return -1;
+        }
+
+        if (txn_info.status() != TxnStatusPB::TXN_STATUS_VISIBLE) {
+            VLOG_DEBUG << "TxnInfoPB state is not VISIBLE, skip recycling commit txn log"
+                       << ", txn_id: " << commit_txn_log.txn_id()
+                       << ", state: " << TxnStatusPB_Name(txn_info.status());
+            return 0;
+        }
+
+        int res = log_recycler.recycle_commit_txn_log(commit_txn_log);
+        if (res != 0) {
+            LOG_WARNING("failed to recycle commit_txn log")
+                    .tag("res", res)
+                    .tag("txn_id", commit_txn_log.txn_id())
+                    .tag("log_version", log_version.to_string());
+            return res;
+        }
+
+        recycle_log_count++;
     }
 
-    OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version);
-    RECYCLE_OPERATION_LOG(commit_partition, recycle_commit_partition_log)
-    RECYCLE_OPERATION_LOG(drop_partition, recycle_drop_partition_log)
-#undef RECYCLE_OPERATION_LOG
+    if (recycle_log_count > 1) {
+        LOG_FATAL("recycle operation log count is more than 1")
+                .tag("recycle_log_count", recycle_log_count)
+                .tag("log_version", log_version.to_string())
+                .tag("operation_log", operation_log.ShortDebugString());
+        return -1; // This is an unexpected condition, should not happen
+    }
 
     return log_recycler.commit();
 }

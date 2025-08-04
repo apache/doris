@@ -21,6 +21,14 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
@@ -144,6 +152,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountSubstring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32Internal;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
@@ -1560,6 +1569,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(crc32, context);
     }
 
+    default R visitCrc32Internal(Crc32Internal crc32Internal, C context) {
+        return visitScalarFunction(crc32Internal, context);
+    }
+
     default R visitLike(Like like, C context) {
         return visitStringRegexPredicate(like, context);
     }
@@ -2414,5 +2427,37 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitNonNullable(NonNullable nonNullable, C context) {
         return visitScalarFunction(nonNullable, context);
+    }
+
+    default R visitLLMTranslate(LLMTranslate llmTranslate, C context) {
+        return visitScalarFunction(llmTranslate, context);
+    }
+
+    default R visitLLMSentiment(LLMSentiment llmSentiment, C context) {
+        return visitScalarFunction(llmSentiment, context);
+    }
+
+    default R visitLLMFixGrammar(LLMFixGrammar llmFixGrammar, C context) {
+        return visitScalarFunction(llmFixGrammar, context);
+    }
+
+    default R visitLLMExtract(LLMExtract llmExtract, C context) {
+        return visitScalarFunction(llmExtract, context);
+    }
+
+    default R visitLLMGenerate(LLMGenerate llmGenerate, C context) {
+        return visitScalarFunction(llmGenerate, context);
+    }
+
+    default R visitLLMClassify(LLMClassify llmClassify, C context) {
+        return visitScalarFunction(llmClassify, context);
+    }
+
+    default R visitLLMMask(LLMMask llmMask, C context) {
+        return visitScalarFunction(llmMask, context);
+    }
+
+    default R visitLLMSummarize(LLMSummarize llmSummarize, C context) {
+        return visitScalarFunction(llmSummarize, context);
     }
 }

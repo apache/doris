@@ -372,15 +372,17 @@ private:
     int _precision;
     int _scale;
 
-    static constexpr bool _is_reject_split_type = primitive_type == PrimitiveType::TYPE_LARGEINT ||
-                                                  primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
-                                                  primitive_type == PrimitiveType::TYPE_HLL ||
-                                                  primitive_type == PrimitiveType::TYPE_VARCHAR ||
-                                                  primitive_type == PrimitiveType::TYPE_CHAR ||
-                                                  primitive_type == PrimitiveType::TYPE_STRING ||
-                                                  primitive_type == PrimitiveType::TYPE_BOOLEAN ||
-                                                  primitive_type == PrimitiveType::TYPE_DATETIME ||
-                                                  primitive_type == PrimitiveType::TYPE_DATETIMEV2;
+    static constexpr bool _is_reject_split_type =
+            primitive_type == PrimitiveType::TYPE_LARGEINT ||
+            primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
+            primitive_type == PrimitiveType::TYPE_HLL ||
+            primitive_type == PrimitiveType::TYPE_VARCHAR ||
+            primitive_type == PrimitiveType::TYPE_CHAR ||
+            primitive_type == PrimitiveType::TYPE_STRING ||
+            primitive_type == PrimitiveType::TYPE_BOOLEAN ||
+            primitive_type == PrimitiveType::TYPE_DATETIME ||
+            primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
+            primitive_type == PrimitiveType::TYPE_DECIMAL256;
 
     int _runtime_filter_id = -1;
 

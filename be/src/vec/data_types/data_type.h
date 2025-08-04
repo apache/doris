@@ -214,6 +214,9 @@ public:
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
 
+    // Return wrapped field with precision and scale, only use in Variant type to get the detailed type info
+    virtual FieldWithDataType get_field_with_data_type(const IColumn& column, size_t row_num) const;
+
     [[nodiscard]] virtual UInt32 get_precision() const { return 0; }
     [[nodiscard]] virtual UInt32 get_scale() const { return 0; }
     virtual void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const {}

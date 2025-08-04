@@ -167,9 +167,7 @@ struct StartsWithOp {
     using ResultPaddedPODArray = PaddedPODArray<UInt8>;
 
     static void execute(const std::string_view& strl, const std::string_view& strr, uint8_t& res) {
-        re2::StringPiece str_sp(const_cast<char*>(strl.data()), strl.length());
-        re2::StringPiece prefix_sp(const_cast<char*>(strr.data()), strr.length());
-        res = str_sp.starts_with(prefix_sp);
+        res = strl.starts_with(strr);
     }
 };
 
@@ -182,9 +180,7 @@ struct EndsWithOp {
     using ResultPaddedPODArray = PaddedPODArray<UInt8>;
 
     static void execute(const std::string_view& strl, const std::string_view& strr, uint8_t& res) {
-        re2::StringPiece str_sp(const_cast<char*>(strl.data()), strl.length());
-        re2::StringPiece prefix_sp(const_cast<char*>(strr.data()), strr.length());
-        res = str_sp.ends_with(prefix_sp);
+        res = strl.ends_with(strr);
     }
 };
 
@@ -1408,6 +1404,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrcmp>();
     factory.register_function<FunctionNgramSearch>();
     factory.register_function<FunctionXPathString>();
+    factory.register_function<FunctionCrc32Internal>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

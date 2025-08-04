@@ -85,6 +85,7 @@ import org.apache.doris.nereids.DorisParser.AdminCheckTabletsContext;
 import org.apache.doris.nereids.DorisParser.AdminCompactTableContext;
 import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminRebalanceDiskContext;
+import org.apache.doris.nereids.DorisParser.AdminSetEncryptionRootKeyContext;
 import org.apache.doris.nereids.DorisParser.AdminSetTableStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.AdminShowTabletStorageFormatContext;
@@ -441,6 +442,7 @@ import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableSnapshotContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TabletListContext;
+import org.apache.doris.nereids.DorisParser.TrimContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UninstallPluginContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
@@ -587,6 +589,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetEncryptionRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
@@ -1219,7 +1222,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             SelectHintContext selectHintContext = (SelectHintContext) selectHintContexts.get(0);
             Map<String, String> parameterNames = Maps.newLinkedHashMap();
             for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
-                String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+                String hintName = hintStatement.hintName().getText().toLowerCase(Locale.ROOT);
                 if (!hintName.equalsIgnoreCase("set_var")) {
                     throw new AnalysisException("only set_var hint is allowed in: " + ctx.getText());
                 }
@@ -1700,6 +1703,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAlterSystemRenameComputeGroup(AlterSystemRenameComputeGroupContext ctx) {
         return new AlterSystemRenameComputeGroupCommand(ctx.name.getText(), ctx.newName.getText());
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetEncryptionRootKey(AdminSetEncryptionRootKeyContext ctx) {
+        Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
+        return new AdminSetEncryptionRootKeyCommand(properties);
     }
 
     @Override
@@ -3044,6 +3053,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitTrim(TrimContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            params = Lists.reverse(params);
+            String name = "trim";
+            if (ctx.LEADING() != null) {
+                name = "ltrim";
+            } else if (ctx.TRAILING() != null) {
+                name = "rtrim";
+            }
+            return processUnboundFunction(ctx, null, name, false, params, null, null);
+        });
+    }
+
+    @Override
     public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String dbName = null;
@@ -3053,7 +3077,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = Lists.newArrayList();
-            params.addAll(visit(ctx.expression(), Expression.class));
+            params.addAll(visit(ctx.funcExpression(), Expression.class));
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
             return processUnboundFunction(ctx, dbName, functionName, isDistinct, params,
@@ -3331,13 +3355,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         DataType dataType = array.expectedInputTypes().get(0);
         return items.stream()
-                .map(item -> {
-                    try {
-                        return item.checkedCastTo(dataType);
-                    } catch (Exception ignored) {
-                        return item.deprecatingCheckedCastTo(dataType);
-                    }
-                })
+                .map(item -> item.checkedCastWithFallback(dataType))
                 .map(Literal.class::cast)
                 .collect(ImmutableList.toImmutableList());
     }
@@ -4123,7 +4141,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         hints.add(new SelectHintUseMv("NO_USE_MV", getTableList(hintStatement.tableList), false));
                         continue;
                     }
-                    String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+                    String hintName = hintStatement.hintName().getText().toLowerCase(Locale.ROOT);
                     switch (hintName) {
                         case "set_var":
                             Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
@@ -4220,8 +4238,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (hintContext instanceof SelectHintContext) {
                     SelectHintContext preAggOnHintContext = (SelectHintContext) hintContext;
                     if (preAggOnHintContext.hintStatement != null
-                            && preAggOnHintContext.hintStatement.hintName != null) {
-                        String text = preAggOnHintContext.hintStatement.hintName.getText();
+                            && preAggOnHintContext.hintStatement.hintName() != null) {
+                        String text = preAggOnHintContext.hintStatement.hintName().getText();
                         if (text.equalsIgnoreCase("PREAGGOPEN")) {
                             newPlan = new LogicalPreAggOnHint<>(newPlan);
                             break;

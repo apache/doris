@@ -100,6 +100,39 @@ Status DataTypeDateTimeV2SerDe::from_string_strict_mode_batch(
     return Status::OK();
 }
 
+Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
+                                            const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnDateTimeV2&>(column);
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    DateV2Value<DateTimeV2ValueType> res;
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    if (!CastToDatetimeV2::from_string_non_strict_mode(str, res, options.timezone, _scale, params))
+            [[unlikely]] {
+        return Status::InvalidArgument("parse datetimev2 fail, string: '{}'", str.to_string());
+    }
+    col_data.insert_value(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(res));
+    return Status::OK();
+}
+
+Status DataTypeDateTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                        const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnDateTimeV2&>(column);
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+
+    DateV2Value<DateTimeV2ValueType> res;
+    CastToDatetimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
+    // only after we called something with `IS_STRICT = true`, params.status will be set
+    RETURN_IF_ERROR(params.status);
+    col_data.insert_value(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(res));
+    return Status::OK();
+}
+
 template <typename IntDataType>
 Status DataTypeDateTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_col,
                                                ColumnNullable& target_col) const {
@@ -412,7 +445,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
-                                                    std::vector<StringRef>& buffer_list) const {
+                                                    vectorized::Arena& arena) const {
     const auto& col_data = assert_cast<const ColumnDateTimeV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
 

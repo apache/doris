@@ -154,7 +154,7 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
           _tablet_schema(std::move(tablet_schema)),
-          _idx_file_info(idx_file_info) {}
+          _idx_file_info(std::move(idx_file_info)) {}
 
 Segment::~Segment() {
     g_segment_estimate_mem_bytes << -_tracked_meta_mem_usage;
@@ -297,17 +297,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
     }
 
-    if (config::ignore_always_true_predicate_for_segment &&
-        read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
+    // TODO: Valid the opt not only in ReaderType::READER_QUERY
+    if (read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
         !read_options.column_predicates.empty()) {
         auto pruned_predicates = read_options.column_predicates;
         auto pruned = false;
         for (auto& it : _column_readers) {
             const auto uid = it.first;
             const auto column_id = read_options.tablet_schema->field_index(uid);
-            if (it.second->prune_predicates_by_zone_map(pruned_predicates, column_id)) {
-                pruned = true;
-            }
+            pruned |= it.second->prune_predicates_by_zone_map(pruned_predicates, column_id);
         }
 
         if (pruned) {
