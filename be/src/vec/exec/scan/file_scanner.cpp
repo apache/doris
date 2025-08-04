@@ -253,13 +253,32 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     std::unordered_map<SlotId, MutableColumnPtr> partition_slot_id_to_column;
     for (auto const& partition_col_desc : _partition_col_descs) {
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
-        auto test_serde = partition_slot_desc->get_data_type_ptr()->get_serde();
-        auto partition_value_column = partition_slot_desc->get_data_type_ptr()->create_column();
+        auto data_type = partition_slot_desc->get_data_type_ptr();
+        auto test_serde = data_type->get_serde();
+        auto partition_value_column = data_type->create_column();
         auto* col_ptr = static_cast<IColumn*>(partition_value_column.get());
         Slice slice(partition_value.data(), partition_value.size());
         uint64_t num_deserialized = 0;
-        RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                *col_ptr, slice, partition_value_column_size, &num_deserialized, {}));
+        DataTypeSerDe::FormatOptions options {};
+        if (_partition_value_is_null.contains(partition_slot_desc->col_name())) {
+            // for iceberg/paimon table
+            test_serde = data_type->is_nullable() ? test_serde->get_nested_serdes()[0] : test_serde;
+            bool is_null = _partition_value_is_null[partition_slot_desc->col_name()];
+            if (is_null) {
+                // If the partition value is null, insert default values into the ColumnNullable.
+                col_ptr->insert_many_defaults(partition_value_column_size);
+            } else {
+                // If the partition value is not null, we deserialize it normally.
+                RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
+                        *col_ptr, slice, partition_value_column_size, &num_deserialized, options));
+            }
+        } else {
+            // for hive/hudi table, the null value is set as "\\N"
+            // TODO: this will be unified as iceberg/paimon table in the future
+            RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
+                    *col_ptr, slice, partition_value_column_size, &num_deserialized, options));
+        }
+
         partition_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
 
@@ -1482,6 +1501,10 @@ Status FileScanner::_generate_partition_columns() {
                 }
                 _partition_col_descs.emplace(slot_desc->col_name(),
                                              std::make_tuple(data, slot_desc));
+                if (range.__isset.columns_from_path_is_null) {
+                    _partition_value_is_null.emplace(slot_desc->col_name(),
+                                                     range.columns_from_path_is_null[it->second]);
+                }
             }
         }
     }

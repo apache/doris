@@ -192,6 +192,7 @@ protected:
     bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
+    std::unordered_map<std::string, bool> _partition_value_is_null;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
     // idx of skip_bitmap_col in _input_tuple_desc
