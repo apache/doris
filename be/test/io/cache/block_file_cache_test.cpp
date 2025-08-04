@@ -4392,8 +4392,8 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_1) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::BlockFileCache cache(cache_base_path, settings);
-    config::file_cache_enter_disk_resource_limit_mode_percent =
-            config::file_cache_exit_disk_resource_limit_mode_percent = 50;
+    config::file_cache_enter_disk_resource_limit_mode_percent = 49;
+    config::file_cache_exit_disk_resource_limit_mode_percent = 50;
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
         if (cache.get_async_open_success()) {
