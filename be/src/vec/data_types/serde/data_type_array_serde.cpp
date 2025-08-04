@@ -20,6 +20,7 @@
 #include <arrow/array/builder_nested.h>
 
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -493,5 +494,53 @@ Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& a
         RETURN_IF_ERROR(nested_serde->read_column_from_pb(nested_column, arg.child_element(i)));
     }
     return Status::OK();
+}
+
+template <bool is_strict_mode>
+Status DataTypeArraySerDe::_from_string(StringRef& str, IColumn& column,
+                                        const FormatOptions& options) const {
+    if (str.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    DCHECK(nested_column.is_nullable());
+    if (str.front() != '[') {
+        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
+                                       str.to_string());
+    }
+    if (str.back() != ']') {
+        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
+                                       str.to_string());
+    }
+    // empty array []
+    if (str.size == 2) {
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
+        return Status::OK();
+    }
+    str = str.substring(1, str.size - 2); // remove '[' and ']'
+
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
+            str, [&](char c) { return c == options.collection_delim; });
+
+    for (auto& e : split_result) {
+        RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
+                nested_serde, nested_column, e.element, options));
+    }
+
+    offsets.emplace_back(offsets.back() + split_result.size());
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::from_string(StringRef& str, IColumn& column,
+                                       const FormatOptions& options) const {
+    return _from_string<false>(str, column, options);
+}
+Status DataTypeArraySerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                   const FormatOptions& options) const {
+    return _from_string<true>(str, column, options);
 }
 } // namespace doris::vectorized

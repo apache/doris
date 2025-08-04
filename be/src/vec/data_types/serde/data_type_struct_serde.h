@@ -116,6 +116,12 @@ public:
 
     std::string get_name() const override;
 
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
@@ -190,6 +196,9 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
+
+    template <bool is_strict_mode>
+    Status _from_string(StringRef& str, IColumn& column, const FormatOptions& options) const;
 
     DataTypeSerDeSPtrs elem_serdes_ptrs;
     Strings elem_names;

@@ -104,6 +104,44 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
 }
 
 template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                            const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+    FieldType to;
+
+    CastParameters params;
+    params.is_strict = false;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+
+    if (!CastToDecimal::from_string(str, to, arg_precision, arg_scale, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str.to_string());
+    }
+    column_to.insert_value(to);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                        const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+    FieldType to;
+
+    CastParameters params;
+    params.is_strict = true;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+
+    if (!CastToDecimal::from_string(str, to, arg_precision, arg_scale, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str.to_string());
+    }
+    column_to.insert_value(to);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                          int64_t end_idx, BufferWritable& bw,
                                                          FormatOptions& options) const {

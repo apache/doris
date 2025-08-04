@@ -438,21 +438,29 @@ Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
 
 Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
                                           const FormatOptions& options) const {
-    auto& col = assert_cast<ColumnNullable&>(column);
-    auto& nested_col = col.get_nested_column();
-    Status st = nested_serde->from_string(str, nested_col, options);
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    auto st = nested_serde->from_string(str, null_column.get_nested_column(), options);
     if (!st.ok()) {
-        // default is null
-        col.insert_default();
+        // fill null if fail
+        null_column.insert_default();
+        return Status::OK();
     }
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
 
+// Note that the difference between the strict mode and the non-strict mode here is that in the non-strict mode,
+// if an error occurs, a null value will be inserted.
+// But the problem is that in fact, only some nested complex types need to "inject an error and insert a null value".
+// Maybe it's better to leave this processing to the complex type's own from string processing?
 Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                       const FormatOptions& options) const {
-    auto& col = assert_cast<ColumnNullable&>(column);
-    auto& nested_col = col.get_nested_column();
-    return nested_serde->from_string_strict_mode(str, nested_col, options);
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    RETURN_IF_ERROR(nested_serde->from_string(str, null_column.get_nested_column(), options));
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
 }
 } // namespace vectorized
 } // namespace doris
