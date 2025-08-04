@@ -70,8 +70,8 @@ public class MetricsTest {
 
     @Test
     public void testUserQueryMetrics() {
-        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
-        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
+        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").update(1L);
+        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").update(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
         MetricVisitor visitor = new PrometheusMetricVisitor();
         MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
@@ -274,8 +274,8 @@ public class MetricsTest {
 
     @Test
     public void testListQueryMetrics() {
-        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
-        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
+        MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").update(1L);
+        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").update(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
         List<List<String>> metricsList = new LinkedList<>();
         MetricVisitor visitor = new ListMetricVisitor(metricsList, "127.0.0.1");
