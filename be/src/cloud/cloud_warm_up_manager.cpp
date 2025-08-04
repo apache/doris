@@ -105,8 +105,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                io::FileSystemSPtr file_system,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
-                                               bool is_index,
-                                               std::function<void(Status)> done_cb) {
+                                               bool is_index, std::function<void(Status)> done_cb) {
     if (file_size < 0) {
         auto st = file_system->file_size(path, &file_size);
         if (!st.ok()) [[unlikely]] {
