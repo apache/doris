@@ -80,9 +80,9 @@ static const std::map<std::string_view, Int128> UNITS = {
 
 struct ParseDataSize {
     using ReturnType = DataTypeInt128;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int128>;
+    using ReturnColumnType = ColumnInt128;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int128>& res) {
@@ -112,7 +112,15 @@ struct ParseDataSize {
                                    dataSize);
         }
         // 123.45MB--->123.45 : MB
-        double value = std::stod(std::string(dataSize.substr(0, digit_length)));
+        double value = 0.0;
+        try {
+            value = std::stod(std::string(dataSize.substr(0, digit_length)));
+        } catch (const std::exception& e) {
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Invalid Input argument \"{}\" of function parse_data_size, error: {}",
+                    dataSize, e.what());
+        }
         auto unit = dataSize.substr(digit_length);
         auto it = UNITS.find(unit);
         if (it != UNITS.end()) {

@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -53,8 +54,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto column = block.get_by_position(arguments[0]).column;
-        const auto& column_data =
-                assert_cast<const ColumnVector<Float64>*>(column.get())->get_data();
+        const auto& column_data = assert_cast<const ColumnFloat64*>(column.get())->get_data();
         auto col_res = ColumnString::create();
         fmt::memory_buffer buffer;
 
@@ -117,13 +117,14 @@ public:
         bool valid =
                 cast_type(block.get_by_position(arguments[1]).type.get(), [&](const auto& type) {
                     using DataType = std::decay_t<decltype(type)>;
-                    using T = typename DataType::FieldType;
                     using ColVecData =
-                            std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
+                            std::conditional_t<is_number(DataType::PType),
+                                               ColumnVector<DataType::PType>, ColumnString>;
                     if (auto col = check_and_get_column<ColVecData>(
                                            block.get_by_position(arguments[1]).column.get()) ||
                                    is_column_const(*block.get_by_position(arguments[1]).column)) {
-                        execute_inner<ColVecData, T>(block, arguments, result, input_rows_count);
+                        execute_inner<ColVecData, DataType::PType>(block, arguments, result,
+                                                                   input_rows_count);
                         return true;
                     }
                     return false;
@@ -144,7 +145,7 @@ public:
                                    DataTypeString>(type, std::forward<F>(f));
     }
 
-    template <typename ColVecData, typename T>
+    template <typename ColVecData, PrimitiveType T>
     void execute_inner(Block& block, const ColumnNumbers& arguments, uint32_t result,
                        size_t input_rows_count) const {
         size_t argument_size = arguments.size();
@@ -174,7 +175,7 @@ public:
         block.replace_by_position(result, std::move(result_column));
     }
 
-    template <typename ColVecData, typename T>
+    template <typename ColVecData, PrimitiveType T>
     void execute_for_two_argument(std::vector<ColumnPtr>& argument_columns,
                                   std::vector<uint8_t>& is_consts, ColumnString* result_data_column,
                                   size_t input_rows_count) const {
@@ -185,11 +186,11 @@ public:
                     format_column.get_data_at(index_check_const(i, is_consts[0])).to_string_view();
             std::string res;
             try {
-                if constexpr (std::is_same_v<ColVecData, ColumnString>) {
+                if constexpr (is_string_type(T)) {
                     auto value = value_column.get_data_at(index_check_const(i, is_consts[1]));
                     res = fmt::format(format, value);
                 } else {
-                    auto value = value_column.get_data()[i];
+                    auto value = value_column.get_data()[index_check_const(i, is_consts[1])];
                     res = fmt::format(format, value);
                 }
             } catch (const std::exception& e) {
@@ -202,7 +203,7 @@ public:
         }
     }
 
-    template <typename ColVecData, typename T>
+    template <typename ColVecData, PrimitiveType T>
     void execute_for_others_arg(std::vector<ColumnPtr>& argument_columns,
                                 ColumnString* result_data_column, size_t argument_size,
                                 size_t input_rows_count) const {
@@ -211,7 +212,7 @@ public:
             auto format = format_column.get_data_at(i).to_string_view();
             std::string res;
             fmt::dynamic_format_arg_store<fmt::format_context> args;
-            if constexpr (std::is_same_v<ColVecData, ColumnString>) {
+            if constexpr (is_string_type(T)) {
                 for (int col = 1; col < argument_size; ++col) {
                     const auto& arg_column_data =
                             assert_cast<const ColVecData&>(*argument_columns[col].get());
