@@ -7964,4 +7964,90 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_read_direclty_and_evict_cac
     FileCacheFactory::instance()->_capacity = 0;
 }
 
+extern bvar::Adder<uint64_t> g_read_cache_direct_whole_num;
+extern bvar::Adder<uint64_t> g_read_cache_direct_partial_num;
+extern bvar::Adder<uint64_t> g_read_cache_indirect_num;
+extern bvar::Adder<uint64_t> g_read_cache_direct_whole_bytes;
+extern bvar::Adder<uint64_t> g_read_cache_direct_partial_bytes;
+extern bvar::Adder<uint64_t> g_read_cache_indirect_bytes;
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_read_direclt_bytes_check) {
+    config::enable_read_cache_file_directly = true;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 6291456;
+    settings.query_queue_elements = 6;
+    settings.index_queue_size = 1048576;
+    settings.index_queue_elements = 1;
+    settings.disposable_queue_size = 1048576;
+    settings.disposable_queue_elements = 1;
+    settings.capacity = 8388608;
+    settings.max_file_block_size = 1048576;
+    settings.max_query_cache_size = 0;
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.query_id = query_id;
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));
+    io::FileReaderOptions opts;
+    opts.cache_type = io::cache_type_from_string("file_block_cache");
+    opts.is_doris_table = true;
+    auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
+
+    std::string buffer;
+    buffer.resize(64_kb);
+    IOContext io_ctx;
+    FileCacheStatistics stats;
+    io_ctx.file_cache_stats = &stats;
+    size_t bytes_read {0};
+    // read offset 100 size 64k
+    ASSERT_TRUE(
+            reader->read_at(100, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(std::string(64_kb, '0'), buffer);
+
+    auto cache = FileCacheFactory::instance()->_caches[0].get();
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    EXPECT_EQ(cache->_cur_cache_size, 1048576);
+    EXPECT_EQ(g_read_cache_indirect_num.get_value(), 1);
+    EXPECT_EQ(g_read_cache_indirect_bytes.get_value(), 64_kb);
+
+    // read offset 640k size 64k
+    ASSERT_TRUE(
+            reader->read_at(10 * 64_kb, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
+                    .ok());
+    EXPECT_EQ(std::string(64_kb, '0'), buffer);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    EXPECT_EQ(cache->_cur_cache_size, 1048576);
+    EXPECT_EQ(g_read_cache_direct_whole_num.get_value(), 1);
+    EXPECT_EQ(g_read_cache_direct_whole_bytes.get_value(), 64_kb);
+
+    // try to read first two blocks
+    ASSERT_TRUE(reader->read_at(1048576 - 100, Slice(buffer.data(), buffer.size()), &bytes_read,
+                                &io_ctx)
+                        .ok());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    EXPECT_EQ(cache->_cur_cache_size, 2097152);
+    EXPECT_EQ(g_read_cache_direct_partial_num.get_value(), 1);
+    EXPECT_EQ(g_read_cache_direct_partial_bytes.get_value(), 100);
+    EXPECT_EQ(g_read_cache_indirect_bytes.get_value(), 64_kb + 64_kb - 100);
+
+    EXPECT_TRUE(reader->close().ok());
+    EXPECT_TRUE(reader->closed());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    FileCacheFactory::instance()->_caches.clear();
+    FileCacheFactory::instance()->_path_to_cache.clear();
+    FileCacheFactory::instance()->_capacity = 0;
+}
+
 } // namespace doris::io
