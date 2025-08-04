@@ -87,6 +87,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     tcolumn.__set_visible(false);
     tcolumn.__set_default_value("default_test");
     tcolumn.__set_variant_enable_typed_paths_to_sparse(false);
+    tcolumn.__set_pattern_type(TPatternType::MATCH_NAME_GLOB);
 
     TabletColumn tablet_column;
     tablet_column.init_from_thrift(tcolumn);
@@ -744,6 +745,110 @@ TEST_F(TabletSchemaTest, test_tablet_index_field_pattern_property) {
     index_empty_pattern.init_from_pb(index_pb3);
 
     EXPECT_EQ("", index_empty_pattern.field_pattern());
+}
+
+TEST_F(TabletSchemaTest, test_tablet_schema_variant_max_subcolumns_count) {
+    TabletSchema schema;
+
+    EXPECT_EQ(0, schema.variant_max_subcolumns_count());
+
+    TabletColumn non_variant_col;
+    non_variant_col.set_unique_id(12001);
+    non_variant_col.set_name("string_col");
+    non_variant_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    schema.append_column(non_variant_col);
+
+    EXPECT_EQ(0, schema.variant_max_subcolumns_count());
+
+    TabletColumn variant_col1;
+    variant_col1.set_unique_id(12002);
+    variant_col1.set_name("variant_col1");
+    variant_col1.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_col1.set_variant_max_subcolumns_count(100);
+    schema.append_column(variant_col1);
+
+    EXPECT_EQ(100, schema.variant_max_subcolumns_count());
+
+    TabletColumn variant_col2;
+    variant_col2.set_unique_id(12003);
+    variant_col2.set_name("variant_col2");
+    variant_col2.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_col2.set_variant_max_subcolumns_count(200);
+    schema.append_column(variant_col2);
+
+    EXPECT_EQ(100, schema.variant_max_subcolumns_count());
+
+    TabletSchema schema_with_zero_variant;
+    TabletColumn variant_col_zero;
+    variant_col_zero.set_unique_id(12004);
+    variant_col_zero.set_name("variant_col_zero");
+    variant_col_zero.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_col_zero.set_variant_max_subcolumns_count(0);
+    schema_with_zero_variant.append_column(variant_col_zero);
+
+    EXPECT_EQ(0, schema_with_zero_variant.variant_max_subcolumns_count());
+}
+
+TEST_F(TabletSchemaTest, test_tablet_schema_need_record_variant_extended_schema) {
+    TabletSchema schema_empty;
+    EXPECT_TRUE(schema_empty.need_record_variant_extended_schema());
+
+    TabletSchema schema_non_variant;
+    TabletColumn non_variant_col;
+    non_variant_col.set_unique_id(13001);
+    non_variant_col.set_name("int_col");
+    non_variant_col.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    schema_non_variant.append_column(non_variant_col);
+    EXPECT_TRUE(schema_non_variant.need_record_variant_extended_schema());
+
+    TabletSchema schema_variant_zero;
+    TabletColumn variant_col_zero;
+    variant_col_zero.set_unique_id(13002);
+    variant_col_zero.set_name("variant_col_zero");
+    variant_col_zero.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_col_zero.set_variant_max_subcolumns_count(0);
+    schema_variant_zero.append_column(variant_col_zero);
+    EXPECT_TRUE(schema_variant_zero.need_record_variant_extended_schema());
+
+    TabletSchema schema_variant_non_zero;
+    TabletColumn variant_col_non_zero;
+    variant_col_non_zero.set_unique_id(13003);
+    variant_col_non_zero.set_name("variant_col_non_zero");
+    variant_col_non_zero.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_col_non_zero.set_variant_max_subcolumns_count(50);
+    schema_variant_non_zero.append_column(variant_col_non_zero);
+    EXPECT_FALSE(schema_variant_non_zero.need_record_variant_extended_schema());
+
+    TabletSchema schema_mixed;
+    TabletColumn regular_col;
+    regular_col.set_unique_id(13004);
+    regular_col.set_name("regular_col");
+    regular_col.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    schema_mixed.append_column(regular_col);
+
+    TabletColumn variant_col_100;
+    variant_col_100.set_unique_id(13005);
+    variant_col_100.set_name("variant_col_100");
+    variant_col_100.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_col_100.set_variant_max_subcolumns_count(100);
+    schema_mixed.append_column(variant_col_100);
+    EXPECT_FALSE(schema_mixed.need_record_variant_extended_schema());
+
+    TabletSchema schema_multiple_variants;
+    TabletColumn variant_col1;
+    variant_col1.set_unique_id(13006);
+    variant_col1.set_name("variant_col1");
+    variant_col1.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_col1.set_variant_max_subcolumns_count(150);
+    schema_multiple_variants.append_column(variant_col1);
+
+    TabletColumn variant_col2;
+    variant_col2.set_unique_id(13007);
+    variant_col2.set_name("variant_col2");
+    variant_col2.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant_col2.set_variant_max_subcolumns_count(300);
+    schema_multiple_variants.append_column(variant_col2);
+    EXPECT_FALSE(schema_multiple_variants.need_record_variant_extended_schema());
 }
 
 } // namespace doris
