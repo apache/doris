@@ -18,7 +18,6 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <rapidjson/document.h>
 
 #include "common/status.h"
 #include "vec/data_types/data_type.h"
@@ -37,7 +36,6 @@ struct ParsedData {
         _backup_data.clear();
         _values_null_flag.clear();
     }
-    virtual int set_output(rapidjson::Document& document, int value_size) = 0;
     virtual int set_output(const ArrayVal& array_doc, int value_size) = 0;
     virtual void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                                 int max_step) = 0;
@@ -53,7 +51,6 @@ struct ParsedData {
 struct ParsedDataInt : public ParsedData<int64_t> {
     static constexpr auto MAX_VALUE = std::numeric_limits<int64_t>::max(); //9223372036854775807
     static constexpr auto MIN_VALUE = std::numeric_limits<int64_t>::min(); //-9223372036854775808
-    int set_output(rapidjson::Document& document, int value_size) override;
     int set_output(const ArrayVal& array_doc, int value_size) override;
     void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                         int max_step) override;
@@ -61,8 +58,6 @@ struct ParsedDataInt : public ParsedData<int64_t> {
                                                  int length) override;
 };
 struct ParsedDataDouble : public ParsedData<double> {
-    int set_output(rapidjson::Document& document, int value_size) override;
-
     int set_output(const ArrayVal& array_doc, int value_size) override;
 
     void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
@@ -85,14 +80,10 @@ struct ParsedDataStringBase : public ParsedData<std::string> {
     char tmp_buf[128] = {0};
 };
 struct ParsedDataString : public ParsedDataStringBase {
-    int set_output(rapidjson::Document& document, int value_size) override;
-
     int set_output(const ArrayVal& array_doc, int value_size) override;
 };
 
 struct ParsedDataJSON : public ParsedDataStringBase {
-    int set_output(rapidjson::Document& document, int value_size) override;
-
     int set_output(const ArrayVal& array_doc, int value_size) override;
 };
 
