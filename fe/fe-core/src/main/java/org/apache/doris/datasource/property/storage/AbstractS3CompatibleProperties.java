@@ -176,14 +176,34 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        setEndpointIfNotSet();
-        if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
-        }
+        checkEndpoint();
         checkRequiredProperties();
         initRegionIfNecessary();
         if (StringUtils.isBlank(getRegion())) {
             throw new IllegalArgumentException("region is required");
+        }
+    }
+
+    /**
+     * Checks and validates the configured endpoint.
+     * <p>
+     * All object storage implementations must have an explicitly set endpoint.
+     * However, for compatibility with legacy behavior—especially when using DLF
+     * as the catalog—some logic may derive the endpoint based on the region.
+     * <p>
+     * To support such cases, this method is exposed as {@code protected} to allow
+     * subclasses to override it with custom logic if necessary.
+     * <p>
+     * That said, we strongly recommend users to explicitly configure both
+     * {@code endpoint} and {@code region} to ensure predictable behavior
+     * across all storage backends.
+     *
+     * @throws IllegalArgumentException if the endpoint format is invalid
+     */
+    protected void checkEndpoint() {
+        setEndpointIfNotSet();
+        if (!isValidEndpoint(getEndpoint())) {
+            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
         }
     }
 

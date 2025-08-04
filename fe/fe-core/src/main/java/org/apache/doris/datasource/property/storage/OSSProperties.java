@@ -20,14 +20,16 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -66,6 +68,11 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             description = "The region of OSS.")
     protected String region;
 
+    @ConnectorProperty(names = {"dlf.access.public", "dlf.catalog.accessPublic"},
+            required = false,
+            description = "Enable public access to Aliyun DLF.")
+    protected String dlfAccessPublic = "false";
+
     /**
      * Pattern to extract the region from an Alibaba Cloud OSS endpoint.
      * <p>
@@ -87,6 +94,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
             Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
 
+    private static final List<String> URI_KEYWORDS = Arrays.asList("uri", "warehouse");
+
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
     }
@@ -98,12 +107,16 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
-        if (!Strings.isNullOrEmpty(value)) {
+        if (StringUtils.isNotBlank(value)) {
             return (value.contains("aliyuncs.com"));
         }
+
         Optional<String> uriValue = origProps.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .filter(e -> URI_KEYWORDS.stream()
+                        .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
                 .map(Map.Entry::getValue)
+                .filter(Objects::nonNull)
+                .filter(OSSProperties::isKnownObjectStorage)
                 .findFirst();
         return uriValue.filter(OSSProperties::isKnownObjectStorage).isPresent();
     }
@@ -111,6 +124,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     private static boolean isKnownObjectStorage(String value) {
         if (value == null) {
             return false;
+        }
+        if (value.startsWith("oss://")) {
+            return true;
         }
         if (!value.contains("aliyuncs.com")) {
             return false;
@@ -122,11 +138,18 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
+    protected void checkEndpoint() {
+        if (StringUtils.isBlank(this.endpoint) && StringUtils.isNotBlank(this.region)) {
+            this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+        }
+        super.checkEndpoint();
+    }
+
+    @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (endpoint.contains("dlf") || endpoint.contains("oss-dls")) {
-            String publicAccess = origProps.getOrDefault("dlf.catalog.accessPublic", "false");
-            this.endpoint = getOssEndpoint(region, Boolean.parseBoolean(publicAccess));
+            this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
         }
         // Check if credentials are provided properly - either both or neither
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {

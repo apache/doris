@@ -20,8 +20,11 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
@@ -69,20 +72,29 @@ public class AliyunDLFBaseProperties {
     public static AliyunDLFBaseProperties of(Map<String, String> properties) {
         AliyunDLFBaseProperties propertiesObj = new AliyunDLFBaseProperties();
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.checkAndInit();
         return propertiesObj;
     }
-
 
     private ParamRules buildRules() {
 
         return new ParamRules()
                 .require(dlfAccessKey, "dlf.access_key is required")
-                .require(dlfSecretKey, "dlf.secret_key is required")
-                .require(dlfEndpoint, "dlf.endpoint is required");
+                .require(dlfSecretKey, "dlf.secret_key is required");
     }
 
     public void checkAndInit() {
         buildRules().validate();
+        if (StringUtils.isBlank(dlfEndpoint) && StringUtils.isNotBlank(dlfRegion)) {
+            if (BooleanUtils.toBoolean(dlfAccessPublic)) {
+                dlfEndpoint = "dlf." + dlfRegion + ".aliyuncs.com";
+            } else {
+                dlfEndpoint = "dlf-vpc." + dlfRegion + ".aliyuncs.com";
+            }
+        }
+        if (StringUtils.isBlank(dlfEndpoint)) {
+            throw new StoragePropertiesException("dlf.endpoint is required.");
+        }
     }
 
 }
