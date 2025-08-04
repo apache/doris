@@ -30,6 +30,7 @@
 
 #include "http/http_handler.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -135,8 +136,17 @@ const char* HttpRequest::remote_host() const {
     return _ev_req->remote_host;
 }
 
+void HttpRequest::finish_send_reply() {
+    std::string infos;
+    if (_handler_ctx != nullptr) {
+        infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
+    }
+    LOG(INFO) << "finish send reply, infos=" << infos << ", stack=" << get_stack_trace(); // temp locate problem
+    promise.set_value(true); 
+}
+
 void HttpRequest::wait_finish_send_reply() {
-    if (_send_reply_type == SYNC) {
+    if (_send_reply_type == REPLY_SYNC) {
         return;
     }
 
@@ -146,12 +156,13 @@ void HttpRequest::wait_finish_send_reply() {
         _handler->free_handler_ctx(_handler_ctx);
         _handler_ctx = nullptr;
     }
-    VLOG_NOTICE << "start to wait send reply, infos=" << infos;
+
+    LOG(INFO) << "start to wait send reply, infos=" << infos;
     auto status = _futrue.wait_for(std::chrono::seconds(600));
     if (status != std::future_status::ready) {
         LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
     } else {
-        VLOG_NOTICE << "wait send reply finished";
+        LOG(INFO) << "wait send reply finished";
     }
 }
 

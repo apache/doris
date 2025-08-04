@@ -25,6 +25,7 @@
 #include <string>
 #include <future>
 
+#include "common/config.h"
 #include "http/http_method.h"
 #include "util/string_util.h"
 
@@ -85,8 +86,7 @@ public:
 
     void mark_send_reply(SendReplyType type = REPLY_ASYNC) { _send_reply_type = type; }
 
-    void finish_send_reply() { promise.set_value(true); }
-
+    void finish_send_reply();
     void wait_finish_send_reply();
 private:
     SendReplyType _send_reply_type = REPLY_SYNC;
