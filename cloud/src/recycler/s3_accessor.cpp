@@ -28,6 +28,7 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
+
 #include "recycler/util.h"
 #ifdef USE_AZURE
 #include <azure/core/diagnostics/logger.hpp>
@@ -336,7 +337,7 @@ int S3Accessor::init() {
                 uri_ = "https://" + uri_;
             }
         }
-        uri_=normalize_uri(uri_);
+        uri_ = normalize_uri(uri_);
         // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
@@ -359,7 +360,7 @@ int S3Accessor::init() {
         } else {
             uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
         }
-        uri_=normalize_uri(uri_);
+        uri_ = normalize_uri(uri_);
 
         // S3Conf::S3
         Aws::Client::ClientConfiguration aws_config;

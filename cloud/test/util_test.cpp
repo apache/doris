@@ -346,16 +346,19 @@ TEST(UtilTest, test_normalize_uri) {
 
     // ===== Multiple consecutive slashes in different positions =====
     EXPECT_EQ(normalize_uri("https://host.com//bucket//prefix"), "https://host.com/bucket/prefix");
-    EXPECT_EQ(normalize_uri("https://host.com///bucket///prefix///"), "https://host.com/bucket/prefix/");
-    EXPECT_EQ(normalize_uri("https://host.com////bucket////prefix////file"), "https://host.com/bucket/prefix/file");
+    EXPECT_EQ(normalize_uri("https://host.com///bucket///prefix///"),
+              "https://host.com/bucket/prefix/");
+    EXPECT_EQ(normalize_uri("https://host.com////bucket////prefix////file"),
+              "https://host.com/bucket/prefix/file");
 
     // ===== Azure blob storage specific URLs =====
-    EXPECT_EQ(normalize_uri("https://account.blob.core.windows.net//container"), 
+    EXPECT_EQ(normalize_uri("https://account.blob.core.windows.net//container"),
               "https://account.blob.core.windows.net/container");
-    EXPECT_EQ(normalize_uri("https://account.blob.core.windows.net///container//prefix"), 
+    EXPECT_EQ(normalize_uri("https://account.blob.core.windows.net///container//prefix"),
               "https://account.blob.core.windows.net/container/prefix");
-    EXPECT_EQ(normalize_uri("https://account.blob.core.windows.net////container///prefix///file.txt"), 
-              "https://account.blob.core.windows.net/container/prefix/file.txt");
+    EXPECT_EQ(
+            normalize_uri("https://account.blob.core.windows.net////container///prefix///file.txt"),
+            "https://account.blob.core.windows.net/container/prefix/file.txt");
 
     // ===== URLs without protocol =====
     EXPECT_EQ(normalize_uri("example.com//path"), "example.com/path");
@@ -365,16 +368,16 @@ TEST(UtilTest, test_normalize_uri) {
     // ===== Edge cases =====
     // Empty string
     EXPECT_EQ(normalize_uri(""), "");
-    
+
     // Only protocol
     EXPECT_EQ(normalize_uri("https://"), "https://");
     EXPECT_EQ(normalize_uri("http://"), "http://");
-    
+
     // Only slashes
     EXPECT_EQ(normalize_uri("//"), "/");
     EXPECT_EQ(normalize_uri("///"), "/");
     EXPECT_EQ(normalize_uri("////"), "/");
-    
+
     // Single character paths
     EXPECT_EQ(normalize_uri("https://a"), "https://a");
     EXPECT_EQ(normalize_uri("https://a/"), "https://a/");
@@ -384,11 +387,11 @@ TEST(UtilTest, test_normalize_uri) {
     // Ensure protocol :// is never modified
     EXPECT_EQ(normalize_uri("https://example.com"), "https://example.com");
     EXPECT_EQ(normalize_uri("http://example.com"), "http://example.com");
-    
+
     // Even with extra slashes after protocol
     EXPECT_EQ(normalize_uri("https:///example.com"), "https://example.com");
     EXPECT_EQ(normalize_uri("http:///example.com"), "http://example.com");
-    
+
     // Mixed case protocol (though unusual)
     EXPECT_EQ(normalize_uri("HTTP://example.com//path"), "HTTP://example.com/path");
     EXPECT_EQ(normalize_uri("HTTPS://example.com//path"), "HTTPS://example.com/path");
@@ -401,31 +404,30 @@ TEST(UtilTest, test_normalize_uri) {
 
     // ===== Complex real-world scenarios =====
     // Simulating common configuration mistakes
-    EXPECT_EQ(normalize_uri("https://endpoint.com///bucket//prefix//file.txt"), 
+    EXPECT_EQ(normalize_uri("https://endpoint.com///bucket//prefix//file.txt"),
               "https://endpoint.com/bucket/prefix/file.txt");
-    
+
     // User configured endpoint with trailing slash + bucket with leading slash
-    EXPECT_EQ(normalize_uri("https://endpoint.com///bucket"), 
-              "https://endpoint.com/bucket");
-    
+    EXPECT_EQ(normalize_uri("https://endpoint.com///bucket"), "https://endpoint.com/bucket");
+
     // Multiple slashes everywhere
-    EXPECT_EQ(normalize_uri("https://host.com////bucket////prefix////subfolder////file"), 
+    EXPECT_EQ(normalize_uri("https://host.com////bucket////prefix////subfolder////file"),
               "https://host.com/bucket/prefix/subfolder/file");
 
     // ===== Special characters in path =====
-    EXPECT_EQ(normalize_uri("https://example.com//path-with-dash//file_with_underscore"), 
+    EXPECT_EQ(normalize_uri("https://example.com//path-with-dash//file_with_underscore"),
               "https://example.com/path-with-dash/file_with_underscore");
-    EXPECT_EQ(normalize_uri("https://example.com//path.with.dots//file@special"), 
+    EXPECT_EQ(normalize_uri("https://example.com//path.with.dots//file@special"),
               "https://example.com/path.with.dots/file@special");
-    EXPECT_EQ(normalize_uri("https://example.com//bucket123//prefix456//file789"), 
+    EXPECT_EQ(normalize_uri("https://example.com//bucket123//prefix456//file789"),
               "https://example.com/bucket123/prefix456/file789");
 
     // ===== URLs with query parameters and fragments =====
-    EXPECT_EQ(normalize_uri("https://example.com//path?query=value"), 
+    EXPECT_EQ(normalize_uri("https://example.com//path?query=value"),
               "https://example.com/path?query=value");
-    EXPECT_EQ(normalize_uri("https://example.com//path#fragment"), 
+    EXPECT_EQ(normalize_uri("https://example.com//path#fragment"),
               "https://example.com/path#fragment");
-    EXPECT_EQ(normalize_uri("https://example.com//path?query=value#fragment"), 
+    EXPECT_EQ(normalize_uri("https://example.com//path?query=value#fragment"),
               "https://example.com/path?query=value#fragment");
 }
 
@@ -434,11 +436,11 @@ TEST(UtilTest, test_long_normalize_uri) {
     for (int i = 0; i < 100; i++) {
         longPath += "//segment" + std::to_string(i);
     }
-    
+
     std::string expected = "https://example.com";
     for (int i = 0; i < 100; i++) {
         expected += "/segment" + std::to_string(i);
     }
-    
+
     EXPECT_EQ(normalize_uri(longPath), expected);
 }
