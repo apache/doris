@@ -23,7 +23,6 @@
 #include <map>
 #include <memory>
 #include <string>
-#include <future>
 
 #include "common/config.h"
 #include "http/http_method.h"
