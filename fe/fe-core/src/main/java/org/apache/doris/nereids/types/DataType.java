@@ -400,7 +400,6 @@ public abstract class DataType {
             case CHAR: return CharType.createCharType(type.getLength());
             case VARCHAR: return VarcharType.createVarcharType(type.getLength());
             case STRING: return StringType.INSTANCE;
-            case VARIANT: return VariantType.INSTANCE;
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
@@ -441,6 +440,18 @@ public abstract class DataType {
         } else if (type.isArrayType()) {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+        } else if (type.isVariantType()) {
+            if (type instanceof org.apache.doris.catalog.VariantType) {
+                List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
+                        .getPredefinedFields().stream()
+                        .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
+                                cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
+                        .collect(ImmutableList.toImmutableList());
+                return new VariantType(variantFields,
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse());
+            }
+            return new VariantType(0);
         } else {
             return UnsupportedType.INSTANCE;
         }
@@ -1038,6 +1049,20 @@ public abstract class DataType {
                 if (scale < 0 || scale > 6) {
                     throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
                             + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
+            case VARIANT: {
+                ArrayList<org.apache.doris.catalog.VariantField> predefinedFields =
+                        ((org.apache.doris.catalog.VariantType) scalarType).getPredefinedFields();
+                Set<String> fieldPatterns = new HashSet<>();
+                for (org.apache.doris.catalog.VariantField field : predefinedFields) {
+                    Type fieldType = field.getType();
+                    validateNestedType(scalarType, fieldType);
+                    if (!fieldPatterns.add(field.getPattern())) {
+                        throw new AnalysisException("Duplicate field name " + field.getPattern()
+                                + " in variant " + scalarType.toSql());
+                    }
                 }
                 break;
             }

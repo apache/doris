@@ -787,6 +787,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
 
+    public static final String GLOBAL_VARIANT_SUBCOLUMNS_COUNT = "global_variant_max_subcolumns_count";
+
+    public static final String GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "global_variant_enable_typed_paths_to_sparse";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2776,6 +2781,21 @@ public class SessionVariable implements Serializable, Writable {
                     + "when disabled rebuild indexes for all data"
     })
     public boolean enableAddIndexForNewData = false;
+
+    @VariableMgr.VarAttr(
+            name = GLOBAL_VARIANT_SUBCOLUMNS_COUNT,
+            needForward = true,
+            checker = "checkGlobalVariantMaxSubcolumnsCount",
+            fuzzy = true
+    )
+    public int globalVariantMaxSubcolumnsCount = 0;
+
+    @VariableMgr.VarAttr(
+            name = GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean globalEnableTypedPathsToSparse = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -5105,5 +5125,21 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
         }
+    }
+
+    public void checkGlobalVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+        int value = Integer.valueOf(variantMaxSubcolumnsCount);
+        if (value < 0 || value > 20000) {
+            throw new UnsupportedOperationException(
+                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 20000");
+        }
+    }
+
+    public boolean getGlobalEnableTypedPathsToSparse() {
+        return globalEnableTypedPathsToSparse;
+    }
+
+    public int getGlobalVariantMaxSubcolumnsCount() {
+        return globalVariantMaxSubcolumnsCount;
     }
 }

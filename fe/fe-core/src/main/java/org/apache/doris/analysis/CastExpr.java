@@ -159,6 +159,9 @@ public class CastExpr extends Expr {
             if (from.isComplexType() && type.isJsonbType()) {
                 nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
             }
+            if (from.isVariantType() || type.isVariantType()) {
+                nullableMode = Function.NullableMode.DEPEND_ON_ARGUMENT;
+            }
             Preconditions.checkState(nullableMode != null,
                     "cannot find nullable node for cast from " + from + " to " + to);
             fn = new Function(new FunctionName(getFnName(type)), Lists.newArrayList(e.type), type,
