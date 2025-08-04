@@ -30,7 +30,7 @@ suite('test_warm_up_cluster_event_compaction_sync_wait_timeout', 'docker') {
         'enable_evict_file_cache_in_advance=false',
         'file_cache_background_monitor_interval_ms=1000',
         'warm_up_rowset_slow_log_ms=1',
-        'enable_warm_up_rowset_sync_wait_on_compaction=true',
+        'enable_compaction_delay_commit_for_warm_up=true',
         'warm_up_rowset_sync_wait_min_timeout_ms=10000',
         'warm_up_rowset_sync_wait_max_timeout_ms=10000',
     ]

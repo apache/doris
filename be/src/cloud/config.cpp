@@ -95,7 +95,7 @@ DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
 
 DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
 
-DEFINE_mBool(enable_warm_up_rowset_sync_wait_on_compaction, "false");
+DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");
 
 DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
 
