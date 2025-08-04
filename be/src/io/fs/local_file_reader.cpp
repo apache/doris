@@ -33,8 +33,8 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "cpp/sync_point.h"
-#include "io/RateLimiterSingleton.h"
 #include "io/fs/err_utils.h"
+#include "io/rate_limiter_singleton.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"

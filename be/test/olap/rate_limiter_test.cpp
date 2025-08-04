@@ -35,9 +35,9 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
-#include "io/RateLimiterSingleton.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "io/rate_limiter_singleton.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/base_compaction.h"
 #include "olap/compaction.h"
@@ -70,8 +70,6 @@ using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
-static size_t rate_limit_use_byte_total =
-        doris::io::RateLimiterSingleton::getInstance()->GetTotalBytesThrough();
 
 class RateLimiterTest : public testing::TestWithParam<std::tuple<KeysType, bool, bool, bool, int>> {
 protected:
@@ -84,6 +82,9 @@ protected:
         config::base_compaction_dup_key_max_file_size_mbytes = 1024;
         config::mow_base_compaction_max_compaction_score = 200;
         config::base_compaction_max_compaction_score = 20;
+
+        rate_limit_use_byte_total =
+                doris::io::RateLimiterSingleton::getInstance()->GetTotalBytesThrough();
 
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -437,6 +438,7 @@ private:
     const std::string kTestDir = "/ut_dir/rate";
     std::string absolute_dir;
     std::unique_ptr<DataDir> _data_dir;
+    size_t rate_limit_use_byte_total;
 };
 
 INSTANTIATE_TEST_SUITE_P(
