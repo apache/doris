@@ -660,7 +660,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 }
 
                 LOG_INFO("[verbose] sync tablet delete bitmap " + tablet_info)
-                        .tag("full_sync", full_sync)
+                        .tag("full_sync", options.full_sync)
                         .tag("old_max_version", old_max_version)
                         .tag("new_max_version", new_max_version)
                         .tag("cumu_compaction_cnt", resp.stats().cumulative_compaction_cnt())

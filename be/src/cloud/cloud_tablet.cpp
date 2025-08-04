@@ -233,7 +233,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
         _max_version = -1;
     }
 
-    st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, false, true, false, stats);
+    st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, {}, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -347,14 +347,14 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
                     g_file_cache_cloud_tablet_submitted_segment_num << 1;
-                    if (rs->rowset_meta()->segment_file_size(seg_id) > 0) {
+                    if (rowset->rowset_meta()->segment_file_size(seg_id) > 0) {
                         g_file_cache_cloud_tablet_submitted_segment_size
-                                << rs->rowset_meta()->segment_file_size(seg_id);
+                                << rowset->rowset_meta()->segment_file_size(seg_id);
                     }
                     _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
                             .path = storage_resource.value()->remote_segment_path(*rowset_meta,
                                                                                   seg_id),
-                            .file_size = rs->rowset_meta()->segment_file_size(seg_id),
+                            .file_size = rowset->rowset_meta()->segment_file_size(seg_id),
                             .file_system = storage_resource.value()->fs,
                             .ctx =
                                     {
