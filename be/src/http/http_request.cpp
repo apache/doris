@@ -141,9 +141,9 @@ void HttpRequest::finish_send_reply() {
     if (_handler_ctx != nullptr) {
         infos = reinterpret_cast<StreamLoadContext*>(_handler_ctx.get())->brief();
     }
-    LOG(INFO) << "finish send reply, infos=" << infos 
+    LOG(INFO) << "finish send reply, infos=" << infos
               << ", stack=" << get_stack_trace(); // temp locate problem
-    promise.set_value(true); 
+    promise.set_value(true);
 }
 
 void HttpRequest::wait_finish_send_reply() {

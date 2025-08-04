@@ -87,6 +87,7 @@ public:
 
     void finish_send_reply();
     void wait_finish_send_reply();
+
 private:
     SendReplyType _send_reply_type = REPLY_SYNC;
     HttpMethod _method;
