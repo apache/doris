@@ -242,6 +242,23 @@ suite("insert_group_commit_into") {
                 def rowCount = sql "select count(*) from ${table}"
                 logger.info("row count: " + rowCount)
                 assertEquals(rowCount[0][0], 23)
+
+                // 8. Test create rollup throw exception and group commit behavior
+                try {
+                    sql """ alter table ${table} ADD ROLLUP r1(name, score); """
+                    assertTrue(false, "create rollup with duplicate name should fail.")
+                } catch (Exception e) {
+                    logger.info("Expected create rollup error: " + e.getMessage())
+                    assertTrue(e.getMessage().contains("already exists"))
+                }
+
+                group_commit_insert_with_retry """ insert into ${table}(id, name) values(2, 'b');  """, 1
+                group_commit_insert_with_retry """ insert into ${table}(id) values(6); """, 1
+                getRowCount(25)
+
+                // Verify group commit works after add rollup throw exception
+                group_commit_insert """ insert into ${table}(id, name) values(2, 'b'); """, 1
+                getRowCount(26)
             }
         } finally {
             // try_sql("DROP TABLE ${table}")
