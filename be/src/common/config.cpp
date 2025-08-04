@@ -554,7 +554,7 @@ DEFINE_Bool(enable_all_http_auth, "false");
 DEFINE_Int32(webserver_num_workers, "128");
 
 DEFINE_Bool(enable_single_replica_load, "true");
-// Number of download workers for single replica load
+// Number of download workers for single replica load.
 DEFINE_Int32(single_replica_load_download_num_workers, "64");
 
 // Used for mini Load. mini load data file will be removed after this time.
