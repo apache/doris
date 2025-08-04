@@ -29,11 +29,11 @@ namespace doris {
 
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendMetricsScanner::_s_tbls_columns = {
         //   name,       type,          size,        is_null
-        {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
-        {"BE_IP", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), false},
+        {"BE_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"BE_IP", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"METRIC_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), true},
         {"TAG", TYPE_VARCHAR, sizeof(StringRef), true}};
 
 SchemaBackendMetricsScanner::SchemaBackendMetricsScanner()

@@ -34,10 +34,10 @@ namespace doris {
 
 std::vector<SchemaScanner::ColumnDesc> SchemaFrontendMetricsScanner::_s_frontend_metric_columns = {
         //   name,       type,          size,        is_null
-        {"FE", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), false},
+        {"FE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"METRIC_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"METRIC_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"METRIC_VALUE", TYPE_DOUBLE, sizeof(double), true},
         {"TAG", TYPE_VARCHAR, sizeof(StringRef), true}};
 
 SchemaFrontendMetricsScanner::SchemaFrontendMetricsScanner()
