@@ -81,8 +81,6 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
         hiveConf.set(DataLakeConfig.CATALOG_USER_ID, baseProperties.dlfUid);
         hiveConf.set(DataLakeConfig.CATALOG_ID, baseProperties.dlfCatalogId);
         hiveConf.set(DataLakeConfig.CATALOG_PROXY_MODE, baseProperties.dlfProxyMode);
-        //hiveConf.set("hive.metastore.type", "dlf");
-        //hiveConf.set("metastore.client.class", ProxyMetaStoreClient.class.getName());
         return hiveConf;
     }
 
@@ -102,7 +100,6 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
         for (Map.Entry<String, String> entry : ossProperties.getHadoopStorageConfig()) {
             catalogOptions.set(entry.getKey(), entry.getValue());
         }
-        catalogOptions.set("metastore.client.class", ProxyMetaStoreClient.class.getName());
         hiveConf.addResource(ossProperties.getHadoopStorageConfig());
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, hiveConf);
         return CatalogFactory.createCatalog(catalogContext);
