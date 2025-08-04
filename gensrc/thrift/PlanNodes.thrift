@@ -493,6 +493,8 @@ struct TFileRangeDesc {
     12: optional string fs_name
     13: optional TFileFormatType format_type;
     14: optional i64 self_split_weight
+    // whether the value of columns_from_path is null
+    15: optional list<bool> columns_from_path_is_null;
 }
 
 struct TSplitSource {
