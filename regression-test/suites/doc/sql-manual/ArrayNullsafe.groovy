@@ -111,13 +111,30 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_literal_array_except "SELECT array_except([1, null, 2, null, 3], [null, 2])"
     qt_sql_literal_array_filter "SELECT array_filter(x -> x is not null, [1, null, 3, null, 5])"
 
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time) {
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(10000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
     // alter table add inverted index for array string and array ipv6
     sql """
         ALTER TABLE fn_test_nullsafe_array ADD INDEX idx_string_array (string_array) USING INVERTED
     """ 
+    // wait for inverted index build
+    wait_for_latest_op_on_table_finish("fn_test_nullsafe_array", 60000)
     sql """
         ALTER TABLE fn_test_nullsafe_array ADD INDEX idx_ipv6_array (ipv6_array) USING INVERTED
     """
+    wait_for_latest_op_on_table_finish("fn_test_nullsafe_array", 60000)
 
     // test function behavior with inverted index
     qt_sql_array_contains_inverted_index "SELECT array_contains(string_array, 'c') FROM fn_test_nullsafe_array order by id"
