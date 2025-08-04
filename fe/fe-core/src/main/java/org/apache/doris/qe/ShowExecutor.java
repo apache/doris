@@ -21,9 +21,6 @@ import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
-import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
-import org.apache.doris.analysis.ShowCloudWarmUpStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
@@ -36,7 +33,6 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -45,36 +41,26 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
-import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Diagnoser;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -111,12 +97,6 @@ public class ShowExecutor {
             handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowIndexPolicyStmt) {
             handleShowIndexPolicy();
-        } else if (stmt instanceof ShowAnalyzeStmt) {
-            handleShowAnalyze();
-        } else if (stmt instanceof ShowAnalyzeTaskStatus) {
-            handleShowAnalyzeTaskStatus();
-        } else if (stmt instanceof ShowCloudWarmUpStmt) {
-            handleShowCloudWarmUpJob();
         } else {
             handleEmtpy();
         }
@@ -257,20 +237,6 @@ public class ShowExecutor {
             rows = procNodeI.fetchResult().getRows();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowCloudWarmUpJob() throws AnalysisException {
-        ShowCloudWarmUpStmt showStmt = (ShowCloudWarmUpStmt) stmt;
-        if (showStmt.showAllJobs()) {
-            int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
-        } else {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv())
-                                    .getCacheHotspotMgr()
-                                    .getSingleJobInfo(showStmt.getJobId()));
-        }
     }
 
     private void handleShowCreateLoad() throws AnalysisException {
@@ -432,95 +398,6 @@ public class ShowExecutor {
     public void handleShowIndexPolicy() throws AnalysisException {
         ShowIndexPolicyStmt showStmt = (ShowIndexPolicyStmt) stmt;
         resultSet = Env.getCurrentEnv().getIndexPolicyMgr().showIndexPolicy(showStmt);
-    }
-
-    private void handleShowAnalyze() {
-        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().findAnalysisJobs(showStmt);
-        List<List<String>> resultRows = Lists.newArrayList();
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        for (AnalysisInfo analysisInfo : results) {
-            try {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(analysisInfo.jobId));
-                CatalogIf<? extends DatabaseIf<? extends TableIf>> c
-                        = StatisticsUtil.findCatalog(analysisInfo.catalogId);
-                row.add(c.getName());
-                Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
-                row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
-                if (databaseIf.isPresent()) {
-                    Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                    row.add(table.isPresent() ? Util.getTempTableDisplayName(table.get().getName())
-                            : "Table may get deleted");
-                } else {
-                    row.add("DB may get deleted");
-                }
-                StringBuffer sb = new StringBuffer();
-                String colNames = analysisInfo.colName;
-                if (colNames != null) {
-                    for (String columnName : colNames.split(",")) {
-                        String[] kv = columnName.split(":");
-                        sb.append(Util.getTempTableDisplayName(kv[0]))
-                            .append(":").append(kv[1]).append(",");
-                    }
-                }
-                String newColNames = sb.toString();
-                newColNames = StringUtils.isEmpty(newColNames) ? ""
-                        : newColNames.substring(0, newColNames.length() - 1);
-                row.add(newColNames);
-                row.add(analysisInfo.jobType.toString());
-                row.add(analysisInfo.analysisType.toString());
-                row.add(analysisInfo.message);
-                row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
-                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
-                                ZoneId.systemDefault())));
-                row.add(analysisInfo.state.toString());
-                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
-                row.add(analysisInfo.scheduleType.toString());
-                LocalDateTime startTime =
-                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
-                                java.time.ZoneId.systemDefault());
-                LocalDateTime endTime =
-                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
-                                java.time.ZoneId.systemDefault());
-                row.add(startTime.format(formatter));
-                row.add(endTime.format(formatter));
-                row.add(analysisInfo.priority.name());
-                row.add(String.valueOf(analysisInfo.enablePartition));
-                resultRows.add(row);
-            } catch (Exception e) {
-                LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
-                        analysisInfo.catalogId, analysisInfo.dbId, analysisInfo.tblId, e.getMessage());
-                continue;
-            }
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
-    }
-
-    private void handleShowAnalyzeTaskStatus() {
-        ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
-        AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(showStmt.getJobId());
-        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
-        List<List<String>> rows = new ArrayList<>();
-        for (AnalysisInfo analysisInfo : analysisInfos) {
-            List<String> row = new ArrayList<>();
-            row.add(String.valueOf(analysisInfo.taskId));
-            row.add(analysisInfo.colName);
-            if (table instanceof OlapTable && analysisInfo.indexId != -1) {
-                row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
-            } else {
-                row.add(table.getName());
-            }
-            row.add(analysisInfo.message);
-            row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
-                            ZoneId.systemDefault())));
-            row.add(String.valueOf(analysisInfo.timeCostInMs));
-            row.add(analysisInfo.state.toString());
-            rows.add(row);
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void checkStmtSupported() throws AnalysisException {

@@ -20,10 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -31,17 +29,13 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.proto.FunctionService;
 import org.apache.doris.proto.PFunctionServiceGrpc;
 import org.apache.doris.proto.Types;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
@@ -199,15 +193,14 @@ public class CreateFunctionStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
 
         // https://github.com/apache/doris/issues/17810
         // this error report in P0 test, so we suspect that it is related to concurrency
         // add this change to test it.
         if (Config.use_fuzzy_session_variable) {
             synchronized (CreateFunctionStmt.class) {
-                analyzeCommon(analyzer);
                 // check
                 if (isAggregate) {
                     analyzeUda();
@@ -220,7 +213,6 @@ public class CreateFunctionStmt extends DdlStmt implements NotFallbackInParser {
                 }
             }
         } else {
-            analyzeCommon(analyzer);
             // check
             if (isAggregate) {
                 analyzeUda();
@@ -230,75 +222,6 @@ public class CreateFunctionStmt extends DdlStmt implements NotFallbackInParser {
                 analyzeTableFunction();
             } else {
                 analyzeUdf();
-            }
-        }
-    }
-
-    private void analyzeCommon(Analyzer analyzer) throws AnalysisException {
-        // check function name
-        functionName.analyze(analyzer, this.type);
-
-        // check operation privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-        // check argument
-        argsDef.analyze(analyzer);
-
-        // alias function does not need analyze following params
-        if (isAlias) {
-            return;
-        }
-
-        returnType.analyze(analyzer);
-        if (intermediateType != null) {
-            intermediateType.analyze(analyzer);
-        } else {
-            intermediateType = returnType;
-        }
-
-        String type = properties.getOrDefault(BINARY_TYPE, "JAVA_UDF");
-        binaryType = getFunctionBinaryType(type);
-        if (binaryType == null) {
-            throw new AnalysisException("unknown function type");
-        }
-        if (type.equals("NATIVE")) {
-            throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
-                                    + "please use JAVA_UDF or RPC instead");
-        }
-
-        userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
-        if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
-            try {
-                computeObjectChecksum();
-            } catch (IOException | NoSuchAlgorithmException e) {
-                throw new AnalysisException("cannot to compute object's checksum. err: " + e.getMessage());
-            }
-            String md5sum = properties.get(MD5_CHECKSUM);
-            if (md5sum != null && !md5sum.equalsIgnoreCase(checksum)) {
-                throw new AnalysisException("library's checksum is not equal with input, checksum=" + checksum);
-            }
-        }
-        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
-            FunctionUtil.checkEnableJavaUdf();
-
-            // always_nullable the default value is true, equal null means true
-            Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
-            if (isReturnNull != null && !isReturnNull) {
-                returnNullMode = NullableMode.ALWAYS_NOT_NULLABLE;
-            }
-            // static_load the default value is false, equal null means false
-            Boolean staticLoad = parseBooleanFromProperties(IS_STATIC_LOAD);
-            if (staticLoad != null && staticLoad) {
-                isStaticLoad = true;
-            }
-            String expirationTimeString = properties.get(EXPIRATION_TIME);
-            if (expirationTimeString != null) {
-                long timeMinutes = Long.parseLong(expirationTimeString);
-                if (timeMinutes <= 0) {
-                    throw new AnalysisException("expirationTime should greater than zero: ");
-                }
-                this.expirationTime = timeMinutes;
             }
         }
     }
@@ -808,7 +731,6 @@ public class CreateFunctionStmt extends DdlStmt implements NotFallbackInParser {
                 typeBuilder.setId(Types.PGenericType.TypeId.DATEV2);
                 break;
             case DATETIME:
-            case TIME:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIME);
                 break;
             case DATETIMEV2:

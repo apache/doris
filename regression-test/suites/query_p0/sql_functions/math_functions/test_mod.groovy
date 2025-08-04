@@ -35,10 +35,6 @@ suite("test_mod") {
     """
 
     test {
-        sql "select mod(-2147483648,-1); "
-        exception "Division of minimal signed number by minus one is an undefined"
-    }
-    test {
         sql "select mod(-9223372036854775808,-1); "
         exception "Division of minimal signed number by minus one is an undefined"
     }

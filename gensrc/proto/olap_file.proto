@@ -60,6 +60,11 @@ message KeyBoundsPB {
     required bytes max_key = 2;
 }
 
+message SplitSchemaPB {
+    repeated int64 split_field_ids = 1; // The split fields ids
+    optional uint64 num_split_keys = 2; // The num of split keys, used to limit the scan range.
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -141,6 +146,8 @@ message RowsetMetaPB {
     optional bool enable_inverted_index_file_info = 1006;
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
     optional SchemaDictKeyList schema_dict_key_list = 1008; // align to cloud rowset
+
+    optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
 }
 
 message SchemaDictKeyList {
@@ -234,6 +241,8 @@ message RowsetMetaCloudPB {
 
     optional bool enable_inverted_index_file_info = 106;
     repeated InvertedIndexFileInfo inverted_index_file_info = 107;
+
+    optional SplitSchemaPB __split_schema = 108;  // A special field, DO NOT change it.
 }
 
 message SegmentStatisticsPB {
@@ -307,6 +316,11 @@ message AlterTabletPB {
     optional AlterTabletType alter_type = 4;
 }
 
+enum PatternTypePB {
+    MATCH_NAME = 1;
+    MATCH_NAME_GLOB = 2;
+}
+
 message ColumnPB {
     required int32 unique_id = 1; // ColumnMessage.unique_id
     optional string name = 2; // ColumnMessage.name
@@ -335,6 +349,11 @@ message ColumnPB {
     // only reference by variant sparse columns
     optional int32 parent_unique_id = 23;
     optional int32 be_exec_version = 24;
+    optional int32 variant_max_subcolumns_count = 25 [default = 0];
+    optional PatternTypePB pattern_type = 26;
+    optional bool variant_enable_typed_paths_to_sparse = 27 [default = false];
+    // this field is only used during flexible partial update load
+    optional bool is_on_update_current_timestamp = 28 [default = false];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size
@@ -416,6 +435,7 @@ message TabletSchemaPB {
     optional bool enable_variant_flatten_nested = 28 [default=false];
     optional int32 skip_bitmap_col_idx = 29 [default = -1];
     optional int64 storage_page_size = 30 [default=65536];
+    optional int64 storage_dict_page_size = 31 [default=262144];
 }
 
 message TabletSchemaCloudPB {
@@ -449,6 +469,7 @@ message TabletSchemaCloudPB {
     optional bool enable_variant_flatten_nested = 29 [default=false];
     optional int32 skip_bitmap_col_idx = 30 [default = -1];
     optional int64 storage_page_size = 31 [default=65536];
+    optional int64 storage_dict_page_size = 32 [default=262144];
 
     optional bool is_dynamic_schema = 100 [default=false];
 

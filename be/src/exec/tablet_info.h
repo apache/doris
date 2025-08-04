@@ -163,6 +163,8 @@ struct VOlapTablePartition {
     bool is_mutable;
     // -1 indicates partition with hash distribution
     int64_t load_tablet_idx = -1;
+    int total_replica_num = 0;
+    int load_required_replica_num = 0;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             // the default value of partition bound is -1.
@@ -331,7 +333,7 @@ private:
             _partitions_map;
 
     bool _is_in_partition = false;
-    uint32_t _mem_usage = 0;
+    size_t _mem_usage = 0;
     // only works when using list partition, the resource is owned by _partitions
     VOlapTablePartition* _default_partition = nullptr;
 

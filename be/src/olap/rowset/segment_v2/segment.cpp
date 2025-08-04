@@ -45,8 +45,8 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
@@ -75,6 +75,7 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class InvertedIndexIterator;
 
@@ -153,7 +154,7 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
           _tablet_schema(std::move(tablet_schema)),
-          _idx_file_info(idx_file_info) {}
+          _idx_file_info(std::move(idx_file_info)) {}
 
 Segment::~Segment() {
     g_segment_estimate_mem_bytes << -_tracked_meta_mem_usage;
@@ -209,8 +210,8 @@ Status Segment::_open(OlapReaderStatistics* stats) {
     return Status::OK();
 }
 
-Status Segment::_open_inverted_index() {
-    _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
+Status Segment::_open_index_file_reader() {
+    _index_file_reader = std::make_shared<IndexFileReader>(
             _fs,
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                     _file_reader->path().native())},
@@ -296,17 +297,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
     }
 
-    if (config::ignore_always_true_predicate_for_segment &&
-        read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
+    // TODO: Valid the opt not only in ReaderType::READER_QUERY
+    if (read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
         !read_options.column_predicates.empty()) {
         auto pruned_predicates = read_options.column_predicates;
         auto pruned = false;
         for (auto& it : _column_readers) {
             const auto uid = it.first;
             const auto column_id = read_options.tablet_schema->field_index(uid);
-            if (it.second->prune_predicates_by_zone_map(pruned_predicates, column_id)) {
-                pruned = true;
-            }
+            pruned |= it.second->prune_predicates_by_zone_map(pruned_predicates, column_id);
         }
 
         if (pruned) {
@@ -555,8 +554,8 @@ Status Segment::healthy_status() {
         if (_create_column_readers_once_call.has_called()) {
             RETURN_IF_ERROR(_create_column_readers_once_call.stored_result());
         }
-        if (_inverted_index_file_reader_open.has_called()) {
-            RETURN_IF_ERROR(_inverted_index_file_reader_open.stored_result());
+        if (_index_file_reader_open.has_called()) {
+            RETURN_IF_ERROR(_index_file_reader_open.stored_result());
         }
         // This status is set by running time, for example, if there is something wrong during read segment iterator.
         return _healthy_status.status();
@@ -689,14 +688,15 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         }
 
         // init sparse columns paths and type info
-        for (uint32_t ordinal = 0; ordinal < column_pb.sparse_columns().size(); ++ordinal) {
-            const auto& spase_column_pb = column_pb.sparse_columns(ordinal);
+        for (uint32_t sparse_ordinal = 0; sparse_ordinal < column_pb.sparse_columns().size();
+             ++sparse_ordinal) {
+            const auto& spase_column_pb = column_pb.sparse_columns(sparse_ordinal);
             if (spase_column_pb.has_column_path_info()) {
-                vectorized::PathInData path;
-                path.from_protobuf(spase_column_pb.column_path_info());
+                vectorized::PathInData sparse_path;
+                sparse_path.from_protobuf(spase_column_pb.column_path_info());
                 // Read from root column, so reader is nullptr
                 _sparse_column_tree[unique_id].add(
-                        path.copy_pop_front(),
+                        sparse_path.copy_pop_front(),
                         SubcolumnReader {nullptr,
                                          vectorized::DataTypeFactory::instance().create_data_type(
                                                  spase_column_pb)});
@@ -811,10 +811,10 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
 
     if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
         // compaction need to read flat leaves nodes data to prevent from amplification
-        const auto* node = tablet_column.has_path_info()
-                                   ? _sub_column_tree[unique_id].find_leaf(relative_path)
-                                   : nullptr;
-        if (!node) {
+        const auto* leaf_node = tablet_column.has_path_info()
+                                        ? _sub_column_tree[unique_id].find_leaf(relative_path)
+                                        : nullptr;
+        if (!leaf_node) {
             // sparse_columns have this path, read from root
             if (sparse_node != nullptr && sparse_node->is_leaf_node()) {
                 RETURN_IF_ERROR(_new_iterator_with_variant_root(
@@ -830,7 +830,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             return Status::OK();
         }
         ColumnIterator* it;
-        RETURN_IF_ERROR(node->data.reader->new_iterator(&it, &tablet_column));
+        RETURN_IF_ERROR(leaf_node->data.reader->new_iterator(&it, &tablet_column));
         iter->reset(it);
         return Status::OK();
     }
@@ -839,9 +839,9 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         if (node->is_leaf_node() && sparse_node == nullptr) {
             // Node contains column without any child sub columns and no corresponding sparse columns
             // Direct read extracted columns
-            const auto* node = _sub_column_tree[unique_id].find_leaf(relative_path);
+            const auto* leaf_node = _sub_column_tree[unique_id].find_leaf(relative_path);
             ColumnIterator* it;
-            RETURN_IF_ERROR(node->data.reader->new_iterator(&it, &tablet_column));
+            RETURN_IF_ERROR(leaf_node->data.reader->new_iterator(&it, &tablet_column));
             iter->reset(it);
         } else {
             // Node contains column with children columns or has correspoding sparse columns
@@ -955,23 +955,21 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
-                                            const TabletIndex* index_meta,
-                                            const StorageReadOptions& read_options,
-                                            std::unique_ptr<InvertedIndexIterator>* iter) {
+Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
+                                   const StorageReadOptions& read_options,
+                                   std::unique_ptr<IndexIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
     }
     RETURN_IF_ERROR(_create_column_readers_once(read_options.stats));
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        // call DorisCallOnce.call without check if _inverted_index_file_reader is nullptr
+        // call DorisCallOnce.call without check if _index_file_reader is nullptr
         // to avoid data race during parallel method calls
+        RETURN_IF_ERROR(_index_file_reader_open.call([&] { return _open_index_file_reader(); }));
+        // after DorisCallOnce.call, _index_file_reader is guaranteed to be not nullptr
         RETURN_IF_ERROR(
-                _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
-        // after DorisCallOnce.call, _inverted_index_file_reader is guaranteed to be not nullptr
-        RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
-                                                            read_options, iter));
+                reader->new_index_iterator(_index_file_reader, index_meta, read_options, iter));
         return Status::OK();
     }
     return Status::OK();
@@ -1007,7 +1005,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     if (st.is<ErrorCode::ENTRY_NOT_FOUND>() || (!has_seq_col && !has_rowid && !exact_match)) {
         return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
     }
-    row_location->row_id = index_iterator->get_current_ordinal();
+    row_location->row_id = cast_set<uint32_t>(index_iterator->get_current_ordinal());
     row_location->segment_id = _segment_id;
     row_location->rowset_id = _rowset_id;
 
@@ -1236,4 +1234,5 @@ StoragePageCache::CacheKey Segment::get_segment_footer_cache_key() const {
                                       _file_reader->size() - 12);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -43,8 +43,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -202,7 +202,7 @@ public class NereidsLoadUtils {
                     ImmutableList.of(Rewriter.bottomUp(
                             new BindExpression(),
                             new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
-                            new BindSink(),
+                            new BindSink(false),
                             new AddPostFilter(
                                     context.fileGroup.getWhereExpr()
                             ),
@@ -276,10 +276,10 @@ public class NereidsLoadUtils {
                                     : expression;
                             if (column.isAllowNull() || expression.nullable()) {
                                 newProjects.add(
-                                        new Alias(new JsonbParseNullableErrorToNull(realExpr), expression.getName()));
+                                        new Alias(new JsonbParseErrorToNull(realExpr), expression.getName()));
                             } else {
                                 newProjects.add(
-                                        new Alias(new JsonbParseNotnullErrorToInvalid(realExpr), expression.getName()));
+                                        new Alias(new JsonbParseErrorToValue(realExpr), expression.getName()));
                             }
                         } else {
                             newProjects.add(expression);

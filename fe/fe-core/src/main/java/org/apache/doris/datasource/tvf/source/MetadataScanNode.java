@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.tvf.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
@@ -99,15 +98,5 @@ public class MetadataScanNode extends ExternalScanNode {
             createScanRangeLocations();
         }
         return scanRangeLocations;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        createScanRangeLocations();
-    }
-
-    @Override
-    public boolean needToCheckColumnPriv() {
-        return false;
     }
 }

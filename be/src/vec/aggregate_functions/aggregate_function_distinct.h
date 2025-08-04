@@ -24,10 +24,6 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
-#include <algorithm>
-#include <memory>
-#include <new>
-#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -38,8 +34,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/io/io_helper.h"
-#include "vec/io/var_int.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -67,7 +61,7 @@ struct AggregateFunctionDistinctSingleNumericData {
 
     void clear() { data.clear(); }
 
-    void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena*) {
+    void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena&) {
         const auto& vec =
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0])
                         .get_data();
@@ -78,7 +72,7 @@ struct AggregateFunctionDistinctSingleNumericData {
         }
     }
 
-    void merge(const Self& rhs, Arena*) {
+    void merge(const Self& rhs, Arena&) {
         DCHECK(!stable);
         if constexpr (!stable) {
             data.merge(Container(rhs.data));
@@ -88,21 +82,21 @@ struct AggregateFunctionDistinctSingleNumericData {
     void serialize(BufferWritable& buf) const {
         DCHECK(!stable);
         if constexpr (!stable) {
-            write_var_uint(data.size(), buf);
+            buf.write_var_uint(data.size());
             for (const auto& value : data) {
-                write_binary(value, buf);
+                buf.write_binary(value);
             }
         }
     }
 
-    void deserialize(BufferReadable& buf, Arena*) {
+    void deserialize(BufferReadable& buf, Arena&) {
         DCHECK(!stable);
         if constexpr (!stable) {
             uint64_t new_size = 0;
-            read_var_uint(new_size, buf);
+            buf.read_var_uint(new_size);
             typename PrimitiveTypeTraits<T>::CppType x;
             for (size_t i = 0; i < new_size; ++i) {
-                read_binary(x, buf);
+                buf.read_binary(x);
                 data.insert(x);
             }
         }
@@ -139,12 +133,12 @@ struct AggregateFunctionDistinctGenericData {
 
     void clear() { data.clear(); }
 
-    void merge(const Self& rhs, Arena* arena) {
+    void merge(const Self& rhs, Arena& arena) {
         DCHECK(!stable);
         if constexpr (!stable) {
             for (const auto& elem : rhs.data) {
                 StringRef key = elem;
-                key.data = arena->insert(key.data, key.size);
+                key.data = arena.insert(key.data, key.size);
                 data.emplace(key);
             }
         }
@@ -153,22 +147,22 @@ struct AggregateFunctionDistinctGenericData {
     void serialize(BufferWritable& buf) const {
         DCHECK(!stable);
         if constexpr (!stable) {
-            write_var_uint(data.size(), buf);
+            buf.write_var_uint(data.size());
             for (const auto& elem : data) {
-                write_string_binary(elem, buf);
+                buf.write_binary(elem);
             }
         }
     }
 
-    void deserialize(BufferReadable& buf, Arena* arena) {
+    void deserialize(BufferReadable& buf, Arena& arena) {
         DCHECK(!stable);
         if constexpr (!stable) {
             UInt64 size;
-            read_var_uint(size, buf);
+            buf.read_var_uint(size);
 
             StringRef ref;
             for (size_t i = 0; i < size; ++i) {
-                read_string_binary(ref, buf);
+                buf.read_binary(ref);
                 data.insert(ref);
             }
         }
@@ -180,9 +174,9 @@ struct AggregateFunctionDistinctSingleGenericData
         : public AggregateFunctionDistinctGenericData<stable> {
     using Base = AggregateFunctionDistinctGenericData<stable>;
     using Base::data;
-    void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena* arena) {
+    void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena& arena) {
         auto key = columns[0]->get_data_at(row_num);
-        key.data = arena->insert(key.data, key.size);
+        key.data = arena.insert(key.data, key.size);
 
         if constexpr (stable) {
             data.emplace(key, data.size());
@@ -217,11 +211,11 @@ struct AggregateFunctionDistinctMultipleGenericData
         : public AggregateFunctionDistinctGenericData<stable> {
     using Base = AggregateFunctionDistinctGenericData<stable>;
     using Base::data;
-    void add(const IColumn** columns, size_t columns_num, size_t row_num, Arena* arena) {
+    void add(const IColumn** columns, size_t columns_num, size_t row_num, Arena& arena) {
         const char* begin = nullptr;
         StringRef key(begin, 0);
         for (size_t i = 0; i < columns_num; ++i) {
-            auto cur_ref = columns[i]->serialize_value_into_arena(row_num, *arena, begin);
+            auto cur_ref = columns[i]->serialize_value_into_arena(row_num, arena, begin);
             key.data = cur_ref.data - key.size;
             key.size += cur_ref.size;
         }
@@ -295,12 +289,12 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         this->data(place).add(columns, arguments_num, row_num, arena);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena& arena) const override {
         this->data(place).merge(this->data(rhs), arena);
     }
 
@@ -309,7 +303,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena& arena) const override {
         this->data(place).deserialize(buf, arena);
     }
 
@@ -324,7 +318,7 @@ public:
         assert(!arguments.empty());
         Arena arena;
         nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
-                                            arguments_raw.data(), &arena);
+                                            arguments_raw.data(), arena);
         nested_func->insert_result_into(get_nested_place(place), to);
         // for distinct agg function, the real calculate is add_batch_single_place at last step of insert_result_into function.
         // but with distinct agg and over() window function together, the result will be inserted into many times with different rows

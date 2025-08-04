@@ -18,13 +18,16 @@
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <chrono>
 #include <memory>
 
 #include "common/logging.h"
 #include "common/stats.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/document_message.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "meta_service.h"
 
 namespace doris::cloud {
@@ -368,6 +371,15 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         return;
     }
 
+    if (request->partition_versions_size() > 0 &&
+        (request->partition_versions_size() != request->partition_ids_size())) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "size is not equal, partition_versions size=" +
+              std::to_string(request->partition_ids_size()) +
+              " partition_ids size=" + std::to_string(request->partition_ids_size());
+        return;
+    }
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -398,13 +410,39 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         pb.set_state(RecyclePartitionPB::PREPARED);
         pb.SerializeToString(&to_save_val);
     }
-    for (auto part_id : request->partition_ids()) {
-        auto key = recycle_partition_key({instance_id, part_id});
+    for (int i = 0; i < request->partition_ids_size(); i++) {
+        auto key = recycle_partition_key({instance_id, request->partition_ids(i)});
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             LOG_INFO("put recycle partition").tag("key", hex(key));
             txn->put(key, to_save_val);
+            // save partition version
+            if (request->partition_versions_size() > 0 && request->partition_versions(i) > 1) {
+                int64_t version_update_time_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+                std::string ver_key;
+                std::string ver_val;
+                partition_version_key({instance_id, request->db_id(), request->table_id(),
+                                       request->partition_ids(i)},
+                                      &ver_key);
+                VersionPB version_pb;
+                version_pb.set_version(request->partition_versions(i));
+                version_pb.set_update_time_ms(version_update_time_ms);
+                if (!version_pb.SerializeToString(&ver_val)) {
+                    code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                    ss << "failed to serialize version_pb when saving.";
+                    msg = ss.str();
+                    return;
+                }
+                txn->put(ver_key, ver_val);
+                LOG_INFO("put partition_version_key")
+                        .tag("key", hex(ver_key))
+                        .tag("partition_id", request->partition_ids(i))
+                        .tag("version", request->partition_versions(i));
+            }
             continue;
         }
         if (err != TxnErrorCode::TXN_OK) {
@@ -417,7 +455,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         if (!pb.ParseFromString(val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "malformed recycle partition value";
-            LOG_WARNING(msg).tag("partition_id", part_id);
+            LOG_WARNING(msg).tag("partition_id", request->partition_ids(i));
             return;
         }
         if (pb.state() != RecyclePartitionPB::PREPARED) {
@@ -460,6 +498,11 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         msg = "failed to create txn";
         return;
     }
+
+    CommitPartitionLogPB commit_partition_log;
+    commit_partition_log.set_db_id(request->db_id());
+    commit_partition_log.set_table_id(request->table_id());
+    commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
 
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
@@ -505,14 +548,51 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         }
         LOG_INFO("remove recycle partition").tag("key", hex(key));
         txn->remove(key);
+
+        // Save the partition meta/index keys
+        if (request->has_db_id() && is_version_write_enabled(instance_id)) {
+            int64_t db_id = request->db_id();
+            int64_t table_id = request->table_id();
+            std::string part_meta_key = versioned::meta_partition_key({instance_id, part_id});
+            std::string part_index_key = versioned::partition_index_key({instance_id, part_id});
+            std::string part_inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id, db_id, table_id, part_id});
+            PartitionIndexPB part_index_pb;
+            part_index_pb.set_db_id(db_id);
+            part_index_pb.set_table_id(table_id);
+            LOG(INFO) << part_index_pb.DebugString();
+            std::string part_index_value;
+            if (!part_index_pb.SerializeToString(&part_index_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("failed to serialize PartitionIndexPB");
+                LOG_WARNING(msg).tag("part_id", part_id);
+                return;
+            }
+            versioned_put(txn.get(), part_meta_key, "");
+            txn->put(part_inverted_index_key, "");
+            txn->put(part_index_key, part_index_value);
+
+            commit_partition_log.add_partition_ids(part_id);
+        }
     }
 
     // update table versions
     if (request->has_db_id()) {
-        std::string ver_key =
-                table_version_key({instance_id, request->db_id(), request->table_id()});
-        txn->atomic_add(ver_key, 1);
-        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+    }
+
+    if (commit_partition_log.partition_ids_size() > 0 && is_version_write_enabled(instance_id)) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_commit_partition()->Swap(&commit_partition_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 
     err = txn->commit();
@@ -560,13 +640,24 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         pb.SerializeToString(&to_save_val);
     }
     bool need_commit = false;
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    DropPartitionLogPB drop_partition_log;
+    drop_partition_log.set_db_id(request->db_id());
+    drop_partition_log.set_table_id(request->table_id());
+    drop_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
+    drop_partition_log.set_expiration(request->expiration());
+
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            LOG_INFO("put recycle partition").tag("key", hex(key));
-            txn->put(key, to_save_val);
+            if (is_versioned_write) {
+                drop_partition_log.add_partition_ids(part_id);
+            } else {
+                LOG_INFO("put recycle partition").tag("key", hex(key));
+                txn->put(key, to_save_val);
+            }
             need_commit = true;
             continue;
         }
@@ -604,10 +695,28 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     // Update table version only when deleting non-empty partitions
     if (request->has_db_id() && request->has_need_update_table_version() &&
         request->need_update_table_version()) {
-        std::string ver_key =
-                table_version_key({instance_id, request->db_id(), request->table_id()});
-        txn->atomic_add(ver_key, 1);
-        LOG_INFO("update table version").tag("ver_key", hex(ver_key));
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+        drop_partition_log.set_update_table_version(true);
+    }
+
+    if ((drop_partition_log.update_table_version() ||
+         drop_partition_log.partition_ids_size() > 0) &&
+        is_versioned_write) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_drop_partition()->Swap(&drop_partition_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        LOG(INFO) << "put drop partition operation log"
+                  << " instance_id=" << instance_id << " table_id=" << request->table_id()
+                  << " partition_ids=" << drop_partition_log.partition_ids_size()
+                  << " log_size=" << operation_log_value.size();
     }
 
     err = txn->commit();
@@ -632,6 +741,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
     }
     DORIS_CLOUD_DEFER {
         if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
         stats.get_counter += txn->num_get_keys();
     };
     auto& [keys, hint, key_func] = get_check_info(request);
@@ -653,6 +763,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
             *msg = "prepare and commit rpc not match, recycle key remained";
             return;
         } else if (err == TxnErrorCode::TXN_TOO_OLD) {
+            stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             //  separate it to several txn for rubustness
             txn.reset();

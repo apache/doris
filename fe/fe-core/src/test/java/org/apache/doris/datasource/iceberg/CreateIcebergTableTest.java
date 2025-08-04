@@ -18,10 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DbName;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogFactory;
@@ -31,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Maps;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -77,8 +74,7 @@ public class CreateIcebergTableTest {
 
         // create db
         ops = new IcebergMetadataOps(icebergCatalog, icebergCatalog.getCatalog());
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("iceberg", dbName), null);
-        ops.createDb(createDbStmt);
+        ops.createDb(dbName, true, Maps.newHashMap());
         if (icebergCatalog.getUseMetaCache().get()) {
             icebergCatalog.makeSureInitialized();
         } else {
@@ -195,8 +191,8 @@ public class CreateIcebergTableTest {
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.setIsExternal(true);
-        CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
-        ops.createTable(createTableStmt);
+        createTableInfo.analyzeEngine();
+        ops.createTable(createTableInfo);
     }
 
     public String getTableName() {
@@ -206,21 +202,17 @@ public class CreateIcebergTableTest {
 
     @Test
     public void testDropDB() {
-        String dbName = "db_to_delete";
-        CreateDbStmt createDBStmt = new CreateDbStmt(false, new DbName("iceberg", dbName), new HashMap<>());
-        DropDbStmt dropDbStmt = new DropDbStmt(false, new DbName("iceberg", dbName), false);
-        DropDbStmt dropDbStmt2 = new DropDbStmt(false, new DbName("iceberg", "not_exists"), false);
         try {
             // create db success
-            ops.createDb(createDBStmt);
+            ops.createDb("iceberg", false, Maps.newHashMap());
             // drop db success
-            ops.dropDb(dropDbStmt);
+            ops.dropDb("iceberg", false, false);
         } catch (Throwable t) {
             Assert.fail();
         }
 
         try {
-            ops.dropDb(dropDbStmt2);
+            ops.dropDb("iceberg", false, false);
             Assert.fail();
         } catch (Throwable t) {
             Assert.assertTrue(t instanceof DdlException);

@@ -21,15 +21,11 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include <array>
 #include <boost/dynamic_bitset.hpp>
 
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -125,20 +121,20 @@ struct AggregateFunctionCountByEnumData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(data_vec.size(), buf);
+        buf.write_binary(data_vec.size());
 
         for (const auto& data : data_vec) {
             const MapType& unordered_map = data.cbe;
-            write_binary(unordered_map.size(), buf);
+            buf.write_binary(unordered_map.size());
 
             for (const auto& [key, value] : unordered_map) {
-                write_binary(value, buf);
-                write_binary(key, buf);
+                buf.write_binary(value);
+                buf.write_binary(key);
             }
 
-            write_binary(data.not_null, buf);
-            write_binary(data.null, buf);
-            write_binary(data.all, buf);
+            buf.write_binary(data.not_null);
+            buf.write_binary(data.null);
+            buf.write_binary(data.all);
         }
     }
 
@@ -146,27 +142,27 @@ struct AggregateFunctionCountByEnumData {
         data_vec.clear();
 
         uint64_t vec_size_number = 0;
-        read_binary(vec_size_number, buf);
+        buf.read_binary(vec_size_number);
 
         for (int idx = 0; idx < vec_size_number; idx++) {
             uint64_t element_number = 0;
-            read_binary(element_number, buf);
+            buf.read_binary(element_number);
 
             MapType unordered_map;
             unordered_map.reserve(element_number);
             for (auto i = 0; i < element_number; i++) {
                 std::string key;
                 uint64_t value;
-                read_binary(value, buf);
-                read_binary(key, buf);
+                buf.read_binary(value);
+                buf.read_binary(key);
                 unordered_map.emplace(std::move(key), value);
             }
 
             CountByEnumData data;
             data.cbe = std::move(unordered_map);
-            read_binary(data.not_null, buf);
-            read_binary(data.null, buf);
-            read_binary(data.all, buf);
+            buf.read_binary(data.not_null);
+            buf.read_binary(data.null);
+            buf.read_binary(data.all);
             data_vec.emplace_back(std::move(data));
         }
     }
@@ -197,7 +193,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         for (int i = 0; i < arg_count; i++) {
             const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
             if (nullable_column == nullptr) {
@@ -217,7 +213,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -226,7 +222,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

@@ -17,14 +17,12 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
@@ -171,7 +169,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
 
     public void setSchema(List<Column> newSchema) throws IOException {
         this.schema = newSchema;
-        parseStmt(null);
+        parseStmt();
         initColumnNameMap();
     }
 
@@ -327,7 +325,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         initColumnNameMap();
     }
 
-    public void parseStmt(Analyzer analyzer) throws IOException {
+    public void parseStmt() throws IOException {
         // analyze define stmt
         if (defineStmt == null) {
             return;
@@ -356,7 +354,6 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                         ctx.setEnv(Env.getCurrentEnv());
                     }
                     if (ctx.getCurrentUserIdentity() == null) {
-                        ctx.setQualifiedUser(Auth.ADMIN_USER);
                         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
                     }
                 }

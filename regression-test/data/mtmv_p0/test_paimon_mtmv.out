@@ -143,6 +143,9 @@ true
 -- !date_partition_base_table --
 1	2020-01-01
 
+-- !date_type_partition --
+1	2020-01-01
+
 -- !date_partition --
 1	2020-01-01
 

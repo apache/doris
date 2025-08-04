@@ -16,6 +16,9 @@
 // under the License.
 
 suite("regression_test_variant_agg"){
+        sql """
+        set debug_skip_fold_constant = true;
+        """
     sql """DROP TABLE IF EXISTS var_agg"""
     sql """
         CREATE TABLE IF NOT EXISTS var_agg (
@@ -37,7 +40,7 @@ suite("regression_test_variant_agg"){
     sql """insert into var_agg values (8,  '8.11111', 8),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 8);"""
     sql """insert into var_agg values (9,  '"9999"', 9),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 9);"""
     sql """insert into var_agg values (10,  '1000000', 10),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}', 10);"""
-    sql """insert into var_agg values (11,  '[123.0]', 11),(1999,  '{"a" : 1, "b" : {"c" : 1}}', 11),(19921,  '{"a" : 1, "d" : 10}', 11);"""
+    sql """insert into var_agg values (11,  '[123.1]', 11),(1999,  '{"a" : 1, "b" : {"c" : 1}}', 11),(19921,  '{"a" : 1, "d" : 10}', 11);"""
     sql """insert into var_agg values (12,  '[123.2]', 12),(1022,  '{"a" : 1, "b" : {"f" : 17034, "g"  :1.111 }}', 12),(1029,  '{"a" : 1, "b" : {"c" : 1}}', 12);"""
     qt_sql1 "select k, cast(v['a'] as array<int>) from  var_agg where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
     qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  var_agg where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "

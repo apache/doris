@@ -179,6 +179,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(store_sales time_dim household_demographics store ) leading(store_sales time_dim household_demographics store ) leading(store_sales time_dim household_demographics store ) leading(store_sales time_dim household_demographics store ) leading(store_sales time_dim household_demographics store ) leading(store_sales time_dim household_demographics store ) leading(store_sales time_dim household_demographics store ) leading(store_sales time_dim household_demographics store ) leading(s1 s2 s3 s4 s5 s6 s7 s8 )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

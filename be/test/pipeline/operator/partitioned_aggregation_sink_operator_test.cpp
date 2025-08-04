@@ -59,7 +59,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, Init) {
             MockPartitionedAggSharedState::create_shared();
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -98,7 +98,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, Sink) {
                                                        "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -149,7 +149,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithEmptyEOS) {
                                                        "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -201,7 +201,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpill) {
                                                        "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -271,7 +271,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillAndEmptyEOS) {
                                                        "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -338,7 +338,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
                                                        "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -375,7 +375,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    auto* spill_write_rows_counter = local_state->profile()->get_counter("SpillWriteRows");
+    auto* spill_write_rows_counter = local_state->custom_profile()->get_counter("SpillWriteRows");
     ASSERT_TRUE(spill_write_rows_counter != nullptr);
     ASSERT_EQ(spill_write_rows_counter->value(), 4);
 
@@ -421,7 +421,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpilError) {
     auto shared_state = sink_operator->create_shared_state();
 
     LocalSinkStateInfo info {.task_idx = 0,
-                             .parent_profile = _helper.runtime_profile.get(),
+                             .parent_profile = _helper.operator_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
@@ -459,7 +459,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpilError) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    std::cout << "profile: " << _helper.runtime_profile->pretty_print() << std::endl;
+    std::cout << "profile: " << _helper.operator_profile->pretty_print() << std::endl;
 
     ASSERT_FALSE(dp_helper.get_spill_status().ok()) << "spilll status should be failed";
 }

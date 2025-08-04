@@ -29,7 +29,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -56,16 +55,17 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
@@ -86,7 +86,6 @@ public class MTMVPlanUtil {
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setQualifiedUser(Auth.ADMIN_USER);
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
         ctx.getState().setInternal(true);
@@ -98,12 +97,17 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().skipStorageEngineMerge = false;
         ctx.getSessionVariable().showHiddenColumns = false;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
+        // Temporary disable constant propagation to lose hitting the mv
         // Disable add default limit rule to avoid refresh data wrong
+        List<RuleType> disableRules = Arrays.asList(
+                RuleType.COMPRESSED_MATERIALIZE_AGG,
+                RuleType.COMPRESSED_MATERIALIZE_SORT,
+                RuleType.ELIMINATE_CONST_JOIN_CONDITION,
+                RuleType.CONSTANT_PROPAGATION,
+                RuleType.ADD_DEFAULT_LIMIT
+        );
         ctx.getSessionVariable().setDisableNereidsRules(
-                String.join(",", ImmutableSet.of(
-                        "COMPRESSED_MATERIALIZE_AGG", "COMPRESSED_MATERIALIZE_SORT",
-                        "ELIMINATE_CONST_JOIN_CONDITION",
-                        RuleType.ADD_DEFAULT_LIMIT.name())));
+                disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
         ctx.setStartTime();
         if (parentContext != null) {
             ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());

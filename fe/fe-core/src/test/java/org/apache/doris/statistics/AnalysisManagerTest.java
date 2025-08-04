@@ -17,11 +17,7 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.AnalyzeProperties;
-import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -30,7 +26,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -39,14 +34,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
-import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
-import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import mockit.Expectations;
-import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -54,7 +44,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -119,160 +108,6 @@ public class AnalysisManagerTest {
         Assertions.assertEquals(job.state, AnalysisState.FINISHED);
     }
 
-    // test build sync job
-    @Test
-    public void testBuildAndAssignJob1() throws Exception {
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobColumns(new HashSet<>()).build();
-        new MockUp<StatisticsUtil>() {
-
-            @Mock
-            public boolean statsTblAvailable() {
-                return true;
-            }
-        };
-        new MockUp<AnalysisManager>() {
-
-            @Mock
-            public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
-                return analysisInfo;
-            }
-
-            @Mock
-            @VisibleForTesting
-            public void createTaskForExternalTable(AnalysisInfo jobInfo,
-                    Map<Long, BaseAnalysisTask> analysisTasks,
-                    boolean isSync) throws DdlException {
-                // DO NOTHING
-            }
-
-            @Mock
-            public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
-                    boolean isSync) throws DdlException {
-                // DO NOTHING
-            }
-
-            @Mock
-            public void syncExecute(Collection<BaseAnalysisTask> tasks) {
-                // DO NOTHING
-            }
-
-            @Mock
-            public void updateTableStats(AnalysisInfo jobInfo) {
-                // DO NOTHING
-            }
-        };
-        AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(new TableName("test"),
-                new PartitionNames(false, new ArrayList<String>() {
-                    {
-                        add("p1");
-                        add("p2");
-                    }
-                }), new ArrayList<String>() {
-                    {
-                        add("c1");
-                        add("c2");
-                    }
-        }, new AnalyzeProperties(new HashMap<String, String>() {
-            {
-                put(AnalyzeProperties.PROPERTY_SYNC, "true");
-            }
-        }));
-
-        AnalysisManager analysisManager = new AnalysisManager();
-        Assertions.assertNull(analysisManager.buildAndAssignJob(analyzeTblStmt));
-        analysisInfo.jobColumns.add(Pair.of("index1", "c1"));
-        analysisManager.buildAndAssignJob(analyzeTblStmt);
-        new Expectations() {
-            {
-                analysisManager.syncExecute((Collection<BaseAnalysisTask>) any);
-                times = 1;
-                analysisManager.updateTableStats((AnalysisInfo) any);
-                times = 1;
-                // Jmockit would try to invoke this method with `null` when initiate instance of Expectations
-                // and cause NPE, comment these lines until find other way to test behavior that don't invoke something.
-                // analysisManager.persistAnalysisJob((AnalysisInfo) any);
-                // times = 0;
-            }
-        };
-    }
-
-    // test build async job
-    @Test
-    public void testBuildAndAssignJob2(@Injectable OlapAnalysisTask analysisTask) throws Exception {
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobColumns(new HashSet<>())
-                .setScheduleType(ScheduleType.PERIOD)
-                .build();
-        new MockUp<StatisticsUtil>() {
-
-            @Mock
-            public boolean statsTblAvailable() {
-                return true;
-            }
-        };
-        new MockUp<AnalysisManager>() {
-
-            @Mock
-            public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
-                return analysisInfo;
-            }
-
-            @Mock
-            @VisibleForTesting
-            public void createTaskForExternalTable(AnalysisInfo jobInfo,
-                    Map<Long, BaseAnalysisTask> analysisTasks,
-                    boolean isSync) throws DdlException {
-                // DO NOTHING
-            }
-
-            @Mock
-            public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
-                    boolean isSync) throws DdlException {
-                analysisTasks.put(1L, analysisTask);
-            }
-
-            @Mock
-            public void syncExecute(Collection<BaseAnalysisTask> tasks) {
-                // DO NOTHING
-            }
-
-            @Mock
-            public void updateTableStats(AnalysisInfo jobInfo) {
-                // DO NOTHING
-            }
-
-            @Mock
-            public void logCreateAnalysisJob(AnalysisInfo analysisJob) {
-
-            }
-        };
-        AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(new TableName("test"),
-                new PartitionNames(false, new ArrayList<String>() {
-                    {
-                        add("p1");
-                        add("p2");
-                    }
-                }), new ArrayList<String>() {
-            {
-                add("c1");
-                add("c2");
-            }
-        }, new AnalyzeProperties(new HashMap<String, String>() {
-            {
-                put(AnalyzeProperties.PROPERTY_SYNC, "false");
-                put(AnalyzeProperties.PROPERTY_PERIOD_SECONDS, "100");
-            }
-        }));
-        AnalysisManager analysisManager = new AnalysisManager();
-        analysisInfo.jobColumns.add(Pair.of("index1", "c1"));
-        analysisManager.buildAndAssignJob(analyzeTblStmt);
-        new Expectations() {
-            {
-                analysisManager.recordAnalysisJob(analysisInfo);
-                times = 1;
-            }
-        };
-    }
-
     @Test
     public void testRecordLimit1() {
         Config.analyze_record_limit = 2;
@@ -295,58 +130,6 @@ public class AnalysisManagerTest {
         Assertions.assertEquals(2, analysisManager.analysisTaskInfoMap.size());
         Assertions.assertTrue(analysisManager.analysisTaskInfoMap.containsKey(2L));
         Assertions.assertTrue(analysisManager.analysisTaskInfoMap.containsKey(3L));
-    }
-
-    @Test
-    public void testShowAutoJobs(@Injectable ShowAnalyzeStmt stmt) {
-        new MockUp<ShowAnalyzeStmt>() {
-            @Mock
-            public String getStateValue() {
-                return null;
-            }
-
-            @Mock
-            public TableName getDbTableName() {
-                return null;
-            }
-
-            @Mock
-            public boolean isAuto() {
-                return true;
-            }
-        };
-        AnalysisManager analysisManager = new AnalysisManager();
-        analysisManager.analysisJobInfoMap.put(
-            1L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.MANUAL).build());
-        analysisManager.analysisJobInfoMap.put(
-            2L, new AnalysisInfoBuilder().setJobId(2).setJobType(JobType.SYSTEM).setState(AnalysisState.RUNNING).build());
-        analysisManager.analysisJobInfoMap.put(
-            3L, new AnalysisInfoBuilder().setJobId(3).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
-        analysisManager.analysisJobInfoMap.put(
-            4L, new AnalysisInfoBuilder().setJobId(4).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
-        List<AnalysisInfo> analysisInfos = analysisManager.findAnalysisJobs(stmt);
-        Assertions.assertEquals(3, analysisInfos.size());
-        Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
-        Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
-        Assertions.assertEquals(AnalysisState.FAILED, analysisInfos.get(2).getState());
-    }
-
-    @Test
-    public void testShowAutoTasks(@Injectable ShowAnalyzeStmt stmt) {
-        AnalysisManager analysisManager = new AnalysisManager();
-        analysisManager.analysisTaskInfoMap.put(
-            1L, new AnalysisInfoBuilder().setJobId(2).setJobType(JobType.MANUAL).build());
-        analysisManager.analysisTaskInfoMap.put(
-            2L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.RUNNING).build());
-        analysisManager.analysisTaskInfoMap.put(
-            3L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
-        analysisManager.analysisTaskInfoMap.put(
-            4L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
-        List<AnalysisInfo> analysisInfos = analysisManager.findTasks(1);
-        Assertions.assertEquals(3, analysisInfos.size());
-        Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
-        Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
-        Assertions.assertEquals(AnalysisState.FAILED, analysisInfos.get(2).getState());
     }
 
     @Test
@@ -516,7 +299,7 @@ public class AnalysisManagerTest {
         AnalysisManager analysisManager = new AnalysisManager();
         for (int i = 0; i < 20; i++) {
             System.out.println("Submit " + i);
-            analysisManager.submitAsyncDropStatsTask(null, 0, 0, 0, null, null, false);
+            analysisManager.submitAsyncDropStatsTask(0, 0, 0, null, false);
         }
         Thread.sleep(10000);
         System.out.println(count.get());

@@ -20,6 +20,8 @@ package org.apache.doris.datasource.hudi.source;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -54,7 +56,7 @@ public class HudiCachedMetaClientProcessor {
     }
 
     private HoodieTableMetaClient createHoodieTableMetaClient(HudiCachedClientKey key) {
-        LOG.debug("create hudi table meta client for {}.{}", key.getDbName(), key.getTbName());
+        LOG.debug("create hudi table meta client for {}.{}", key.getNameMapping().getFullLocalName());
         HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(key.getConf());
         return HiveMetaStoreClientHelper.ugiDoAs(
                 key.getConf(),
@@ -66,8 +68,8 @@ public class HudiCachedMetaClientProcessor {
     }
 
     public HoodieTableMetaClient getHoodieTableMetaClient(
-            String dbName, String tbName, String hudiBasePath, Configuration conf) {
-        return hudiTableMetaClientCache.get(new HudiCachedClientKey(dbName, tbName, hudiBasePath, conf));
+            NameMapping nameMapping, String hudiBasePath, Configuration conf) {
+        return hudiTableMetaClientCache.get(new HudiCachedClientKey(nameMapping, hudiBasePath, conf));
     }
 
     public void cleanUp() {
@@ -80,39 +82,34 @@ public class HudiCachedMetaClientProcessor {
 
     public void invalidateDbCache(String dbName) {
         hudiTableMetaClientCache.asMap().forEach((k, v) -> {
-            if (k.getDbName().equals(dbName)) {
+            if (k.getNameMapping().getLocalDbName().equals(dbName)) {
                 hudiTableMetaClientCache.invalidate(k);
             }
         });
     }
 
-    public void invalidateTableCache(String dbName, String tbName) {
+    public void invalidateTableCache(ExternalTable dorisTable) {
         hudiTableMetaClientCache.asMap().forEach((k, v) -> {
-            if (k.getDbName().equals(dbName) && k.getTbName().equals(tbName)) {
+            if (k.getNameMapping().getLocalDbName().equals(dorisTable.getDbName())
+                    && k.getNameMapping().getLocalTblName().equals(dorisTable.getName())) {
                 hudiTableMetaClientCache.invalidate(k);
             }
         });
     }
 
     private static class HudiCachedClientKey {
-        String dbName;
-        String tbName;
+        NameMapping nameMapping;
         String hudiBasePath;
         Configuration conf;
 
-        public HudiCachedClientKey(String dbName, String tbName, String hudiBasePath, Configuration conf) {
-            this.dbName = dbName;
-            this.tbName = tbName;
+        public HudiCachedClientKey(NameMapping nameMapping, String hudiBasePath, Configuration conf) {
+            this.nameMapping = nameMapping;
             this.hudiBasePath = hudiBasePath;
             this.conf = conf;
         }
 
-        public String getDbName() {
-            return dbName;
-        }
-
-        public String getTbName() {
-            return tbName;
+        public NameMapping getNameMapping() {
+            return nameMapping;
         }
 
         public String getHudiBasePath() {
@@ -132,13 +129,13 @@ public class HudiCachedMetaClientProcessor {
                 return false;
             }
             HudiCachedClientKey that = (HudiCachedClientKey) o;
-            return Objects.equals(dbName, that.dbName) && Objects.equals(tbName, that.tbName)
+            return nameMapping.equals(that.nameMapping)
                     && Objects.equals(hudiBasePath, that.hudiBasePath);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(dbName, tbName, hudiBasePath);
+            return Objects.hash(nameMapping, hudiBasePath);
         }
     }
 

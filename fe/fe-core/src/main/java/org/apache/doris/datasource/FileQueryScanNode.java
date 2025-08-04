@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
@@ -34,8 +33,6 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.hive.AcidInfo;
-import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -60,9 +57,6 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSplitSource;
-import org.apache.doris.thrift.TTableFormatFileDesc;
-import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
-import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -73,7 +67,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -113,18 +106,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             SessionVariable sv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         this.sessionVariable = sv;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
-        }
-        super.init(analyzer);
-        doInitialize();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
-        }
     }
 
     /**
@@ -201,11 +182,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     public void setTableSample(TableSample tSample) {
         this.tableSample = tSample;
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        doFinalize();
     }
 
     @Override
@@ -434,35 +410,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
         TFileCompressType fileCompressType = getFileCompressType(fileSplit);
         rangeDesc.setCompressType(fileCompressType);
-        if (fileSplit instanceof  HiveSplit) {
-            if (isACID) {
-                HiveSplit hiveSplit = (HiveSplit) fileSplit;
-                hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
-                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-                tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
-                AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
-                TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
-                transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
-                List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
-                for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
-                    TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
-                    deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
-                    deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
-                    deleteDeltaDescs.add(deleteDeltaDesc);
-                }
-                transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
-                tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
-                rangeDesc.setTableFormatParams(tableFormatFileDesc);
-            } else {
-                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-                tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
-                rangeDesc.setTableFormatParams(tableFormatFileDesc);
-            }
-        }
-
         // set file format type, and the type might fall back to native format in setScanParams
         rangeDesc.setFormatType(getFileFormatType());
         setScanParams(rangeDesc, fileSplit);
+
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();
         setLocationPropertiesIfNecessary(backend, fileSplit.getLocationType(), locationProperties);

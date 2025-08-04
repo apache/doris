@@ -190,7 +190,7 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
 
     void deserialize_vec(StringRef* keys, size_t num_rows) override;
 
@@ -300,7 +300,6 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
-    ColumnPtr replicate(const Offsets& replicate_offsets) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
@@ -450,6 +449,13 @@ public:
     void erase(size_t start, size_t length) override {
         get_nested_column().erase(start, length);
         get_null_map_column().erase(start, length);
+    }
+
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override {
+        return sizeof(NullMap::value_type) +
+               (is_null_at(row) ? 0 : nested_column->serialize_size_at(row));
     }
 
 private:

@@ -33,6 +33,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/functions/cast/cast_base.h"
 #include "vec/runtime/vcsv_transformer.h"
 
 namespace doris {
@@ -93,6 +94,46 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
         RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_hive_text(
                 col_null.get_nested_column(), row_num, bw, options,
                 hive_text_complex_type_delimiter_level));
+    }
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                        JsonbWriter& writer) const {
+    const auto& col_null = assert_cast<const ColumnNullable&>(from_column);
+
+    if (col_null.is_null_at(row_num)) {
+        writer.writeNull();
+    } else {
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(col_null.get_nested_column(),
+                                                                row_num, writer));
+    }
+
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                            const JsonbValue* jsonb_value,
+                                                            CastParameters& castParms) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (jsonb_value->isNull()) {
+        null_column.insert_default();
+        return Status::OK();
+    } else {
+        Status st = nested_serde->deserialize_column_from_jsonb(null_column.get_nested_column(),
+                                                                jsonb_value, castParms);
+
+        if (!st.ok()) {
+            if (castParms.is_strict) {
+                return st;
+            } else {
+                // fill null if fail
+                null_column.insert_default();
+                return Status::OK();
+            }
+        }
+        // fill not null if success
+        null_column.get_null_map_data().push_back(0);
     }
     return Status::OK();
 }
@@ -261,7 +302,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
 }
 
 void DataTypeNullableSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                    Arena* mem_pool, int32_t col_id,
+                                                    Arena& mem_pool, int32_t col_id,
                                                     int64_t row_num) const {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
@@ -349,7 +390,7 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   const IColumn& column, const NullMap* null_map,
                                                   orc::ColumnVectorBatch* orc_col_batch,
                                                   int64_t start, int64_t end,
-                                                  std::vector<StringRef>& buffer_list) const {
+                                                  vectorized::Arena& arena) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
     const auto& null_map_tmp = column_nullable.get_null_map_data();
@@ -362,7 +403,7 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
 
     RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
                                                       &column_nullable.get_null_map_data(),
-                                                      orc_col_batch, start, end, buffer_list));
+                                                      orc_col_batch, start, end, arena));
     return Status::OK();
 }
 
@@ -395,5 +436,23 @@ Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
+                                          const FormatOptions& options) const {
+    auto& col = assert_cast<ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    Status st = nested_serde->from_string(str, nested_col, options);
+    if (!st.ok()) {
+        // default is null
+        col.insert_default();
+    }
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                      const FormatOptions& options) const {
+    auto& col = assert_cast<ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    return nested_serde->from_string_strict_mode(str, nested_col, options);
+}
 } // namespace vectorized
 } // namespace doris

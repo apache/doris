@@ -63,7 +63,7 @@ public:
               _cast_sender_count(cast_sender_count),
               _node_id(node_id),
               _spill_readers(cast_sender_count),
-              _source_profiles(cast_sender_count) {
+              _source_operator_profiles(cast_sender_count) {
         _sender_pos_to_read.resize(cast_sender_count, _multi_cast_blocks.end());
         _dependencies.resize(cast_sender_count, nullptr);
 
@@ -99,10 +99,10 @@ public:
         return _spill_read_dependencies[sender_idx].get();
     }
 
-    void set_sink_profile(RuntimeProfile* profile) { _sink_profile = profile; }
+    void set_sink_profile(RuntimeProfile* profile) { _sink_operator_profile = profile; }
 
     void set_source_profile(int sender_idx, RuntimeProfile* profile) {
-        _source_profiles[sender_idx] = profile;
+        _source_operator_profiles[sender_idx] = profile;
     }
 
     std::string debug_string();
@@ -142,8 +142,9 @@ private:
 
     std::vector<std::shared_ptr<Dependency>> _spill_read_dependencies;
 
-    RuntimeProfile* _sink_profile;
-    std::vector<RuntimeProfile*> _source_profiles;
+    RuntimeProfile* _sink_operator_profile;
+    // operator_profile of each source operator
+    std::vector<RuntimeProfile*> _source_operator_profiles;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
@@ -59,6 +58,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
@@ -163,6 +163,8 @@ public class MaterializedViewHandler extends AlterHandler {
             if (tableNotFinalStateJobIdset == null) {
                 // This could happen when this job is already removed before.
                 // return false, so that we will not set table's to NORMAL again.
+                LOG.warn("alter job is already removed before. tableId: {}, jobId: {}",
+                        tableId, jobId);
                 return false;
             }
             tableNotFinalStateJobIdset.remove(jobId);
@@ -229,6 +231,11 @@ public class MaterializedViewHandler extends AlterHandler {
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -288,6 +295,11 @@ public class MaterializedViewHandler extends AlterHandler {
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -393,6 +405,11 @@ public class MaterializedViewHandler extends AlterHandler {
             }
             throw e;
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -1201,13 +1218,13 @@ public class MaterializedViewHandler extends AlterHandler {
         Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
     }
 
-    public void processDropMaterializedView(DropMaterializedViewStmt dropMaterializedViewStmt, Database db,
+    public void processDropMaterializedView(DropMaterializedViewCommand dropMaterializedViewCommand, Database db,
             OlapTable olapTable) throws DdlException, MetaNotFoundException {
         List<Long> deleteIndexList = new ArrayList<Long>();
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
-            String mvName = dropMaterializedViewStmt.getMvName();
+            String mvName = dropMaterializedViewCommand.getMvName();
             // Step1: check drop mv index operation
             checkDropMaterializedView(mvName, olapTable);
             // Step2; drop data in memory
@@ -1219,7 +1236,7 @@ public class MaterializedViewHandler extends AlterHandler {
             deleteIndexList.add(mvIndexId);
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
-            if (dropMaterializedViewStmt.isIfExists()) {
+            if (dropMaterializedViewCommand.isIfExists()) {
                 LOG.info(e.getMessage());
             } else {
                 throw e;
@@ -1455,6 +1472,9 @@ public class MaterializedViewHandler extends AlterHandler {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
+        } else {
+            LOG.warn("Failed to remove job from tableNotFinalStateJobMap, table id: {}, job id: {}",
+                    alterJob.getTableId(), alterJob.getJobId());
         }
     }
 

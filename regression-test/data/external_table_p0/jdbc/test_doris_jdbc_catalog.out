@@ -141,13 +141,33 @@ char_col	char(85)	Yes	true	\N	NONE
 varchar_col	char(85)	Yes	true	\N	NONE
 json_col	text	Yes	true	\N	NONE
 
--- !sql --
+-- !sql1 --
 \N	\N
 a	1
 
--- !sql --
+-- !sql2 --
 \N	\N
 1	a
+
+-- !sql3 --
+\N
+a
+
+-- !sql4 --
+\N
+1
+
+-- !sql5 --
+\N
+1
+
+-- !sql6 --
+\N	\N
+1	a
+
+-- !sql7 --
+\N
+1
 
 -- !sql --
 doris_jdbc_catalog

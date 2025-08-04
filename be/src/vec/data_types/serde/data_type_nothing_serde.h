@@ -81,7 +81,7 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override {
         return Status::NotSupported("read_column_from_pb with type " + column.get_name());
     }
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
@@ -119,7 +119,7 @@ public:
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end,
-                               std::vector<StringRef>& buffer_list) const override {
+                               vectorized::Arena& arena) const override {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     }
 };

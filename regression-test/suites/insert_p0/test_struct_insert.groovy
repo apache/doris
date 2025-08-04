@@ -144,7 +144,6 @@ suite("test_struct_insert") {
    );
    """
   qt_select "select * from test_struct_insert_into order by id"
-  test {
     sql """
     INSERT INTO test_struct_insert_into VALUES (
         6,
@@ -156,8 +155,6 @@ suite("test_struct_insert") {
         '{60, {61}, 70}'       -- s5.b less  -> s5.b is NULL
     );
     """
-    exception("Size of offsets doesn't match size of column")
-    }
     qt_select "select * from test_struct_insert_into order by id"
 
     sql """

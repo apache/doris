@@ -41,6 +41,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 const static std::string INTERNAL_NORMAL_WG_NAME = "normal";
 const static uint64_t INTERNAL_NORMAL_WG_ID = 1;
 
@@ -65,7 +67,7 @@ WorkloadGroupPtr WorkloadGroupMgr::get_or_create_workload_group(
     if (fe_wg_info.name == INTERNAL_NORMAL_WG_NAME) {
         WorkloadGroupPtr wg_ptr = nullptr;
         uint64_t old_wg_id = -1;
-        int before_wg_size = _workload_groups.size();
+        auto before_wg_size = _workload_groups.size();
         for (auto& wg_pair : _workload_groups) {
             uint64_t wg_id = wg_pair.first;
             WorkloadGroupPtr wg = wg_pair.second;
@@ -146,8 +148,8 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
     int64_t begin_time = MonotonicMillis();
     // 1 get delete group without running queries
     std::vector<WorkloadGroupPtr> deleted_task_groups;
-    int old_wg_size = 0;
-    int new_wg_size = 0;
+    size_t old_wg_size = 0;
+    size_t new_wg_size = 0;
     {
         std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
         old_wg_size = _workload_groups.size();
@@ -684,8 +686,8 @@ int64_t WorkloadGroupMgr::flush_memtable_from_group_(WorkloadGroupPtr wg) {
     int64_t max_wg_memtable_bytes = wg->write_buffer_limit();
     if (memtable_active_bytes + memtable_queue_bytes + memtable_flush_bytes >
         max_wg_memtable_bytes) {
-        auto max_wg_active_memtable_bytes =
-                (int64_t)(max_wg_memtable_bytes * config::load_max_wg_active_memtable_percent);
+        auto max_wg_active_memtable_bytes = (int64_t)(static_cast<double>(max_wg_memtable_bytes) *
+                                                      config::load_max_wg_active_memtable_percent);
         // There are many table in flush queue, just waiting them flush finished.
         if (memtable_active_bytes < max_wg_active_memtable_bytes) {
             LOG_EVERY_T(INFO, 60) << wg->name()
@@ -942,7 +944,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
     bool is_high_watermark = false;
     wg->check_mem_used(&is_low_watermark, &is_high_watermark);
     int64_t wg_high_water_mark_limit =
-            (int64_t)(wg_mem_limit * wg->memory_high_watermark() * 1.0 / 100);
+            (int64_t)(static_cast<double>(wg_mem_limit) * wg->memory_high_watermark() * 1.0 / 100);
     int64_t memtable_usage = wg->write_buffer_size();
     int64_t wg_high_water_mark_except_load = wg_high_water_mark_limit;
     if (memtable_usage > wg->write_buffer_limit()) {
@@ -960,7 +962,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
                 PrettyPrinter::print(wg->total_mem_used(), TUnit::BYTES),
                 PrettyPrinter::print(wg_high_water_mark_limit, TUnit::BYTES),
                 PrettyPrinter::print(memtable_usage, TUnit::BYTES),
-                (double)(wg->total_mem_used()) / wg_mem_limit);
+                (double)(wg->total_mem_used()) / static_cast<double>(wg_mem_limit));
     }
 
     // If reached low watermark and wg is not enable memory overcommit, then enable load buffer limit
@@ -1009,7 +1011,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
             } else {
                 // If the query enable hard limit, then not use weighted info any more, just use the settings limit.
                 query_weighted_mem_limit =
-                        (int64_t)((wg_high_water_mark_except_load *
+                        (int64_t)((static_cast<double>(wg_high_water_mark_except_load) *
                                    resource_ctx->task_controller()->get_slot_count() * 1.0) /
                                   total_slot_count);
                 expected_query_weighted_mem_limit = query_weighted_mem_limit;
@@ -1021,7 +1023,8 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
             // numerator `+ total_used_slot_count` ensures that the result is greater than 1.
             expected_query_weighted_mem_limit =
                     total_used_slot_count > 0
-                            ? (int64_t)((wg_high_water_mark_except_load + total_used_slot_count) *
+                            ? (int64_t)(static_cast<double>(wg_high_water_mark_except_load +
+                                                            total_used_slot_count) *
                                         resource_ctx->task_controller()->get_slot_count() * 1.0 /
                                         total_used_slot_count)
                             : wg_high_water_mark_except_load;
@@ -1053,6 +1056,8 @@ Status WorkloadGroupMgr::create_internal_wg() {
     TWorkloadGroupInfo twg_info;
     twg_info.__set_id(INTERNAL_NORMAL_WG_ID);
     twg_info.__set_name(INTERNAL_NORMAL_WG_NAME);
+    twg_info.__set_mem_limit("100%");   // The normal wg will occupy all memory by default.
+    twg_info.__set_cpu_hard_limit(100); // Means disable cpu hard limit for cgroup
     twg_info.__set_version(0);
 
     WorkloadGroupInfo wg_info = WorkloadGroupInfo::parse_topic_info(twg_info);
@@ -1067,5 +1072,7 @@ Status WorkloadGroupMgr::create_internal_wg() {
 
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

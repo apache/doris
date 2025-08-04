@@ -382,7 +382,7 @@ public class InsertUtils {
                 for (int i = 0; i < columns.size(); i++) {
                     Column column = columns.get(i);
                     NamedExpression defaultExpression = generateDefaultExpression(column);
-                    addColumnValue(analyzer, optimizedRowConstructor, defaultExpression);
+                    addColumnValue(analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext);
                 }
             } else {
                 if (CollectionUtils.isNotEmpty(unboundLogicalSink.getColNames())) {
@@ -409,14 +409,14 @@ public class InsertUtils {
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             NamedExpression defaultExpression = generateDefaultExpression(sameNameColumn);
-                            addColumnValue(analyzer, optimizedRowConstructor, defaultExpression);
+                            addColumnValue(
+                                    analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext
+                            );
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
-                            Expression castValue = castValue(values.get(i), targetType);
-                            castValue = rewriteContext == null
-                                    ? castValue
-                                    : FoldConstantRuleOnFE.evaluate(castValue, rewriteContext);
-                            addColumnValue(analyzer, optimizedRowConstructor, (NamedExpression) castValue);
+                            addColumnValue(
+                                    analyzer, optimizedRowConstructor, values.get(i), targetType, rewriteContext
+                            );
                         }
                     }
                 } else {
@@ -432,14 +432,14 @@ public class InsertUtils {
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             NamedExpression defaultExpression = generateDefaultExpression(columns.get(i));
-                            addColumnValue(analyzer, optimizedRowConstructor, defaultExpression);
+                            addColumnValue(
+                                    analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext
+                            );
                         } else {
                             DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
-                            Expression castValue = castValue(values.get(i), targetType);
-                            castValue = rewriteContext == null
-                                    ? castValue
-                                    : FoldConstantRuleOnFE.evaluate(castValue, rewriteContext);
-                            addColumnValue(analyzer, optimizedRowConstructor, (NamedExpression) castValue);
+                            addColumnValue(
+                                    analyzer, optimizedRowConstructor, values.get(i), targetType, rewriteContext
+                            );
                         }
                     }
                 }
@@ -519,26 +519,32 @@ public class InsertUtils {
     private static void addColumnValue(
             Optional<ExpressionAnalyzer> analyzer,
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
-            NamedExpression value) {
+            NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext) {
+        if (targetType != null) {
+            value = castValue(value, targetType);
+        }
         if (analyzer.isPresent() && !(value instanceof Alias && value.child(0) instanceof Literal)) {
             ExpressionAnalyzer expressionAnalyzer = analyzer.get();
             value = (NamedExpression) expressionAnalyzer.analyze(
-                value, new ExpressionRewriteContext(expressionAnalyzer.getCascadesContext())
+                    value, new ExpressionRewriteContext(expressionAnalyzer.getCascadesContext())
             );
+            value = rewriteContext == null
+                    ? value
+                    : (NamedExpression) FoldConstantRuleOnFE.evaluate(value, rewriteContext);
         }
         optimizedRowConstructor.add(value);
     }
 
-    private static Alias castValue(Expression value, DataType targetType) {
+    private static NamedExpression castValue(Expression value, DataType targetType) {
         if (value instanceof Alias) {
             Expression oldChild = value.child(0);
             Expression newChild = TypeCoercionUtils.castUnbound(oldChild, targetType);
             return (Alias) (oldChild == newChild ? value : value.withChildren(newChild));
         } else if (value instanceof UnboundAlias) {
             UnboundAlias unboundAlias = (UnboundAlias) value;
-            return new Alias(TypeCoercionUtils.castUnbound(unboundAlias.child(), targetType));
+            return new UnboundAlias(TypeCoercionUtils.castUnbound(unboundAlias.child(), targetType));
         } else {
-            return new Alias(TypeCoercionUtils.castUnbound(value, targetType));
+            return new UnboundAlias(TypeCoercionUtils.castUnbound(value, targetType));
         }
     }
 
@@ -596,7 +602,7 @@ public class InsertUtils {
                 return (NamedExpression) defualtValueExpression;
             } else {
                 return new Alias(Literal.of(column.getDefaultValue())
-                        .checkedCastTo(DataType.fromCatalogType(column.getType())),
+                        .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
                         column.getName());
             }
         } catch (org.apache.doris.common.AnalysisException e) {

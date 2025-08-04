@@ -923,7 +923,7 @@ visible_functions = {
         [['microsecond_timestamp'], 'BIGINT', ['DATETIMEV2'], 'DEPEND_ON_ARGUMENT'],
         [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [], 'DEPEND_ON_ARGUMENT'],
         [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIMEV2', ['INT'], 'DEPEND_ON_ARGUMENT'],
-        [['curtime', 'current_time'], 'TIME', [], 'ALWAYS_NOT_NULLABLE'],
+        [['curtime', 'current_time'], 'TIMEV2', [], 'ALWAYS_NOT_NULLABLE'],
         [['curdate', 'current_date'], 'DATE', [], 'ALWAYS_NOT_NULLABLE'],
         [['utc_timestamp'], 'DATETIME', [], 'ALWAYS_NOT_NULLABLE'],
         [['timestamp'], 'DATETIME', ['DATETIME'], 'ALWAYS_NULLABLE'],
@@ -981,7 +981,7 @@ visible_functions = {
         [['seconds_sub'], 'DATETIME', ['DATETIME', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['datediff'], 'INT', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
-        [['timediff'], 'TIME', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
+        [['timediff'], 'TIMEV2', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
 
         [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1060,9 +1060,9 @@ visible_functions = {
         [['timestamp'], 'DATETIMEV2', ['DATETIMEV2'], ''],
 
         [['to_days'], 'INT', ['DATEV2'], ''],
-        [['time_to_sec'], 'INT', ['TIME'], ''],
         [['time_to_sec'], 'INT', ['TIMEV2'], ''],
-        [['sec_to_time'], 'TIME', ['INT'], ''],
+        [['time_to_sec'], 'INT', ['TIMEV2'], ''],
+        [['sec_to_time'], 'TIMEV2', ['INT'], ''],
 
         [['year'], 'SMALLINT', ['DATETIMEV2'], ''],
         [['month'], 'TINYINT', ['DATETIMEV2'], ''],
@@ -1584,7 +1584,7 @@ visible_functions = {
         [['esquery'], 'BOOLEAN', ['DECIMAL32', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['DECIMAL64', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['DECIMAL128', 'VARCHAR'], ''],
-        [['esquery'], 'BOOLEAN', ['TIME', 'VARCHAR'], ''],
+        [['esquery'], 'BOOLEAN', ['TIMEV2', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['DATEV2', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['DATETIMEV2', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['TIMEV2', 'VARCHAR'], ''],

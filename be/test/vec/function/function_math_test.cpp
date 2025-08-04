@@ -181,6 +181,37 @@ TEST(MathFunctionTest, cbrt_test) {
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, cot_test) {
+    std::string func_name = "cot";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{1.0}, 0.6420926159343306}, {{M_PI / 4}, 1.0000000000000002}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, sec_test) {
+    std::string func_name = "sec";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{1.0}, 1.8508157176809255}, {{1000.0}, 1.7781600385912715}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, cosec_test) {
+    std::string func_name = "csc";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {
+            {{1.0}, 1.1883951057781212}, {{2.0}, 1.0997501702946164}, {{1000.0}, 1.20936599707935}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, tan_test) {
     std::string func_name = "tan"; //tan(x)
 
@@ -382,7 +413,7 @@ TEST(MathFunctionTest, positive_test) {
         };
 
         static_cast<void>(
-                check_function<DataTypeDecimal64, false, 5, 11>(func_name, input_types, data_set));
+                check_function<DataTypeDecimal64, false>(func_name, input_types, data_set, 5, 11));
     }
     // negative case
     {
@@ -393,8 +424,8 @@ TEST(MathFunctionTest, positive_test) {
                 {{DECIMAL64(12345, 123, 3)}, {DECIMAL64(12345, 12300, 5)}},
         };
 
-        static_cast<void>(check_function<DataTypeDecimal64, false, 5, 11>(func_name, input_types,
-                                                                          data_set, false, true));
+        static_cast<void>(check_function<DataTypeDecimal64, false>(func_name, input_types, data_set,
+                                                                   5, 11, false, true));
     }
     // negative case
     {
@@ -404,8 +435,8 @@ TEST(MathFunctionTest, positive_test) {
                 {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
         };
 
-        static_cast<void>(check_function<DataTypeDecimal64, false, 6, 12>(func_name, input_types,
-                                                                          data_set, false, true));
+        static_cast<void>(check_function<DataTypeDecimal64, false>(func_name, input_types, data_set,
+                                                                   6, 12, false, true));
     }
 }
 
@@ -692,8 +723,135 @@ TEST(MathFunctionTest, format_round_test) {
                 {{DECIMAL64(-17014116, -671, 3), INT(2)}, VARCHAR("-17,014,116.67")},
         };
 
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set,
-                                                               false, true));
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set, -1,
+                                                               -1, false, true));
+    }
+}
+
+TEST(MathFunctionTest, signbit_test) {
+    std::string func_name = "signbit";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+        DataSet data_set = {{{1.0}, UInt8(0)},  {{0.9}, UInt8(0)}, {{-1.0}, UInt8(1)},
+                            {{-0.9}, UInt8(1)}, {{0.0}, UInt8(0)}, {{Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {
+                {{(int32_t)1}, UInt8(0)}, {{(int32_t)-1}, UInt8(1)}, {{(int32_t)0}, UInt8(0)}};
+
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(MathFunctionTest, even_test) {
+    std::string func_name = "even";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{-1.0}, -2.0}, {{-2.2}, -4.0}, {{2.2}, 4.0},
+                        {{0.0}, 0.0},   {{0.5}, 2.0},   {{3.2}, 4.0},
+                        {{-3.2}, -4.0}, {{-0.5}, -2.0}, {{Null()}, Null()}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, gcd_test) {
+    std::string func_name = "gcd";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT};
+
+        DataSet data_set = {
+                {{TINYINT(1), TINYINT(2)}, TINYINT(1)},  {{TINYINT(2), TINYINT(4)}, TINYINT(2)},
+                {{TINYINT(-2), TINYINT(4)}, TINYINT(2)}, {{TINYINT(2), TINYINT(-4)}, TINYINT(2)},
+                {{TINYINT(0), TINYINT(0)}, TINYINT(0)},  {{Null(), TINYINT(2)}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT};
+
+        DataSet data_set = {{{SMALLINT(2), SMALLINT(4)}, SMALLINT(2)},
+                            {{SMALLINT(2), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {{{INT(1), INT(2)}, 1},   {{INT(2), INT(4)}, 2},
+                            {{INT(-2), INT(4)}, 2},  {{INT(2), INT(-4)}, 2},
+                            {{INT(-2), INT(-4)}, 2}, {{INT(0), INT(4)}, 4},
+                            {{INT(0), INT(0)}, 0},   {{Null(), INT(2)}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_BIGINT};
+
+        DataSet data_set = {{{BIGINT(2), BIGINT(4)}, BIGINT(2)}, {{BIGINT(2), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_LARGEINT};
+
+        DataSet data_set = {{{LARGEINT(2), LARGEINT(4)}, LARGEINT(2)},
+                            {{LARGEINT(2), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(MathFunctionTest, lcm_test) {
+    std::string func_name = "lcm";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT};
+
+        DataSet data_set = {{{SMALLINT(2), SMALLINT(4)}, SMALLINT(4)},
+                            {{SMALLINT(2), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {{{INT(3), INT(5)}, INT(15)},  {{INT(2), INT(4)}, INT(4)},
+                            {{INT(-2), INT(4)}, INT(4)},  {{INT(2), INT(-4)}, INT(4)},
+                            {{INT(-2), INT(-4)}, INT(4)}, {{INT(0), INT(4)}, INT(0)},
+                            {{INT(0), INT(0)}, INT(0)},   {{Null(), INT(2)}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_BIGINT};
+
+        DataSet data_set = {{{BIGINT(2), BIGINT(4)}, BIGINT(4)}, {{BIGINT(2), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_LARGEINT};
+
+        DataSet data_set = {{{LARGEINT(2), LARGEINT(4)}, LARGEINT(4)},
+                            {{LARGEINT(2), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
     }
 }
 

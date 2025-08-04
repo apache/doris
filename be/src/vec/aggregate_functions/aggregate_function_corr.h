@@ -14,9 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_binary.h"
+
 #include "vec/core/types.h"
+#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -49,21 +49,21 @@ struct CorrMoment {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(m0, buf);
-        write_binary(x1, buf);
-        write_binary(y1, buf);
-        write_binary(xy, buf);
-        write_binary(x2, buf);
-        write_binary(y2, buf);
+        buf.write_binary(m0);
+        buf.write_binary(x1);
+        buf.write_binary(y1);
+        buf.write_binary(xy);
+        buf.write_binary(x2);
+        buf.write_binary(y2);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(m0, buf);
-        read_binary(x1, buf);
-        read_binary(y1, buf);
-        read_binary(xy, buf);
-        read_binary(x2, buf);
-        read_binary(y2, buf);
+        buf.read_binary(m0);
+        buf.read_binary(x1);
+        buf.read_binary(y1);
+        buf.read_binary(xy);
+        buf.read_binary(x2);
+        buf.read_binary(y2);
     }
 
     T get() const {
@@ -130,21 +130,21 @@ struct CorrMomentWelford {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(meanX, buf);
-        write_binary(meanY, buf);
-        write_binary(c2, buf);
-        write_binary(m2X, buf);
-        write_binary(m2Y, buf);
-        write_binary(count, buf);
+        buf.write_binary(meanX);
+        buf.write_binary(meanY);
+        buf.write_binary(c2);
+        buf.write_binary(m2X);
+        buf.write_binary(m2Y);
+        buf.write_binary(count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(meanX, buf);
-        read_binary(meanY, buf);
-        read_binary(c2, buf);
-        read_binary(m2X, buf);
-        read_binary(m2Y, buf);
-        read_binary(count, buf);
+        buf.read_binary(meanX);
+        buf.read_binary(meanY);
+        buf.read_binary(c2);
+        buf.read_binary(m2X);
+        buf.read_binary(m2Y);
+        buf.read_binary(count);
     }
 
     double get() const {

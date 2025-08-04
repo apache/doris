@@ -19,10 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -38,18 +35,22 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.nereids.load.NereidsDataDescription;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
@@ -63,7 +64,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -120,6 +120,38 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
     }
 
+    public static BulkLoadJob fromLoadCommand(LoadCommand command, StmtExecutor executor, ConnectContext ctx)
+            throws Exception {
+        // get db id
+        String dbName = command.getLabel().getDbName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        // create job
+        BulkLoadJob bulkLoadJob;
+        try {
+            switch (command.getEtlJobType()) {
+                case BROKER:
+                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
+                            command.getLabel().getLabelName(), command.getBrokerDesc(), executor.getOriginStmt(),
+                            command.getUserIdentity());
+                    break;
+                case DELETE:
+                case INSERT:
+                    throw new DdlException("LoadManager only support create broker load job from stmt.");
+                default:
+                    throw new DdlException("Unknown load job type.");
+            }
+            bulkLoadJob.setComment(command.getComment());
+            bulkLoadJob.setJobProperties(command.getProperties());
+            bulkLoadJob.checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
+            // In the construction method, there may not be table information yet
+            bulkLoadJob.rebuildAuthorizationInfo();
+            return bulkLoadJob;
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
     public static BulkLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
@@ -148,6 +180,30 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
+        }
+    }
+
+    public void checkAndSetDataSourceInfoByNereids(Database db, List<NereidsDataDescription> dataDescriptions,
+                                                       ConnectContext ctx) throws Exception {
+        // check data source info
+        db.readLock();
+        try {
+            LoadTask.MergeType mergeType = null;
+            for (NereidsDataDescription dataDescription : dataDescriptions) {
+                if (mergeType == null) {
+                    mergeType = dataDescription.getMergeType();
+                }
+                if (mergeType != dataDescription.getMergeType()) {
+                    throw new DdlException("merge type in all statement must be the same.");
+                }
+
+                DataDescription legacyDataDesc = dataDescription.toDataDescription(ctx);
+                BrokerFileGroup brokerFileGroup = new BrokerFileGroup(legacyDataDesc);
+                brokerFileGroup.parse(db, legacyDataDesc);
+                fileGroupAggInfo.addFileGroup(brokerFileGroup);
+            }
+        } finally {
+            db.readUnlock();
         }
     }
 
@@ -274,11 +330,15 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
         // Reset dataSourceInfo, it will be re-created in analyze
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
+        NereidsParser nereidsParser = new NereidsParser();
+        ConnectContext ctx = ConnectContext.get();
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-            analyzeStmt(SqlParserUtils.getStmt(parser, originStmt.idx), db);
+            if (ctx == null) {
+                ctx = ConnectContextUtil.getDummyCtx(db.getName());
+            }
+            LoadCommand command = (LoadCommand) nereidsParser.parseSingle(originStmt.originStmt);
+            analyzeCommand(command, db, ctx);
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("origin_stmt", originStmt)
@@ -301,6 +361,17 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         }
         checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
+    }
+
+    protected void analyzeCommand(LoadCommand command, Database db, ConnectContext ctx) throws Exception {
+        if (command == null || db == null || ctx == null) {
+            return;
+        }
+
+        for (NereidsDataDescription dataDescription : command.getDataDescriptions()) {
+            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+        }
+        checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
     }
 
     @Override
@@ -371,33 +442,5 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             return properties.get("fs.s3a.access.key");
         }
         return null;
-    }
-
-    // ---------------- for load stmt ----------------
-    public static BulkLoadJob fromInsertStmt(InsertStmt insertStmt) throws DdlException {
-        // get db id
-        String dbName = insertStmt.getLoadLabel().getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        // create job
-        BulkLoadJob bulkLoadJob;
-        try {
-            switch (insertStmt.getLoadType()) {
-                case BROKER_LOAD:
-                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
-                            insertStmt.getLoadLabel().getLabelName(), (BrokerDesc) insertStmt.getResourceDesc(),
-                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
-                    break;
-                default:
-                    throw new DdlException("Unknown load job type.");
-            }
-            bulkLoadJob.setComment(insertStmt.getComments());
-            bulkLoadJob.setJobProperties(insertStmt.getProperties());
-            // TODO(tsy): use generic and change the param in checkAndSetDataSourceInfo
-            bulkLoadJob.checkAndSetDataSourceInfo(db, (List<DataDescription>) insertStmt.getDataDescList());
-            return bulkLoadJob;
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
     }
 }

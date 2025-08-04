@@ -17,15 +17,9 @@
 
 #include "vec/aggregate_functions/aggregate_function_covar.h"
 
-#include <fmt/format.h>
-
-#include <string>
-
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -33,38 +27,10 @@ namespace doris::vectorized {
 template <template <typename> class Function, template <PrimitiveType> class Data>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
-                                                  const bool result_is_nullable) {
-    switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create<Function<Data<TYPE_BOOLEAN>>>(argument_types,
-                                                                          result_is_nullable);
-    case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<Function<Data<TYPE_TINYINT>>>(argument_types,
-                                                                          result_is_nullable);
-    case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<Function<Data<TYPE_SMALLINT>>>(argument_types,
-                                                                           result_is_nullable);
-    case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<Function<Data<TYPE_INT>>>(argument_types,
-                                                                      result_is_nullable);
-    case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<Function<Data<TYPE_BIGINT>>>(argument_types,
-                                                                         result_is_nullable);
-    case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create<Function<Data<TYPE_LARGEINT>>>(argument_types,
-                                                                           result_is_nullable);
-    case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<Function<Data<TYPE_FLOAT>>>(argument_types,
-                                                                        result_is_nullable);
-    case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<Function<Data<TYPE_DOUBLE>>>(argument_types,
-                                                                         result_is_nullable);
-    default:
-        LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
-                                    argument_types[0]->get_name());
-    }
-
-    return nullptr;
+                                                  const bool result_is_nullable,
+                                                  const AggregateFunctionAttr& attr) {
+    return creator_with_numeric_type::create<Function, Data>(argument_types, result_is_nullable,
+                                                             attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,
@@ -72,7 +38,7 @@ AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string
                                                                const bool result_is_nullable,
                                                                const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampCovariance, SampData>(
-            name, argument_types, result_is_nullable);
+            name, argument_types, result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string& name,
@@ -80,7 +46,7 @@ AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string&
                                                               const bool result_is_nullable,
                                                               const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampCovariance, PopData>(
-            name, argument_types, result_is_nullable);
+            name, argument_types, result_is_nullable, attr);
 }
 
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory) {

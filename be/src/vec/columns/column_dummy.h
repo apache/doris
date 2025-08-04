@@ -114,12 +114,6 @@ public:
         for (size_t i = 0; i < s; ++i) res[i] = i;
     }
 
-    ColumnPtr replicate(const Offsets& offsets) const override {
-        column_match_offsets_size(s, offsets.size());
-
-        return clone_dummy(offsets.back());
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         size_t num_rows = size();
@@ -157,6 +151,21 @@ public:
                                "should not call the method in column dummy");
         __builtin_unreachable();
     }
+
+    void update_hash_with_value(size_t n, SipHash& hash) const override {}
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override {}
+
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override {}
+
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
+                                const uint8_t* __restrict null_data) const override {}
+
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                               const uint8_t* __restrict null_data) const override {}
 
 protected:
     size_t s;

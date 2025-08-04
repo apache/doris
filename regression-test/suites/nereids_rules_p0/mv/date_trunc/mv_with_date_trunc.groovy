@@ -21,6 +21,8 @@ suite("mv_with_date_trunc") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    // Virtual column will make mv rewrite fail, so we disable the rule
+    sql """set disable_nereids_rules='PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN';"""
 
     sql """
     drop table if exists lineitem
@@ -1447,7 +1449,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    mv_rewrite_success(query4_0, "mv4_0", true, is_partition_statistics_ready(db, ["lineitem", "mv4_0"]))
+    mv_rewrite_success(query4_0, "mv4_0", is_partition_statistics_ready(db, ["lineitem", "mv4_0"]))
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 

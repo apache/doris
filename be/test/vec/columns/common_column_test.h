@@ -1001,7 +1001,7 @@ public:
         ASSERT_EQ(expect_name, column.get_name());
     }
 
-    // use in ColumnObject for check_if_sparse_column
+    // use in ColumnVariant for check_if_sparse_column
     static void assert_get_ratio_of_default_rows(MutableColumns& load_cols,
                                                  DataTypeSerDeSPtrs serders) {
         // just check cols get_ratio_of_default_rows is the same as assert_res
@@ -1369,67 +1369,6 @@ public:
         check_res_file("resize", res);
     }
 
-    //virtual Ptr
-    //replicate (const Offsets &offsets)
-    // 1. used in ColumnConst.convert_to_full_column,
-    //   we should make a situation that the column is not full column, and then we can use replicate to make it full column
-    // 2. used in some agg calculate
-    static void assert_replicate_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        // Create an empty column to verify `replicate` functionality
-        // check replicate with different offsets
-        // size_t(-1) 会导致pod_array 溢出: Check failed: false Amount of memory requested to allocate is more than allowed
-        std::vector<std::vector<std::string>> res;
-        auto option = DataTypeSerDe::FormatOptions();
-        std::vector<size_t> check_length = {0, 1, 10, 100, 1000, 10000, 100000};
-        //       std::vector<size_t> check_length = {10, 9};
-        //       size_t sum = std::reduce(check_length.begin(), check_length.end(), 0, std::plus<size_t>());
-        IColumn::Offsets offsets;
-        for (size_t i = 0; i < check_length.size(); i++) {
-            offsets.push_back(check_length[i]);
-        }
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            //               auto origin_size = load_cols[0]->size();
-            // here will heap_use_after_free
-            //               ColumnConst* const_col = ColumnConst::create(load_cols[i]->clone_resized(1), *cl);
-            if (load_cols[i]->size() != check_length.size()) {
-                EXPECT_ANY_THROW(load_cols[i]->replicate(offsets));
-            }
-            auto source_column = load_cols[i]->shrink(check_length.size());
-            LOG(INFO) << "now we are in replicate column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size();
-            //               auto ptr = const_col->convert_to_full_column();
-            // here will return different ptr
-            // record replicate cost time
-            auto start = std::chrono::high_resolution_clock::now();
-            auto ptr = source_column->replicate(offsets);
-            auto end = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-            LOG(INFO) << "replicate cost time: " << duration.count() << "ms";
-            // check ptr
-            EXPECT_NE(ptr.get(), source_column.get());
-            // check after replicate with assert_res
-            auto ser_col = ColumnString::create();
-            ser_col->reserve(ptr->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
-            std::vector<std::string> data;
-            data.push_back("column: " + source_column->get_name() +
-                           " with generate col size: " + std::to_string(ptr->size()));
-            for (size_t j = 0; j < ptr->size(); ++j) {
-                // check size
-                if (auto st =
-                            serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer, option);
-                    !st) {
-                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
-                    break;
-                }
-                buffer_writer.commit();
-                std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                data.push_back(actual_str_value);
-            }
-            res.push_back(data);
-        }
-        check_res_file("replicate", res);
-    }
     //virtual void
     //for_each_subcolumn (ColumnCallback)
     //virtual void
@@ -1976,7 +1915,7 @@ public:
     //  serialize_vec, deserialize_vec (called by MethodSerialized.init_serialized_keys), here are some scenarios:
     //    1/ AggState: groupby key column which be serialized to hash-table key, eg.AggLocalState::_emplace_into_hash_table
     //    2/ JoinState: hash join key column which be serialized to hash-table key, or probe column which be serialized to hash-table key, eg.ProcessHashTableBuild, ProcessHashTableProbe<JoinOpType>::probe_side_output_column
-    //  serialize_vec_with_null_map, deserialize_vec_with_null_map which only called by ColumnNullable serialize_vec and deserialize_vec, and derived by other columns
+    //  serialize_vec, deserialize_vec which only called by ColumnNullable serialize_vec and deserialize_vec, and derived by other columns
     //  get_max_row_byte_size used in MethodSerialized which calculating the memory size for vectorized serialization of aggregation keys.
     void ser_deser_vec(MutableColumns& columns, DataTypes dataTypes) {
         // step1. make input_keys with given rows for a block
@@ -2018,7 +1957,7 @@ public:
             for (const auto& column : columns) {
                 LOG(INFO) << "now serialize_vec for column:" << column->get_name()
                           << " with column size: " << column->size();
-                column->serialize_vec(input_keys.data(), rows, max_one_row_byte_size);
+                column->serialize_vec(input_keys.data(), rows);
             }
         }
         // deserialize the keys from arena into columns
@@ -2251,12 +2190,6 @@ public:
     void assert_resize(MutableColumnPtr col, size_t expect_size) {
         col->resize(expect_size);
         EXPECT_EQ(col->size(), expect_size);
-    }
-
-    // replicate is clone with new column from the origin column, always from ColumnConst to expand the column
-    void assert_replicate(MutableColumnPtr col, IColumn::Offsets& offsets) {
-        auto new_col = col->replicate(offsets);
-        EXPECT_EQ(new_col->size(), offsets.back());
     }
 
     // byte size is just appriximate size of the column
@@ -2811,7 +2744,11 @@ auto assert_column_vector_get_bool_callback = [](auto x, const MutableColumnPtr&
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
     for (size_t i = 0; i != src_size; ++i) {
-        EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        if constexpr (is_decimal(PType)) {
+            EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i].value);
+        } else {
+            EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
+        }
     }
 };
 template <PrimitiveType PType>
@@ -3012,46 +2949,6 @@ auto assert_column_vector_filter_callback = [](auto x, const MutableColumnPtr& s
     }
 };
 template <PrimitiveType PType>
-auto assert_column_vector_replicate_callback = [](auto x, const MutableColumnPtr& source_column) {
-    using T = decltype(x);
-    using ColumnVecType = std::conditional_t<
-            std::is_same_v<T, ColumnString>, ColumnString,
-            std::conditional_t<std::is_same_v<T, ColumnString64>, ColumnString64,
-                               std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<PType>,
-                                                  ColumnVector<PType>>>>;
-    std::vector<size_t> insert_vals_count = {0, 10, 1000};
-    auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
-    auto src_size = source_column->size();
-    srand((unsigned)time(nullptr));
-    IColumn::Offsets offsets(src_size);
-    IColumn::Offsets counts(src_size);
-    size_t total_size = 0;
-    for (size_t i = 0; i < src_size; ++i) {
-        counts[i] = rand() % 10;
-        total_size += counts[i];
-        offsets[i] = total_size;
-    }
-    {
-        auto target_column = source_column->clone_empty();
-        IColumn::Offsets empty_offsets;
-        auto tmp_col = target_column->replicate(empty_offsets);
-        EXPECT_EQ(tmp_col->size(), 0);
-    }
-    auto target_column = source_column->replicate(offsets);
-    const auto* col_vec_target = assert_cast<const ColumnVecType*>(target_column.get());
-    EXPECT_EQ(target_column->size(), total_size);
-    size_t total_idx = 0;
-    for (size_t i = 0; i < src_size; ++i) {
-        for (size_t j = 0; j < counts[i]; ++j) {
-            if constexpr (std::is_same_v<T, ColumnString> || std::is_same_v<T, ColumnString64>) {
-                EXPECT_EQ(col_vec_target->get_data_at(total_idx++), col_vec_src->get_data_at(i));
-            } else {
-                EXPECT_EQ(col_vec_target->get_element(total_idx++), col_vec_src->get_element(i));
-            }
-        }
-    }
-};
-template <PrimitiveType PType>
 auto assert_column_vector_replace_column_data_callback = [](auto x,
                                                             const MutableColumnPtr& source_column) {
     using T = decltype(x);
@@ -3236,10 +3133,10 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
     size_t rows = source_column->size();
     {
         // test with null map, but no null values
-        NullMap null_map_no_nulls(rows, 0);
-        auto target_column = source_column->clone();
+        auto null_col = ColumnUInt8::create(rows, 0);
+        auto cloned_target_column = source_column->clone();
         size_t max_one_row_byte_size =
-                target_column->get_max_row_byte_size() + sizeof(NullMap::value_type);
+                cloned_target_column->get_max_row_byte_size() + sizeof(NullMap::value_type);
         size_t memory_size = max_one_row_byte_size * rows;
         Arena arena(memory_size);
         auto* serialized_key_buffer = reinterpret_cast<uint8_t*>(arena.alloc(memory_size));
@@ -3251,19 +3148,16 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
                     reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
             input_keys[i].size = 0;
         }
-        target_column->serialize_vec_with_null_map(input_keys.data(), rows,
-                                                   null_map_no_nulls.data());
-        for (size_t i = 0; i != rows; ++i) {
-            UInt8 val = *reinterpret_cast<const UInt8*>(input_keys[i].data);
-            EXPECT_EQ(val, 0);
-            input_keys[i].data += sizeof(val);
-            input_keys[i].size -= sizeof(val);
-        }
-        auto deser_column = source_column->clone_empty();
-        deser_column->deserialize_vec_with_null_map(input_keys.data(), rows,
-                                                    null_map_no_nulls.data());
-        EXPECT_EQ(deser_column->size(), rows);
-        auto* col_vec_deser = assert_cast<ColumnVecType*>(deser_column.get());
+        auto wrapper = ColumnNullable::create(std::move(cloned_target_column), std::move(null_col));
+        auto target_column = wrapper->get_nested_column_ptr();
+        wrapper->serialize_vec(input_keys.data(), rows);
+        auto deser_column_wrapper = wrapper->clone_empty();
+        deser_column_wrapper->deserialize_vec(input_keys.data(), rows);
+        EXPECT_EQ(deser_column_wrapper->size(), rows);
+        auto* col_vec_deser =
+                assert_cast<ColumnVecType*>(assert_cast<ColumnNullable*>(deser_column_wrapper.get())
+                                                    ->get_nested_column_ptr()
+                                                    .get());
         auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
         for (size_t i = 0; i < rows; ++i) {
             if constexpr (std::is_same_v<T, ColumnString> || std::is_same_v<T, ColumnString64>) {
@@ -3275,10 +3169,12 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
     }
 
     auto test_func = [&](bool test_null_map) {
+        MutableColumnPtr cloned_target_column;
         MutableColumnPtr target_column;
         ColumnVecType* col_vec_target = nullptr;
 
-        NullMap null_map(rows, 0);
+        auto null_col = ColumnUInt8::create(rows, 0);
+        auto& null_map = null_col->get_data();
         if (test_null_map) {
             std::vector<size_t> null_positions(rows);
             std::iota(null_positions.begin(), null_positions.end(), 0);
@@ -3292,20 +3188,29 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
                 null_map[pos] = 1;
             }
             if constexpr (std::is_same_v<T, ColumnString> || std::is_same_v<T, ColumnString64>) {
-                target_column = source_column->clone_empty();
+                cloned_target_column = source_column->clone_empty();
                 for (size_t i = 0; i != rows; ++i) {
                     if (null_map[i]) {
-                        target_column->insert_default();
+                        cloned_target_column->insert_default();
                     } else {
-                        target_column->insert_from(*source_column, i);
+                        cloned_target_column->insert_from(*source_column, i);
                     }
                 }
             } else {
-                target_column = source_column->clone();
-                target_column->replace_column_null_data(null_map.data());
+                cloned_target_column = source_column->clone();
+                cloned_target_column->replace_column_null_data(null_map.data());
             }
+            cloned_target_column =
+                    ColumnNullable::create(std::move(cloned_target_column), std::move(null_col));
+            target_column = ((ColumnNullable*)cloned_target_column.get())->get_nested_column_ptr();
         } else {
-            target_column = source_column->clone();
+            cloned_target_column = source_column->clone();
+            if (cloned_target_column->is_nullable()) {
+                target_column =
+                        ((ColumnNullable*)cloned_target_column.get())->get_nested_column_ptr();
+            } else {
+                target_column = std::move(cloned_target_column);
+            }
         }
         col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
 
@@ -3324,20 +3229,18 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
                     reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
             input_keys[i].size = 0;
         }
+        MutableColumnPtr deser_column;
+        MutableColumnPtr deser_column_wrapper;
         if (test_null_map) {
-            target_column->serialize_vec_with_null_map(input_keys.data(), rows, null_map.data());
+            cloned_target_column->serialize_vec(input_keys.data(), rows);
+            deser_column_wrapper = cloned_target_column->clone_empty();
+            deser_column = ((ColumnNullable*)deser_column_wrapper.get())->get_nested_column_ptr();
         } else {
-            target_column->serialize_vec(input_keys.data(), rows, max_one_row_byte_size);
+            target_column->serialize_vec(input_keys.data(), rows);
+            deser_column = source_column->clone_empty();
         }
-        auto deser_column = source_column->clone_empty();
         if (test_null_map) {
-            for (size_t i = 0; i != rows; ++i) {
-                UInt8 val = *reinterpret_cast<const UInt8*>(input_keys[i].data);
-                EXPECT_EQ(null_map[i], val);
-                input_keys[i].data += sizeof(val);
-                input_keys[i].size -= sizeof(val);
-            }
-            deser_column->deserialize_vec_with_null_map(input_keys.data(), rows, null_map.data());
+            deser_column_wrapper->deserialize_vec(input_keys.data(), rows);
         } else {
             deser_column->deserialize_vec(input_keys.data(), rows);
         }

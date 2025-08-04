@@ -28,7 +28,7 @@
 #include <string_view>
 
 #include "util/hash_util.hpp"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 
 namespace doris {
 

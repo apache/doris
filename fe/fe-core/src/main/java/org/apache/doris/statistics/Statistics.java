@@ -134,7 +134,10 @@ public class Statistics {
                     || isNumNullsDecreaseByProportion && columnStatistic.numNulls != 0)) {
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
                 double ndv = Math.min(columnStatistic.ndv, rowCount);
-                double numNulls = Math.min(columnStatistic.numNulls * factor, rowCount - ndv);
+                double numNulls = columnStatistic.numNulls;
+                if (numNulls > 0) {
+                    numNulls = Math.max(1, Math.min(columnStatistic.numNulls * factor, rowCount - ndv));
+                }
                 columnStatisticBuilder.setNumNulls(numNulls);
                 columnStatisticBuilder.setNdv(ndv);
                 columnStatistic = columnStatisticBuilder.build();
@@ -183,7 +186,11 @@ public class Statistics {
             for (Slot slot : slots) {
                 ColumnStatistic s = expressionToColumnStats.get(slot);
                 if (s != null) {
-                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, s.avgSizeByte));
+                    double avgSize = s.avgSizeByte;
+                    if (!Double.isFinite(avgSize)) {
+                        avgSize = 1;
+                    }
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, avgSize));
                 }
             }
             tupleSize = Math.max(1, tempSize);

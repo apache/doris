@@ -31,6 +31,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
     docker(options) {
         def getJobState = { tableName ->
             def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            logger.info("Get job state: " + jobStateResult)
             return jobStateResult[0][9]
         }
 
@@ -124,7 +125,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
             }
             int max_try_time = 3000
             while (max_try_time--){
-                result = getJobState("date")
+                def result = getJobState("date")
                 if (result == "FINISHED" || result == "CANCELLED") {
                     sleep(3000)
                     break

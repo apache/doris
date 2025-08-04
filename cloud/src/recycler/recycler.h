@@ -32,6 +32,7 @@
 
 #include "common/bvars.h"
 #include "meta-service/txn_lazy_committer.h"
+#include "meta-store/versionstamp.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
@@ -157,6 +158,9 @@ public:
     // returns 0 for success otherwise error
     int recycle_rowsets();
 
+    // like `recycle_rowsets`, but for versioned rowsets.
+    int recycle_versioned_rowsets();
+
     // scan and recycle expired tmp rowsets:
     // 1. commit_rowset will produce tmp_rowset when finish upload data (load or compaction) to remote storage
     // returns 0 for success otherwise error
@@ -166,11 +170,10 @@ public:
      * recycle all tablets belonging to the index specified by `index_id`
      *
      * @param partition_id if positive, only recycle tablets in this partition belonging to the specified index
-     * @param is_empty_tablet indicates whether the tablet has object files, can skip delete objects if tablet is empty
      * @return 0 for success otherwise error
      */
     int recycle_tablets(int64_t table_id, int64_t index_id, RecyclerMetricsContext& ctx,
-                        int64_t partition_id = -1, bool is_empty_tablet = false);
+                        int64_t partition_id = -1);
 
     /**
      * recycle all rowsets belonging to the tablet specified by `tablet_id`
@@ -178,6 +181,11 @@ public:
      * @return 0 for success otherwise error
      */
     int recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
+
+    /**
+     * like `recycle_tablet`, but for versioned tablet
+     */
+    int recycle_versioned_tablet(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
 
     // scan and recycle useless partition version kv
     int recycle_versions();
@@ -202,7 +210,37 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
+    // scan and recycle operation logs
+    // returns 0 for success otherwise error
+    int recycle_operation_logs();
+
+    // scan and recycle expired restore jobs
+    // returns 0 for success otherwise error
+    int recycle_restore_jobs();
+
     bool check_recycle_tasks();
+
+    int scan_and_statistics_indexes();
+
+    int scan_and_statistics_partitions();
+
+    int scan_and_statistics_rowsets();
+
+    int scan_and_statistics_tmp_rowsets();
+
+    int scan_and_statistics_abort_timeout_txn();
+
+    int scan_and_statistics_expired_txn_label();
+
+    int scan_and_statistics_copy_jobs();
+
+    int scan_and_statistics_stage();
+
+    int scan_and_statistics_expired_stage_objects();
+
+    int scan_and_statistics_versions();
+
+    int scan_and_statistics_restore_jobs();
 
 private:
     // returns 0 for success otherwise error
@@ -221,13 +259,6 @@ private:
     int scan_and_recycle(std::string begin, std::string_view end,
                          std::function<int(std::string_view k, std::string_view v)> recycle_func,
                          std::function<int()> loop_done = nullptr);
-
-    int scan_for_recycle_and_statistics(
-            std::string begin, std::string_view end, std::string task_name,
-            RecyclerMetricsContext& metrics_context,
-            std::function<int(std::string_view k, std::string_view v)> statistics_func,
-            std::function<int(std::string_view k, std::string_view v)> recycle_func,
-            std::function<int()> loop_done = nullptr);
 
     // return 0 for success otherwise error
     int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb);
@@ -259,6 +290,18 @@ private:
 
     // for scan all rs of tablet and statistics metrics
     int scan_tablet_and_statistics(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
+
+    // Recycle operation log and the log key.
+    //
+    // The log_key is constructed from the log_version and instance_id.
+    // Both `operation_log` and `log_key` will be removed in the same transaction, to ensure atomicity.
+    int recycle_operation_log(Versionstamp log_version, OperationLogPB operation_log);
+
+    // Recycle rowset meta and data, return 0 for success otherwise error
+    //
+    // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
+    int recycle_rowset_meta_and_data(std::string_view rowset_meta_key,
+                                     const RowsetMetaCloudPB& rowset_meta);
 
 private:
     std::atomic_bool stopped_ {false};
@@ -363,30 +406,34 @@ public:
     // `is_begin` is used to initialize total num of items need to be recycled
     void report(bool is_begin = false) {
         if (!operation_type.empty()) {
-            if (total_need_recycle_data_size > 0) {
-                // is init
-                if (is_begin) {
+            // is init
+            if (is_begin) {
+                if (total_need_recycle_data_size) {
                     g_bvar_recycler_instance_last_round_to_recycle_bytes.put(
                             {instance_id, operation_type}, total_need_recycle_data_size);
-                } else {
+                }
+            } else {
+                if (total_recycled_data_size.load()) {
                     g_bvar_recycler_instance_last_round_recycled_bytes.put(
                             {instance_id, operation_type}, total_recycled_data_size.load());
-                    g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
-                            {instance_id, operation_type}, total_recycled_data_size.load());
                 }
+                g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
+                        {instance_id, operation_type}, total_recycled_data_size.load());
             }
 
-            if (total_need_recycle_num > 0) {
-                // is init
-                if (is_begin) {
+            // is init
+            if (is_begin) {
+                if (total_need_recycle_num) {
                     g_bvar_recycler_instance_last_round_to_recycle_num.put(
                             {instance_id, operation_type}, total_need_recycle_num);
-                } else {
+                }
+            } else {
+                if (total_recycled_num.load()) {
                     g_bvar_recycler_instance_last_round_recycled_num.put(
                             {instance_id, operation_type}, total_recycled_num.load());
-                    g_bvar_recycler_instance_recycle_total_num_since_started.put(
-                            {instance_id, operation_type}, total_recycled_num.load());
                 }
+                g_bvar_recycler_instance_recycle_total_num_since_started.put(
+                        {instance_id, operation_type}, total_recycled_num.load());
             }
         }
     }

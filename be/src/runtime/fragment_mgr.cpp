@@ -93,6 +93,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
@@ -440,7 +441,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         params.__isset.fragment_instance_reports = true;
         TFragmentInstanceReport t;
         t.__set_fragment_instance_id(req.runtime_state->fragment_instance_id());
-        t.__set_num_finished_range(req.runtime_state->num_finished_range());
+        t.__set_num_finished_range(cast_set<int>(req.runtime_state->num_finished_range()));
         t.__set_loaded_rows(req.runtime_state->num_rows_load_total());
         t.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         params.fragment_instance_reports.push_back(t);
@@ -455,7 +456,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.__isset.fragment_instance_reports = true;
                 TFragmentInstanceReport t;
                 t.__set_fragment_instance_id(rs->fragment_instance_id());
-                t.__set_num_finished_range(rs->num_finished_range());
+                t.__set_num_finished_range(cast_set<int>(rs->num_finished_range()));
                 t.__set_loaded_rows(rs->num_rows_load_total());
                 t.__set_loaded_bytes(rs->num_bytes_load_total());
                 params.fragment_instance_reports.push_back(t);
@@ -739,6 +740,10 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                             query_ctx->set_rsc_info = true;
                         }
 
+                        if (params.__isset.llm_resources) {
+                            query_ctx->set_llm_resources(params.llm_resources);
+                        }
+
                         RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
 
                         if (parent.__isset.runtime_filter_info) {
@@ -790,7 +795,7 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                                     std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
                                     -> Status {
             for (auto& it : map) {
-                auto elapsed = it.second->elapsed_time() / 1000000000.0;
+                auto elapsed = it.second->elapsed_time() / 1000000000;
                 if (elapsed < duration) {
                     // Only display tasks which has been running for more than {duration} seconds.
                     continue;
@@ -1376,5 +1381,7 @@ Status FragmentMgr::get_query_statistics(const TUniqueId& query_id, TQueryStatis
     return ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_query_statistics(
             print_id(query_id), query_stats);
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

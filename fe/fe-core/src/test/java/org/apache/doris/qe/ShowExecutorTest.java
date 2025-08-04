@@ -243,7 +243,6 @@ public class ShowExecutorTest {
         ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         ctx.setConnectScheduler(scheduler);
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
-        ctx.setQualifiedUser("testUser");
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
 
         new Expectations(ctx) {
@@ -298,7 +297,6 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPriv() throws Exception {
-        AccessTestUtil.fetchAdminAnalyzer(false);
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
         ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
         command.doRun(ctx, new StmtExecutor(ctx, ""));
@@ -399,7 +397,7 @@ public class ShowExecutorTest {
     @Test
     public void testShowView() throws UserException {
         ctx.setEnv(env);
-        ctx.setQualifiedUser("testUser");
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
         TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "testDb", "testTbl");
         ShowViewCommand command = new ShowViewCommand("testDb", tableNameInfo);
         ShowResultSet resultSet = null;

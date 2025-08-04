@@ -37,13 +37,14 @@ namespace doris::vectorized {
 
 JdbcScanner::JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* local_state,
                          int64_t limit, const TupleId& tuple_id, const std::string& query_string,
-                         TOdbcTableType::type table_type, RuntimeProfile* profile)
+                         TOdbcTableType::type table_type, bool is_tvf, RuntimeProfile* profile)
         : Scanner(state, local_state, limit, profile),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
           _tuple_desc(nullptr),
-          _table_type(table_type) {
+          _table_type(table_type),
+          _is_tvf(is_tvf) {
     _init_profile(local_state->_scanner_profile);
 }
 
@@ -83,6 +84,7 @@ Status JdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjun
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.use_transaction = false; // not useful for scanner but only sink.
     _jdbc_param.table_type = _table_type;
+    _jdbc_param.is_tvf = _is_tvf;
     _jdbc_param.connection_pool_min_size = jdbc_table->connection_pool_min_size();
     _jdbc_param.connection_pool_max_size = jdbc_table->connection_pool_max_size();
     _jdbc_param.connection_pool_max_life_time = jdbc_table->connection_pool_max_life_time();

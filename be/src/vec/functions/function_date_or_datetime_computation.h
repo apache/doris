@@ -31,6 +31,8 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
@@ -61,7 +63,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 /// because all these functions(xxx_add/xxx_sub) defined in FE use Integer as the second value
 ///  so Int32 as delta is enough. For upstream(FunctionDateOrDateTimeComputation) we also could use Int32.
 
@@ -268,7 +270,7 @@ struct TimeDiffImpl {
                 return (double)diff_m;
             }
         } else {
-            return TimeValue::from_second(ts0.datetime_diff_in_seconds(ts1));
+            return TimeValue::from_seconds_with_limit(ts0.datetime_diff_in_seconds(ts1));
         }
     }
     static DataTypes get_variadic_argument_types() {
@@ -905,7 +907,7 @@ struct SecToTimeImpl {
         auto res_col = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = TimeValue::from_second(column_data.get_element(i));
+            res_data[i] = TimeValue::from_seconds_with_limit(column_data.get_element(i));
         }
 
         block.replace_by_position(result, std::move(res_col));
@@ -1266,4 +1268,33 @@ private:
     }
 };
 
+class FunctionTime : public IFunction {
+public:
+    static constexpr auto name = "time";
+    static FunctionPtr create() { return std::make_shared<FunctionTime>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeTimeV2>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 1);
+        ColumnPtr col = block.get_by_position(arguments[0]).column;
+        const auto& arg = assert_cast<const ColumnDateTimeV2&>(*col.get());
+        ColumnTimeV2::MutablePtr res = ColumnTimeV2::create(input_rows_count);
+        auto& res_data = res->get_data();
+        for (int i = 0; i < arg.size(); i++) {
+            const auto& v =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(arg.get_element(i));
+            // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
+            res_data[i] = TimeValue::make_time(v.hour(), v.minute(), v.second(), v.microsecond());
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

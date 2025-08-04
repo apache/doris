@@ -20,10 +20,9 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -34,8 +33,8 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
-import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.AbstractHMSProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -44,7 +43,6 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -75,11 +73,34 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
 
-    private int hmsEventsBatchSizePerRpc = -1;
-    private boolean enableHmsEventsIncrementalSync = false;
-
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
+
+    private volatile AbstractHMSProperties hmsProperties;
+
+    /**
+     * Lazily initializes HMSProperties from catalog properties.
+     * This method is thread-safe using double-checked locking.
+     * <p>
+     * TODO: After all metastore integrations are completed,
+     * consider moving this initialization logic into the superclass constructor
+     * for unified management.
+     * NOTE: Alter operations are temporarily not handled here.
+     * We will consider a unified solution for alter support later,
+     * as it's currently not feasible to handle it in a common/shared location.
+     */
+    public AbstractHMSProperties getHmsProperties() {
+        makeSureInitialized();
+        return hmsProperties;
+    }
+
+    private void initAndCheckHmsProperties() {
+        try {
+            this.hmsProperties = (AbstractHMSProperties) MetastoreProperties.create(catalogProperty.getProperties());
+        } catch (UserException e) {
+            throw new RuntimeException("Failed to create HMSProperties from catalog properties", e);
+        }
+    }
 
     @VisibleForTesting
     public HMSExternalCatalog() {
@@ -92,7 +113,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                               String comment) {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
-        props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -148,31 +168,27 @@ public class HMSExternalCatalog extends ExternalCatalog {
                         "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
             }
         }
+        initAndCheckHmsProperties();
     }
 
     @Override
     protected synchronized void initPreExecutionAuthenticator() {
-        if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
+        if (executionAuthenticator == null) {
+            executionAuthenticator = hmsProperties.getExecutionAuthenticator();
         }
     }
 
     @Override
     protected void initLocalObjectsImpl() {
+        initAndCheckHmsProperties();
         initPreExecutionAuthenticator();
-        HiveConf hiveConf = new HiveConf();
-        for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
-            hiveConf.set(kv.getKey(), kv.getValue());
-        }
-        HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
-                String.valueOf(Config.hive_metastore_client_timeout_second));
-        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, this);
+        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hmsProperties.getHiveConf(), this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
                 ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE,
                 String.format("hms_iceberg_catalog_%s_executor_pool", name),
                 true,
-                preExecutionAuthenticator);
+                executionAuthenticator);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
                  this.catalogProperty.getStoragePropertiesMap());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
@@ -228,25 +244,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void unregisterDatabase(String dbName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop database [{}]", dbName);
-        }
-        if (useMetaCache.get()) {
-            if (isInitialized()) {
-                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
-            }
-        } else {
-            Long dbId = dbNameToId.remove(dbName);
-            if (dbId == null) {
-                LOG.warn("drop database [{}] failed", dbName);
-            }
-            idToDb.remove(dbId);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
-    }
-
-    @Override
     public void registerDatabase(long dbId, String dbName) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create database [{}]", dbName);
@@ -281,36 +278,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
-
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC)) {
-            enableHmsEventsIncrementalSync =
-                    properties.get(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC).equals("true");
-        } else {
-            enableHmsEventsIncrementalSync = Config.enable_hms_events_incremental_sync;
-        }
-
-        if (properties.containsKey(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC)) {
-            hmsEventsBatchSizePerRpc = Integer.valueOf(properties.get(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC));
-        } else {
-            hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
-        }
-    }
-
-    public String getHiveMetastoreUris() {
-        return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
-    }
-
-    public String getHiveVersion() {
-        return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
-    }
-
-    public int getHmsEventsBatchSizePerRpc() {
-        return hmsEventsBatchSizePerRpc;
-    }
-
-    public boolean isEnableHmsEventsIncrementalSync() {
-        return enableHmsEventsIncrementalSync;
     }
 
     public IcebergMetadataOps getIcebergMetadataOps() {

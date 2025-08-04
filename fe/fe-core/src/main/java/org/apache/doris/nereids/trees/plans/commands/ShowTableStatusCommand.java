@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,6 +41,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 
@@ -74,7 +76,12 @@ public class ShowTableStatusCommand extends ShowCommand {
             .build();
 
     private static Map<String, String> ALIAS_COLUMN_MAP = ImmutableMap.<String, String>builder()
-            .put("name", "TABLE_NAME")
+            // get temp table display name
+            .put("name", String.format("if(instr(TABLE_NAME, '%s') > 0,"
+                    + "substr(TABLE_NAME, instr(TABLE_NAME, '%s') + length('%s')), TABLE_NAME)",
+                            FeNameFormat.TEMPORARY_TABLE_SIGN,
+                            FeNameFormat.TEMPORARY_TABLE_SIGN,
+                            FeNameFormat.TEMPORARY_TABLE_SIGN))
             .put("engine", "ENGINE")
             .put("version", "VERSION")
             .put("row_format", "ROW_FORMAT")
@@ -118,7 +125,8 @@ public class ShowTableStatusCommand extends ShowCommand {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    @VisibleForTesting
+    protected void validate(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(db)) {
             db = ctx.getDatabase();
             if (Strings.isNullOrEmpty(db)) {
@@ -158,6 +166,13 @@ public class ShowTableStatusCommand extends ShowCommand {
      */
     private ShowResultSet execute(ConnectContext ctx, StmtExecutor executor, String whereClause)
             throws AnalysisException {
+        // only fetch temp table in current session
+        String tempTableCondition = String.format("and if(instr(TABLE_NAME, '%s') > 0,"
+                + "substr(TABLE_NAME, 1, instr(TABLE_NAME, '%s') - 1) = '%s', true)",
+                FeNameFormat.TEMPORARY_TABLE_SIGN,
+                FeNameFormat.TEMPORARY_TABLE_SIGN,
+                ConnectContext.get().getSessionId());
+        whereClause += tempTableCondition;
         List<AliasInfo> selectList = new ArrayList<>();
         ALIAS_COLUMN_MAP.forEach((key, value) -> {
             selectList.add(AliasInfo.of(value, key));

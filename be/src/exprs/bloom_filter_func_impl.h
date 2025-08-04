@@ -17,37 +17,39 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include "exprs/bloom_filter_func_adaptor.h"
 #include "runtime/primitive_type.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
-// there are problems with the implementation of the old datetimev2. for compatibility reason, we will keep this code temporary.
-struct fixed_len_to_uint32 {
-    template <typename T>
-    uint32_t operator()(T value) {
-        if constexpr (sizeof(T) <= sizeof(uint32_t)) {
-            if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
-                return (uint32_t)value.to_int64();
-            } else {
-                return (uint32_t)value;
-            }
-        }
-        return std::hash<T>()(value);
-    }
-};
-
+#include "common/compile_check_begin.h"
 struct fixed_len_to_uint32_v2 {
     template <typename T>
-    uint32_t operator()(T value) {
+    uint32_t operator()(const T& value) {
         if constexpr (sizeof(T) <= sizeof(uint32_t)) {
             if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
                 return (uint32_t)value.to_date_int_val();
+            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+                return (uint32_t)value.value;
             } else {
                 return (uint32_t)value;
             }
+        } else {
+            if constexpr (std::is_same_v<DecimalV2Value, T> ||
+                          std::is_same_v<VecDateTimeValue, T>) {
+                return uint32_t(std::hash<T>()(value));
+            } else if constexpr (std::is_same_v<T, DateV2Value<DateTimeV2ValueType>>) {
+                return uint32_t(HashCRC32<DateV2Value<DateTimeV2ValueType>::underlying_value>()(
+                        value.to_date_int_val()));
+            } else if constexpr (vectorized::IsDecimalNumber<T>) {
+                return uint32_t(HashCRC32<typename T::NativeType>()(value.value));
+            } else {
+                return uint32_t(HashCRC32<T>()(value));
+            }
         }
-        return std::hash<T>()(value);
     }
 };
 
@@ -73,7 +75,7 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
     uint16_t new_size = 0;
     if (is_parse_column) {
         if (nullmap == nullptr) {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 uint16_t idx = offsets[i];
                 if (!bloom_filter.test_element<fixed_len_to_uint32_method>(
                             get_element(data, idx))) {
@@ -82,7 +84,7 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
                 offsets[new_size++] = idx;
             }
         } else {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 uint16_t idx = offsets[i];
                 if (nullmap[idx]) {
                     if (!bloom_filter.contain_null()) {
@@ -99,14 +101,14 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
         }
     } else {
         if (nullmap == nullptr) {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 if (!bloom_filter.test_element<fixed_len_to_uint32_method>(get_element(data, i))) {
                     continue;
                 }
                 offsets[new_size++] = i;
             }
         } else {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 if (nullmap[i]) {
                     if (!bloom_filter.contain_null()) {
                         continue;
@@ -123,5 +125,5 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
     }
     return new_size;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

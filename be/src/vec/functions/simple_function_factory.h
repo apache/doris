@@ -76,6 +76,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
 void register_function_jsonb(SimpleFunctionFactory& factory);
+void register_function_to_json(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
 void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
@@ -114,6 +115,18 @@ void register_function_compress(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
+void register_function_llm_translate(SimpleFunctionFactory& factory);
+void register_function_llm_sentiment(SimpleFunctionFactory& factory);
+void register_function_llm_fixgrammar(SimpleFunctionFactory& factory);
+void register_function_llm_extract(SimpleFunctionFactory& factory);
+void register_function_llm_generate(SimpleFunctionFactory& factory);
+void register_function_llm_mask(SimpleFunctionFactory& factory);
+void register_function_llm_classify(SimpleFunctionFactory& factory);
+void register_function_llm_summarize(SimpleFunctionFactory& factory);
+
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+void register_function_throw_exception(SimpleFunctionFactory& factory);
+#endif
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -279,6 +292,7 @@ public:
             register_function_date_time_string_to_string(instance);
             register_function_json(instance);
             register_function_jsonb(instance);
+            register_function_to_json(instance);
             register_function_hash(instance);
             register_function_ifnull(instance);
             register_function_comparison_eq_for_null(instance);
@@ -318,6 +332,17 @@ public:
             register_function_compress(instance);
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
+            register_function_llm_translate(instance);
+            register_function_llm_sentiment(instance);
+            register_function_llm_fixgrammar(instance);
+            register_function_llm_extract(instance);
+            register_function_llm_generate(instance);
+            register_function_llm_mask(instance);
+            register_function_llm_classify(instance);
+            register_function_llm_summarize(instance);
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
+            register_function_throw_exception(instance);
+#endif
         });
         return instance;
     }

@@ -98,18 +98,6 @@ struct CompareMultiImpl {
                 result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
             }
             switch (data_type->get_primitive_type()) {
-            case PrimitiveType::TYPE_BOOLEAN: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_BOOLEAN, true>(result_column, cols[i],
-                                                               input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_BOOLEAN, false>(result_column, cols[i],
-                                                                input_rows_count);
-                    }
-                }
-                break;
-            }
             case PrimitiveType::TYPE_TINYINT: {
                 for (int i = 1; i < arguments.size(); ++i) {
                     if (col_const[i]) {
@@ -372,6 +360,7 @@ struct FunctionFieldImpl {
 
         bool arg_const;
         std::tie(argument_columns[0], arg_const) = unpack_if_const(argument_columns[0]);
+        DCHECK_EQ(arg_const, false);
 
         //TODO: maybe could use hashmap to save column data, not use for loop ervey time to test equals.
         switch (data_type->get_primitive_type()) {
@@ -380,7 +369,7 @@ struct FunctionFieldImpl {
         case PrimitiveType::TYPE_VARCHAR: {
             const auto& column_string = assert_cast<const ColumnString&>(*argument_columns[0]);
             for (int row = 0; row < input_rows_count; ++row) {
-                const auto& str_data = column_string.get_data_at(index_check_const(row, arg_const));
+                const auto& str_data = column_string.get_data_at(row);
                 for (int col = 1; col < column_size; ++col) {
                     auto [column, is_const] = unpack_if_const(argument_columns[col]);
                     const auto& temp_data = assert_cast<const ColumnString&>(*column).get_data_at(
@@ -393,241 +382,115 @@ struct FunctionFieldImpl {
             }
             break;
         }
-        case PrimitiveType::TYPE_BOOLEAN: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_BOOLEAN, true>(res_data, argument_columns[0],
-                                                           argument_columns[col], input_rows_count,
-                                                           col);
-                } else {
-                    insert_result_data<TYPE_BOOLEAN, false>(res_data, argument_columns[0],
-                                                            argument_columns[col], input_rows_count,
-                                                            col);
-                }
-            }
-            break;
-        }
         case PrimitiveType::TYPE_TINYINT: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_TINYINT, true>(res_data, argument_columns[0],
-                                                           argument_columns[col], input_rows_count,
-                                                           col);
-                } else {
-                    insert_result_data<TYPE_TINYINT, false>(res_data, argument_columns[0],
-                                                            argument_columns[col], input_rows_count,
-                                                            col);
-                }
+                insert_result_data<TYPE_TINYINT>(res_data, argument_columns[0],
+                                                 argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_SMALLINT: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_SMALLINT, true>(res_data, argument_columns[0],
-                                                            argument_columns[col], input_rows_count,
-                                                            col);
-                } else {
-                    insert_result_data<TYPE_SMALLINT, false>(res_data, argument_columns[0],
-                                                             argument_columns[col],
-                                                             input_rows_count, col);
-                }
+                insert_result_data<TYPE_SMALLINT>(res_data, argument_columns[0],
+                                                  argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_INT: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_INT, true>(res_data, argument_columns[0],
-                                                       argument_columns[col], input_rows_count,
-                                                       col);
-                } else {
-                    insert_result_data<TYPE_INT, false>(res_data, argument_columns[0],
-                                                        argument_columns[col], input_rows_count,
-                                                        col);
-                }
+                insert_result_data<TYPE_INT>(res_data, argument_columns[0], argument_columns[col],
+                                             input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_BIGINT: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_BIGINT, true>(res_data, argument_columns[0],
-                                                          argument_columns[col], input_rows_count,
-                                                          col);
-                } else {
-                    insert_result_data<TYPE_BIGINT, false>(res_data, argument_columns[0],
-                                                           argument_columns[col], input_rows_count,
-                                                           col);
-                }
+                insert_result_data<TYPE_BIGINT>(res_data, argument_columns[0],
+                                                argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_LARGEINT: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_LARGEINT, true>(res_data, argument_columns[0],
-                                                            argument_columns[col], input_rows_count,
-                                                            col);
-                } else {
-                    insert_result_data<TYPE_LARGEINT, false>(res_data, argument_columns[0],
-                                                             argument_columns[col],
-                                                             input_rows_count, col);
-                }
+                insert_result_data<TYPE_LARGEINT>(res_data, argument_columns[0],
+                                                  argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_FLOAT: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_FLOAT, true>(res_data, argument_columns[0],
-                                                         argument_columns[col], input_rows_count,
-                                                         col);
-                } else {
-                    insert_result_data<TYPE_FLOAT, false>(res_data, argument_columns[0],
-                                                          argument_columns[col], input_rows_count,
-                                                          col);
-                }
+                insert_result_data<TYPE_FLOAT>(res_data, argument_columns[0], argument_columns[col],
+                                               input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DOUBLE: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DOUBLE, true>(res_data, argument_columns[0],
-                                                          argument_columns[col], input_rows_count,
-                                                          col);
-                } else {
-                    insert_result_data<TYPE_DOUBLE, false>(res_data, argument_columns[0],
-                                                           argument_columns[col], input_rows_count,
-                                                           col);
-                }
+                insert_result_data<TYPE_DOUBLE>(res_data, argument_columns[0],
+                                                argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DECIMAL32: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DECIMAL32, true>(res_data, argument_columns[0],
-                                                             argument_columns[col],
-                                                             input_rows_count, col);
-                } else {
-                    insert_result_data<TYPE_DECIMAL32, false>(res_data, argument_columns[0],
-                                                              argument_columns[col],
-                                                              input_rows_count, col);
-                }
+                insert_result_data<TYPE_DECIMAL32>(res_data, argument_columns[0],
+                                                   argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DECIMAL64: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DECIMAL64, true>(res_data, argument_columns[0],
-                                                             argument_columns[col],
-                                                             input_rows_count, col);
-                } else {
-                    insert_result_data<TYPE_DECIMAL64, false>(res_data, argument_columns[0],
-                                                              argument_columns[col],
-                                                              input_rows_count, col);
-                }
+                insert_result_data<TYPE_DECIMAL64>(res_data, argument_columns[0],
+                                                   argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DECIMALV2: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DECIMALV2, true>(res_data, argument_columns[0],
-                                                             argument_columns[col],
-                                                             input_rows_count, col);
-                } else {
-                    insert_result_data<TYPE_DECIMALV2, false>(res_data, argument_columns[0],
-                                                              argument_columns[col],
-                                                              input_rows_count, col);
-                }
+                insert_result_data<TYPE_DECIMALV2>(res_data, argument_columns[0],
+                                                   argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DECIMAL128I: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DECIMAL128I, true>(res_data, argument_columns[0],
-                                                               argument_columns[col],
-                                                               input_rows_count, col);
-                } else {
-                    insert_result_data<TYPE_DECIMAL128I, false>(res_data, argument_columns[0],
-                                                                argument_columns[col],
-                                                                input_rows_count, col);
-                }
+                insert_result_data<TYPE_DECIMAL128I>(res_data, argument_columns[0],
+                                                     argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DECIMAL256: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DECIMAL256, true>(res_data, argument_columns[0],
-                                                              argument_columns[col],
-                                                              input_rows_count, col);
-                } else {
-                    insert_result_data<TYPE_DECIMAL256, false>(res_data, argument_columns[0],
-                                                               argument_columns[col],
-                                                               input_rows_count, col);
-                }
+                insert_result_data<TYPE_DECIMAL256>(res_data, argument_columns[0],
+                                                    argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DATETIME: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DATETIME, true>(res_data, argument_columns[0],
-                                                            argument_columns[col], input_rows_count,
-                                                            col);
-                } else {
-                    insert_result_data<TYPE_DATETIME, false>(res_data, argument_columns[0],
-                                                             argument_columns[col],
-                                                             input_rows_count, col);
-                }
+                insert_result_data<TYPE_DATETIME>(res_data, argument_columns[0],
+                                                  argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DATE: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DATE, true>(res_data, argument_columns[0],
-                                                        argument_columns[col], input_rows_count,
-                                                        col);
-                } else {
-                    insert_result_data<TYPE_DATE, false>(res_data, argument_columns[0],
-                                                         argument_columns[col], input_rows_count,
-                                                         col);
-                }
+                insert_result_data<TYPE_DATE>(res_data, argument_columns[0], argument_columns[col],
+                                              input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DATEV2: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DATEV2, true>(res_data, argument_columns[0],
-                                                          argument_columns[col], input_rows_count,
-                                                          col);
-                } else {
-                    insert_result_data<TYPE_DATEV2, false>(res_data, argument_columns[0],
-                                                           argument_columns[col], input_rows_count,
-                                                           col);
-                }
+                insert_result_data<TYPE_DATEV2>(res_data, argument_columns[0],
+                                                argument_columns[col], input_rows_count, col);
             }
             break;
         }
         case PrimitiveType::TYPE_DATETIMEV2: {
             for (int col = 1; col < arguments.size(); ++col) {
-                if (arg_const) {
-                    insert_result_data<TYPE_DATETIMEV2, true>(res_data, argument_columns[0],
-                                                              argument_columns[col],
-                                                              input_rows_count, col);
-                } else {
-                    insert_result_data<TYPE_DATETIMEV2, false>(res_data, argument_columns[0],
-                                                               argument_columns[col],
-                                                               input_rows_count, col);
-                }
+                insert_result_data<TYPE_DATETIMEV2>(res_data, argument_columns[0],
+                                                    argument_columns[col], input_rows_count, col);
             }
             break;
         }
@@ -639,7 +502,7 @@ struct FunctionFieldImpl {
     }
 
 private:
-    template <PrimitiveType PType, bool ArgConst>
+    template <PrimitiveType PType>
     static void insert_result_data(PaddedPODArray<Int32>& __restrict res_data,
                                    ColumnPtr first_column, ColumnPtr argument_column,
                                    const size_t input_rows_count, const int col) {
@@ -654,24 +517,21 @@ private:
         if constexpr (std::is_same_v<ColumnType, ColumnDecimal128V2>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] |= (!res_data[i] *
-                                (EqualsOp<TYPE_DECIMALV2, TYPE_DECIMALV2>::apply(
-                                        first_raw_data[index_check_const(i, ArgConst)], arg_data)) *
+                                (EqualsOp<TYPE_DECIMALV2, TYPE_DECIMALV2>::apply(first_raw_data[i],
+                                                                                 arg_data)) *
                                 col);
             }
         } else if constexpr (is_decimal(PType)) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                res_data[i] |= (!res_data[i] *
-                                (EqualsOp<PType, PType>::apply(
-                                        first_raw_data[index_check_const(i, ArgConst)].value,
-                                        arg_data.value)) *
-                                col);
+                res_data[i] |=
+                        (!res_data[i] *
+                         (EqualsOp<PType, PType>::apply(first_raw_data[i].value, arg_data.value)) *
+                         col);
             }
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] |= (!res_data[i] *
-                                (EqualsOp<PType, PType>::apply(
-                                        first_raw_data[index_check_const(i, ArgConst)], arg_data)) *
-                                col);
+                                (EqualsOp<PType, PType>::apply(first_raw_data[i], arg_data)) * col);
             }
         }
     }

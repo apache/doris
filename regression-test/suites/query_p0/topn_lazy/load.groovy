@@ -38,6 +38,9 @@ suite("load") {
                     d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""",
                     """s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy"""]
 
+    for (String tableName in tables) {
+        sql """ drop table if exists `${tableName}`; """
+    }
     sql new File("""${context.file.parent}/ddl/ssb.tables.sql""").text
 
     def i = 0

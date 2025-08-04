@@ -20,15 +20,40 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.VarcharType;
+
+import com.google.common.collect.Sets;
 
 import java.math.BigDecimal;
+import java.util.Set;
 
 /**
  * Double literal
  */
 public class DoubleLiteral extends FractionalLiteral {
+
+    public static Set<String> POS_INF_NAME = Sets.newHashSet();
+    public static Set<String> NEG_INF_NAME = Sets.newHashSet();
+    public static Set<String> NAN_NAME = Sets.newHashSet();
+
+    static {
+        POS_INF_NAME.add("infinity");
+        POS_INF_NAME.add("inf");
+        POS_INF_NAME.add("+infinity");
+        POS_INF_NAME.add("+inf");
+        NEG_INF_NAME.add("-inf");
+        NEG_INF_NAME.add("-infinity");
+        NAN_NAME.add("nan");
+        NAN_NAME.add("+nan");
+        NAN_NAME.add("-nan");
+    }
 
     private final double value;
 
@@ -58,32 +83,30 @@ public class DoubleLiteral extends FractionalLiteral {
     }
 
     @Override
-    public String getStringValue() {
-        Double num = getValue();
-        if (Double.isNaN(num)) {
-            return "nan";
-        } else if (Double.isInfinite(num)) {
-            return num > 0 ? "inf" : "-inf";
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
         }
-
-        // Use %.17g to format the result，replace 'E' with 'e'
-        String formatted = String.format("%.17g", num).replace('E', 'e');
-
-        // Remove trailing .0 in scientific notation.
-        if (formatted.contains("e")) {
-            String[] parts = formatted.split("e");
-            String mantissa = parts[0];
-            String exponent = parts.length > 1 ? "e" + parts[1] : "";
-            mantissa = mantissa.replaceAll("\\.?0+$", "");
-            if (mantissa.isEmpty()) {
-                mantissa = "0";
+        if (targetType.isFloatType()) {
+            return new org.apache.doris.nereids.trees.expressions.literal.FloatLiteral(
+                    Float.parseFloat(String.valueOf(value)));
+        } else if (targetType.isStringType()) {
+            return new StringLiteral(getStringValue());
+        } else if (targetType.isCharType()) {
+            String desc = getStringValue();
+            if (((CharType) targetType).getLen() >= desc.length()) {
+                return new CharLiteral(desc, ((CharType) targetType).getLen());
             }
-            formatted = mantissa + exponent;
-        } else if (formatted.contains(".")) {
-            // remove trailing .0 in fixed-point representation
-            formatted = formatted.replaceAll("\\.?0+$", "");
+        } else if (targetType.isVarcharType()) {
+            String desc = getStringValue();
+            return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
+        } else if (targetType.isDecimalV2Type() || targetType.isDecimalV3Type()) {
+            if (Double.isInfinite(value) || Double.isNaN(value)) {
+                throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));
+            }
+            BigDecimal bigDecimal = new BigDecimal(Double.toString(value));
+            return getDecimalLiteral(bigDecimal, targetType);
         }
-
-        return formatted;
+        return super.uncheckedCastTo(targetType);
     }
 }
