@@ -5,28 +5,28 @@ v	variant	Yes	false	\N	NONE
 v.nested.a	array<text>	Yes	false	\N	NONE
 v.nested.aaa	array<text>	Yes	false	\N	NONE
 v.nested.ax1111	array<text>	Yes	false	\N	NONE
-v.nested.axxxb	array<tinyint>	Yes	false	\N	NONE
+v.nested.axxxb	array<bigint>	Yes	false	\N	NONE
 v.nested.ba	array<text>	Yes	false	\N	NONE
 v.nested.baaa	array<text>	Yes	false	\N	NONE
-v.nested.ddsss	array<smallint>	Yes	false	\N	NONE
+v.nested.ddsss	array<bigint>	Yes	false	\N	NONE
 v.nested.mmm	array<text>	Yes	false	\N	NONE
 v.nested.nested.a	array<text>	Yes	false	\N	NONE
 v.nested.nested.aaa	array<text>	Yes	false	\N	NONE
 v.nested.nested.ax1111	array<text>	Yes	false	\N	NONE
-v.nested.nested.axxxb	array<tinyint>	Yes	false	\N	NONE
+v.nested.nested.axxxb	array<bigint>	Yes	false	\N	NONE
 v.nested.nested.ba	array<text>	Yes	false	\N	NONE
-v.nested.nested.ddsss	array<smallint>	Yes	false	\N	NONE
-v.nested.nested.xx	array<tinyint>	Yes	false	\N	NONE
-v.nested.nested.xxxy111	array<tinyint>	Yes	false	\N	NONE
+v.nested.nested.ddsss	array<bigint>	Yes	false	\N	NONE
+v.nested.nested.xx	array<bigint>	Yes	false	\N	NONE
+v.nested.nested.xxxy111	array<bigint>	Yes	false	\N	NONE
 v.nested.nested.yyyxxxx	array<text>	Yes	false	\N	NONE
-v.nested.xx	array<tinyint>	Yes	false	\N	NONE
-v.nested.xxxy111	array<tinyint>	Yes	false	\N	NONE
+v.nested.xx	array<bigint>	Yes	false	\N	NONE
+v.nested.xxxy111	array<bigint>	Yes	false	\N	NONE
 v.nested.yyy	array<text>	Yes	false	\N	NONE
 v.nested.yyyxxxx	array<text>	Yes	false	\N	NONE
 v.nested.zzz11	array<text>	Yes	false	\N	NONE
-v.not nested	smallint	Yes	false	\N	NONE
-v.not nested2.llll	tinyint	Yes	false	\N	NONE
-v.xx	tinyint	Yes	false	\N	NONE
+v.not nested	bigint	Yes	false	\N	NONE
+v.not nested2.llll	bigint	Yes	false	\N	NONE
+v.xx	bigint	Yes	false	\N	NONE
 
 -- !sql --
 1	{"xx":10}

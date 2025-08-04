@@ -66,15 +66,15 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
     queryAndCheck (" select * from ${testTable} where v['int1'] is not null or v['string2'] is null; ", 1)
     queryAndCheck (" select * from ${testTable} where v['int1'] is not null or v['string2'] = 'bb'; ", 1)
     queryAndCheck (" select * from ${testTable} where v['int1'] is null or v['string2'] = 'bb'; ", 1)
-    queryAndCheck (" select * from ${testTable} where v['string2'] is not null or cast(v['int3'] as tinyint) = 3; ", 1)
+    queryAndCheck (" select * from ${testTable} where v['string2'] is not null or cast(v['int3'] as bigint) = 3; ", 1)
 
-    queryAndCheck (" select * from ${testTable} where cast(v['int1'] as tinyint) is not null or cast(v['string2'] as string) = 'bb'; ", 1)
-    queryAndCheck (" select * from ${testTable} where cast(v['int1'] as tinyint) is null or cast(v['string2'] as string) = 'bb'; ", 1)
-    queryAndCheck (" select * from ${testTable} where cast(v['string2'] as string) is not null or cast(v['int3'] as tinyint) = 3; ", 1)
+    queryAndCheck (" select * from ${testTable} where cast(v['int1'] as bigint) is not null or cast(v['string2'] as string) = 'bb'; ", 1)
+    queryAndCheck (" select * from ${testTable} where cast(v['int1'] as bigint) is null or cast(v['string2'] as string) = 'bb'; ", 1)
+    queryAndCheck (" select * from ${testTable} where cast(v['string2'] as string) is not null or cast(v['int3'] as bigint) = 3; ", 1)
 
     queryAndCheck (" select * from ${testTable} where (v['int1'] is not null and v['string2'] is null) or (v['int1'] is null and v['string2'] = 'bb'); ", 1)
     queryAndCheck (" select * from ${testTable} where (v['int1'] is null and v['string2'] = 'cc') or (v['int3'] is not null and v['string2'] = 'bb'); ", 3)
 
-    queryAndCheck (" select * from ${testTable} where (cast(v['int1'] as tinyint) is not null and cast(v['string2'] as string) is null) or (cast(v['int1'] as tinyint) is null and cast(v['string2'] as string) = 'bb'); ", 1)
-    queryAndCheck (" select * from ${testTable} where (cast(v['int1'] as tinyint) is null and cast(v['string2'] as string) = 'cc') or (cast(v['int3'] as tinyint) is not null and cast(v['string2'] as string) = 'bb'); ", 3)
+    queryAndCheck (" select * from ${testTable} where (cast(v['int1'] as bigint) is not null and cast(v['string2'] as string) is null) or (cast(v['int1'] as bigint) is null and cast(v['string2'] as string) = 'bb'); ", 1)
+    queryAndCheck (" select * from ${testTable} where (cast(v['int1'] as bigint) is null and cast(v['string2'] as string) = 'cc') or (cast(v['int3'] as bigint) is not null and cast(v['string2'] as string) = 'bb'); ", 3)
 }
