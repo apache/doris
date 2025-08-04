@@ -260,10 +260,10 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("savePlsqlProcedure",
                         CountingDataOutputStream.class, long.class);
                 break;
-            case "KeyManager":
-                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadKeyManager", DataInputStream.class,
+            case "KeyManagerStore":
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadKeyManagerStore", DataInputStream.class,
                     long.class);
-                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveKeyManager",
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveKeyManagerStore",
                     CountingDataOutputStream.class, long.class);
                 break;
             default:

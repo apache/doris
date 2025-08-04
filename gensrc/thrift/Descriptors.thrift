@@ -151,6 +151,7 @@ enum TSchemaTableType {
     SCH_ROUTINE_LOAD_JOBS = 54,
     SCH_BACKEND_CONFIGURATION=55,
     SCH_BACKEND_TABLETS = 56;
+    SCH_ENCRYPTION_KEYS = 58;
 }
 
 enum THdfsCompression {
