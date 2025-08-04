@@ -262,15 +262,18 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
         DataTypeSerDe::FormatOptions options {};
         if (_partition_value_is_null.contains(partition_slot_desc->col_name())) {
             // for iceberg/paimon table
-            test_serde = data_type->is_nullable() ? test_serde->get_nested_serdes()[0] : test_serde;
-            bool is_null = _partition_value_is_null[partition_slot_desc->col_name()];
-            if (is_null) {
-                // If the partition value is null, insert default values into the ColumnNullable.
-                col_ptr->insert_many_defaults(partition_value_column_size);
+            // NOTICE: column is always be nullable for iceberg/paimon table now
+            DCHECK(data_type->is_nullable());
+            test_serde = test_serde->get_nested_serdes()[0];
+            auto* null_column = assert_cast<ColumnNullable*>(col_ptr);
+            if (_partition_value_is_null[partition_slot_desc->col_name()]) {
+                null_column->insert_many_defaults(partition_value_column_size);
             } else {
-                // If the partition value is not null, we deserialize it normally.
+                // If the partition value is not null, we set null map to 0 and deserialize it normally.
+                null_column->get_null_map_column().insert_many_vals(0, partition_value_column_size);
                 RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                        *col_ptr, slice, partition_value_column_size, &num_deserialized, options));
+                        null_column->get_nested_column(), slice, partition_value_column_size,
+                        &num_deserialized, options));
             }
         } else {
             // for hive/hudi table, the null value is set as "\\N"
@@ -1484,6 +1487,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
 
 Status FileScanner::_generate_partition_columns() {
     _partition_col_descs.clear();
+    _partition_value_is_null.clear();
     const TFileRangeDesc& range = _current_range;
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
         for (const auto& slot_desc : _partition_slot_descs) {
@@ -1494,13 +1498,8 @@ Status FileScanner::_generate_partition_columns() {
                                                  slot_desc->id());
                 }
                 const std::string& column_from_path = range.columns_from_path[it->second];
-                const char* data = column_from_path.c_str();
-                size_t size = column_from_path.size();
-                if (size == 4 && memcmp(data, "null", 4) == 0) {
-                    data = const_cast<char*>("\\N");
-                }
                 _partition_col_descs.emplace(slot_desc->col_name(),
-                                             std::make_tuple(data, slot_desc));
+                                             std::make_tuple(column_from_path, slot_desc));
                 if (range.__isset.columns_from_path_is_null) {
                     _partition_value_is_null.emplace(slot_desc->col_name(),
                                                      range.columns_from_path_is_null[it->second]);

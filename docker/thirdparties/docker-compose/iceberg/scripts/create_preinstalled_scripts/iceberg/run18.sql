@@ -233,3 +233,18 @@ VALUES (
         'Null Binary',
         NULL
     );
+
+-- Partition by string type with null values
+CREATE TABLE null_str_partition_table (
+    id BIGINT,
+    category STRING,
+    value DOUBLE
+) USING iceberg PARTITIONED BY (category);
+
+INSERT INTO
+    null_str_partition_table
+VALUES (1, NULL, 100.0),
+    (2, 'NULL', 200.0),
+    (3, '\\N', 300.0),
+    (4, 'null', 400.0),
+    (5, 'A', 500.0);

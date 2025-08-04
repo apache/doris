@@ -83,6 +83,18 @@
 -- !runtime_filter_partition_pruning_float_in_null --
 1
 
+-- !null_partition_1 --
+4	null	400.0
+
+-- !null_partition_2 --
+2	NULL	200.0
+
+-- !null_partition_3 --
+3	\\N	300.0
+
+-- !null_partition_4 --
+1	\N	100.0
+
 -- !runtime_filter_partition_pruning_decimal1 --
 2
 
@@ -166,4 +178,16 @@
 
 -- !runtime_filter_partition_pruning_float_in_null --
 1
+
+-- !null_partition_1 --
+4	null	400.0
+
+-- !null_partition_2 --
+2	NULL	200.0
+
+-- !null_partition_3 --
+3	\\N	300.0
+
+-- !null_partition_4 --
+1	\N	100.0
 

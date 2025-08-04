@@ -213,3 +213,18 @@ VALUES (1, 'Float Data 1', 1.5),
     (4, 'Float Data 4', 2.5),
     (5, 'Float Data 5', 3.5),
     (6, 'Null Float', NULL);
+
+-- Partition by string type with null values
+CREATE TABLE null_str_partition_table (
+    id BIGINT,
+    category STRING,
+    value DOUBLE
+) PARTITIONED BY (category);
+
+INSERT INTO
+    null_str_partition_table
+VALUES (1, NULL, 100.0),
+    (2, 'NULL', 200.0),
+    (3, '\\N', 300.0),
+    (4, 'null', 400.0),
+    (5, 'A', 500.0);

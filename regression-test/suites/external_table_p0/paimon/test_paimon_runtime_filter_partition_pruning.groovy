@@ -211,6 +211,18 @@ suite("test_paimon_runtime_filter_partition_pruning", "p0,external,doris,externa
                     (select partition_key from float_partitioned
                     order by id desc limit 2);
             """
+            qt_null_partition_1 """
+                select * from null_str_partition_table where category = 'null';
+            """
+            qt_null_partition_2 """
+                select * from null_str_partition_table where category = 'NULL';
+            """
+            qt_null_partition_3 """
+                select * from null_str_partition_table where category = '\\\\N';
+            """
+            qt_null_partition_4 """
+                select * from null_str_partition_table where category is null;
+            """
         }
 
         try {
