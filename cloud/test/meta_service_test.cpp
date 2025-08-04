@@ -130,8 +130,8 @@ static std::string next_rowset_id() {
     return std::to_string(++cnt);
 }
 
-static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
-                       int64_t partition_id, int64_t tablet_id) {
+void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id, int64_t partition_id,
+                int64_t tablet_id) {
     auto tablet = req.add_tablet_metas();
     tablet->set_table_id(table_id);
     tablet->set_index_id(index_id);
