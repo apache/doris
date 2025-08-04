@@ -943,15 +943,15 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
     return true;
 }
 
-bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
+bool OrcReader::_init_search_argument(const VExprSPtrs& exprs) {
     // build search argument, if any expr can not be pushed down, return false
     auto builder = orc::SearchArgumentFactory::newBuilder();
     bool at_least_one_can_push_down = false;
     builder->startAnd();
-    for (const auto& expr_ctx : conjuncts) {
+    for (const auto& expr : exprs) {
         _vslot_ref_to_orc_predicate_data_type.clear();
         _vliteral_to_orc_literal.clear();
-        if (_build_search_argument(expr_ctx->root(), builder)) {
+        if (_build_search_argument(expr, builder)) {
             at_least_one_can_push_down = true;
         }
     }
@@ -1098,7 +1098,7 @@ Status OrcReader::set_fill_columns(
     if (_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = false;
     } else if (_enable_filter_by_min_max) {
-        auto res = _init_search_argument(_lazy_read_ctx.conjuncts);
+        auto res = _init_search_argument(_push_down_exprs);
         if (_state->query_options().check_orc_init_sargs_success && !res) {
             std::stringstream ss;
             for (const auto& conjunct : _lazy_read_ctx.conjuncts) {

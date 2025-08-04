@@ -36,6 +36,7 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -170,6 +171,172 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
     }
     return node;
 }
+
+TExprNode create_texpr_node_from(const vectorized::Field& field, const PrimitiveType& type,
+                                 int precision, int scale) {
+    TExprNode node;
+    switch (type) {
+    case TYPE_BOOLEAN: {
+        const auto& storage = static_cast<bool>(
+                field.get<typename PrimitiveTypeTraits<TYPE_BOOLEAN>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_BOOLEAN>(&storage, &node));
+        break;
+    }
+    case TYPE_TINYINT: {
+        const auto& storage = static_cast<int8_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TINYINT>(&storage, &node));
+        break;
+    }
+    case TYPE_SMALLINT: {
+        const auto& storage = static_cast<int16_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_SMALLINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_SMALLINT>(&storage, &node));
+        break;
+    }
+    case TYPE_INT: {
+        const auto& storage = static_cast<int32_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_INT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_INT>(&storage, &node));
+        break;
+    }
+    case TYPE_BIGINT: {
+        const auto& storage = static_cast<int64_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_BOOLEAN>(&storage, &node));
+        break;
+    }
+    case TYPE_LARGEINT: {
+        const auto& storage = static_cast<int128_t>(
+                field.get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_LARGEINT>(&storage, &node));
+        break;
+    }
+    case TYPE_FLOAT: {
+        const auto& storage = static_cast<float>(
+                field.get<typename PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_FLOAT>(&storage, &node));
+        break;
+    }
+    case TYPE_DOUBLE: {
+        const auto& storage = static_cast<double>(
+                field.get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DOUBLE>(&storage, &node));
+        break;
+    }
+    case TYPE_DATEV2: {
+        DateV2Value<DateV2ValueType> storage =
+                binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(static_cast<uint32_t>(
+                        field.get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>()));
+
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATEV2>(&storage, &node));
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        DateV2Value<DateTimeV2ValueType> storage = binary_cast<uint64_t,
+                                                               DateV2Value<DateTimeV2ValueType>>(
+                field.get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
+
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DATETIMEV2>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DATE: {
+        VecDateTimeValue storage = binary_cast<int64_t, doris::VecDateTimeValue>(
+                field.get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATE>(&storage, &node));
+        break;
+    }
+    case TYPE_DATETIME: {
+        VecDateTimeValue storage = binary_cast<int64_t, doris::VecDateTimeValue>(
+                field.get<typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIME>(&storage, &node));
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>()
+                        .get_value();
+
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMALV2>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>()
+                        .get_value();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMAL32>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>()
+                        .get_value();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMAL64>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>()
+                        .get_value();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMAL128I>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL256: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>()
+                        .get_value();
+        THROW_IF_ERROR(
+                create_texpr_literal_node<TYPE_DECIMAL256>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_CHAR: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_CHAR>(&storage, &node));
+        break;
+    }
+    case TYPE_VARCHAR: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARCHAR>(&storage, &node));
+        break;
+    }
+    case TYPE_STRING: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(&storage, &node));
+        break;
+    }
+    case TYPE_IPV4: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV4>(&storage, &node));
+        break;
+    }
+    case TYPE_IPV6: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(&storage, &node));
+        break;
+    }
+    case TYPE_TIMEV2: {
+        const auto& storage =
+                field.get<typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(&storage, &node));
+        break;
+    }
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
+                        int(type));
+    }
+    return node;
+}
+
 // NOLINTEND(readability-function-size)
 // NOLINTEND(readability-function-cognitive-complexity)
 } // namespace doris

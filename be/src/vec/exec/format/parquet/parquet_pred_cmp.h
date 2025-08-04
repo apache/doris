@@ -228,7 +228,7 @@ public:
             break;
         }
         case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY: {
-            auto physical_col = ColumnInt8::create();
+            auto physical_col = ColumnUInt8::create();
             physical_col->resize(2 * col_schema->parquet_schema.type_length);
             DCHECK(col_schema->parquet_schema.type_length == encoded_min.length());
             DCHECK(col_schema->parquet_schema.type_length == encoded_max.length());

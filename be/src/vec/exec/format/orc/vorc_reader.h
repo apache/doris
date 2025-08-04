@@ -326,7 +326,7 @@ private:
                         std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _build_search_argument(const VExprSPtr& expr,
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
-    bool _init_search_argument(const VExprContextSPtrs& conjuncts);
+    bool _init_search_argument(const VExprSPtrs& exprs);
 
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);

@@ -145,16 +145,15 @@ public:
         }
         // add slot
         auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-
         root->add_child(children().at(0));
+
+        // add Literal
         {
             Field field = _predicate->get_value();
-            auto field_data = field.as_string_view();
             auto literal_data_type = remove_nullable(slot_ref->data_type());
-
-            TExprNode node = create_texpr_node_from(
-                    field_data.data(), literal_data_type->get_primitive_type(),
-                    literal_data_type->get_precision(), literal_data_type->get_scale());
+            TExprNode node = create_texpr_node_from(field, literal_data_type->get_primitive_type(),
+                                                    literal_data_type->get_precision(),
+                                                    literal_data_type->get_scale());
             root->add_child(VLiteral::create_shared(node));
         }
         return root;

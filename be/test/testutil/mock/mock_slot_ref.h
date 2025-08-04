@@ -62,6 +62,10 @@ public:
     }
     const std::string& expr_name() const override { return _name; }
 
+    void set_expr_name(String s) {
+        _name = s;
+    }
+
     static VExprContextSPtrs create_mock_contexts(DataTypePtr data_type);
 
     static VExprContextSPtrs create_mock_contexts(int column_id, DataTypePtr data_type);
@@ -71,7 +75,7 @@ public:
     static VExprContextSPtrs create_mock_contexts(DataTypes data_types);
 
 private:
-    const std::string _name = "MockSlotRef";
+    std::string _name = "MockSlotRef";
 };
 
 } // namespace vectorized

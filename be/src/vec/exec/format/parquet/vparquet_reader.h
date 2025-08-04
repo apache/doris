@@ -229,8 +229,6 @@ private:
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
 
-    static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
-
     Status _set_read_one_line_impl() override { return Status::OK(); }
 
     bool _expr_push_down(const VExprSPtr& expr,
@@ -321,6 +319,7 @@ private:
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
 
+    bool _filter_groups;
     // push down =, >, <, >=, <=, in
     VExprSPtrs _push_down_exprs;
 

@@ -51,47 +51,29 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/olap_common.h"
 #include "exec/schema_scanner.h"
 #include "gtest/gtest_pred_impl.h"
-#include "io/fs/buffered_reader.h"
-#include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "testutil/mock/mock_fn_call.h"
 #include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_slot_ref.h"
-#include "util/slice.h"
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
-#include "vec/exec/format/parquet/vparquet_group_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
-#include "vec/exec/format/table/iceberg/arrow_schema_util.h"
-#include "vec/exec/format/table/iceberg/schema.h"
-#include "vec/exec/format/table/iceberg/schema_parser.h"
 
 namespace doris {
 namespace vectorized {
 class VExprContext;
-using namespace iceberg;
+//using namespace iceberg;
 using namespace parquet;
 
 class ParquetExprTest : public testing::Test {
@@ -283,6 +265,11 @@ public:
 
         static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, tuple_desc, nullptr,
                                                 nullptr, nullptr, nullptr));
+
+        size_t meta_size;
+        static_cast<void>(parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata,
+                                              &meta_size, nullptr));
+        doris_metadata = doris_file_metadata->to_thrift();
     }
 
     static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
@@ -354,6 +341,8 @@ public:
     DescriptorTbl* desc_tbl;
     ObjectPool obj_pool;
     std::vector<SlotDescriptor*> slot_descs;
+    FileMetaData* doris_file_metadata;
+    tparquet::FileMetaData doris_metadata;
 };
 
 TEST_F(ParquetExprTest, test_min_max) {
@@ -363,12 +352,6 @@ TEST_F(ParquetExprTest, test_min_max) {
     std::shared_ptr<::parquet::FileMetaData> arrow_metadata = arrow_reader->metadata();
 
     Status st;
-
-    FileMetaData* doris_file_metadata;
-    size_t meta_size;
-    static_cast<void>(
-            parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata, &meta_size, nullptr));
-    tparquet::FileMetaData doris_metadata = doris_file_metadata->to_thrift();
 
     EXPECT_EQ(arrow_reader->metadata()->num_row_groups(), doris_metadata.row_groups.size());
 
@@ -497,6 +480,7 @@ TEST_F(ParquetExprTest, test_gt) {
     ctx->_opened = true;
     ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
 }
+
 TEST_F(ParquetExprTest, test_lt) {
     auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt32>());
     auto fn_eq = MockFnCall::create("lt");
@@ -515,6 +499,385 @@ TEST_F(ParquetExprTest, test_lt) {
     ctx->_prepared = true;
     ctx->_opened = true;
     ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+}
+
+TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 , 10000000000+3)
+    int loc = 2;
+    auto slot_ref = std::make_shared<MockSlotRef>(loc, std::make_shared<DataTypeInt64>());
+    auto fn_eq = MockFnCall::create("eq");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10000000001}));
+    slot_ref->set_expr_name("int64_col");
+    fn_eq->add_child(slot_ref);
+    fn_eq->add_child(const_val);
+    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+    fn_eq->_opcode = TExprOpcode::EQ;
+    slot_ref->_slot_id = loc;
+    slot_ref->_column_id = loc;
+    EXPECT_FALSE(fn_eq->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_eq);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func =
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[0].columns[loc].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(loc);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
+        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func =
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[1].columns[loc].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(loc);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
+        ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+}
+
+TEST_F(ParquetExprTest, test_lt_2) { // string_col < name_1
+    int loc = 5;
+    auto slot_ref = std::make_shared<MockSlotRef>(loc, std::make_shared<DataTypeString>());
+    auto fn_eq = MockFnCall::create("lt");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeString>({"name_1"}));
+    slot_ref->set_expr_name("string_col");
+    fn_eq->add_child(slot_ref);
+    fn_eq->add_child(const_val);
+    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+    fn_eq->_opcode = TExprOpcode::LT;
+    slot_ref->_slot_id = loc;
+    slot_ref->_column_id = loc;
+    EXPECT_FALSE(fn_eq->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_eq);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func = [](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            stat->encoded_max_value = "name_5";
+            stat->encoded_min_value = "name_4";
+            stat->is_all_null = false;
+            stat->has_null = false;
+            return true;
+        };
+        ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func = [](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            stat->encoded_max_value = "name_5";
+            stat->encoded_min_value = "name_0";
+            stat->is_all_null = false;
+            stat->has_null = false;
+            return true;
+        };
+        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+}
+
+TEST_F(ParquetExprTest, test_is_null) { // int32_all_null_col is null
+
+    auto slot_ref = std::make_shared<MockSlotRef>(1, std::make_shared<DataTypeInt64>());
+    auto fn_eq = MockFnCall::create("is_null_pred");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
+
+    fn_eq->add_child(slot_ref);
+    fn_eq->add_child(const_val);
+    fn_eq->_node_type = TExprNodeType::FUNCTION_CALL;
+    slot_ref->_slot_id = 1;
+    slot_ref->set_expr_name("int32_all_null_col");
+    EXPECT_FALSE(fn_eq->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_eq);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func =
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[0].columns[1].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(1);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
+        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func =
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[1].columns[1].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(1);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
+        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+}
+
+TEST_F(ParquetExprTest, test_is_not_null) { // int32_all_null_col is not null
+    auto slot_ref = std::make_shared<MockSlotRef>(1, std::make_shared<DataTypeInt64>());
+    auto fn_eq = MockFnCall::create("is_not_null_pred");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
+
+    fn_eq->add_child(slot_ref);
+    fn_eq->add_child(const_val);
+    fn_eq->_node_type = TExprNodeType::FUNCTION_CALL;
+    slot_ref->_slot_id = 1;
+    slot_ref->set_expr_name("int32_all_null_col");
+    EXPECT_FALSE(fn_eq->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_eq);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func =
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[0].columns[1].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(1);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
+        ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func =
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[1].columns[1].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(1);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
+        ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+}
+
+TEST_F(ParquetExprTest, test_is_null_2) { // int32_partial_null_col is null
+    auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+    auto fn_eq = MockFnCall::create("is_null_pred");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
+
+    fn_eq->add_child(slot_ref);
+    fn_eq->add_child(const_val);
+    fn_eq->_node_type = TExprNodeType::FUNCTION_CALL;
+    slot_ref->_slot_id = 0;
+    slot_ref->set_expr_name("int32_partial_null_col");
+    EXPECT_FALSE(fn_eq->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_eq);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func =
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[0].columns[0].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(0);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
+        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+
+    {
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                get_stat_func =
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[1].columns[0].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(0);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
+        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+    }
+}
+
+TEST_F(ParquetExprTest, test_min_max_p) {
+    auto f = [&](int column_id, int row_group, Field* min_field, Field* max_field) {
+        auto col_schema = doris_file_metadata->schema().get_column(column_id);
+        const auto& column_meta_data =
+                doris_metadata.row_groups[row_group].columns[column_id].meta_data;
+        ParquetPredicate::ColumnStat stat;
+        ASSERT_TRUE(ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                        doris_metadata.created_by, &stat)
+                            .ok());
+
+        ASSERT_TRUE(ParquetPredicate::get_min_max_value(col_schema, stat.encoded_min_value,
+                                                        stat.encoded_max_value,
+                                                        cctz::utc_time_zone(), min_field, max_field)
+                            .ok());
+    };
+
+    {
+        Field min_field;
+        Field max_field;
+        f(3, 0, &min_field, &max_field);
+
+        auto col = ColumnHelper::create_column_with_name<DataTypeFloat64>({1.1f, 3.1f});
+
+        std::cout << "min_field = " << min_field.get<float>() << "\n";
+        std::cout << "max_field = " << max_field.get<float>() << "\n";
+
+        std::cout << "min_field = " << min_field.get<double>() << "\n";
+        std::cout << "max_field = " << max_field.get<double>() << "\n";
+
+        Field ans_min = col.column->operator[](0);
+        Field ans_max = col.column->operator[](1);
+        ASSERT_EQ(ans_min, min_field);
+        ASSERT_EQ(ans_max, max_field);
+    }
+
+    {
+        Field min_field;
+        Field max_field;
+        f(6, 0, &min_field, &max_field);
+
+        auto col = ColumnHelper::create_column_with_name<DataTypeInt64>({0, 1});
+
+        Field ans_min = col.column->operator[](0);
+        Field ans_max = col.column->operator[](1);
+        ASSERT_EQ(ans_min, min_field);
+        ASSERT_EQ(ans_max, max_field);
+    }
+
+    {
+        Field min_field;
+        Field max_field;
+        f(7, 1, &min_field, &max_field);
+
+        DateV2Value<DateV2ValueType> date1;
+        std::string date_str1 = "2020-01-04";
+        std::string format = "%Y-%m-%d";
+        EXPECT_TRUE(date1.from_date_format_str(format.data(), format.size(), date_str1.data(),
+                                               date_str1.size()));
+
+        DateV2Value<DateV2ValueType> date2;
+        std::string date_str2 = "2020-01-06";
+        EXPECT_TRUE(date2.from_date_format_str(format.data(), format.size(), date_str2.data(),
+                                               date_str2.size()));
+
+        auto column = ColumnDateV2::create();
+        auto& date_v2_data = column->get_data();
+        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&date1));
+        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&date2));
+
+        Field ans_min = column->operator[](0);
+        Field ans_max = column->operator[](1);
+        ASSERT_EQ(ans_min, min_field);
+        ASSERT_EQ(ans_max, max_field);
+    }
+
+    {
+        Field min_field;
+        Field max_field;
+        f(8, 1, &min_field, &max_field);
+
+        DateV2Value<DateTimeV2ValueType> datetime_v2_1;
+        std::string origin_date = "2021-01-01 03:00:00.000";
+        std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
+        EXPECT_TRUE(datetime_v2_1.from_date_format_str(date_format.data(), date_format.size(),
+                                                       origin_date.data(), origin_date.size()));
+
+        DateV2Value<DateTimeV2ValueType> datetime_v2_2;
+        origin_date = "2021-01-01 05:00:00.000";
+        EXPECT_TRUE(datetime_v2_2.from_date_format_str(date_format.data(), date_format.size(),
+                                                       origin_date.data(), origin_date.size()));
+
+        auto column = ColumnDateTimeV2::create();
+        auto& date_v2_data = column->get_data();
+        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&datetime_v2_1));
+        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&datetime_v2_2));
+
+        Field ans_min = column->operator[](0);
+        Field ans_max = column->operator[](1);
+        ASSERT_EQ(ans_min, min_field);
+        ASSERT_EQ(ans_max, max_field);
+    }
+
+    {
+        Field min_field;
+        Field max_field;
+        f(9, 0, &min_field, &max_field);
+
+        Field ans_min = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(10000, 2));
+        Field ans_max = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(10200, 2));
+        ASSERT_EQ(ans_min, min_field);
+        ASSERT_EQ(ans_max, max_field);
+    }
+    {
+        Field min_field;
+        Field max_field;
+        f(10, 1, &min_field, &max_field);
+
+        Field ans_min = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(1030000, 6));
+        Field ans_max = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(1050000, 6));
+        ASSERT_EQ(ans_min, min_field);
+        ASSERT_EQ(ans_max, max_field);
+    }
 }
 
 } // namespace vectorized

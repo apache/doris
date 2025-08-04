@@ -315,6 +315,7 @@ Status ParquetReader::init_reader(
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _colname_to_value_range = colname_to_value_range;
     _table_info_node_ptr = table_info_node_ptr;
+    _filter_groups = filter_groups;
 
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &(_file_metadata->to_thrift());
@@ -442,17 +443,23 @@ bool ParquetReader::_check_other_children_is_literal(const VExprSPtr& expr) {
     return true;
 }
 
+// Although we have already checked whether the children of expr are slots and literals in `_check_expr_can_push_down`, we still need to check again here
+// because the existence of the AND predicate will cause only some children to be checked.
 bool ParquetReader::_simple_expr_push_down(
         const VExprSPtr& expr, ParquetPredicate::OP op,
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
                 get_stat_func) {
-    DCHECK(expr->children()[0]->is_slot_ref());
+    if (!expr->children()[0]->is_slot_ref()) [[unlikely]] {
+        return false;
+    }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
 
     std::vector<Field> literal_values(expr->children().size() - 1);
     for (size_t child_id = 1; child_id < expr->children().size(); child_id++) {
         auto child_expr = expr->children()[child_id];
-        DCHECK(child_expr->is_literal());
+        if (!child_expr->is_literal()) {
+            return false;
+        }
         const auto* literal = static_cast<const VLiteral*>(child_expr.get());
         if (literal->get_column_ptr()->is_null_at(0)) {
             continue;
@@ -461,7 +468,9 @@ bool ParquetReader::_simple_expr_push_down(
     }
 
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
-    DCHECK(_table_info_node_ptr->children_column_exists(slot->col_name()));
+    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+        return false;
+    }
 
     const auto& file_col_name = _table_info_node_ptr->children_file_column_name(slot->col_name());
     const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
@@ -474,7 +483,6 @@ bool ParquetReader::_simple_expr_push_down(
     return ParquetPredicate::check_can_filter(op, literal_values, column_stat, col_schema, _ctz);
 }
 
-// true => filter
 bool ParquetReader::_expr_push_down(
         const VExprSPtr& expr,
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -494,7 +502,7 @@ bool ParquetReader::_expr_push_down(
         case TExprOpcode::LE:
             return _simple_expr_push_down(expr, ParquetPredicate::OP::LE, get_stat_func);
         case TExprOpcode::LT:
-            return _simple_expr_push_down(expr, ParquetPredicate::OP::GT, get_stat_func);
+            return _simple_expr_push_down(expr, ParquetPredicate::OP::LT, get_stat_func);
         case TExprOpcode::EQ:
             return _simple_expr_push_down(expr, ParquetPredicate::OP::EQ, get_stat_func);
         case TExprOpcode::FILTER_IN:
@@ -678,7 +686,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    RETURN_IF_ERROR(_init_row_groups(true));
+    RETURN_IF_ERROR(_init_row_groups(_filter_groups));
     _fill_all_columns = true;
     return Status::OK();
 }
@@ -1241,61 +1249,5 @@ void ParquetReader::_collect_profile_before_close() {
     _collect_profile();
 }
 
-SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& parquet_schema) {
-    tparquet::Type::type physical_type = parquet_schema.type;
-    const tparquet::LogicalType& logical_type = parquet_schema.logicalType;
-
-    // Assume string type is SortOrder::SIGNED, use ParquetPredicate::_try_read_old_utf8_stats() to handle it.
-    if (logical_type.__isset.STRING && (physical_type == tparquet::Type::BYTE_ARRAY ||
-                                        physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY)) {
-        return SortOrder::SIGNED;
-    }
-
-    if (logical_type.__isset.INTEGER) {
-        if (logical_type.INTEGER.isSigned) {
-            return SortOrder::SIGNED;
-        } else {
-            return SortOrder::UNSIGNED;
-        }
-    } else if (logical_type.__isset.DATE) {
-        return SortOrder::SIGNED;
-    } else if (logical_type.__isset.ENUM) {
-        return SortOrder::UNSIGNED;
-    } else if (logical_type.__isset.BSON) {
-        return SortOrder::UNSIGNED;
-    } else if (logical_type.__isset.JSON) {
-        return SortOrder::UNSIGNED;
-    } else if (logical_type.__isset.STRING) {
-        return SortOrder::UNSIGNED;
-    } else if (logical_type.__isset.DECIMAL) {
-        return SortOrder::UNKNOWN;
-    } else if (logical_type.__isset.MAP) {
-        return SortOrder::UNKNOWN;
-    } else if (logical_type.__isset.LIST) {
-        return SortOrder::UNKNOWN;
-    } else if (logical_type.__isset.TIME) {
-        return SortOrder::SIGNED;
-    } else if (logical_type.__isset.TIMESTAMP) {
-        return SortOrder::SIGNED;
-    } else if (logical_type.__isset.UNKNOWN) {
-        return SortOrder::UNKNOWN;
-    } else {
-        switch (physical_type) {
-        case tparquet::Type::BOOLEAN:
-        case tparquet::Type::INT32:
-        case tparquet::Type::INT64:
-        case tparquet::Type::FLOAT:
-        case tparquet::Type::DOUBLE:
-            return SortOrder::SIGNED;
-        case tparquet::Type::BYTE_ARRAY:
-        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            return SortOrder::UNSIGNED;
-        case tparquet::Type::INT96:
-            return SortOrder::UNKNOWN;
-        default:
-            return SortOrder::UNKNOWN;
-        }
-    }
-}
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
