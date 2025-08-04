@@ -71,7 +71,7 @@ public:
 
     Status set_event(int64_t job_id, TWarmUpEventType::type event, bool clear = false);
 
-    void warm_up_rowset(RowsetMeta& rs_meta);
+    void warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms = -1);
 
     void recycle_cache(int64_t tablet_id, const std::vector<RowsetId>& rowset_ids,
                        const std::vector<int64_t>& num_segments,

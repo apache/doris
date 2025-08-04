@@ -95,5 +95,11 @@ DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
 
 DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
 
+DEFINE_mBool(enable_warm_up_rowset_sync_wait_on_compaction, "false");
+
+DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
+
+DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
