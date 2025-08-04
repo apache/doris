@@ -257,7 +257,7 @@ void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) 
 
     size_t expected_number_of_arguments = get_number_of_arguments();
 
-    DCHECK(number_of_arguments, expected_number_of_arguments) << fmt::format(
+    DCHECK_EQ(number_of_arguments, expected_number_of_arguments) << fmt::format(
             "Number of arguments for function {} doesn't match: passed {} , should be {}",
             get_name(), number_of_arguments, expected_number_of_arguments);
     if (number_of_arguments != expected_number_of_arguments) {
