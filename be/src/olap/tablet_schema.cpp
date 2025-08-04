@@ -1030,7 +1030,7 @@ void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_
         if (iter->second.size() == indexes.size()) {
             for (size_t i = 0; i < iter->second.size(); ++i) {
                 size_t pos = iter->second[i];
-                if (pos >= 0 && pos < _indexes.size()) {
+                if (pos < _indexes.size()) {
                     _indexes[pos] = std::make_shared<TabletIndex>(std::move(indexes[i]));
                 }
             }
@@ -1608,7 +1608,7 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(
             std::make_tuple(IndexType::INVERTED, col_unique_id, escaped_suffix));
     if (it != _col_id_suffix_to_index.end()) {
         for (size_t pos : it->second) {
-            if (pos >= 0 && pos < _indexes.size()) {
+            if (pos < _indexes.size()) {
                 result.push_back(_indexes[pos].get());
             }
         }
