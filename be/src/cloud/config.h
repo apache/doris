@@ -134,7 +134,7 @@ DECLARE_mBool(enable_standby_passive_compaction);
 
 DECLARE_mDouble(standby_compaction_version_ratio);
 
-DECLARE_mBool(enable_warm_up_rowset_sync_wait_on_compaction);
+DECLARE_mBool(enable_compaction_delay_commit_for_warm_up);
 
 DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 
