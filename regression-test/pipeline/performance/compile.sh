@@ -100,6 +100,7 @@ if ${merge_target_branch_latest:-true}; then
         exit 1
     fi
 else
+    cd "${teamcity_build_checkoutDir}" || return 1
     echo "INFO: skip merge_pr_to_target_branch_latest"
 fi
 mount_swapfile=""
