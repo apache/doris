@@ -745,15 +745,15 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Result<ColumnReader*> Segment::get_column_reader(int32_t col_unique_id) {
-    auto status = _create_column_readers_once(nullptr);
-    if (!status) {
-        return ResultError(std::move(status));
-    }
+Status Segment::get_column_reader(int32_t col_unique_id, ColumnReader** reader) {
+    RETURN_IF_ERROR(_create_column_readers_once(nullptr));
     if (_column_readers.contains(col_unique_id)) {
-        return _column_readers[col_unique_id].get();
+        *reader = _column_readers[col_unique_id].get();
+        return Status::OK();
     }
-    return nullptr;
+    // The column reader is not found, since the segment does not contain the column, example new added column.
+    *reader = nullptr;
+    return Status::OK();
 }
 
 Status Segment::new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,

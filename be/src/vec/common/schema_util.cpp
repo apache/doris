@@ -674,11 +674,8 @@ Status aggregate_path_to_stats(
         }
 
         for (const auto& segment : segment_cache.get_segments()) {
-            auto column_reader_or = segment->get_column_reader(column->unique_id());
-            if (!column_reader_or.has_value()) {
-                continue;
-            }
-            auto* column_reader = column_reader_or.value();
+            segment_v2::ColumnReader* column_reader = nullptr;
+            RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader));
             if (!column_reader) {
                 continue;
             }
@@ -715,11 +712,8 @@ Status aggregate_variant_extended_info(
         }
 
         for (const auto& segment : segment_cache.get_segments()) {
-            auto column_reader_or = segment->get_column_reader(column->unique_id());
-            if (!column_reader_or.has_value()) {
-                continue;
-            }
-            auto* column_reader = column_reader_or.value();
+            segment_v2::ColumnReader* column_reader = nullptr;
+            RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader));
             if (!column_reader) {
                 continue;
             }
@@ -1316,11 +1310,8 @@ void get_field_info(const Field& field, FieldInfo* info) {
 //                 if (!column->is_variant_type()) {
 //                     continue;
 //                 }
-//                 auto column_reader_or = segment->get_column_reader(column->unique_id());
-//                 if (!column_reader_or.has_value()) {
-//                     continue;
-//                 }
-//                 auto* column_reader = column_reader_or.value();
+//                 segment_v2::ColumnReader* column_reader = nullptr;
+//                 RETURN_IF_ERROR(segment->get_column_reader(column->unique_id(), &column_reader));
 //                 if (!column_reader) {
 //                     continue;
 //                 }

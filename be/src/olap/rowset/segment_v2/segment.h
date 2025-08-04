@@ -203,7 +203,7 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
-    Result<ColumnReader*> get_column_reader(int32_t col_unique_id);
+    Status get_column_reader(int32_t col_unique_id, ColumnReader** reader);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -219,6 +219,7 @@ private:
     Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer, OlapReaderStatistics* stats);
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
+    // Must ensure _create_column_readers_once has been called before calling this function.
     ColumnReader* _get_column_reader(const TabletColumn& col);
 
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,

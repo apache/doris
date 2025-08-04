@@ -3354,4 +3354,217 @@ TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
         }
     }
 }
+
+// Helper function to create ColumnVariant with various types (int, double, array, string)
+static auto create_mixed_type_variant_column() {
+    auto variant = ColumnVariant::create(1);
+
+    // Create test data with different types
+    std::vector<std::pair<std::string, doris::vectorized::Field>> test_data = {
+            // int type
+            {"data.int_field", doris::vectorized::Field::create_field<TYPE_INT>(42)},
+            // double type
+            {"data.double_field", doris::vectorized::Field::create_field<TYPE_DOUBLE>(3.14159)},
+            // string type
+            {"data.string_field",
+             doris::vectorized::Field::create_field<TYPE_STRING>(String("hello_world"))},
+            // array of ints
+            {"data.array_int_field",
+             [] {
+                 auto array_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
+                 auto& array = array_field.get<Array>();
+                 array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(1));
+                 array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(2));
+                 array.emplace_back(doris::vectorized::Field::create_field<TYPE_INT>(3));
+                 return array_field;
+             }()},
+            // array of strings
+            {"data.array_string_field", [] {
+                 auto array_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
+                 auto& array = array_field.get<Array>();
+                 array.emplace_back(
+                         doris::vectorized::Field::create_field<TYPE_STRING>(String("apple")));
+                 array.emplace_back(
+                         doris::vectorized::Field::create_field<TYPE_STRING>(String("banana")));
+                 return array_field;
+             }()}};
+
+    // Insert 5 rows with the same structure
+    for (int i = 0; i < 5; ++i) {
+        auto variant_map = VariantUtil::construct_variant_map(test_data);
+        variant->try_insert(variant_map);
+    }
+
+    // Add some additional rows with different structures for sparse column
+    std::vector<std::pair<std::string, doris::vectorized::Field>> sparse_data = {
+            {"data.int_field", doris::vectorized::Field::create_field<TYPE_INT>(100)},
+            {"data.double_field", doris::vectorized::Field::create_field<TYPE_DOUBLE>(2.71828)},
+            {"data.nested.sparse_string",
+             doris::vectorized::Field::create_field<TYPE_STRING>(String("sparse_data"))},
+            {"data.nested.sparse_int", doris::vectorized::Field::create_field<TYPE_INT>(999)}};
+
+    // Insert 3 more rows with sparse structure
+    for (int i = 0; i < 3; ++i) {
+        auto sparse_variant_map = VariantUtil::construct_variant_map(sparse_data);
+        variant->try_insert(sparse_variant_map);
+    }
+
+    return variant;
+}
+
+// // Test to generate ColumnVariant data and serialize to binary file
+// TEST_F(ColumnVariantTest, generate_compatibility_test_data) {
+//     // 1. Create ColumnVariant with various types
+//     auto variant_column = create_mixed_type_variant_column();
+//     variant_column->finalize();
+//     EXPECT_TRUE(variant_column->pick_subcolumns_to_sparse_column({}, false).ok());
+//     variant_column->finalize();
+//     EXPECT_LE(variant_column->get_subcolumns().size(), 2);
+//
+//     // 2. Create DataTypeVariant for serialization
+//     auto data_type_variant = std::make_shared<DataTypeVariant>();
+//
+//     // 3. Calculate serialized size
+//     int be_exec_version = 0; // Use current version
+//     int64_t serialized_size =
+//             data_type_variant->get_uncompressed_serialized_bytes(*variant_column, be_exec_version);
+//     EXPECT_GT(serialized_size, 0);
+//
+//     // 4. Serialize to buffer
+//     std::vector<char> buffer(serialized_size);
+//     char* buf_end = data_type_variant->serialize(*variant_column, buffer.data(), be_exec_version);
+//     size_t actual_size = buf_end - buffer.data();
+//     // EXPECT_EQ(actual_size, serialized_size);
+//
+//     // 5. Write to binary file
+//     std::string test_data_path =
+//             std::string(getenv("ROOT")) + "/be/test/util/test_data/column_variant.bin";
+//     std::ofstream file(test_data_path, std::ios::binary);
+//     ASSERT_TRUE(file.is_open()) << "Failed to open file for writing: " << test_data_path;
+//     file.write(buffer.data(), actual_size);
+//     file.close();
+//
+//     std::cout << "Successfully generated test data file: " << test_data_path << std::endl;
+//     std::cout << "Serialized size: " << actual_size << " bytes" << std::endl;
+// }
+
+// Test to deserialize from binary file and verify data consistency
+TEST_F(ColumnVariantTest, compatibility_deserialize_and_verify) {
+    // 1. Create reference data for comparison
+    auto expected_variant = create_mixed_type_variant_column();
+    expected_variant->finalize();
+
+    // 2. Read binary data from file
+    std::string test_data_path =
+            std::string(getenv("ROOT")) + "/be/test/util/test_data/column_variant.bin";
+    std::ifstream file(test_data_path, std::ios::binary);
+    ASSERT_TRUE(file.is_open()) << "Failed to open test data file: " << test_data_path;
+
+    // Get file size
+    file.seekg(0, std::ios::end);
+    size_t file_size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    EXPECT_GT(file_size, 0);
+
+    // Read all data
+    std::vector<char> buffer(file_size);
+    file.read(buffer.data(), file_size);
+    file.close();
+
+    // 3. Deserialize from binary data
+    auto data_type_variant = std::make_shared<DataTypeVariant>();
+    auto deserialized_column = data_type_variant->create_column();
+    int be_exec_version = 0;
+
+    const char* buf_end =
+            data_type_variant->deserialize(buffer.data(), &deserialized_column, be_exec_version);
+    size_t consumed_size = buf_end - buffer.data();
+    EXPECT_EQ(consumed_size, file_size);
+
+    auto variant_column = assert_cast<ColumnVariant*>(deserialized_column.get());
+    EXPECT_EQ(variant_column->size(), 8);
+
+    // 4. Use ColumnVariant::get to retrieve VariantMap and verify data
+    for (size_t row = 0; row < variant_column->size(); ++row) {
+        Field result_field;
+        variant_column->get(row, result_field);
+        EXPECT_EQ(result_field.get_type(), TYPE_VARIANT);
+
+        const auto& variant_map = result_field.get<VariantMap>();
+
+        if (row < 5) {
+            // First 5 rows should have the structured data
+            EXPECT_TRUE(variant_map.find(PathInData("data.int_field")) != variant_map.end());
+            EXPECT_TRUE(variant_map.find(PathInData("data.double_field")) != variant_map.end());
+            EXPECT_TRUE(variant_map.find(PathInData("data.string_field")) != variant_map.end());
+            EXPECT_TRUE(variant_map.find(PathInData("data.array_int_field")) != variant_map.end());
+            EXPECT_TRUE(variant_map.find(PathInData("data.array_string_field")) !=
+                        variant_map.end());
+
+            // Verify specific values
+            auto int_iter = variant_map.find(PathInData("data.int_field"));
+            if (int_iter != variant_map.end()) {
+                EXPECT_EQ(int_iter->second.field.get<Int32>(), 42);
+            }
+
+            auto double_iter = variant_map.find(PathInData("data.double_field"));
+            if (double_iter != variant_map.end()) {
+                EXPECT_DOUBLE_EQ(double_iter->second.field.get<Float64>(), 3.14159);
+            }
+
+            auto string_iter = variant_map.find(PathInData("data.string_field"));
+            if (string_iter != variant_map.end()) {
+                EXPECT_EQ(string_iter->second.field.get<String>(), "hello_world");
+            }
+
+            auto array_int_iter = variant_map.find(PathInData("data.array_int_field"));
+            if (array_int_iter != variant_map.end()) {
+                const auto& array = array_int_iter->second.field.get<Array>();
+                EXPECT_EQ(array.size(), 3);
+                EXPECT_EQ(array[0].get<Int32>(), 1);
+                EXPECT_EQ(array[1].get<Int32>(), 2);
+                EXPECT_EQ(array[2].get<Int32>(), 3);
+            }
+
+            auto array_string_iter = variant_map.find(PathInData("data.array_string_field"));
+            if (array_string_iter != variant_map.end()) {
+                const auto& array = array_string_iter->second.field.get<Array>();
+                EXPECT_EQ(array.size(), 2);
+                EXPECT_EQ(array[0].get<String>(), "apple");
+                EXPECT_EQ(array[1].get<String>(), "banana");
+            }
+        } else {
+            // Last 3 rows should have sparse data
+            EXPECT_TRUE(variant_map.find(PathInData("data.int_field")) != variant_map.end());
+            EXPECT_TRUE(variant_map.find(PathInData("data.double_field")) != variant_map.end());
+            EXPECT_TRUE(variant_map.find(PathInData("data.nested.sparse_string")) !=
+                        variant_map.end());
+            EXPECT_TRUE(variant_map.find(PathInData("data.nested.sparse_int")) !=
+                        variant_map.end());
+
+            // Verify sparse data values
+            auto int_iter = variant_map.find(PathInData("data.int_field"));
+            if (int_iter != variant_map.end()) {
+                EXPECT_EQ(int_iter->second.field.get<Int32>(), 100);
+            }
+
+            auto double_iter = variant_map.find(PathInData("data.double_field"));
+            if (double_iter != variant_map.end()) {
+                EXPECT_DOUBLE_EQ(double_iter->second.field.get<Float64>(), 2.71828);
+            }
+
+            auto sparse_string_iter = variant_map.find(PathInData("data.nested.sparse_string"));
+            if (sparse_string_iter != variant_map.end()) {
+                EXPECT_EQ(sparse_string_iter->second.field.get<String>(), "sparse_data");
+            }
+
+            auto sparse_int_iter = variant_map.find(PathInData("data.nested.sparse_int"));
+            if (sparse_int_iter != variant_map.end()) {
+                EXPECT_EQ(sparse_int_iter->second.field.get<Int32>(), 999);
+            }
+        }
+    }
+
+    std::cout << "Successfully verified deserialized data integrity!" << std::endl;
+}
 }

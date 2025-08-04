@@ -2197,7 +2197,8 @@ bool ColumnVariant::is_null_root() const {
     return false;
 }
 
-bool ColumnVariant::is_scalar_variant() const {
+// num_rows == 0, so we need to use NO_SANITIZE_UNDEFINED
+bool NO_SANITIZE_UNDEFINED ColumnVariant::is_scalar_variant() const {
     const auto& sparse_offsets = serialized_sparse_column_offsets().data();
     // Only root itself is scalar, and no sparse data
     return !is_null_root() && subcolumns.get_leaves().size() == 1 &&

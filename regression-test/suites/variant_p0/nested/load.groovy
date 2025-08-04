@@ -16,6 +16,7 @@
 // under the License.
 
 // // this test is used to test the load of nested array
+// TODO(lihangyu): need to be fixed
 // suite("variant_nested_type_load", "p0"){
 // 
 //     try {

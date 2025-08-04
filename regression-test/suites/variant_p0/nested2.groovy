@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// TODO(lihangyu): need to be fixed
 // // this test is used to test the type conflict of nested array
 // suite("variant_nested_type_conflict", "p0"){
 // 
