@@ -19,8 +19,6 @@
 
 #include <gen_cpp/Types_types.h>
 
-#include "rocksdb/rate_limiter.h"
-
 namespace doris {
 
 enum class ReaderType : uint8_t {

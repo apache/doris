@@ -20,7 +20,6 @@
 #include <butil/macros.h>
 
 #include <memory>
-#include <mutex>
 
 #include "rocksdb/rate_limiter.h"
 
