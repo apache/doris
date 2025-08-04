@@ -436,6 +436,14 @@ private:
                                       std::stringstream& ss, MetaServiceCode& code,
                                       std::string& msg, int64_t& first_txn_id, Transaction* txn);
 
+    // Get versions in batch, Only for versioned read.
+    std::pair<MetaServiceCode, std::string> batch_get_table_versions(
+            const GetVersionRequest* request, GetVersionResponse* response,
+            std::string_view instance_id, KVStats& stats);
+    std::pair<MetaServiceCode, std::string> batch_get_partition_versions(
+            const GetVersionRequest* request, GetVersionResponse* response,
+            std::string_view instance_id, KVStats& stats);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;

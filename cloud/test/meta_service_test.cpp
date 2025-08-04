@@ -277,8 +277,8 @@ static void get_delete_bitmap_update_lock(MetaServiceProxy* meta_service,
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
 }
 
-static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
-                          int64_t table_id, int64_t partition_id, int64_t tablet_id) {
+void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
+                   int64_t table_id, int64_t partition_id, int64_t tablet_id) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service, db_id, label, table_id, txn_id));
     CreateRowsetResponse res;
