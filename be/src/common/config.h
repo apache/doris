@@ -717,18 +717,18 @@ DECLARE_mInt32(memtable_flush_running_count_limit);
 // maximum sleep time to wait for memory when writing or flushing memtable.
 DECLARE_mInt32(memtable_wait_for_memory_sleep_time_s);
 
-DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
+DECLARE_mInt32(load_process_max_memory_limit_percent); // 50%
 
 // If the memory consumption of load jobs exceed load_process_max_memory_limit,
 // all load jobs will hang there to wait for memtable flush. We should have a
 // soft limit which can trigger the memtable flush for the load channel who
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
-DECLARE_Int32(load_process_soft_mem_limit_percent);
+DECLARE_mInt32(load_process_soft_mem_limit_percent);
 
 // If load memory consumption is within load_process_safe_mem_permit_percent,
 // memtable memory limiter will do nothing.
-DECLARE_Int32(load_process_safe_mem_permit_percent);
+DECLARE_mInt32(load_process_safe_mem_permit_percent);
 
 // If there are a lot of memtable memory, then wait them flush finished.
 DECLARE_mDouble(load_max_wg_active_memtable_percent);
