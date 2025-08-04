@@ -147,6 +147,16 @@ suite("test_javaudf_int") {
             exception "but the return type is not nullable"
         }
 
+        test {
+            sql """ CREATE FUNCTION java_udf_largeint_test_not_nullable(largeint) RETURNS string PROPERTIES (
+                "file"="file://${jarPath}",
+                "symbol"="org.apache.doris.udf.LargeintTest",
+                "always_nullable"="false",
+                "type"="JAVA_UDF"
+            ); """
+            exception "but create function command type is STRING"
+        }
+
     } finally {
         try_sql("DROP GLOBAL FUNCTION IF EXISTS java_udf_int_test_global(int);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_tinyint_test(tinyint);")
