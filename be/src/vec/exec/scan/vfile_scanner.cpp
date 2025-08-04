@@ -38,6 +38,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_profile.h"
+#include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -146,14 +147,24 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
                                                      "NotFoundFileNum", TUnit::UNIT, 1);
     _file_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
+
+    _file_read_bytes_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                      "FileReadBytes", TUnit::BYTES, 1);
+    _file_read_calls_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                      "FileReadCalls", TUnit::UNIT, 1);
+    _file_read_time_counter =
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileReadTime", 1);
+
     _runtime_filter_partition_pruned_range_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                    "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
+    _file_reader_stats.reset(new io::FileReaderStats());
+
     _io_ctx.reset(new io::IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
-    _io_ctx->query_id = &_state->query_id();
+    _io_ctx->file_reader_stats = _file_reader_stats.get();
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -435,6 +446,9 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
+            if ((!_cur_reader->count_read_rows()) && _io_ctx) {
+                _io_ctx->file_reader_stats->read_rows += read_rows;
+            }
             // If the push_down_agg_type is COUNT, no need to do the rest,
             // because we only save a number in block.
             if (_get_push_down_agg_type() != TPushAggOp::type::COUNT) {
@@ -1478,6 +1492,49 @@ void VFileScanner::try_stop() {
     }
 }
 
+void VFileScanner::update_realtime_counters() {
+    pipeline::FileScanLocalState* local_state =
+            static_cast<pipeline::FileScanLocalState*>(_local_state);
+
+    COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
+    COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
+
+    if (_query_statistics) {
+        _query_statistics->add_scan_rows(_file_reader_stats->read_rows);
+        _query_statistics->add_scan_bytes(_file_reader_stats->read_bytes);
+    }
+
+    if (_file_cache_statistics->bytes_read_from_local == 0 &&
+        _file_cache_statistics->bytes_read_from_remote == 0) {
+        if (_query_statistics) {
+            _query_statistics->add_scan_bytes_from_remote_storage(_file_reader_stats->read_bytes);
+        }
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                _file_reader_stats->read_bytes);
+    } else {
+        if (_query_statistics) {
+            _query_statistics->add_scan_bytes_from_local_storage(
+                    _file_cache_statistics->bytes_read_from_local);
+            _query_statistics->add_scan_bytes_from_remote_storage(
+                    _file_cache_statistics->bytes_read_from_remote);
+        }
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                _file_cache_statistics->bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                _file_cache_statistics->bytes_read_from_remote);
+    }
+
+    COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
+
+    DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
+    DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
+
+    _file_reader_stats->read_bytes = 0;
+    _file_reader_stats->read_rows = 0;
+    _file_cache_statistics->bytes_read_from_local = 0;
+    _file_cache_statistics->bytes_read_from_remote = 0;
+}
+
 void VFileScanner::_collect_profile_before_close() {
     VScanner::_collect_profile_before_close();
     if (config::enable_file_cache && _state->query_options().enable_file_cache &&
@@ -1489,6 +1546,18 @@ void VFileScanner::_collect_profile_before_close() {
     if (_cur_reader != nullptr) {
         _cur_reader->collect_profile_before_close();
     }
+
+    pipeline::FileScanLocalState* local_state =
+            static_cast<pipeline::FileScanLocalState*>(_local_state);
+    COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
+    COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
+
+    COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
+    COUNTER_UPDATE(_file_read_calls_counter, _file_reader_stats->read_calls);
+    COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
+
+    DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
+    DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
 }
 
 } // namespace doris::vectorized
