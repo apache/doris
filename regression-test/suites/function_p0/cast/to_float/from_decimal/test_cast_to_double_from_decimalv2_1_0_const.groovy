@@ -30,22 +30,22 @@ suite("test_cast_to_double_from_decimalv2_1_0_const") {
     def const_sql_0_1 = """select "0", cast(cast("0" as decimalv2(1, 0)) as double);"""
     qt_sql_0_1_strict "${const_sql_0_1}"
     testFoldConst("${const_sql_0_1}")
-    def const_sql_0_2 = """select "1000000000", cast(cast("1000000000" as decimalv2(1, 0)) as double);"""
+    def const_sql_0_2 = """select "1", cast(cast("1" as decimalv2(1, 0)) as double);"""
     qt_sql_0_2_strict "${const_sql_0_2}"
     testFoldConst("${const_sql_0_2}")
-    def const_sql_0_3 = """select "-1000000000", cast(cast("-1000000000" as decimalv2(1, 0)) as double);"""
+    def const_sql_0_3 = """select "-1", cast(cast("-1" as decimalv2(1, 0)) as double);"""
     qt_sql_0_3_strict "${const_sql_0_3}"
     testFoldConst("${const_sql_0_3}")
-    def const_sql_0_4 = """select "8000000000", cast(cast("8000000000" as decimalv2(1, 0)) as double);"""
+    def const_sql_0_4 = """select "8", cast(cast("8" as decimalv2(1, 0)) as double);"""
     qt_sql_0_4_strict "${const_sql_0_4}"
     testFoldConst("${const_sql_0_4}")
-    def const_sql_0_5 = """select "-8000000000", cast(cast("-8000000000" as decimalv2(1, 0)) as double);"""
+    def const_sql_0_5 = """select "-8", cast(cast("-8" as decimalv2(1, 0)) as double);"""
     qt_sql_0_5_strict "${const_sql_0_5}"
     testFoldConst("${const_sql_0_5}")
-    def const_sql_0_6 = """select "9000000000", cast(cast("9000000000" as decimalv2(1, 0)) as double);"""
+    def const_sql_0_6 = """select "9", cast(cast("9" as decimalv2(1, 0)) as double);"""
     qt_sql_0_6_strict "${const_sql_0_6}"
     testFoldConst("${const_sql_0_6}")
-    def const_sql_0_7 = """select "-9000000000", cast(cast("-9000000000" as decimalv2(1, 0)) as double);"""
+    def const_sql_0_7 = """select "-9", cast(cast("-9" as decimalv2(1, 0)) as double);"""
     qt_sql_0_7_strict "${const_sql_0_7}"
     testFoldConst("${const_sql_0_7}")
 

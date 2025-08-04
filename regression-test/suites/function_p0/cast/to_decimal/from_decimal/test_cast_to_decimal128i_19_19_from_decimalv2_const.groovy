@@ -38,18 +38,15 @@ suite("test_cast_to_decimal128i_19_19_from_decimalv2_const") {
     def const_sql_1_0 = """select "0.0", cast(cast("0.0" as decimalv2(1, 1)) as decimalv3(19, 19));"""
     qt_sql_1_0_strict "${const_sql_1_0}"
     testFoldConst("${const_sql_1_0}")
-    def const_sql_1_1 = """select "0.9", cast(cast("0.9" as decimalv2(1, 1)) as decimalv3(19, 19));"""
+    def const_sql_1_1 = """select "0.1", cast(cast("0.1" as decimalv2(1, 1)) as decimalv3(19, 19));"""
     qt_sql_1_1_strict "${const_sql_1_1}"
     testFoldConst("${const_sql_1_1}")
-    def const_sql_1_2 = """select "10000000.0", cast(cast("10000000.0" as decimalv2(1, 1)) as decimalv3(19, 19));"""
+    def const_sql_1_2 = """select "0.8", cast(cast("0.8" as decimalv2(1, 1)) as decimalv3(19, 19));"""
     qt_sql_1_2_strict "${const_sql_1_2}"
     testFoldConst("${const_sql_1_2}")
-    def const_sql_1_3 = """select "80000000.0", cast(cast("80000000.0" as decimalv2(1, 1)) as decimalv3(19, 19));"""
+    def const_sql_1_3 = """select "0.9", cast(cast("0.9" as decimalv2(1, 1)) as decimalv3(19, 19));"""
     qt_sql_1_3_strict "${const_sql_1_3}"
     testFoldConst("${const_sql_1_3}")
-    def const_sql_1_4 = """select "90000000.0", cast(cast("90000000.0" as decimalv2(1, 1)) as decimalv3(19, 19));"""
-    qt_sql_1_4_strict "${const_sql_1_4}"
-    testFoldConst("${const_sql_1_4}")
 
     sql "set enable_strict_cast=false;"
     qt_sql_1_0_non_strict "${const_sql_1_0}"
@@ -60,8 +57,6 @@ suite("test_cast_to_decimal128i_19_19_from_decimalv2_const") {
     testFoldConst("${const_sql_1_2}")
     qt_sql_1_3_non_strict "${const_sql_1_3}"
     testFoldConst("${const_sql_1_3}")
-    qt_sql_1_4_non_strict "${const_sql_1_4}"
-    testFoldConst("${const_sql_1_4}")
     sql "set debug_skip_fold_constant = true;"
 
     sql "set enable_strict_cast=true;"
@@ -113,25 +108,25 @@ suite("test_cast_to_decimal128i_19_19_from_decimalv2_const") {
     def const_sql_3_0 = """select "0.00000", cast(cast("0.00000" as decimalv2(20, 5)) as decimalv3(19, 19));"""
     qt_sql_3_0_strict "${const_sql_3_0}"
     testFoldConst("${const_sql_3_0}")
-    def const_sql_3_1 = """select "0.10000", cast(cast("0.10000" as decimalv2(20, 5)) as decimalv3(19, 19));"""
+    def const_sql_3_1 = """select "0.00001", cast(cast("0.00001" as decimalv2(20, 5)) as decimalv3(19, 19));"""
     qt_sql_3_1_strict "${const_sql_3_1}"
     testFoldConst("${const_sql_3_1}")
-    def const_sql_3_2 = """select "0.90000", cast(cast("0.90000" as decimalv2(20, 5)) as decimalv3(19, 19));"""
+    def const_sql_3_2 = """select "0.00009", cast(cast("0.00009" as decimalv2(20, 5)) as decimalv3(19, 19));"""
     qt_sql_3_2_strict "${const_sql_3_2}"
     testFoldConst("${const_sql_3_2}")
-    def const_sql_3_3 = """select "0.99999", cast(cast("0.99999" as decimalv2(20, 5)) as decimalv3(19, 19));"""
+    def const_sql_3_3 = """select "0.09999", cast(cast("0.09999" as decimalv2(20, 5)) as decimalv3(19, 19));"""
     qt_sql_3_3_strict "${const_sql_3_3}"
     testFoldConst("${const_sql_3_3}")
-    def const_sql_3_4 = """select "999.90000", cast(cast("999.90000" as decimalv2(20, 5)) as decimalv3(19, 19));"""
+    def const_sql_3_4 = """select "0.90000", cast(cast("0.90000" as decimalv2(20, 5)) as decimalv3(19, 19));"""
     qt_sql_3_4_strict "${const_sql_3_4}"
     testFoldConst("${const_sql_3_4}")
-    def const_sql_3_5 = """select "9000.00000", cast(cast("9000.00000" as decimalv2(20, 5)) as decimalv3(19, 19));"""
+    def const_sql_3_5 = """select "0.90001", cast(cast("0.90001" as decimalv2(20, 5)) as decimalv3(19, 19));"""
     qt_sql_3_5_strict "${const_sql_3_5}"
     testFoldConst("${const_sql_3_5}")
-    def const_sql_3_6 = """select "9000.10000", cast(cast("9000.10000" as decimalv2(20, 5)) as decimalv3(19, 19));"""
+    def const_sql_3_6 = """select "0.99998", cast(cast("0.99998" as decimalv2(20, 5)) as decimalv3(19, 19));"""
     qt_sql_3_6_strict "${const_sql_3_6}"
     testFoldConst("${const_sql_3_6}")
-    def const_sql_3_7 = """select "9999.80000", cast(cast("9999.80000" as decimalv2(20, 5)) as decimalv3(19, 19));"""
+    def const_sql_3_7 = """select "0.99999", cast(cast("0.99999" as decimalv2(20, 5)) as decimalv3(19, 19));"""
     qt_sql_3_7_strict "${const_sql_3_7}"
     testFoldConst("${const_sql_3_7}")
 

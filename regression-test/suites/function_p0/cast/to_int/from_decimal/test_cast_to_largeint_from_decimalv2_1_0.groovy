@@ -23,7 +23,7 @@ suite("test_cast_to_largeint_from_decimalv2_1_0") {
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
     sql "drop table if exists test_cast_to_largeint_from_decimalv2_1_0_0_nullable;"
     sql "create table test_cast_to_largeint_from_decimalv2_1_0_0_nullable(f1 int, f2 decimalv2(1, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_largeint_from_decimalv2_1_0_0_nullable values (0, "0"),(1, "0"),(2, "1000000000"),(3, "-1000000000"),(4, "9000000000"),(5, "-9000000000"),(6, "9000000000"),(7, "-9000000000"),(8, "8000000000"),(9, "-8000000000"),(10, "0"),(11, "0"),(12, "9000000000"),(13, "-9000000000"),(14, "8000000000"),(15, "-8000000000")
+    sql """insert into test_cast_to_largeint_from_decimalv2_1_0_0_nullable values (0, "0"),(1, "0"),(2, "1"),(3, "-1"),(4, "9"),(5, "-9"),(6, "9"),(7, "-9"),(8, "8"),(9, "-8"),(10, "0"),(11, "0"),(12, "9"),(13, "-9"),(14, "8"),(15, "-8")
       ,(16, null);
     """
 
@@ -35,7 +35,7 @@ suite("test_cast_to_largeint_from_decimalv2_1_0") {
 
     sql "drop table if exists test_cast_to_largeint_from_decimalv2_1_0_0_not_nullable;"
     sql "create table test_cast_to_largeint_from_decimalv2_1_0_0_not_nullable(f1 int, f2 decimalv2(1, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_largeint_from_decimalv2_1_0_0_not_nullable values (0, "0"),(1, "0"),(2, "1000000000"),(3, "-1000000000"),(4, "9000000000"),(5, "-9000000000"),(6, "9000000000"),(7, "-9000000000"),(8, "8000000000"),(9, "-8000000000"),(10, "0"),(11, "0"),(12, "9000000000"),(13, "-9000000000"),(14, "8000000000"),(15, "-8000000000");
+    sql """insert into test_cast_to_largeint_from_decimalv2_1_0_0_not_nullable values (0, "0"),(1, "0"),(2, "1"),(3, "-1"),(4, "9"),(5, "-9"),(6, "9"),(7, "-9"),(8, "8"),(9, "-8"),(10, "0"),(11, "0"),(12, "9"),(13, "-9"),(14, "8"),(15, "-8");
     """
 
     sql "set enable_strict_cast=true;"

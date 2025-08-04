@@ -23,7 +23,7 @@ suite("test_cast_to_decimal32_9_8_from_decimalv2") {
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
     sql "drop table if exists test_cast_to_decimal_9_8_from_decimalv2_1_0_0_nullable;"
     sql "create table test_cast_to_decimal_9_8_from_decimalv2_1_0_0_nullable(f1 int, f2 decimalv2(1, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_1_0_0_nullable values (0, "0"),(1, "8000000000"),(2, "9000000000")
+    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_1_0_0_nullable values (0, "0"),(1, "8"),(2, "9")
       ,(3, null);
     """
 
@@ -35,7 +35,7 @@ suite("test_cast_to_decimal32_9_8_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_9_8_from_decimalv2_1_0_0_not_nullable;"
     sql "create table test_cast_to_decimal_9_8_from_decimalv2_1_0_0_not_nullable(f1 int, f2 decimalv2(1, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_1_0_0_not_nullable values (0, "0"),(1, "8000000000"),(2, "9000000000");
+    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_1_0_0_not_nullable values (0, "0"),(1, "8"),(2, "9");
     """
 
     sql "set enable_strict_cast=true;"
@@ -46,8 +46,8 @@ suite("test_cast_to_decimal32_9_8_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_9_8_from_decimalv2_1_1_1_nullable;"
     sql "create table test_cast_to_decimal_9_8_from_decimalv2_1_1_1_nullable(f1 int, f2 decimalv2(1, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_1_1_1_nullable values (0, "0.0"),(1, "0.9"),(2, "10000000.0"),(3, "80000000.0"),(4, "90000000.0")
-      ,(5, null);
+    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_1_1_1_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9")
+      ,(4, null);
     """
 
     sql "set enable_strict_cast=true;"
@@ -58,7 +58,7 @@ suite("test_cast_to_decimal32_9_8_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_9_8_from_decimalv2_1_1_1_not_nullable;"
     sql "create table test_cast_to_decimal_9_8_from_decimalv2_1_1_1_not_nullable(f1 int, f2 decimalv2(1, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_1_1_1_not_nullable values (0, "0.0"),(1, "0.9"),(2, "10000000.0"),(3, "80000000.0"),(4, "90000000.0");
+    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_1_1_1_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9");
     """
 
     sql "set enable_strict_cast=true;"
@@ -94,8 +94,8 @@ suite("test_cast_to_decimal32_9_8_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_9_8_from_decimalv2_20_5_3_nullable;"
     sql "create table test_cast_to_decimal_9_8_from_decimalv2_20_5_3_nullable(f1 int, f2 decimalv2(20, 5)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_20_5_3_nullable values (0, "0.00000"),(1, "0.10000"),(2, "0.90000"),(3, "0.99999"),(4, "999.90000"),(5, "9000.00000"),(6, "9000.10000"),(7, "9999.80000"),(8, "80000.00000"),(9, "80000.10000"),(10, "80000.90000"),(11, "80000.99999"),(12, "80999.90000"),(13, "89000.00000"),(14, "89000.10000"),(15, "89999.80000"),(16, "90000.00000"),(17, "90000.10000"),(18, "90000.90000"),(19, "90000.99999"),
-      (20, "90999.90000"),(21, "99000.00000"),(22, "99000.10000"),(23, "99999.80000")
+    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_20_5_3_nullable values (0, "0.00000"),(1, "0.00001"),(2, "0.00009"),(3, "0.09999"),(4, "0.90000"),(5, "0.90001"),(6, "0.99998"),(7, "0.99999"),(8, "8.00000"),(9, "8.00001"),(10, "8.00009"),(11, "8.09999"),(12, "8.90000"),(13, "8.90001"),(14, "8.99998"),(15, "8.99999"),(16, "9.00000"),(17, "9.00001"),(18, "9.00009"),(19, "9.09999"),
+      (20, "9.90000"),(21, "9.90001"),(22, "9.99998"),(23, "9.99999")
       ,(24, null);
     """
 
@@ -107,8 +107,8 @@ suite("test_cast_to_decimal32_9_8_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_9_8_from_decimalv2_20_5_3_not_nullable;"
     sql "create table test_cast_to_decimal_9_8_from_decimalv2_20_5_3_not_nullable(f1 int, f2 decimalv2(20, 5)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_20_5_3_not_nullable values (0, "0.00000"),(1, "0.10000"),(2, "0.90000"),(3, "0.99999"),(4, "999.90000"),(5, "9000.00000"),(6, "9000.10000"),(7, "9999.80000"),(8, "80000.00000"),(9, "80000.10000"),(10, "80000.90000"),(11, "80000.99999"),(12, "80999.90000"),(13, "89000.00000"),(14, "89000.10000"),(15, "89999.80000"),(16, "90000.00000"),(17, "90000.10000"),(18, "90000.90000"),(19, "90000.99999"),
-      (20, "90999.90000"),(21, "99000.00000"),(22, "99000.10000"),(23, "99999.80000");
+    sql """insert into test_cast_to_decimal_9_8_from_decimalv2_20_5_3_not_nullable values (0, "0.00000"),(1, "0.00001"),(2, "0.00009"),(3, "0.09999"),(4, "0.90000"),(5, "0.90001"),(6, "0.99998"),(7, "0.99999"),(8, "8.00000"),(9, "8.00001"),(10, "8.00009"),(11, "8.09999"),(12, "8.90000"),(13, "8.90001"),(14, "8.99998"),(15, "8.99999"),(16, "9.00000"),(17, "9.00001"),(18, "9.00009"),(19, "9.09999"),
+      (20, "9.90000"),(21, "9.90001"),(22, "9.99998"),(23, "9.99999");
     """
 
     sql "set enable_strict_cast=true;"

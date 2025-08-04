@@ -866,7 +866,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
         static_assert(std::numeric_limits<FromT>::is_integer, "FromT must be an integer type");
         DataTypeNumber<FromPT> dt_from;
-        DataTypeDecimal<ToT::PType> dt_to(precision, scale);
+        DataTypeDecimal<ToT::PType> dt_to = get_decimal_data_type<ToT>(precision, scale);
         InputTypeSet input_types = {dt_from.get_primitive_type()};
         // std::cout << "test cast from int to Decimal(" << precision << ", " << scale << ")\n";
 
@@ -1741,12 +1741,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         // std::cout << "to_min_fraction_will_round_to_int:\t"
         //           << fmt::format("{}", to_min_fraction_will_round_to_int) << std::endl;
         std::set<typename FromT::NativeType> from_integral_part = {0};
-        std::set<typename FromT::NativeType> from_fractional_part = {0, from_max_fractional};
+        std::set<typename FromT::NativeType> from_fractional_part = {0};
         typename FromT::NativeType from_fractional_part_multiplier = 1;
         if constexpr (IsDecimalV2<FromT>) {
             from_fractional_part_multiplier =
                     decimal_scale_multiplier<typename FromT::NativeType>(9 - from_scale);
         }
+        from_fractional_part.emplace(from_max_fractional * from_fractional_part_multiplier);
         if (from_max_fractional > 0) {
             from_fractional_part.emplace(1 * from_fractional_part_multiplier);
             from_fractional_part.emplace(9 * from_fractional_part_multiplier);

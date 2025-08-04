@@ -23,8 +23,8 @@ suite("test_cast_to_float_from_decimalv2_1_1") {
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.* --gen_regression_case
     sql "drop table if exists test_cast_to_float_from_decimalv2_1_1_0_nullable;"
     sql "create table test_cast_to_float_from_decimalv2_1_1_0_nullable(f1 int, f2 decimalv2(1, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_float_from_decimalv2_1_1_0_nullable values (0, "0.0"),(1, "0.0"),(2, "0.9"),(3, "-0.9"),(4, "10000000.0"),(5, "-10000000.0"),(6, "80000000.0"),(7, "-80000000.0"),(8, "90000000.0"),(9, "-90000000.0")
-      ,(10, null);
+    sql """insert into test_cast_to_float_from_decimalv2_1_1_0_nullable values (0, "0.0"),(1, "0.0"),(2, "0.1"),(3, "-0.1"),(4, "0.8"),(5, "-0.8"),(6, "0.9"),(7, "-0.9")
+      ,(8, null);
     """
 
     sql "set enable_strict_cast=true;"
@@ -35,7 +35,7 @@ suite("test_cast_to_float_from_decimalv2_1_1") {
 
     sql "drop table if exists test_cast_to_float_from_decimalv2_1_1_0_not_nullable;"
     sql "create table test_cast_to_float_from_decimalv2_1_1_0_not_nullable(f1 int, f2 decimalv2(1, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_float_from_decimalv2_1_1_0_not_nullable values (0, "0.0"),(1, "0.0"),(2, "0.9"),(3, "-0.9"),(4, "10000000.0"),(5, "-10000000.0"),(6, "80000000.0"),(7, "-80000000.0"),(8, "90000000.0"),(9, "-90000000.0");
+    sql """insert into test_cast_to_float_from_decimalv2_1_1_0_not_nullable values (0, "0.0"),(1, "0.0"),(2, "0.1"),(3, "-0.1"),(4, "0.8"),(5, "-0.8"),(6, "0.9"),(7, "-0.9");
     """
 
     sql "set enable_strict_cast=true;"

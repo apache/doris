@@ -828,7 +828,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             from_fractional_part_multiplier =
                     decimal_scale_multiplier<typename FromT::NativeType>(9 - FromScale);
         }
-        std::set<typename FromT::NativeType> fractional_part = {0, max_fractional};
+        std::set<typename FromT::NativeType> fractional_part = {0};
+        fractional_part.emplace(max_fractional * from_fractional_part_multiplier);
         if (max_fractional > 0) {
             fractional_part.emplace(1 * from_fractional_part_multiplier);
             fractional_part.emplace(9 * from_fractional_part_multiplier);

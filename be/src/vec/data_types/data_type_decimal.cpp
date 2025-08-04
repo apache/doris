@@ -187,7 +187,12 @@ void DataTypeDecimal<T>::to_string_batch_impl(const ColumnPtr& column_ptr,
 
 template <PrimitiveType T>
 std::string DataTypeDecimal<T>::to_string(const FieldType& value) const {
-    return value.to_string(get_format_scale());
+    if constexpr (T != TYPE_DECIMALV2) {
+        return value.to_string(scale);
+    } else {
+        auto decemalv2_value = (DecimalV2Value)value;
+        return decemalv2_value.to_string(get_format_scale());
+    }
 }
 
 template <PrimitiveType T>

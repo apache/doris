@@ -30,30 +30,24 @@ suite("test_cast_to_float_from_decimalv2_1_1_const") {
     def const_sql_0_1 = """select "0.0", cast(cast("0.0" as decimalv2(1, 1)) as float);"""
     qt_sql_0_1_strict "${const_sql_0_1}"
     testFoldConst("${const_sql_0_1}")
-    def const_sql_0_2 = """select "0.9", cast(cast("0.9" as decimalv2(1, 1)) as float);"""
+    def const_sql_0_2 = """select "0.1", cast(cast("0.1" as decimalv2(1, 1)) as float);"""
     qt_sql_0_2_strict "${const_sql_0_2}"
     testFoldConst("${const_sql_0_2}")
-    def const_sql_0_3 = """select "-0.9", cast(cast("-0.9" as decimalv2(1, 1)) as float);"""
+    def const_sql_0_3 = """select "-0.1", cast(cast("-0.1" as decimalv2(1, 1)) as float);"""
     qt_sql_0_3_strict "${const_sql_0_3}"
     testFoldConst("${const_sql_0_3}")
-    def const_sql_0_4 = """select "10000000.0", cast(cast("10000000.0" as decimalv2(1, 1)) as float);"""
+    def const_sql_0_4 = """select "0.8", cast(cast("0.8" as decimalv2(1, 1)) as float);"""
     qt_sql_0_4_strict "${const_sql_0_4}"
     testFoldConst("${const_sql_0_4}")
-    def const_sql_0_5 = """select "-10000000.0", cast(cast("-10000000.0" as decimalv2(1, 1)) as float);"""
+    def const_sql_0_5 = """select "-0.8", cast(cast("-0.8" as decimalv2(1, 1)) as float);"""
     qt_sql_0_5_strict "${const_sql_0_5}"
     testFoldConst("${const_sql_0_5}")
-    def const_sql_0_6 = """select "80000000.0", cast(cast("80000000.0" as decimalv2(1, 1)) as float);"""
+    def const_sql_0_6 = """select "0.9", cast(cast("0.9" as decimalv2(1, 1)) as float);"""
     qt_sql_0_6_strict "${const_sql_0_6}"
     testFoldConst("${const_sql_0_6}")
-    def const_sql_0_7 = """select "-80000000.0", cast(cast("-80000000.0" as decimalv2(1, 1)) as float);"""
+    def const_sql_0_7 = """select "-0.9", cast(cast("-0.9" as decimalv2(1, 1)) as float);"""
     qt_sql_0_7_strict "${const_sql_0_7}"
     testFoldConst("${const_sql_0_7}")
-    def const_sql_0_8 = """select "90000000.0", cast(cast("90000000.0" as decimalv2(1, 1)) as float);"""
-    qt_sql_0_8_strict "${const_sql_0_8}"
-    testFoldConst("${const_sql_0_8}")
-    def const_sql_0_9 = """select "-90000000.0", cast(cast("-90000000.0" as decimalv2(1, 1)) as float);"""
-    qt_sql_0_9_strict "${const_sql_0_9}"
-    testFoldConst("${const_sql_0_9}")
 
     sql "set enable_strict_cast=false;"
     qt_sql_0_0_non_strict "${const_sql_0_0}"
@@ -72,8 +66,4 @@ suite("test_cast_to_float_from_decimalv2_1_1_const") {
     testFoldConst("${const_sql_0_6}")
     qt_sql_0_7_non_strict "${const_sql_0_7}"
     testFoldConst("${const_sql_0_7}")
-    qt_sql_0_8_non_strict "${const_sql_0_8}"
-    testFoldConst("${const_sql_0_8}")
-    qt_sql_0_9_non_strict "${const_sql_0_9}"
-    testFoldConst("${const_sql_0_9}")
 }

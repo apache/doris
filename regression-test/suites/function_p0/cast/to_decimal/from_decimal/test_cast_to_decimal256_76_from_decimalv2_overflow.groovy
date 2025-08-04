@@ -42,7 +42,7 @@ suite("test_cast_to_decimal256_76_from_decimalv2_overflow") {
 
     sql "drop table if exists test_cast_to_decimal_76_75_from_decimalv2_20_6_overflow_11;"
     sql "create table test_cast_to_decimal_76_75_from_decimalv2_20_6_overflow_11(f1 int, f2 decimalv2(20, 6)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_76_75_from_decimalv2_20_6_overflow_11 values (0, "10999.999000"),(1, "99999999999998999.999000"),(2, "99999999999999999.999000");
+    sql """insert into test_cast_to_decimal_76_75_from_decimalv2_20_6_overflow_11 values (0, "10.999999"),(1, "99999999999998.999999"),(2, "99999999999999.999999");
     """
 
     sql "set enable_strict_cast=true;"
@@ -60,7 +60,7 @@ suite("test_cast_to_decimal256_76_from_decimalv2_overflow") {
 
     sql "drop table if exists test_cast_to_decimal_76_76_from_decimalv2_1_0_overflow_12;"
     sql "create table test_cast_to_decimal_76_76_from_decimalv2_1_0_overflow_12(f1 int, f2 decimalv2(1, 0)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_76_76_from_decimalv2_1_0_overflow_12 values (0, "1000000000"),(1, "8000000000"),(2, "9000000000");
+    sql """insert into test_cast_to_decimal_76_76_from_decimalv2_1_0_overflow_12 values (0, "1"),(1, "8"),(2, "9");
     """
 
     sql "set enable_strict_cast=true;"
@@ -96,7 +96,7 @@ suite("test_cast_to_decimal256_76_from_decimalv2_overflow") {
 
     sql "drop table if exists test_cast_to_decimal_76_76_from_decimalv2_20_6_overflow_15;"
     sql "create table test_cast_to_decimal_76_76_from_decimalv2_20_6_overflow_15(f1 int, f2 decimalv2(20, 6)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_76_76_from_decimalv2_20_6_overflow_15 values (0, "1999.999000"),(1, "99999999999998999.999000"),(2, "99999999999999999.999000");
+    sql """insert into test_cast_to_decimal_76_76_from_decimalv2_20_6_overflow_15 values (0, "1.999999"),(1, "99999999999998.999999"),(2, "99999999999999.999999");
     """
 
     sql "set enable_strict_cast=true;"

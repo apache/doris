@@ -42,7 +42,7 @@ suite("test_cast_to_decimal32_1_from_decimalv2_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv2(27, 9)) as decimalv3(1, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_0_from_decimalv2_20_6_overflow_3_test_data = ["""9999.999000""","""9500.000000""","""10999.999000""","""10500.000000""","""99999999999998999.999000""","""99999999999998500.000000""","""99999999999999999.999000""","""99999999999999500.000000"""]
+    def test_cast_to_decimal_1_0_from_decimalv2_20_6_overflow_3_test_data = ["""9.999999""","""9.500000""","""10.999999""","""10.500000""","""99999999999998.999999""","""99999999999998.500000""","""99999999999999.999999""","""99999999999999.500000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -61,7 +61,7 @@ suite("test_cast_to_decimal32_1_from_decimalv2_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv2(20, 6)) as decimalv3(1, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_1_from_decimalv2_1_0_overflow_4_test_data = ["""1000000000""","""8000000000""","""9000000000"""]
+    def test_cast_to_decimal_1_1_from_decimalv2_1_0_overflow_4_test_data = ["""1""","""8""","""9"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
@@ -99,7 +99,7 @@ suite("test_cast_to_decimal32_1_from_decimalv2_overflow_const") {
         testFoldConst("""select cast(cast("${test_str}" as decimalv2(27, 9)) as decimalv3(1, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_1_1_from_decimalv2_20_6_overflow_7_test_data = ["""999.999000""","""950.000000""","""1999.999000""","""1950.000000""","""99999999999998999.999000""","""99999999999998950.000000""","""99999999999999999.999000""","""99999999999999950.000000"""]
+    def test_cast_to_decimal_1_1_from_decimalv2_20_6_overflow_7_test_data = ["""0.999999""","""0.950000""","""1.999999""","""1.950000""","""99999999999998.999999""","""99999999999998.950000""","""99999999999999.999999""","""99999999999999.950000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {

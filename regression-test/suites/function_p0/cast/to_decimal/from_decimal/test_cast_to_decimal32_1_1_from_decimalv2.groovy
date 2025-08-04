@@ -46,8 +46,8 @@ suite("test_cast_to_decimal32_1_1_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_1_1_from_decimalv2_1_1_1_nullable;"
     sql "create table test_cast_to_decimal_1_1_from_decimalv2_1_1_1_nullable(f1 int, f2 decimalv2(1, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_1_1_from_decimalv2_1_1_1_nullable values (0, "0.0"),(1, "0.9"),(2, "10000000.0"),(3, "80000000.0"),(4, "90000000.0")
-      ,(5, null);
+    sql """insert into test_cast_to_decimal_1_1_from_decimalv2_1_1_1_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9")
+      ,(4, null);
     """
 
     sql "set enable_strict_cast=true;"
@@ -58,7 +58,7 @@ suite("test_cast_to_decimal32_1_1_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_1_1_from_decimalv2_1_1_1_not_nullable;"
     sql "create table test_cast_to_decimal_1_1_from_decimalv2_1_1_1_not_nullable(f1 int, f2 decimalv2(1, 1)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_1_1_from_decimalv2_1_1_1_not_nullable values (0, "0.0"),(1, "0.9"),(2, "10000000.0"),(3, "80000000.0"),(4, "90000000.0");
+    sql """insert into test_cast_to_decimal_1_1_from_decimalv2_1_1_1_not_nullable values (0, "0.0"),(1, "0.1"),(2, "0.8"),(3, "0.9");
     """
 
     sql "set enable_strict_cast=true;"
@@ -92,8 +92,8 @@ suite("test_cast_to_decimal32_1_1_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_1_1_from_decimalv2_20_5_3_nullable;"
     sql "create table test_cast_to_decimal_1_1_from_decimalv2_20_5_3_nullable(f1 int, f2 decimalv2(20, 5)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_1_1_from_decimalv2_20_5_3_nullable values (0, "0.00000"),(1, "0.10000"),(2, "0.90000"),(3, "0.99999"),(4, "999.90000"),(5, "9000.00000"),(6, "9000.10000")
-      ,(7, null);
+    sql """insert into test_cast_to_decimal_1_1_from_decimalv2_20_5_3_nullable values (0, "0.00000"),(1, "0.00001"),(2, "0.00009"),(3, "0.09999"),(4, "0.90000"),(5, "0.90001")
+      ,(6, null);
     """
 
     sql "set enable_strict_cast=true;"
@@ -104,7 +104,7 @@ suite("test_cast_to_decimal32_1_1_from_decimalv2") {
 
     sql "drop table if exists test_cast_to_decimal_1_1_from_decimalv2_20_5_3_not_nullable;"
     sql "create table test_cast_to_decimal_1_1_from_decimalv2_20_5_3_not_nullable(f1 int, f2 decimalv2(20, 5)) properties('replication_num'='1');"
-    sql """insert into test_cast_to_decimal_1_1_from_decimalv2_20_5_3_not_nullable values (0, "0.00000"),(1, "0.10000"),(2, "0.90000"),(3, "0.99999"),(4, "999.90000"),(5, "9000.00000"),(6, "9000.10000");
+    sql """insert into test_cast_to_decimal_1_1_from_decimalv2_20_5_3_not_nullable values (0, "0.00000"),(1, "0.00001"),(2, "0.00009"),(3, "0.09999"),(4, "0.90000"),(5, "0.90001");
     """
 
     sql "set enable_strict_cast=true;"

@@ -27,169 +27,169 @@ suite("test_cast_to_tinyint_from_decimalv2_20_6_const") {
     def const_sql_0_0 = """select "0.000000", cast(cast("0.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_0_strict "${const_sql_0_0}"
     testFoldConst("${const_sql_0_0}")
-    def const_sql_0_1 = """select "0.000001", cast(cast("0.000001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_1 = """select "0.000000", cast(cast("0.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_1_strict "${const_sql_0_1}"
     testFoldConst("${const_sql_0_1}")
-    def const_sql_0_2 = """select "0.000009", cast(cast("0.000009" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_2 = """select "0.000000", cast(cast("0.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_2_strict "${const_sql_0_2}"
     testFoldConst("${const_sql_0_2}")
-    def const_sql_0_3 = """select "0.999999", cast(cast("0.999999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_3 = """select "0.001000", cast(cast("0.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_3_strict "${const_sql_0_3}"
     testFoldConst("${const_sql_0_3}")
-    def const_sql_0_4 = """select "0.999998", cast(cast("0.999998" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_4 = """select "0.001000", cast(cast("0.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_4_strict "${const_sql_0_4}"
     testFoldConst("${const_sql_0_4}")
-    def const_sql_0_5 = """select "0.099999", cast(cast("0.099999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_5 = """select "0.000100", cast(cast("0.000100" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_5_strict "${const_sql_0_5}"
     testFoldConst("${const_sql_0_5}")
-    def const_sql_0_6 = """select "0.900000", cast(cast("0.900000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_6 = """select "0.000900", cast(cast("0.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_6_strict "${const_sql_0_6}"
     testFoldConst("${const_sql_0_6}")
-    def const_sql_0_7 = """select "0.900001", cast(cast("0.900001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_7 = """select "0.000900", cast(cast("0.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_7_strict "${const_sql_0_7}"
     testFoldConst("${const_sql_0_7}")
-    def const_sql_0_8 = """select "1000.000000", cast(cast("1000.000000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_8 = """select "1.000000", cast(cast("1.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_8_strict "${const_sql_0_8}"
     testFoldConst("${const_sql_0_8}")
-    def const_sql_0_9 = """select "1000.000001", cast(cast("1000.000001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_9 = """select "1.000000", cast(cast("1.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_9_strict "${const_sql_0_9}"
     testFoldConst("${const_sql_0_9}")
-    def const_sql_0_10 = """select "1000.000009", cast(cast("1000.000009" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_10 = """select "1.000000", cast(cast("1.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_10_strict "${const_sql_0_10}"
     testFoldConst("${const_sql_0_10}")
-    def const_sql_0_11 = """select "1000.999999", cast(cast("1000.999999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_11 = """select "1.001000", cast(cast("1.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_11_strict "${const_sql_0_11}"
     testFoldConst("${const_sql_0_11}")
-    def const_sql_0_12 = """select "1000.999998", cast(cast("1000.999998" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_12 = """select "1.001000", cast(cast("1.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_12_strict "${const_sql_0_12}"
     testFoldConst("${const_sql_0_12}")
-    def const_sql_0_13 = """select "1000.099999", cast(cast("1000.099999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_13 = """select "1.000100", cast(cast("1.000100" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_13_strict "${const_sql_0_13}"
     testFoldConst("${const_sql_0_13}")
-    def const_sql_0_14 = """select "1000.900000", cast(cast("1000.900000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_14 = """select "1.000900", cast(cast("1.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_14_strict "${const_sql_0_14}"
     testFoldConst("${const_sql_0_14}")
-    def const_sql_0_15 = """select "1000.900001", cast(cast("1000.900001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_15 = """select "1.000900", cast(cast("1.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_15_strict "${const_sql_0_15}"
     testFoldConst("${const_sql_0_15}")
-    def const_sql_0_16 = """select "9000.000000", cast(cast("9000.000000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_16 = """select "9.000000", cast(cast("9.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_16_strict "${const_sql_0_16}"
     testFoldConst("${const_sql_0_16}")
-    def const_sql_0_17 = """select "9000.000001", cast(cast("9000.000001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_17 = """select "9.000000", cast(cast("9.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_17_strict "${const_sql_0_17}"
     testFoldConst("${const_sql_0_17}")
-    def const_sql_0_18 = """select "9000.000009", cast(cast("9000.000009" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_18 = """select "9.000000", cast(cast("9.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_18_strict "${const_sql_0_18}"
     testFoldConst("${const_sql_0_18}")
-    def const_sql_0_19 = """select "9000.999999", cast(cast("9000.999999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_19 = """select "9.001000", cast(cast("9.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_19_strict "${const_sql_0_19}"
     testFoldConst("${const_sql_0_19}")
-    def const_sql_0_20 = """select "9000.999998", cast(cast("9000.999998" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_20 = """select "9.001000", cast(cast("9.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_20_strict "${const_sql_0_20}"
     testFoldConst("${const_sql_0_20}")
-    def const_sql_0_21 = """select "9000.099999", cast(cast("9000.099999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_21 = """select "9.000100", cast(cast("9.000100" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_21_strict "${const_sql_0_21}"
     testFoldConst("${const_sql_0_21}")
-    def const_sql_0_22 = """select "9000.900000", cast(cast("9000.900000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_22 = """select "9.000900", cast(cast("9.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_22_strict "${const_sql_0_22}"
     testFoldConst("${const_sql_0_22}")
-    def const_sql_0_23 = """select "9000.900001", cast(cast("9000.900001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_23 = """select "9.000900", cast(cast("9.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_23_strict "${const_sql_0_23}"
     testFoldConst("${const_sql_0_23}")
-    def const_sql_0_24 = """select "127000.000000", cast(cast("127000.000000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_24 = """select "127.000000", cast(cast("127.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_24_strict "${const_sql_0_24}"
     testFoldConst("${const_sql_0_24}")
-    def const_sql_0_25 = """select "127000.000001", cast(cast("127000.000001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_25 = """select "127.000000", cast(cast("127.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_25_strict "${const_sql_0_25}"
     testFoldConst("${const_sql_0_25}")
-    def const_sql_0_26 = """select "127000.000009", cast(cast("127000.000009" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_26 = """select "127.000000", cast(cast("127.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_26_strict "${const_sql_0_26}"
     testFoldConst("${const_sql_0_26}")
-    def const_sql_0_27 = """select "127000.999999", cast(cast("127000.999999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_27 = """select "127.001000", cast(cast("127.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_27_strict "${const_sql_0_27}"
     testFoldConst("${const_sql_0_27}")
-    def const_sql_0_28 = """select "127000.999998", cast(cast("127000.999998" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_28 = """select "127.001000", cast(cast("127.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_28_strict "${const_sql_0_28}"
     testFoldConst("${const_sql_0_28}")
-    def const_sql_0_29 = """select "127000.099999", cast(cast("127000.099999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_29 = """select "127.000100", cast(cast("127.000100" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_29_strict "${const_sql_0_29}"
     testFoldConst("${const_sql_0_29}")
-    def const_sql_0_30 = """select "127000.900000", cast(cast("127000.900000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_30 = """select "127.000900", cast(cast("127.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_30_strict "${const_sql_0_30}"
     testFoldConst("${const_sql_0_30}")
-    def const_sql_0_31 = """select "127000.900001", cast(cast("127000.900001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_31 = """select "127.000900", cast(cast("127.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_31_strict "${const_sql_0_31}"
     testFoldConst("${const_sql_0_31}")
-    def const_sql_0_32 = """select "126000.000000", cast(cast("126000.000000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_32 = """select "126.000000", cast(cast("126.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_32_strict "${const_sql_0_32}"
     testFoldConst("${const_sql_0_32}")
-    def const_sql_0_33 = """select "126000.000001", cast(cast("126000.000001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_33 = """select "126.000000", cast(cast("126.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_33_strict "${const_sql_0_33}"
     testFoldConst("${const_sql_0_33}")
-    def const_sql_0_34 = """select "126000.000009", cast(cast("126000.000009" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_34 = """select "126.000000", cast(cast("126.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_34_strict "${const_sql_0_34}"
     testFoldConst("${const_sql_0_34}")
-    def const_sql_0_35 = """select "126000.999999", cast(cast("126000.999999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_35 = """select "126.001000", cast(cast("126.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_35_strict "${const_sql_0_35}"
     testFoldConst("${const_sql_0_35}")
-    def const_sql_0_36 = """select "126000.999998", cast(cast("126000.999998" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_36 = """select "126.001000", cast(cast("126.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_36_strict "${const_sql_0_36}"
     testFoldConst("${const_sql_0_36}")
-    def const_sql_0_37 = """select "126000.099999", cast(cast("126000.099999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_37 = """select "126.000100", cast(cast("126.000100" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_37_strict "${const_sql_0_37}"
     testFoldConst("${const_sql_0_37}")
-    def const_sql_0_38 = """select "126000.900000", cast(cast("126000.900000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_38 = """select "126.000900", cast(cast("126.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_38_strict "${const_sql_0_38}"
     testFoldConst("${const_sql_0_38}")
-    def const_sql_0_39 = """select "126000.900001", cast(cast("126000.900001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_39 = """select "126.000900", cast(cast("126.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_39_strict "${const_sql_0_39}"
     testFoldConst("${const_sql_0_39}")
-    def const_sql_0_40 = """select "-128000.000000", cast(cast("-128000.000000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_40 = """select "-128.000000", cast(cast("-128.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_40_strict "${const_sql_0_40}"
     testFoldConst("${const_sql_0_40}")
-    def const_sql_0_41 = """select "-128000.000001", cast(cast("-128000.000001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_41 = """select "-128.000000", cast(cast("-128.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_41_strict "${const_sql_0_41}"
     testFoldConst("${const_sql_0_41}")
-    def const_sql_0_42 = """select "-128000.000009", cast(cast("-128000.000009" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_42 = """select "-128.000000", cast(cast("-128.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_42_strict "${const_sql_0_42}"
     testFoldConst("${const_sql_0_42}")
-    def const_sql_0_43 = """select "-128000.999999", cast(cast("-128000.999999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_43 = """select "-128.001000", cast(cast("-128.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_43_strict "${const_sql_0_43}"
     testFoldConst("${const_sql_0_43}")
-    def const_sql_0_44 = """select "-128000.999998", cast(cast("-128000.999998" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_44 = """select "-128.001000", cast(cast("-128.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_44_strict "${const_sql_0_44}"
     testFoldConst("${const_sql_0_44}")
-    def const_sql_0_45 = """select "-128000.099999", cast(cast("-128000.099999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_45 = """select "-128.000100", cast(cast("-128.000100" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_45_strict "${const_sql_0_45}"
     testFoldConst("${const_sql_0_45}")
-    def const_sql_0_46 = """select "-128000.900000", cast(cast("-128000.900000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_46 = """select "-128.000900", cast(cast("-128.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_46_strict "${const_sql_0_46}"
     testFoldConst("${const_sql_0_46}")
-    def const_sql_0_47 = """select "-128000.900001", cast(cast("-128000.900001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_47 = """select "-128.000900", cast(cast("-128.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_47_strict "${const_sql_0_47}"
     testFoldConst("${const_sql_0_47}")
-    def const_sql_0_48 = """select "-127000.000000", cast(cast("-127000.000000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_48 = """select "-127.000000", cast(cast("-127.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_48_strict "${const_sql_0_48}"
     testFoldConst("${const_sql_0_48}")
-    def const_sql_0_49 = """select "-127000.000001", cast(cast("-127000.000001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_49 = """select "-127.000000", cast(cast("-127.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_49_strict "${const_sql_0_49}"
     testFoldConst("${const_sql_0_49}")
-    def const_sql_0_50 = """select "-127000.000009", cast(cast("-127000.000009" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_50 = """select "-127.000000", cast(cast("-127.000000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_50_strict "${const_sql_0_50}"
     testFoldConst("${const_sql_0_50}")
-    def const_sql_0_51 = """select "-127000.999999", cast(cast("-127000.999999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_51 = """select "-127.001000", cast(cast("-127.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_51_strict "${const_sql_0_51}"
     testFoldConst("${const_sql_0_51}")
-    def const_sql_0_52 = """select "-127000.999998", cast(cast("-127000.999998" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_52 = """select "-127.001000", cast(cast("-127.001000" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_52_strict "${const_sql_0_52}"
     testFoldConst("${const_sql_0_52}")
-    def const_sql_0_53 = """select "-127000.099999", cast(cast("-127000.099999" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_53 = """select "-127.000100", cast(cast("-127.000100" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_53_strict "${const_sql_0_53}"
     testFoldConst("${const_sql_0_53}")
-    def const_sql_0_54 = """select "-127000.900000", cast(cast("-127000.900000" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_54 = """select "-127.000900", cast(cast("-127.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_54_strict "${const_sql_0_54}"
     testFoldConst("${const_sql_0_54}")
-    def const_sql_0_55 = """select "-127000.900001", cast(cast("-127000.900001" as decimalv2(20, 6)) as tinyint);"""
+    def const_sql_0_55 = """select "-127.000900", cast(cast("-127.000900" as decimalv2(20, 6)) as tinyint);"""
     qt_sql_0_55_strict "${const_sql_0_55}"
     testFoldConst("${const_sql_0_55}")
 
