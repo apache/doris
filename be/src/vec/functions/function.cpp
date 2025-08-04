@@ -257,9 +257,15 @@ void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) 
 
     size_t expected_number_of_arguments = get_number_of_arguments();
 
-    CHECK_EQ(number_of_arguments, expected_number_of_arguments) << fmt::format(
+    DCHECK(number_of_arguments, expected_number_of_arguments) << fmt::format(
             "Number of arguments for function {} doesn't match: passed {} , should be {}",
             get_name(), number_of_arguments, expected_number_of_arguments);
+    if (number_of_arguments != expected_number_of_arguments) {
+        throw Exception(
+                ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH,
+                "Number of arguments for function {} doesn't match: passed {} , should be {}",
+                get_name(), number_of_arguments, expected_number_of_arguments);
+    }
 }
 
 DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& arguments) const {
