@@ -70,7 +70,8 @@ using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
-static size_t rate_limit_use_byte_total = 0;
+static size_t rate_limit_use_byte_total =
+        doris::io::RateLimiterSingleton::getInstance()->GetTotalBytesThrough();
 
 class RateLimiterTest : public testing::TestWithParam<std::tuple<KeysType, bool, bool, bool, int>> {
 protected:
