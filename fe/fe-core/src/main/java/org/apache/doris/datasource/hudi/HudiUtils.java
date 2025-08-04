@@ -327,7 +327,7 @@ public class HudiUtils {
             }
             String queryInstant = tableSnapshot.get().getValue().replaceAll("[-: ]", "");
             try {
-                partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() ->
+                partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(() ->
                         processor.getSnapshotPartitionValues(hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
             } catch (Exception e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -339,7 +339,7 @@ public class HudiUtils {
                 return partitionValues;
             }
             try {
-                partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
                         -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
             } catch (Exception e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);

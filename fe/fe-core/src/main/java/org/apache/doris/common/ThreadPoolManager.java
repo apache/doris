@@ -18,7 +18,7 @@
 package org.apache.doris.common;
 
 
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
@@ -148,7 +148,7 @@ public class ThreadPoolManager {
             int queueSize,
             String poolName,
             boolean needRegisterMetric,
-            PreExecutionAuthenticator preAuth) {
+            ExecutionAuthenticator preAuth) {
         return newDaemonThreadPoolWithPreAuth(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(queueSize), new BlockedPolicy(poolName, 60),
             poolName, needRegisterMetric, preAuth);
@@ -253,7 +253,7 @@ public class ThreadPoolManager {
             RejectedExecutionHandler handler,
             String poolName,
             boolean needRegisterMetric,
-            PreExecutionAuthenticator preAuth) {
+            ExecutionAuthenticator preAuth) {
         ThreadFactory threadFactory = namedThreadFactoryWithPreAuth(poolName, preAuth);
         ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
                 keepAliveTime, unit, workQueue, threadFactory, handler);
@@ -263,7 +263,7 @@ public class ThreadPoolManager {
         return threadPool;
     }
 
-    private static ThreadFactory namedThreadFactoryWithPreAuth(String poolName, PreExecutionAuthenticator preAuth) {
+    private static ThreadFactory namedThreadFactoryWithPreAuth(String poolName, ExecutionAuthenticator preAuth) {
         return new ThreadFactoryBuilder()
             .setDaemon(true)
             .setNameFormat(poolName + "-%d")

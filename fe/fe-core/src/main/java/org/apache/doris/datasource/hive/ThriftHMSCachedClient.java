@@ -20,7 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -93,9 +93,9 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private boolean isClosed = false;
     private final int poolSize;
     private final HiveConf hiveConf;
-    private HadoopAuthenticator hadoopAuthenticator;
+    private ExecutionAuthenticator executionAuthenticator;
 
-    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize) {
+    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
         if (hiveConf != null) {
             HiveConf.setVar(hiveConf, ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
@@ -104,10 +104,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
-    }
-
-    public void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
-        this.hadoopAuthenticator = hadoopAuthenticator;
+        this.executionAuthenticator = executionAuthenticator;
     }
 
     @Override
@@ -699,7 +696,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     private <T> T ugiDoAs(PrivilegedExceptionAction<T> action) {
         try {
-            return hadoopAuthenticator.doAs(action);
+            return executionAuthenticator.execute(action::run);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
