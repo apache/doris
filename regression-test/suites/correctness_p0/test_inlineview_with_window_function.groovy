@@ -106,7 +106,7 @@ suite("test_inlineview_with_window_function") {
 
     sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON test_table_aaa;"""
     sql """create materialized view ods_zn_dnt_max1 as
-            select ordernum,max(dnt) as dnt from test_table_aaa
+            select ordernum as a1,max(dnt) as dnt from test_table_aaa
             group by ordernum
             ORDER BY ordernum;"""
 
