@@ -76,8 +76,8 @@ struct CastFromVariant {
                 col_to = make_nullable(col_to, true);
             } else if (is_string_type(data_type_to->get_primitive_type())) {
                 // serialize to string
-                return CastToString::execute_impl(context, block, arguments, result,
-                                                  input_rows_count);
+                return CastToStringFunction::execute_impl(context, block, arguments, result,
+                                                          input_rows_count);
             } else if (data_type_to->get_primitive_type() == TYPE_JSONB) {
                 // serialize to json by parsing
                 return cast_from_generic_to_jsonb(context, block, arguments, result,
