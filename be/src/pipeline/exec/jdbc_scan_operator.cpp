@@ -31,7 +31,7 @@ std::string JDBCScanLocalState::name_suffix() const {
 Status JDBCScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     auto& p = _parent->cast<JDBCScanOperatorX>();
     std::unique_ptr<vectorized::NewJdbcScanner> scanner = vectorized::NewJdbcScanner::create_unique(
-            state(), this, p._limit, p._tuple_id, p._query_string, p._table_type,
+            state(), this, p._limit, p._tuple_id, p._query_string, p._table_type, p._is_tvf,
             _scanner_profile.get());
     RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
     scanners->push_back(std::move(scanner));
@@ -46,6 +46,7 @@ JDBCScanOperatorX::JDBCScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
           _query_string(tnode.jdbc_scan_node.query_string),
           _table_type(tnode.jdbc_scan_node.table_type) {
     _output_tuple_id = tnode.jdbc_scan_node.tuple_id;
+    _is_tvf = tnode.jdbc_scan_node.__isset.is_tvf ? tnode.jdbc_scan_node.is_tvf : false;
 }
 
 } // namespace doris::pipeline
