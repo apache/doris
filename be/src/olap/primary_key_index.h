@@ -53,13 +53,15 @@ class PrimaryKeyIndexMetaPB;
 // NOTE: for now, it's only used when unique key merge-on-write property enabled.
 class PrimaryKeyIndexBuilder {
 public:
-    PrimaryKeyIndexBuilder(io::FileWriter* file_writer, size_t seq_col_length, size_t rowid_length)
+    PrimaryKeyIndexBuilder(io::FileWriter* file_writer, size_t seq_col_length, size_t rowid_length,
+                           bool is_limit_io = false)
             : _file_writer(file_writer),
               _num_rows(0),
               _size(0),
               _disk_size(0),
               _seq_col_length(seq_col_length),
-              _rowid_length(rowid_length) {}
+              _rowid_length(rowid_length),
+              _is_limit_io(is_limit_io) {}
 
     Status init();
 
@@ -90,6 +92,7 @@ private:
     uint64_t _disk_size;
     size_t _seq_col_length;
     size_t _rowid_length;
+    bool _is_limit_io;
 
     faststring _min_key;
     faststring _max_key;

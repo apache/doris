@@ -41,6 +41,7 @@ Status PrimaryKeyIndexBuilder::init() {
     segment_v2::IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = true;
+    options.is_limit_io = _is_limit_io;
     options.data_page_size = config::primary_key_data_page_size;
     options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
     options.compression = segment_v2::ZSTD;
@@ -50,6 +51,7 @@ Status PrimaryKeyIndexBuilder::init() {
 
     auto opt = segment_v2::BloomFilterOptions();
     opt.fpp = 0.01;
+    opt.is_limit_io = _is_limit_io;
     RETURN_IF_ERROR(segment_v2::PrimaryKeyBloomFilterIndexWriterImpl::create(
             opt, type_info, &_bloom_filter_index_builder));
     return Status::OK();

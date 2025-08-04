@@ -134,6 +134,7 @@ public:
         IndexedColumnWriterOptions options;
         options.write_ordinal_index = true;
         options.write_value_index = false;
+        options.is_limit_io = _bf_options.is_limit_io;
         options.encoding = PLAIN_ENCODING;
         IndexedColumnWriter bf_writer(options, bf_type_info, file_writer);
         RETURN_IF_ERROR(bf_writer.init());
@@ -221,6 +222,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
+    options.is_limit_io = _bf_options.is_limit_io;
     options.encoding = PLAIN_ENCODING;
     IndexedColumnWriter bf_writer(options, bf_type_info, file_writer);
     RETURN_IF_ERROR(bf_writer.init());
@@ -279,6 +281,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
+    options.is_limit_io = _bf_options.is_limit_io;
     options.encoding = PLAIN_ENCODING;
     IndexedColumnWriter bf_writer(options, bf_typeinfo, file_writer);
     RETURN_IF_ERROR(bf_writer.init());

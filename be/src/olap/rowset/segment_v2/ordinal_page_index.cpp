@@ -63,7 +63,8 @@ Status OrdinalIndexWriter::finish(io::FileWriter* file_writer, ColumnIndexMetaPB
 
         // write index page (currently it's not compressed)
         PagePointer pp;
-        RETURN_IF_ERROR(PageIO::write_page(file_writer, {page_body.slice()}, page_footer, &pp));
+        RETURN_IF_ERROR(PageIO::write_page(file_writer, {page_body.slice()}, page_footer, &pp,
+                                           _is_limit_io));
 
         root_page_meta->set_is_root_data_page(false);
         pp.to_proto(root_page_meta->mutable_root_page());

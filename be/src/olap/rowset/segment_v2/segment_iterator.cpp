@@ -2257,7 +2257,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     _converted_column_ids.assign(_schema->columns().size(), 0);
 
     _current_batch_rows_read = 0;
+
     RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _current_batch_rows_read));
+
     if (std::find(_predicate_column_ids.begin(), _predicate_column_ids.end(),
                   _schema->version_col_idx()) != _predicate_column_ids.end()) {
         _replace_version_col(_current_batch_rows_read);

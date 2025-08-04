@@ -116,6 +116,12 @@ public:
     IntCounter* publish_task_request_total = nullptr;
     IntCounter* publish_task_failed_total = nullptr;
 
+#ifdef BE_TEST
+    // define this because local_compaction_read_bytes_total is unreliable
+    // when compacting, zonemap is not read.
+    IntCounter* real_read_byte_local_total = nullptr;
+#endif
+
     // Counters for segment_v2
     // -----------------------
     // total number of segments read

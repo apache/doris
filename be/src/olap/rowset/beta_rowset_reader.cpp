@@ -220,6 +220,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.io_ctx.expiration_time = 0;
     }
 
+    // use rate_limiter
+    // !fix: need to check reader_type
+    _read_options.io_ctx.is_limit_io =
+            _read_context->reader_type == ReaderType::READER_BASE_COMPACTION ||
+            _read_context->reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+            _read_context->reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+            _read_context->reader_type == ReaderType::READER_FULL_COMPACTION;
+
     bool enable_segment_cache = true;
     auto* state = read_context->runtime_state;
     if (state != nullptr) {
@@ -242,7 +250,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_read_context->record_rowids && _read_context->rowid_conversion) {
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_rows;
-        RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows));
+        RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, true));
         RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(),
                                                                           segment_rows));
     }

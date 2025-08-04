@@ -1101,6 +1101,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
+    ctx.is_limit_io = true;
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1374,7 +1375,8 @@ void Compaction::_load_segment_to_cache() {
     // Load new rowset's segments to cache.
     SegmentCacheHandle handle;
     auto st = SegmentLoader::instance()->load_segments(
-            std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true);
+            std::static_pointer_cast<BetaRowset>(_output_rowset), &handle, true, false, nullptr,
+            true);
     if (!st.ok()) {
         LOG(WARNING) << "failed to load segment to cache! output rowset version="
                      << _output_rowset->start_version() << "-" << _output_rowset->end_version()
@@ -1510,7 +1512,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
-
+    ctx.is_limit_io = true;
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
     // TODO(gavin): Ensure that the retention of hot data is implemented with precision.

@@ -39,6 +39,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "io/rate_limiter_singleton.h"
 #include "olap/data_dir.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
@@ -121,7 +122,7 @@ void LocalFileWriter::_abort() {
     }
 }
 
-Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
+Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt, bool is_limit_io) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::appendv",
                                       Status::IOError("inject io error"));
     if (_state != State::OPENED) [[unlikely]] {
@@ -139,14 +140,19 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         iov[i] = {result.data, result.size};
     }
 
-    size_t completed_iov = 0;
     size_t n_left = bytes_req;
+    auto from = iov.data();
+
     while (n_left > 0) {
-        // Never request more than IOV_MAX in one request.
-        size_t iov_count = std::min(data_cnt - completed_iov, static_cast<size_t>(IOV_MAX));
+        size_t allow_write_byte = n_left;
+        if (is_limit_io) {
+            allow_write_byte = RateLimiterSingleton::getInstance()->RequestToken(
+                    allow_write_byte /* bytes */, 0 /* alignment */,
+                    rocksdb::Env::IO_LOW /* io_priority */, nullptr /* stats */,
+                    rocksdb::RateLimiter::OpType::kWrite /* op_type */);
+        }
         ssize_t res;
-        RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(::writev(_fd, iov.data() + completed_iov,
-                                                                  cast_set<int32_t>(iov_count)),
+        RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(writev(_fd, from, allow_write_byte),
                                                          "LocalFileWriter::writev", _fd));
         DBUG_EXECUTE_IF("LocalFileWriter::appendv.io_error", {
             auto sub_path = dp->param<std::string>("sub_path", "");
@@ -166,26 +172,42 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
             n_left = 0;
             break;
         }
-        // Adjust iovec vector based on bytes read for the next request.
-        ssize_t bytes_rem = res;
-        for (size_t i = completed_iov; i < data_cnt; i++) {
-            if (bytes_rem >= iov[i].iov_len) {
-                // The full length of this iovec was written.
-                completed_iov++;
-                bytes_rem -= iov[i].iov_len;
-            } else {
-                // Partially wrote this result.
-                // Adjust the iov_len and iov_base to write only the missing data.
-                iov[i].iov_base = static_cast<uint8_t*>(iov[i].iov_base) + bytes_rem;
-                iov[i].iov_len -= bytes_rem;
-                break; // Don't need to adjust remaining iovec's.
-            }
-        }
         n_left -= res;
     }
     DCHECK_EQ(0, n_left);
     _bytes_appended += bytes_req;
     return Status::OK();
+}
+
+ssize_t LocalFileWriter::writev(const int fd, struct iovec* iov, size_t bytes) {
+    ssize_t r, nwrite = 0;
+    size_t total_written = 0;
+
+    errno = 0;
+
+    while (bytes > total_written) {
+        size_t to_write =
+                (bytes - total_written) < iov->iov_len ? (bytes - total_written) : iov->iov_len;
+
+        if ((r = write(fd, iov->iov_base, to_write)) < 0) {
+            return r;
+        }
+
+        if (static_cast<size_t>(r) < to_write) {
+            iov->iov_base = static_cast<uint8_t*>(iov->iov_base) + r;
+            iov->iov_len -= r;
+            return total_written + r;
+        }
+
+        total_written += r;
+        nwrite += r;
+
+        if (r == to_write) {
+            iov++;
+        }
+    }
+
+    return nwrite;
 }
 
 // TODO(ByteYue): Refactor this function as FileWriter::flush()

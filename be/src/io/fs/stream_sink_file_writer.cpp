@@ -41,7 +41,7 @@ void StreamSinkFileWriter::init(PUniqueId load_id, int64_t partition_id, int64_t
     _file_type = file_type;
 }
 
-Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
+Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt, bool is_limit_io) {
     size_t bytes_req = 0;
     for (int i = 0; i < data_cnt; i++) {
         bytes_req += data[i].get_size();

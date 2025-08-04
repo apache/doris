@@ -78,7 +78,7 @@ public:
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
 
     Status load_segment(int64_t seg_id, OlapReaderStatistics* read_stats,
-                        segment_v2::SegmentSharedPtr* segment);
+                        segment_v2::SegmentSharedPtr* segment, bool is_limit_io = false);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 
@@ -91,7 +91,7 @@ public:
     Status show_nested_index_file(rapidjson::Value* rowset_value,
                                   rapidjson::Document::AllocatorType& allocator);
 
-    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows);
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows, bool is_limit_io = false);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,

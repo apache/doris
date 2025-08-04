@@ -426,7 +426,7 @@ Status HdfsFileWriter::_append(std::string_view content) {
     return Status::OK();
 }
 
-Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt) {
+Status HdfsFileWriter::appendv(const Slice* data, size_t data_cnt, bool is_limit_io) {
     if (_state != State::OPENED) [[unlikely]] {
         return Status::InternalError("append to closed file: {}", _path.native());
     }

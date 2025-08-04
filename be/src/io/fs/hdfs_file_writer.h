@@ -45,7 +45,7 @@ public:
                    std::string fs_name, const FileWriterOptions* opts = nullptr);
     ~HdfsFileWriter() override;
 
-    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status appendv(const Slice* data, size_t data_cnt, bool is_limit_io = false) override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _bytes_appended; }
     State state() const override { return _state; }

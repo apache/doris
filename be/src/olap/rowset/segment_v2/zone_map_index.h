@@ -74,7 +74,8 @@ struct ZoneMap {
 
 class ZoneMapIndexWriter {
 public:
-    static Status create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res);
+    static Status create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res,
+                         bool is_limit_io = false);
 
     ZoneMapIndexWriter() = default;
 
@@ -103,7 +104,7 @@ public:
 template <PrimitiveType Type>
 class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
-    explicit TypedZoneMapIndexWriter(Field* field);
+    explicit TypedZoneMapIndexWriter(Field* field, bool is_limit_io);
 
     void add_values(const void* values, size_t count) override;
 
@@ -141,6 +142,8 @@ private:
     // serialized ZoneMapPB for each data page
     std::vector<std::string> _values;
     uint64_t _estimated_size = 0;
+
+    bool _is_limit_io = false;
 };
 
 class ZoneMapIndexReader : public MetadataAdder<ZoneMapIndexReader> {

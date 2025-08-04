@@ -34,6 +34,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
+#include "io/rate_limiter_singleton.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -125,7 +126,7 @@ Status LocalFileReader::close() {
 }
 
 Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                     const IOContext* /*io_ctx*/) {
+                                     const IOContext* io_ctx) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileReader::read_at_impl",
                                       Status::IOError("inject io error"));
     if (closed()) [[unlikely]] {
@@ -142,10 +143,22 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
     bytes_req = std::min(bytes_req, _file_size - offset);
     *bytes_read = 0;
 
+#ifdef BE_TEST
+    DorisMetrics::instance()->real_read_byte_local_total->increment(bytes_req);
+#endif
+
     LIMIT_LOCAL_SCAN_IO(get_data_dir_path(), bytes_read);
 
     while (bytes_req != 0) {
-        auto res = SYNC_POINT_HOOK_RETURN_VALUE(::pread(_fd, to, bytes_req, offset),
+        size_t allow_read_byte = bytes_req;
+        if (io_ctx != nullptr && io_ctx->is_limit_io) {
+            allow_read_byte = RateLimiterSingleton::getInstance()->RequestToken(
+                    allow_read_byte /* bytes */, 0 /* alignment */,
+                    rocksdb::Env::IO_LOW /* io_priority */, nullptr /* stats */,
+                    rocksdb::RateLimiter::OpType::kRead /* op_type */);
+        }
+
+        auto res = SYNC_POINT_HOOK_RETURN_VALUE(::pread(_fd, to, allow_read_byte, offset),
                                                 "LocalFileReader::pread", _fd, to);
         DBUG_EXECUTE_IF("LocalFileReader::read_at_impl.io_error", {
             auto sub_path = dp->param<std::string>("sub_path", "");

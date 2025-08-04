@@ -31,7 +31,7 @@ public:
     LocalFileWriter(Path path, int fd, bool sync_data = true);
     ~LocalFileWriter() override;
 
-    Status appendv(const Slice* data, size_t data_cnt) override;
+    Status appendv(const Slice* data, size_t data_cnt, bool is_limit_io = false) override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override;
     State state() const override { return _state; }
@@ -44,6 +44,7 @@ private:
     Status _finalize();
     void _abort();
     Status _close(bool sync);
+    ssize_t writev(const int fd, struct iovec* iov, size_t bytes);
 
     Path _path;
     int _fd; // owned

@@ -41,7 +41,8 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
     {
         SegmentCacheHandle segment_cache_handle;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
-                _rowset, _segment_id, &segment_cache_handle, _should_use_cache, false, opts.stats));
+                _rowset, _segment_id, &segment_cache_handle, _should_use_cache, false, opts.stats,
+                opts.io_ctx.is_limit_io));
         const auto& tmp_segments = segment_cache_handle.get_segments();
         segment = tmp_segments[0];
     }

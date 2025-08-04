@@ -85,6 +85,8 @@ struct IOContext {
     // if is_dryrun, read IO will download data to cache but return no data to reader
     // useful to skip cache data read from local disk to accelarate warm up
     bool is_dryrun = false;
+    // use rate_limiter
+    bool is_limit_io = false;
 };
 
 } // namespace io

@@ -101,7 +101,7 @@ public:
 
     Status close(bool /*non_block*/) override { return _local_file_writer->close(); }
 
-    Status appendv(const Slice* data, size_t data_cnt) override {
+    Status appendv(const Slice* data, size_t data_cnt, bool is_limit_io = false) override {
         return _local_file_writer->appendv(data, data_cnt);
     }
 
