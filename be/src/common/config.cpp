@@ -246,7 +246,7 @@ DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for agent report disk state to FE
-DEFINE_mInt32(report_disk_state_interval_seconds, "60");
+DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
 // the max download speed(KB/s)

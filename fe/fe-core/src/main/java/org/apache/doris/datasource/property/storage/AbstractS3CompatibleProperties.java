@@ -24,6 +24,7 @@ import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -257,8 +258,23 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     @Override
     public void initializeHadoopStorageConfig() {
-        throw new UnsupportedOperationException("Hadoop storage config initialization is not"
-                + " supported for S3 compatible storage.");
+        hadoopStorageConfig = new Configuration();
+        // Compatibility note: Due to historical reasons, even when the underlying
+        // storage is OSS, OBS, etc., users may still configure the schema as "s3://".
+        // To ensure backward compatibility, we append S3-related properties by default.
+        appendS3HdfsProperties(hadoopStorageConfig);
+    }
+
+    private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
+        hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
+        hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
+        hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+        hadoopStorageConfig.set("fs.s3a.connection.maximum", getMaxConnections());
+        hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
+        hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());
+        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
     }
 
     @Override

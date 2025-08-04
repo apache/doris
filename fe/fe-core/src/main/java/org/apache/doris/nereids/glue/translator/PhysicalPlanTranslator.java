@@ -1164,7 +1164,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         boolean isPartial = aggregate.getAggregateParam().aggMode.productAggregateBuffer;
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,
-                aggFunOutputIds, isPartial, outputTupleDesc, outputTupleDesc, aggregate.getAggPhase().toExec());
+                aggFunOutputIds, isPartial, outputTupleDesc, aggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(), aggInfo);
 
@@ -1174,21 +1174,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), aggregationNode.getId());
         if (!aggregate.getAggMode().isFinalPhase) {
             aggregationNode.unsetNeedsFinalize();
-        }
-
-        switch (aggregate.getAggPhase()) {
-            case LOCAL:
-                // we should set is useStreamingAgg when has exchange,
-                // so the `aggregationNode.setUseStreamingPreagg()` in the visitPhysicalDistribute
-                break;
-            case DISTINCT_LOCAL:
-                aggregationNode.setIntermediateTuple();
-                break;
-            case GLOBAL:
-            case DISTINCT_GLOBAL:
-                break;
-            default:
-                throw new RuntimeException("Unsupported agg phase: " + aggregate.getAggPhase());
         }
 
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution

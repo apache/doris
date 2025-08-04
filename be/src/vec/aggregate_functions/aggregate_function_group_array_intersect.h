@@ -480,7 +480,7 @@ public:
 
         StringRef element;
         for (UInt64 i = 0; i < size; ++i) {
-            element = read_binary_into(arena, buf);
+            element = buf.read_binary_into(arena);
             data.value->insert((void*)element.data, element.size);
         }
     }

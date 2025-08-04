@@ -435,7 +435,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
                 type = TFileFormatType.FORMAT_TEXT;
-            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_CSV_SERDE)) {
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_OPEN_CSV_SERDE)) {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
                 type = TFileFormatType.FORMAT_TEXT;
@@ -477,8 +477,8 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected Map<String, String> getLocationProperties() throws UserException  {
-        return hmsTable.getHadoopProperties();
+    protected Map<String, String> getLocationProperties() {
+        return hmsTable.getBackendStorageProperties();
     }
 
     @Override
@@ -489,7 +489,7 @@ public class HiveScanNode extends FileQueryScanNode {
         // TODO: support skip footer count
         fileAttributes.setSkipLines(HiveProperties.getSkipHeaderCount(table));
         String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
-        if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")
+        if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)
                 || serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             // set properties of LazySimpleSerDe and MultiDelimitSerDe
@@ -510,7 +510,7 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setHeaderType("");
             fileAttributes.setEnableTextValidateUtf8(
                     sessionVariable.enableTextValidateUtf8);
-        } else if (serDeLib.equals("org.apache.hadoop.hive.serde2.OpenCSVSerde")) {
+        } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_OPEN_CSV_SERDE)) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             // set set properties of OpenCSVSerde
             // 1. set column separator
@@ -530,7 +530,7 @@ public class HiveScanNode extends FileQueryScanNode {
             }
             fileAttributes.setEnableTextValidateUtf8(
                     sessionVariable.enableTextValidateUtf8);
-        } else if (serDeLib.equals("org.apache.hive.hcatalog.data.JsonSerDe")) {
+        } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             textParams.setColumnSeparator("\t");
             textParams.setLineDelimiter("\n");
@@ -543,7 +543,7 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setReadJsonByLine(true);
             fileAttributes.setStripOuterArray(false);
             fileAttributes.setHeaderType("");
-        } else if (serDeLib.equals("org.openx.data.jsonserde.JsonSerDe")) {
+        } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
             if (!sessionVariable.isReadHiveJsonInOneColumn()) {
                 TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
                 textParams.setColumnSeparator("\t");

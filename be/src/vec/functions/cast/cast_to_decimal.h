@@ -256,8 +256,7 @@ struct CastToDecimal {
 
         return std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
-                    return _from_decimal<FromCppT, ToCppT, MaxFieldType, MaxNativeType,
-                                         multiply_may_overflow, narrow_integral>(
+                    return _from_decimal<FromCppT, ToCppT, multiply_may_overflow, narrow_integral>(
                             from, from_precision, from_scale, to, to_precision, to_scale,
                             min_result, max_result, multiplier, params);
                 },

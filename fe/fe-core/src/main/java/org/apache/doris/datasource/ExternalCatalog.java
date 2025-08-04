@@ -675,11 +675,6 @@ public abstract class ExternalCatalog
                 + ", table id: " + tableId);
     }
 
-    @Override
-    public String getResource() {
-        return catalogProperty.getResource();
-    }
-
     @Nullable
     @Override
     public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {

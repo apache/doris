@@ -59,6 +59,7 @@ import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
@@ -116,12 +117,23 @@ public class PaimonUtil {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Partition> nameToPartition = Maps.newHashMap();
         PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+        List<Type> types = partitionColumns.stream()
+                .map(Column::getType)
+                .collect(Collectors.toList());
+        Map<String, Type> columnNameToType = partitionColumns.stream()
+                .collect(Collectors.toMap(Column::getName, Column::getType));
 
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
-                sb.append(entry.getKey()).append("=").append(entry.getValue()).append("/");
+                sb.append(entry.getKey()).append("=");
+                // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the integer to a date string.
+                if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
+                    sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
+                } else {
+                    sb.append(entry.getValue()).append("/");
+                }
             }
             if (sb.length() > 0) {
                 sb.deleteCharAt(sb.length() - 1);
@@ -131,7 +143,7 @@ public class PaimonUtil {
             try {
                 // partition values return by paimon api, may have problem,
                 // to avoid affecting the query, we catch exceptions here
-                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, types));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
                         partitionColumns, partition.spec(), e);
@@ -140,11 +152,8 @@ public class PaimonUtil {
         return partitionInfo;
     }
 
-    public static ListPartitionItem toListPartitionItem(String partitionName, List<Column> partitionColumns)
+    public static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types)
             throws AnalysisException {
-        List<Type> types = partitionColumns.stream()
-                .map(Column::getType)
-                .collect(Collectors.toList());
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);

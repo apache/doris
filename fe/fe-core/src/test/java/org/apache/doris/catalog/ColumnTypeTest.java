@@ -178,11 +178,6 @@ public class ColumnTypeTest {
         // different type
         TypeDef type4 = TypeDef.create(PrimitiveType.BIGINT);
         Assert.assertNotEquals(type.getType(), type4.getType());
-
-        TypeDef type5 = TypeDef.createTimeV2(0);
-        TypeDef type6 = TypeDef.create(PrimitiveType.TIME);
-        Assert.assertNotEquals(type5.getType(), type6.getType());
-        Assert.assertNotEquals(type.getType(), type6.getType());
     }
 
     @Test(expected = AnalysisException.class)

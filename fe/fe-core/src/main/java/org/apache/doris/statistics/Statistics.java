@@ -186,7 +186,11 @@ public class Statistics {
             for (Slot slot : slots) {
                 ColumnStatistic s = expressionToColumnStats.get(slot);
                 if (s != null) {
-                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, s.avgSizeByte));
+                    double avgSize = s.avgSizeByte;
+                    if (!Double.isFinite(avgSize)) {
+                        avgSize = 1;
+                    }
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, avgSize));
                 }
             }
             tupleSize = Math.max(1, tempSize);
