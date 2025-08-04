@@ -21,7 +21,6 @@
 
 #include <vector>
 
-#include "common/compile_check_begin.h"
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 
