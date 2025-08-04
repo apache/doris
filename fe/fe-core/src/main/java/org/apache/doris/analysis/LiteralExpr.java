@@ -325,7 +325,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 literalExpr = LiteralExpr.create("0", Type.DECIMAL32);
                 break;
             case 11: // MYSQL_TYPE_TIME
-                literalExpr = LiteralExpr.create("", Type.TIME);
+                literalExpr = LiteralExpr.create("", Type.TIMEV2);
                 break;
             case 10: // MYSQL_TYPE_DATE
                 literalExpr = LiteralExpr.create("1970-01-01", Type.DATE);
