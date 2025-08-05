@@ -367,6 +367,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr left = children.get(l);
                     Expr right = children.get(h);
                     CompoundPredicate cp = new CompoundPredicate(op, left, right);
+                    boolean nullable = left.getNullableFromNereids().isPresent() && left.getNullableFromNereids().get()
+                            || left.isNullable()
+                            || right.getNullableFromNereids().isPresent() && right.getNullableFromNereids().get()
+                            || right.isNullable();
+                    cp.setNullableFromNereids(nullable);
                     results.push(cp);
                     stack.pop();
                 } else {
@@ -383,6 +388,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr right = results.pop();
                     Expr left = results.pop();
                     CompoundPredicate cp = new CompoundPredicate(currentFrame.op, left, right);
+                    boolean nullable = left.getNullableFromNereids().isPresent() && left.getNullableFromNereids().get()
+                            || left.isNullable()
+                            || right.getNullableFromNereids().isPresent() && right.getNullableFromNereids().get()
+                            || right.isNullable();
+                    cp.setNullableFromNereids(nullable);
                     results.push(cp);
                 }
             }
