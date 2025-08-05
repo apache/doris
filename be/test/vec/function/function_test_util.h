@@ -392,6 +392,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         return st;
     } else {
         EXPECT_EQ(Status::OK(), st);
+        // avoid subsequent visit
+        if (st != Status::OK()) {
+            return st;
+        }
     }
 
     static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
