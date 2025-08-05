@@ -2619,10 +2619,6 @@ drop_stmt ::=
     {:
         RESULT = new DropWorkloadSchedPolicyStmt(ifExists, policyName);
     :}
-    | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
-    {:
-        RESULT = new DropEncryptKeyStmt(ifExists, keyName);
-    :}
     | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
     {:
         RESULT = new DropSqlBlockRuleStmt(ifExists, ruleNames);
