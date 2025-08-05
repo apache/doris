@@ -221,7 +221,7 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
             select * from null_str_partition_table where category = 'NULL';
         """
         qt_null_partition_3 """
-            select * from null_str_partition_table where category = '\\\\N';
+            select count(*) from null_str_partition_table where category = '\\\\N';
         """
         qt_null_partition_4 """
             select * from null_str_partition_table where category is null;

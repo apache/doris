@@ -90,7 +90,7 @@
 2	NULL	200.0
 
 -- !null_partition_3 --
-3	\\N	300.0
+1
 
 -- !null_partition_4 --
 1	\N	100.0
@@ -186,7 +186,7 @@
 2	NULL	200.0
 
 -- !null_partition_3 --
-3	\\N	300.0
+1
 
 -- !null_partition_4 --
 1	\N	100.0
