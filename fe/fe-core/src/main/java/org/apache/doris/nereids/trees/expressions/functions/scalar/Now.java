@@ -55,18 +55,18 @@ public class Now extends DateTimeWithPrecision implements ExplicitlyCastableSign
         super("now", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Now(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Now withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0
-                || children.size() == 1);
-        if (children.isEmpty() && arity() == 0) {
-            return this;
-        } else {
-            return new Now(children.get(0));
-        }
+        Preconditions.checkArgument(children.isEmpty() || children.size() == 1);
+        return new Now(getFunctionParams(children));
     }
 
     /**

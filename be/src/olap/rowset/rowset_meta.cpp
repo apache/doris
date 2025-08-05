@@ -220,7 +220,7 @@ void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size
     }
 }
 
-int64_t RowsetMeta::segment_file_size(int seg_id) {
+int64_t RowsetMeta::segment_file_size(int seg_id) const {
     DCHECK(_rowset_meta_pb.segments_file_size().empty() ||
            _rowset_meta_pb.segments_file_size_size() > seg_id)
             << _rowset_meta_pb.segments_file_size_size() << ' ' << seg_id;

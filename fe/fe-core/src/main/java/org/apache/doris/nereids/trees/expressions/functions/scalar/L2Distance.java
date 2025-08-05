@@ -50,13 +50,18 @@ public class L2Distance extends ScalarFunction implements ExplicitlyCastableSign
         super("l2_distance", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private L2Distance(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public L2Distance withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new L2Distance(children.get(0), children.get(1));
+        return new L2Distance(getFunctionParams(children));
     }
 
     @Override

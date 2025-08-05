@@ -58,17 +58,18 @@ public class MonthsBetween extends ScalarFunction
         super("months_between", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MonthsBetween(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MonthsBetween withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
-        if (children.size() == 2) {
-            return new MonthsBetween(children.get(0), children.get(1));
-        } else {
-            return new MonthsBetween(children.get(0), children.get(1), children.get(2));
-        }
+        return new MonthsBetween(getFunctionParams(children));
     }
 
     @Override

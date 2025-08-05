@@ -31,6 +31,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -62,11 +63,7 @@ size_t DataTypeDateV2::number_length() const {
 }
 void DataTypeDateV2::push_number(ColumnString::Chars& chars, const UInt32& num) const {
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(num);
-
-    char buf[64];
-    char* pos = val.to_string(buf);
-    // DateTime to_string the end is /0
-    chars.insert(buf, pos - 1);
+    CastToString::push_datev2(val, chars);
 }
 
 std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) const {
@@ -183,9 +180,7 @@ size_t DataTypeDateTimeV2::number_length() const {
 void DataTypeDateTimeV2::push_number(ColumnString::Chars& chars, const UInt64& num) const {
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(num);
-    char buf[64];
-    char* pos = val.to_string(buf, _scale);
-    chars.insert(buf, pos - 1);
+    CastToString::push_datetimev2(val, _scale, chars);
 }
 
 void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,

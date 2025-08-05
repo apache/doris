@@ -49,6 +49,11 @@ public class JsonbParseErrorToValue extends ScalarFunction
         super("jsonb_parse_error_to_value", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonbParseErrorToValue(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * constructor with 2 arguments.
      */
@@ -67,11 +72,7 @@ public class JsonbParseErrorToValue extends ScalarFunction
     @Override
     public JsonbParseErrorToValue withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 1);
-        if (children.size() == 1) {
-            return new JsonbParseErrorToValue(children.get(0));
-        } else {
-            return new JsonbParseErrorToValue(children.get(0), children.get(1));
-        }
+        return new JsonbParseErrorToValue(getFunctionParams(children));
     }
 
     @Override

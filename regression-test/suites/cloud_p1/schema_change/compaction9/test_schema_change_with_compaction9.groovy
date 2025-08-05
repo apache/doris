@@ -88,7 +88,7 @@ suite('test_schema_change_with_compaction9', 'docker') {
             sql "select count(*) from date"
             // cu compaction
             logger.info("run compaction:" + originTabletId)
-            (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             boolean running = true
             do {
@@ -120,7 +120,7 @@ suite('test_schema_change_with_compaction9', 'docker') {
             }
             // base compaction
             logger.info("run compaction:" + originTabletId)
-            (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
 
@@ -191,7 +191,7 @@ suite('test_schema_change_with_compaction9', 'docker') {
             assertEquals(count[0][0], 2556);
             // check rowsets
             logger.info("run show:" + originTabletId)
-            (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-7]"))

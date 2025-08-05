@@ -67,18 +67,23 @@ public class CovarSamp extends NullableAggregateFunction
         super("covar_samp", distinct, alwaysNullable, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CovarSamp(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public CovarSamp withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new CovarSamp(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new CovarSamp(getFunctionParams(distinct, children));
     }
 
     @Override
     public CovarSamp withAlwaysNullable(boolean alwaysNullable) {
-        return new CovarSamp(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new CovarSamp(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

@@ -51,6 +51,11 @@ public class Min extends NullableAggregateFunction
         super("min", false, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Min(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (getArgumentType(0).isOnlyMetricType()) {
@@ -75,12 +80,12 @@ public class Min extends NullableAggregateFunction
     @Override
     public Min withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Min(distinct, alwaysNullable, children.get(0));
+        return new Min(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Min(distinct, alwaysNullable, children.get(0));
+        return new Min(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
@@ -90,7 +95,7 @@ public class Min extends NullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new Min(this.distinct, this.alwaysNullable, param);
+        return new Min(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override
