@@ -43,6 +43,7 @@
 #include "vec/common/string_utils/string_utils.h"
 #include "vec/core/extended_types.h"
 #include "vec/data_types/number_traits.h"
+#include "vec/functions/cast/cast_parameters.h"
 
 namespace doris {
 namespace vectorized {
@@ -60,19 +61,6 @@ struct Decimal;
             }                                                         \
             return false;                                             \
         }                                                             \
-    } while (false)
-#endif
-
-#ifndef SET_PARAMS_RET_FALSE_IF_ERR
-#define SET_PARAMS_RET_FALSE_IF_ERR(stmt)            \
-    do {                                             \
-        Status _status_ = (stmt);                    \
-        if (!_status_.ok()) [[unlikely]] {           \
-            if constexpr (IsStrict) {                \
-                params.status = std::move(_status_); \
-            }                                        \
-            return false;                            \
-        }                                            \
     } while (false)
 #endif
 
@@ -116,19 +104,21 @@ bool range_suite(const char* s, const char* end) {
 inline auto is_digit_range = range_suite<is_numeric_ascii>;
 inline auto is_space_range = range_suite<is_whitespace_ascii>;
 
-inline Status assert_within_bound(const char* s, const char* end, size_t offset) {
+inline bool assert_within_bound(const char* s, const char* end, size_t offset,
+                                vectorized::CastParameters& params) {
     if (s + offset >= end) [[unlikely]] {
-        return Status::InvalidArgument(
+        params.status = Status::InvalidArgument(
                 "StringParser: failed because we need at least {} but only got '{}'", offset,
                 std::string {s, end});
+        return false;
     }
-    return Status::OK();
+    return true;
 }
 
 // LEN = 0 means any length(include zero). LEN = 1 means only one character. so on. LEN = -x means x or more.
 // if need result, use StringRef{origin_s, s} outside
 template <int LEN, bool (*Pred)(char)>
-Status skip_qualified_char(const char*& s, const char* end) {
+bool skip_qualified_char(const char*& s, const char* end, vectorized::CastParameters& params) {
     if constexpr (LEN == 0) {
         // Consume any length of characters that match the predicate.
         while (s != end && Pred(*s)) {
@@ -138,9 +128,10 @@ Status skip_qualified_char(const char*& s, const char* end) {
         // Consume exactly LEN characters that match the predicate.
         for (int i = 0; i < LEN; ++i, ++s) {
             if (s == end || !Pred(*s)) [[unlikely]] {
-                return Status::InvalidArgument(
+                params.status = Status::InvalidArgument(
                         "StringParser: failed to consume {} characters, got '{}'", LEN - i,
                         std::string {s, end});
+                return false;
             }
         }
     } else { // LEN < 0
@@ -151,12 +142,13 @@ Status skip_qualified_char(const char*& s, const char* end) {
             ++count;
         }
         if (count < -LEN) [[unlikely]] {
-            return Status::InvalidArgument(
+            params.status = Status::InvalidArgument(
                     "StringParser: failed to consume at least {} characters, got '{}'",
                     -LEN - count, std::string {s, end});
+            return false;
         }
     }
-    return Status::OK();
+    return true;
 }
 
 inline auto skip_any_whitespace = skip_qualified_char<0, is_whitespace_ascii>;
@@ -184,16 +176,17 @@ inline auto consume_one_colon = skip_qualified_char<1, is_colon>;
 // when has MAX_LEN > 0, do greedy match but at most MAX_LEN.
 // LEN = 0 means any length, otherwise(must > 0) it means exactly LEN digits.
 template <typename T, int LEN = 0, int MAX_LEN = -1>
-Status consume_digit(const char*& s, const char* end, T& out) {
+bool consume_digit(const char*& s, const char* end, T& out, vectorized::CastParameters& params) {
     static_assert(LEN >= 0);
     if constexpr (MAX_LEN > 0) {
         out = 0;
         for (int i = 0; i < MAX_LEN; ++i, ++s) {
             if ((s == end || !is_numeric_ascii(*s))) [[unlikely]] {
                 if (i < LEN) [[unlikely]] {
-                    return Status::InvalidArgument(
+                    params.status = Status::InvalidArgument(
                             "StringParser: got \"{}\" before get at least {} digit",
                             std::string {s, end}, LEN - i);
+                    return false;
                 }
                 break; // stop consuming if we have consumed enough digits.
             }
@@ -211,14 +204,15 @@ Status consume_digit(const char*& s, const char* end, T& out) {
         out = 0;
         for (int i = 0; i < LEN; ++i, ++s) {
             if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
-                return Status::InvalidArgument(
+                params.status = Status::InvalidArgument(
                         "StringParser: failed to consume {} digits, got '{}'", LEN - i,
                         std::string {s, end});
+                return false;
             }
             out = out * 10 + (*s - '0');
         }
     }
-    return Status::OK();
+    return true;
 }
 
 template <bool (*Pred)(char)>
