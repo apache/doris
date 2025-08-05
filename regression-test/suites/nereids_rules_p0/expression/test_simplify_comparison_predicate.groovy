@@ -19,7 +19,7 @@
 // TODO: date datetime comparison still has bug, need fix.
 suite('test_simplify_comparison_predicate', 'nonConcurrent') {
     def tbl = 'test_simplify_comparison_predicate_tbl'
-    def falseOrNull = { expr -> "${expr} IS NULL AND NULL" }
+    def falseOrNull = { expr -> "AND[${expr} IS NULL,NULL]" }
     def checkExplain = { expression, resExpression ->
         def shapePlan = sql("EXPLAIN SHAPE PLAN SELECT ${expression} FROM ${tbl}")
         // logger.info("shape plan:  ${shapePlan}")
