@@ -43,6 +43,7 @@ import java.util.stream.Collectors;
 
 public class ListPartitionInfo extends PartitionInfo {
     private static final Logger LOG = LogManager.getLogger(ListPartitionInfo.class);
+
     public ListPartitionInfo(List<Column> partitionColumns) {
         super(PartitionType.LIST);
         this.partitionColumns = partitionColumns;
@@ -212,7 +213,8 @@ public class ListPartitionInfo extends PartitionInfo {
     public PartitionDesc toPartitionDesc(OlapTable table) throws AnalysisException {
         readLock();
         try {
-            List<String> partitionColumnNames = partitionColumns.stream().map(Column::getName).collect(Collectors.toList());
+            List<String> partitionColumnNames = partitionColumns.stream()
+                    .map(Column::getName).collect(Collectors.toList());
             List<AllPartitionDesc> allPartitionDescs = Lists.newArrayListWithCapacity(this.idToItem.size());
 
             // sort list
@@ -224,7 +226,7 @@ public class ListPartitionInfo extends PartitionInfo {
 
                 List<PartitionKey> partitionKeys = entry.getValue().getItems();
                 List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionKey::toPartitionValue)
-                    .collect(Collectors.toList());
+                        .collect(Collectors.toList());
                 PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createIn(inValues);
 
                 Map<String, String> properties = Maps.newHashMap();

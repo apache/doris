@@ -44,6 +44,7 @@ import java.util.stream.Collectors;
 
 public class RangePartitionInfo extends PartitionInfo {
     private static final Logger LOG = LogManager.getLogger(RangePartitionInfo.class);
+
     public RangePartitionInfo() {
         // for persist
         super();
@@ -294,7 +295,8 @@ public class RangePartitionInfo extends PartitionInfo {
     public PartitionDesc toPartitionDesc(OlapTable table) throws AnalysisException {
         readLock();
         try {
-            List<String> partitionColumnNames = partitionColumns.stream().map(Column::getName).collect(Collectors.toList());
+            List<String> partitionColumnNames = partitionColumns.stream()
+                    .map(Column::getName).collect(Collectors.toList());
             List<AllPartitionDesc> allPartitionDescs = Lists.newArrayListWithCapacity(this.idToItem.size());
 
             // sort range
@@ -306,8 +308,8 @@ public class RangePartitionInfo extends PartitionInfo {
 
                 Range<PartitionKey> range = entry.getValue().getItems();
                 PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
-                    PartitionKey.toPartitionValue(range.lowerEndpoint()),
-                    PartitionKey.toPartitionValue(range.upperEndpoint()));
+                        PartitionKey.toPartitionValue(range.lowerEndpoint()),
+                        PartitionKey.toPartitionValue(range.upperEndpoint()));
 
                 Map<String, String> properties = Maps.newHashMap();
                 Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {

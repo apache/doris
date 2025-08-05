@@ -17,13 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DataSortInfo;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
