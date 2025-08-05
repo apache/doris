@@ -686,9 +686,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     }
 }
 
-TabletColumn TabletColumn::create_materialized_variant_column(
-        const std::string& root, const std::vector<std::string>& paths, int32_t parent_unique_id,
-        int32_t max_subcolumns_count) {
+TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
+                                                              const std::vector<std::string>& paths,
+                                                              int32_t parent_unique_id,
+                                                              int32_t max_subcolumns_count) {
     TabletColumn subcol;
     subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     subcol.set_is_nullable(true);
@@ -1021,7 +1022,7 @@ void TabletSchema::append_index(TabletIndex&& index) {
 }
 
 void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
-                                 std::vector<TabletIndex>&& indexes) {
+                                std::vector<TabletIndex>&& indexes) {
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path = escape_for_path_name(col.suffix_path());
     IndexKey key(index_type, col_unique_id, suffix_path);

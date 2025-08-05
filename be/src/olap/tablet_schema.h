@@ -494,7 +494,7 @@ public:
     std::vector<const TabletIndex*> inverted_indexs(int32_t col_unique_id,
                                                     const std::string& suffix_path = "") const;
     std::vector<TabletIndexPtr> inverted_index_by_field_pattern(
-                                                        int32_t col_unique_id, const std::string& field_pattern) const;
+            int32_t col_unique_id, const std::string& field_pattern) const;
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
