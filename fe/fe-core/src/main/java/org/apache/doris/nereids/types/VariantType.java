@@ -42,16 +42,17 @@ public class VariantType extends PrimitiveType {
 
     public static final int WIDTH = 24;
 
-    private int variantMaxSubcolumnsCount = 0;
+    private final int variantMaxSubcolumnsCount;
 
-    private boolean enableTypedPathsToSparse = false;
+    private final boolean enableTypedPathsToSparse;
 
     private final List<VariantField> predefinedFields;
 
     // No predefined fields
     public VariantType(int variantMaxSubcolumnsCount) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
-        predefinedFields = Lists.newArrayList();
+        this.predefinedFields = Lists.newArrayList();
+        this.enableTypedPathsToSparse = false;
     }
 
     /**
@@ -59,6 +60,8 @@ public class VariantType extends PrimitiveType {
      */
     public VariantType(List<VariantField> fields) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        this.variantMaxSubcolumnsCount = 0;
+        this.enableTypedPathsToSparse = false;
     }
 
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount, boolean enableTypedPathsToSparse) {
@@ -70,8 +73,7 @@ public class VariantType extends PrimitiveType {
     @Override
     public DataType conversion() {
         return new VariantType(predefinedFields.stream().map(VariantField::conversion)
-                                            .collect(Collectors.toList()), variantMaxSubcolumnsCount,
-                                                                                    enableTypedPathsToSparse);
+                                .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse);
     }
 
     @Override
@@ -137,7 +139,7 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode());
+        return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse, predefinedFields);
     }
 
     @Override

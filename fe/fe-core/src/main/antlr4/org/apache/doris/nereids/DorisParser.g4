@@ -1769,9 +1769,9 @@ complexColType
     ;
 
 variantTypeDefinitions
-    : VARIANT LT variantSubColTypeList COMMA properties=propertyClause GT  #variantWithFieldsAndProps
-    | VARIANT LT variantSubColTypeList GT                                  #variantWithOnlyFields
-    | VARIANT LT properties=propertyClause GT                              #variantWithOnlyProps
+    : VARIANT LT variantSubColTypeList COMMA properties=propertyClause GT  #variant
+    | VARIANT LT variantSubColTypeList GT                                  #variant
+    | VARIANT LT properties=propertyClause GT                              #variant
     | VARIANT                                                              #variant
     ;
 
@@ -2024,6 +2024,8 @@ nonReserved
     | MATCH_PHRASE_EDGE
     | MATCH_PHRASE_PREFIX
     | MATCH_REGEXP
+    | MATCH_NAME
+    | MATCH_NAME_GLOB
     | MATERIALIZED
     | MAX
     | MEMO

@@ -460,9 +460,6 @@ import org.apache.doris.nereids.DorisParser.VariantPredefinedFieldsContext;
 import org.apache.doris.nereids.DorisParser.VariantSubColTypeContext;
 import org.apache.doris.nereids.DorisParser.VariantSubColTypeListContext;
 import org.apache.doris.nereids.DorisParser.VariantTypeDefinitionsContext;
-import org.apache.doris.nereids.DorisParser.VariantWithFieldsAndPropsContext;
-import org.apache.doris.nereids.DorisParser.VariantWithOnlyFieldsContext;
-import org.apache.doris.nereids.DorisParser.VariantWithOnlyPropsContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParser.WindowFrameContext;
 import org.apache.doris.nereids.DorisParser.WindowSpecContext;
@@ -4659,28 +4656,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public DataType visitVariantPredefinedFields(VariantPredefinedFieldsContext ctx) {
         VariantTypeDefinitionsContext variantDef = ctx.complex;
-
-        List<VariantField> fields = Lists.newArrayList();
-        Map<String, String> properties = Maps.newHashMap();
-        if (variantDef instanceof VariantWithFieldsAndPropsContext) {
-            VariantWithFieldsAndPropsContext withBoth = (VariantWithFieldsAndPropsContext) variantDef;
-            fields = visitVariantSubColTypeList(withBoth.variantSubColTypeList());
-            properties = Maps.newHashMap(visitPropertyClause(withBoth.properties));
-        } else if (variantDef instanceof VariantWithOnlyFieldsContext) {
-            VariantWithOnlyFieldsContext withFields = (VariantWithOnlyFieldsContext) variantDef;
-            fields = visitVariantSubColTypeList(withFields.variantSubColTypeList());
-        } else if (variantDef instanceof VariantWithOnlyPropsContext) {
-            VariantWithOnlyPropsContext withProps = (VariantWithOnlyPropsContext) variantDef;
-            properties = Maps.newHashMap(visitPropertyClause(withProps.properties));
-        } else {
-            Preconditions.checkState(variantDef instanceof VariantContext,
+        Preconditions.checkState(variantDef instanceof VariantContext,
                                         "Unsupported variant definition: " + variantDef.getText());
-        }
+        VariantContext variantCtx = (VariantContext) variantDef;
+
+        List<VariantField> fields = visitVariantSubColTypeList(variantCtx.variantSubColTypeList());
+        Map<String, String> properties = Maps.newHashMap(visitPropertyClause(variantCtx.properties));
 
         int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getGlobalVariantMaxSubcolumnsCount();
+                ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
         boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
-                ConnectContext.get().getSessionVariable().getGlobalEnableTypedPathsToSparse();
+                ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
 
         try {
             variantMaxSubcolumnsCount = PropertyAnalyzer

@@ -45,8 +45,8 @@ public class ElementAt extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(new FollowToAnyDataType(0))
                     .args(ArrayType.of(new AnyDataType(0)), BigIntType.INSTANCE),
-            FunctionSignature.ret(new VariantType(0))
-                    .args(new VariantType(0), VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VariantType.INSTANCE)
+                    .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(new FollowToAnyDataType(1))
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)), new FollowToAnyDataType(0))
     );

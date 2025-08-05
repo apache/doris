@@ -451,7 +451,7 @@ public abstract class DataType {
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse());
             }
-            return new VariantType(0);
+            return VariantType.INSTANCE;
         } else {
             return UnsupportedType.INSTANCE;
         }

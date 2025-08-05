@@ -47,7 +47,7 @@ public class VariantField {
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
         TPatternType type;
-        if (patternType.equalsIgnoreCase("MATCH_NAME")) {
+        if (TPatternType.MATCH_NAME.name().equalsIgnoreCase(patternType)) {
             type = TPatternType.MATCH_NAME;
         } else {
             type = TPatternType.MATCH_NAME_GLOB;

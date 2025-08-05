@@ -44,8 +44,6 @@ import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.catalog.VariantField;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
@@ -802,8 +800,6 @@ nonterminal MapLiteral map_literal;
 nonterminal StructField struct_field;
 nonterminal ArrayList<StructField> struct_field_list;
 nonterminal StructLiteral struct_literal;
-nonterminal VariantField variant_field;
-nonterminal ArrayList<VariantField> variant_field_list;
 nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
@@ -853,7 +849,7 @@ nonterminal List<WorkloadConditionMeta> workload_policy_condition_list, conditio
 nonterminal List<WorkloadActionMeta> workload_policy_action_list, opt_actions, actions;
 
 nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_map_in_paren, opt_properties,
-            opt_ext_properties, opt_enable_feature_properties, properties, type_opt_properties;
+            opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
@@ -3098,13 +3094,6 @@ key_value_map ::=
     :}
     ;
 
-type_opt_properties ::=
-      COMMA opt_properties:type_properties
-      {: RESULT = type_properties; :}
-    | /* empty */
-      {: RESULT = Maps.newHashMap(); :}
-    ;
-
 opt_properties ::=
     {:
     RESULT = Maps.newHashMap();
@@ -5216,10 +5205,6 @@ type ::=
   {: RESULT = new MapType(key_type,value_type); :}
   | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
   {: RESULT = new StructType(fields); :}
-  | KW_VARIANT LESSTHAN variant_field_list:fields type_opt_properties:prop GREATERTHAN
-  {: RESULT = new VariantType(fields, prop); :}
-  | KW_VARIANT LESSTHAN properties:prop GREATERTHAN
-  {: RESULT = new VariantType(prop); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createCharType(len.intValue());
      RESULT = type;
@@ -5539,23 +5524,6 @@ struct_literal ::=
   LBRACE expr_list:list RBRACE
   {:
     RESULT = new StructLiteral(list.toArray(new LiteralExpr[0]));
-  :}
-  ;
-
-variant_field ::=
-  STRING_LITERAL:pattern COLON type:type opt_comment:comment
-  {: RESULT = new VariantField(pattern, type, comment); :}
-  ;
-
-variant_field_list ::=
-  variant_field:field
-  {:
-    RESULT = Lists.newArrayList(field);
-  :}
-  | variant_field_list:fields COMMA variant_field:field
-  {:
-     fields.add(field);
-     RESULT = fields;
   :}
   ;
 

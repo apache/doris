@@ -787,10 +787,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
 
-    public static final String GLOBAL_VARIANT_SUBCOLUMNS_COUNT = "global_variant_max_subcolumns_count";
+    public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
-    public static final String GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
-                                                            "global_variant_enable_typed_paths_to_sparse";
+    public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "default_variant_enable_typed_paths_to_sparse";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2783,19 +2783,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableAddIndexForNewData = false;
 
     @VariableMgr.VarAttr(
-            name = GLOBAL_VARIANT_SUBCOLUMNS_COUNT,
+            name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
-            checker = "checkGlobalVariantMaxSubcolumnsCount",
+            checker = "checkDefaultVariantMaxSubcolumnsCount",
             fuzzy = true
     )
-    public int globalVariantMaxSubcolumnsCount = 0;
+    public int defaultVariantMaxSubcolumnsCount = 0;
 
     @VariableMgr.VarAttr(
-            name = GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
     )
-    public boolean globalEnableTypedPathsToSparse = false;
+    public boolean defaultEnableTypedPathsToSparse = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -5127,19 +5127,19 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public void checkGlobalVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+    public void checkDefaultVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
         int value = Integer.valueOf(variantMaxSubcolumnsCount);
-        if (value < 0 || value > 20000) {
+        if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
-                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 20000");
+                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
         }
     }
 
-    public boolean getGlobalEnableTypedPathsToSparse() {
-        return globalEnableTypedPathsToSparse;
+    public boolean getDefaultEnableTypedPathsToSparse() {
+        return defaultEnableTypedPathsToSparse;
     }
 
-    public int getGlobalVariantMaxSubcolumnsCount() {
-        return globalVariantMaxSubcolumnsCount;
+    public int getDefaultVariantMaxSubcolumnsCount() {
+        return defaultVariantMaxSubcolumnsCount;
     }
 }
