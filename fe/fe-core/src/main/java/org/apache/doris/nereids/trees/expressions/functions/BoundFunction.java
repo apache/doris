@@ -52,6 +52,7 @@ public abstract class BoundFunction extends Function implements ComputeSignature
         this.signatureCache = buildSignatureCache(null);
     }
 
+    /** constructor for withChildren and reuse signature */
     public BoundFunction(FunctionParams functionParams) {
         super(functionParams.functionName, functionParams.arguments, functionParams.inferred);
         this.signatureCache = buildSignatureCache(functionParams.getOriginSignature());

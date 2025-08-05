@@ -32,6 +32,7 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
         super(name, arguments);
     }
 
+    /** constructor for withChildren and reuse signature */
     public ScalarFunction(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
