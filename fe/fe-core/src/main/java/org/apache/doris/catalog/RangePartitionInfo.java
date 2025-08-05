@@ -47,7 +47,7 @@ public class RangePartitionInfo extends PartitionInfo {
 
     public RangePartitionInfo() {
         // for persist
-        super();
+        super(PartitionType.RANGE);
     }
 
     public RangePartitionInfo(List<Column> partitionColumns) {

@@ -44,6 +44,11 @@ import java.util.stream.Collectors;
 public class ListPartitionInfo extends PartitionInfo {
     private static final Logger LOG = LogManager.getLogger(ListPartitionInfo.class);
 
+    public ListPartitionInfo() {
+        // for persist
+        super(PartitionType.LIST);
+    }
+
     public ListPartitionInfo(List<Column> partitionColumns) {
         super(PartitionType.LIST);
         this.partitionColumns = partitionColumns;
