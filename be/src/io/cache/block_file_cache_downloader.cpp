@@ -40,6 +40,11 @@
 
 namespace doris::io {
 
+bvar::Adder<uint64_t> g_file_cache_download_submitted_size("file_cache_download_submitted_size");
+bvar::Adder<uint64_t> g_file_cache_download_finished_size("file_cache_download_finished_size");
+bvar::Adder<uint64_t> g_file_cache_download_submitted_num("file_cache_download_submitted_num");
+bvar::Adder<uint64_t> g_file_cache_download_finished_num("file_cache_download_finished_num");
+bvar::Adder<uint64_t> g_file_cache_download_failed_num("file_cache_download_failed_num");
 bvar::Adder<uint64_t> block_file_cache_downloader_task_total("file_cache_downloader_queue_total");
 
 FileCacheBlockDownloader::FileCacheBlockDownloader(CloudStorageEngine& engine) : _engine(engine) {
@@ -77,8 +82,16 @@ void FileCacheBlockDownloader::submit_download_task(DownloadTask task) {
         std::lock_guard lock(_inflight_mtx);
         for (auto& meta : std::get<0>(task.task_message)) {
             ++_inflight_tablets[meta.tablet_id()];
+            if (meta.size() > 0) {
+                g_file_cache_download_submitted_size << meta.size();
+            }
             LOG(INFO) << "submit_download_task: inflight_tablets[" << meta.tablet_id()
                       << "] = " << _inflight_tablets[meta.tablet_id()];
+        }
+    } else {
+        int64_t download_size = std::get<1>(task.task_message).download_size;
+        if (download_size > 0) {
+            g_file_cache_download_submitted_size << download_size;
         }
     }
 
@@ -91,6 +104,7 @@ void FileCacheBlockDownloader::submit_download_task(DownloadTask task) {
                     download_file_meta.download_done(
                             Status::InternalError("The downloader queue is full"));
                 }
+                g_file_cache_download_failed_num << 1;
             }
             LOG(INFO) << "submit_download_task: task queue full, pop front";
             _task_queue.pop_front(); // Eliminate the earliest task in the queue
@@ -102,6 +116,7 @@ void FileCacheBlockDownloader::submit_download_task(DownloadTask task) {
         block_file_cache_downloader_task_total << 1;
         _empty.notify_all();
     }
+    g_file_cache_download_submitted_num << 1;
 }
 
 void FileCacheBlockDownloader::polling_download_task() {
@@ -239,6 +254,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         if (meta.download_done) {
             meta.download_done(std::move(st));
         }
+        g_file_cache_download_failed_num << 1;
         return;
     }
 
@@ -266,14 +282,17 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
             if (meta.download_done) {
                 meta.download_done(std::move(st));
             }
+            g_file_cache_download_failed_num << 1;
             return;
         }
+        g_file_cache_download_finished_size << size;
     }
 
     if (meta.download_done) {
         LOG(INFO) << "download_segment_file: download finished, path=" << meta.path;
         meta.download_done(Status::OK());
     }
+    g_file_cache_download_finished_num << 1;
 }
 
 void FileCacheBlockDownloader::download_blocks(DownloadTask& task) {

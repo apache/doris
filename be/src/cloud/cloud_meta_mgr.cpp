@@ -39,6 +39,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "cloud/schema_cloud_dictionary_cache.h"
@@ -1033,7 +1034,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
+Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
@@ -1082,6 +1083,8 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string&
         RETURN_IF_ERROR(
                 engine.get_schema_cloud_dictionary_cache().refresh_dict(rs_meta_pb.index_id()));
     }
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    manager.warm_up_rowset(rs_meta);
     return st;
 }
 
