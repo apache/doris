@@ -547,6 +547,8 @@ public class ScalarType extends Type {
 
     public static ScalarType createVariantType() {
         // Not return ScalarType return VariantType instead for compatibility reason
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         return new VariantType();
     }
 
@@ -1208,16 +1210,20 @@ public class ScalarType extends Type {
     }
 
     public int getVariantMaxSubcolumnsCount() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getVariantMaxSubcolumnsCount();
         }
-        return 0;
+        return 0; // The old variant type had a default value of 0.
     }
 
     public boolean getVariantEnableTypedPathsToSparse() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
         if (this instanceof VariantType) {
             return ((VariantType) this).getEnableTypedPathsToSparse();
         }
-        return false;
+        return false; // The old variant type had a default value of false.
     }
 }

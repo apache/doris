@@ -441,6 +441,8 @@ public abstract class DataType {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
         } else if (type.isVariantType()) {
+            // In the past, variant metadata used the ScalarType type.
+            // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
             if (type instanceof org.apache.doris.catalog.VariantType) {
                 List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
                         .getPredefinedFields().stream()

@@ -121,6 +121,8 @@ public abstract class Type {
     public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
+    // In the past, variant metadata used the ScalarType type.
+    // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
     public static final VariantType VARIANT = new VariantType();
     public static final AnyType ANY_STRUCT_TYPE = new AnyStructType();
     public static final AnyType ANY_ELEMENT_TYPE = new AnyElementType();
