@@ -121,7 +121,7 @@ public abstract class Type {
     public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
-    public static final ScalarType VARIANT = new ScalarType(PrimitiveType.VARIANT);
+    public static final VariantType VARIANT = new VariantType();
     public static final AnyType ANY_STRUCT_TYPE = new AnyStructType();
     public static final AnyType ANY_ELEMENT_TYPE = new AnyElementType();
     private static final Map<String, Type> typeMap = new HashMap<>();

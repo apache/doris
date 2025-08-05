@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
  * Why Variant is not complex type? Since it's nested structure is not pre-defined, then using
  * primitive type will be easy to handle meta info in FE.
  * Also, could predefine some fields of nested columns.
- * Example: VARIANT <`a.b`:INT, a.c:DATETIMEV2>
+ * Example: VARIANT <`a.b`:INT, `a.c`:DATETIMEV2>
  *
  */
 public class VariantType extends PrimitiveType {

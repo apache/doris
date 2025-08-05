@@ -30,4 +30,9 @@ suite("test_predefine_ddl", "p0") {
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
+
+    sql """ insert into ${tableName} values (1, '{"ab": "1", "cc": "2", "b?b": "3"}') """
+
+    qt_sql """ desc ${tableName} """
+
 }

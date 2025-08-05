@@ -4660,8 +4660,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         "Unsupported variant definition: " + variantDef.getText());
         VariantContext variantCtx = (VariantContext) variantDef;
 
-        List<VariantField> fields = visitVariantSubColTypeList(variantCtx.variantSubColTypeList());
-        Map<String, String> properties = Maps.newHashMap(visitPropertyClause(variantCtx.properties));
+        List<VariantField> fields = variantCtx.variantSubColTypeList() != null
+                ? visitVariantSubColTypeList(variantCtx.variantSubColTypeList()) : Lists.newArrayList();
+        Map<String, String> properties = variantCtx.properties != null
+                ? Maps.newHashMap(visitPropertyClause(variantCtx.properties)) : Maps.newHashMap();
 
         int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
