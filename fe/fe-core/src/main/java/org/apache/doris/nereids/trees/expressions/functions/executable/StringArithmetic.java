@@ -742,9 +742,6 @@ public class StringArithmetic {
         if (chr.getValue().isEmpty()) {
             return castStringLikeLiteral(first, "");
         }
-        if (first.getValue().isEmpty()) {
-            return new NullLiteral(first.getDataType());
-        }
         if (first.getValue().equals(chr.getValue())) {
             if (Math.abs(number.getValue()) == 1 || Math.abs(number.getValue()) == 2) {
                 return castStringLikeLiteral(first, "");
