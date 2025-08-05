@@ -44,9 +44,7 @@ public:
     using ColumnType = PrimitiveTypeTraits<T>::ColumnType;
     using NativeType = PrimitiveTypeTraits<T>::CppNativeType; // int64
     using CppType = PrimitiveTypeTraits<T>::CppType;          // VecDateTimeValue
-    constexpr static std::string_view name() {
-        return IsDatetime ? "DateTime" : "Date";
-    }
+    constexpr static std::string_view name() { return IsDatetime ? "DateTime" : "Date"; }
 
     using typename DataTypeNumberSerDe<T>::FormatOptions;
     DataTypeDateSerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};

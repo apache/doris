@@ -250,8 +250,8 @@ struct FunctionCastTest : public testing::Test {
 
         data_set[0].first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
         static_cast<void>(check_function<ResultDataType, true, true>(
-                func_name, add_input_types, data_set, result_scale, result_precision, expect_execute_fail, expect_result_ne,
-                enable_strict_cast));
+                func_name, add_input_types, data_set, result_scale, result_precision,
+                expect_execute_fail, expect_result_ne, enable_strict_cast));
     }
 
     // we always need return nullable=true for cast function because of its' get_return_type weird

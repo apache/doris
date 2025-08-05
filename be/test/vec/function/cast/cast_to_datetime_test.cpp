@@ -68,7 +68,8 @@ TEST_F(FunctionCastTest, string_to_datetime6_valid_case_strict_mode) {
             {{std::string("19230101")}, std::string("1923-01-01")},
             {{std::string("20120102030405")}, std::string("2012-01-02 03:04:05")},
 
-            {{std::string("2024-02-29T23:59:59.999999 UTC")}, std::string("2024-03-01 07:59:59.999999")},
+            {{std::string("2024-02-29T23:59:59.999999 UTC")},
+             std::string("2024-03-01 07:59:59.999999")},
             {{std::string("70-01-01T00:00:00+14")}, std::string("1969-12-31 18:00:00")},
             {{std::string("0023-1-1T1:2:3. -00:00")}, std::string("0023-01-01 09:07:46")},
             {{std::string("20-1-1")}, std::string("2020-01-01")},
@@ -190,7 +191,8 @@ TEST_F(FunctionCastTest, string_to_datetime6_strict_case_non_strict_mode) {
             {{std::string("19230101")}, std::string("1923-01-01")},
             {{std::string("20120102030405")}, std::string("2012-01-02 03:04:05")},
 
-            {{std::string("2024-02-29T23:59:59.999999 UTC")}, std::string("2024-03-01 07:59:59.999999")},
+            {{std::string("2024-02-29T23:59:59.999999 UTC")},
+             std::string("2024-03-01 07:59:59.999999")},
             {{std::string("70-01-01T00:00:00+14")}, std::string("1969-12-31 18:00:00")},
             {{std::string("0023-1-1T1:2:3. -00:00")}, std::string("0023-01-01 09:07:46")},
             {{std::string("20-1-1")}, std::string("2020-01-01")},
@@ -263,19 +265,18 @@ TEST_F(FunctionCastTest, non_strict_test_from_string_to_datetime) {
             {{std::string("2025/06/15T00:00:00.99999999999")},
              std::string("2025-06-15 00:00:01.000000")},
 
-             {{std::string("2025/06/15T00:00:00.0-0")}, std::string("2025-06-15 08:00:00")},
-             {{std::string("2025/06/15T00:00:00.99999999999")}, std::string("2025-06-15 00:00:01")},
-             {{std::string("  2024-05-01T12:00:00  ")}, std::string("2024-05-01 12:00:00")},
-             {{std::string("2024.05.01")}, std::string("2024-05-01")},
-             {{std::string("2024.05.01 12.30.45")}, std::string("2024-05-01 12:30:45")},
-             {{std::string("2024/05-01T12:30:45")}, std::string("2024-05-01 12:30:45")},
-             {{std::string("2024-05/01 12.30.45")}, std::string("2024-05-01 12:30:45")},
-             {{std::string(" 2024-05-01 ")}, std::string("2024-05-01")},
-             {{std::string("2024|05|01")}, std::string("2024-05-01")},
-             {{std::string("2024^05^01")}, std::string("2024-05-01")},
-             {{std::string("2024~05~01 12~00~00")}, std::string("2024-05-01 12:00:00")},
-             {{std::string("2024#05#01T12#00#00")}, std::string("2024-05-01 12:00:00")},
-
+            {{std::string("2025/06/15T00:00:00.0-0")}, std::string("2025-06-15 08:00:00")},
+            {{std::string("2025/06/15T00:00:00.99999999999")}, std::string("2025-06-15 00:00:01")},
+            {{std::string("  2024-05-01T12:00:00  ")}, std::string("2024-05-01 12:00:00")},
+            {{std::string("2024.05.01")}, std::string("2024-05-01")},
+            {{std::string("2024.05.01 12.30.45")}, std::string("2024-05-01 12:30:45")},
+            {{std::string("2024/05-01T12:30:45")}, std::string("2024-05-01 12:30:45")},
+            {{std::string("2024-05/01 12.30.45")}, std::string("2024-05-01 12:30:45")},
+            {{std::string(" 2024-05-01 ")}, std::string("2024-05-01")},
+            {{std::string("2024|05|01")}, std::string("2024-05-01")},
+            {{std::string("2024^05^01")}, std::string("2024-05-01")},
+            {{std::string("2024~05~01 12~00~00")}, std::string("2024-05-01 12:00:00")},
+            {{std::string("2024#05#01T12#00#00")}, std::string("2024-05-01 12:00:00")},
     };
     check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
 }
