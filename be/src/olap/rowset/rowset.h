@@ -318,6 +318,8 @@ public:
 
     std::vector<std::string> get_index_file_names();
 
+    std::chrono::time_point<std::chrono::system_clock> visible_timestamp() const;
+
 protected:
     friend class RowsetFactory;
 

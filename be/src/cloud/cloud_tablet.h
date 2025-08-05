@@ -63,6 +63,11 @@ public:
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
 
+    Status capture_rs_readers_with_freshness_tolerance(const Version& spec_version,
+                                                       std::vector<RowSetSplits>* rs_splits,
+                                                       bool skip_missing_version,
+                                                       int64_t query_freshness_tolerance_ms);
+
     Status capture_consistent_rowsets_unlocked(
             const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
 
@@ -286,6 +291,22 @@ public:
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
 
+    bool is_rowset_warmed_up(const RowsetId& rowset_id) const {
+        std::shared_lock rlock(_warmed_up_rowsets_mutex);
+        return _warmed_up_rowsets.contains(rowset_id);
+    }
+
+    // TODO: add to warm up callback when file cache donwload task is done
+    void add_warmed_up_rowset(const RowsetId& rowset_id) {
+        std::unique_lock wlock(_warmed_up_rowsets_mutex);
+        _warmed_up_rowsets.insert(rowset_id);
+    }
+
+    void remove_warmed_up_rowset(const RowsetId& rowset_id) {
+        std::unique_lock wlock(_warmed_up_rowsets_mutex);
+        _warmed_up_rowsets.erase(rowset_id);
+    }
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
@@ -350,6 +371,9 @@ private:
     std::mutex _gc_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
+
+    mutable std::shared_mutex _warmed_up_rowsets_mutex;
+    std::unordered_set<RowsetId> _warmed_up_rowsets;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
