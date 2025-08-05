@@ -56,6 +56,7 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -78,6 +79,19 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected int curBlockRows = 0;
     protected String jdbcDriverVersion;
     private static final Map<URL, ClassLoader> classLoaderMap = Maps.newConcurrentMap();
+
+    // col name(lowercase) -> index in resultSetMetaData
+    // this map is only used for "query()" tvf, so only valid if isTvf is true.
+    // Because for "query()" tvf, the sql string is written by user, so the column name in resultSetMetaData
+    // maybe larger than the column name in outputTable.
+    // For example, if the sql is "select a from query('select a,b from tbl')",
+    // the column num in resultSetMetaData is 2, but the outputTable only has 1 column "a".
+    // But if the sql is "select a from (select a,b from tbl)x",
+    // the column num in resultSetMetaData is 1, and the outputTable also has 1 column "a".
+    // Because the planner will do the column pruning before generating the sql string.
+    // So, for query() tvf, we need to map the column name in outputTable to the column index in resultSetMetaData.
+    private Map<String, Integer> resultSetColumnMap = null;
+    private boolean isTvf = false;
 
     public BaseJdbcExecutor(byte[] thriftParams) throws Exception {
         setJdbcDriverSystemProperties();
@@ -107,6 +121,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
         init(config, request.statement);
         this.jdbcDriverVersion = getJdbcDriverVersion();
+        this.isTvf = request.isSetIsTvf() ? request.is_tvf : false;
     }
 
     public void close() throws Exception {
@@ -206,32 +221,59 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
             if (isNullableString == null || replaceString == null) {
                 throw new IllegalArgumentException(
-                        "Output parameters 'is_nullable' and 'replace_string' are required.");
+                    "Output parameters 'is_nullable' and 'replace_string' are required.");
             }
 
             String[] nullableList = isNullableString.split(",");
             String[] replaceStringList = replaceString.split(",");
             curBlockRows = 0;
-            int columnCount = resultSetMetaData.getColumnCount();
 
-            initializeBlock(columnCount, replaceStringList, batchSize, outputTable);
+            int outputColumnCount = outputTable.getColumns().length;
+            initializeBlock(outputColumnCount, replaceStringList, batchSize, outputTable);
+
+            // the resultSetColumnMap is only for "query()" tvf
+            if (this.isTvf && this.resultSetColumnMap == null) {
+                this.resultSetColumnMap = new HashMap<>();
+                int resultSetColumnCount = resultSetMetaData.getColumnCount();
+                for (int i = 1; i <= resultSetColumnCount; i++) {
+                    String columnName = resultSetMetaData.getColumnName(i).trim().toLowerCase();
+                    resultSetColumnMap.put(columnName, i);
+                }
+            }
 
             do {
-                for (int i = 0; i < columnCount; ++i) {
-                    ColumnType type = outputTable.getColumnType(i);
-                    block.get(i)[curBlockRows] = getColumnValue(i, type, replaceStringList);
+                for (int i = 0; i < outputColumnCount; ++i) {
+                    String outputColumnName = outputTable.getFields()[i];
+                    int columnIndex = getRealColumnIndex(outputColumnName, i);
+                    if (columnIndex > -1) {
+                        ColumnType type = convertTypeIfNecessary(i, outputTable.getColumnType(i), replaceStringList);
+                        block.get(i)[curBlockRows] = getColumnValue(columnIndex, type, replaceStringList);
+                    } else {
+                        throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
+                    }
                 }
                 curBlockRows++;
             } while (curBlockRows < batchSize && resultSet.next());
 
-            for (int i = 0; i < columnCount; ++i) {
-                ColumnType type = outputTable.getColumnType(i);
-                Object[] columnData = block.get(i);
-                Class<?> componentType = columnData.getClass().getComponentType();
-                Object[] newColumn = (Object[]) Array.newInstance(componentType, curBlockRows);
-                System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
-                boolean isNullable = Boolean.parseBoolean(nullableList[i]);
-                outputTable.appendData(i, newColumn, getOutputConverter(type, replaceStringList[i]), isNullable);
+            for (int i = 0; i < outputColumnCount; ++i) {
+                String outputColumnName = outputTable.getFields()[i];
+                int columnIndex = getRealColumnIndex(outputColumnName, i);
+                if (columnIndex > -1) {
+                    ColumnType type = outputTable.getColumnType(i);
+                    Object[] columnData = block.get(i);
+                    Class<?> componentType = columnData.getClass().getComponentType();
+                    Object[] newColumn = (Object[]) Array.newInstance(componentType, curBlockRows);
+                    System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
+                    boolean isNullable = Boolean.parseBoolean(nullableList[i]);
+                    outputTable.appendData(
+                            i,
+                            newColumn,
+                            getOutputConverter(type, replaceStringList[i]),
+                            isNullable
+                    );
+                } else {
+                    throw new RuntimeException("Column not found in resultSetColumnMap: " + outputColumnName);
+                }
             }
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
@@ -241,6 +283,14 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
         return outputTable.getMetaAddress();
     }
+
+    private int getRealColumnIndex(String outputColumnName, int indexInOutputTable) {
+        // -1 because ResultSetMetaData column index starts from 1, but index in outputTable starts from 0.
+        int columnIndex = this.isTvf
+                ? resultSetColumnMap.getOrDefault(outputColumnName.toLowerCase(), 0) - 1 : indexInOutputTable;
+        return columnIndex;
+    }
+
 
     protected void initializeBlock(int columnCount, String[] replaceStringList, int batchSizeNum,
             VectorTable outputTable) {
@@ -441,6 +491,19 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
     protected abstract Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList)
             throws SQLException;
+
+    /**
+     * Some special column types (like bitmap/hll in Doris) may need to be converted to string.
+     * Subclass can override this method to handle such conversions.
+     *
+     * @param outputIdx
+     * @param origType
+     * @param replaceStringList
+     * @return
+     */
+    protected ColumnType convertTypeIfNecessary(int outputIdx, ColumnType origType, String[] replaceStringList) {
+        return origType;
+    }
 
     /*
     | Type                                        | Java Array Type            |
@@ -650,3 +713,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return hexString.toString();
     }
 }
+
+
+

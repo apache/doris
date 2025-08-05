@@ -282,6 +282,7 @@ public class JdbcScanNode extends ExternalScanNode {
             msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
         }
         msg.jdbc_scan_node.setTableType(jdbcType);
+        msg.jdbc_scan_node.setIsTvf(isTableValuedFunction);
     }
 
     @Override
