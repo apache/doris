@@ -36,11 +36,12 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename NestFunction, bool result_is_nullable, bool is_window_function, typename Derived>
+template <typename NestFunction, bool result_is_nullable, typename Derived>
 class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived> {
 protected:
     std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
+    bool is_window_function = false;
 
     /** In addition to data for nested aggregate function, we keep a flag
       *  indicating - was there at least one non-NULL value accumulated.
@@ -57,9 +58,9 @@ protected:
         return place + prefix_size;
     }
 
-    static void init(AggregateDataPtr __restrict place) noexcept {
+    static void init(AggregateDataPtr __restrict place, bool is_window_function) noexcept {
         init_flag(place);
-        init_null_count(place);
+        init_null_count(place, is_window_function);
     }
 
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
@@ -78,23 +79,26 @@ protected:
         return result_is_nullable ? place[0] : true;
     }
 
-    static void init_null_count(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (is_window_function && result_is_nullable) {
+    static void init_null_count(AggregateDataPtr __restrict place,
+                                bool is_window_function) noexcept {
+        if (is_window_function && result_is_nullable) {
             unaligned_store<int32_t>(place + 1, 0);
         }
     }
 
-    static void update_null_count(AggregateDataPtr __restrict place, bool incremental) noexcept {
-        if constexpr (is_window_function && result_is_nullable) {
+    static void update_null_count(AggregateDataPtr __restrict place, bool incremental,
+                                  bool is_window_function) noexcept {
+        if (is_window_function && result_is_nullable) {
             auto null_count = unaligned_load<int32_t>(place + 1);
             incremental ? null_count++ : null_count--;
             unaligned_store<int32_t>(place + 1, null_count);
         }
     }
 
-    static int32_t get_null_count(ConstAggregateDataPtr __restrict place) noexcept {
+    static int32_t get_null_count(ConstAggregateDataPtr __restrict place,
+                                  bool is_window_function) noexcept {
         int32_t num = 0;
-        if constexpr (is_window_function && result_is_nullable) {
+        if (is_window_function && result_is_nullable) {
             num = unaligned_load<int32_t>(place + 1);
         }
         return num;
@@ -102,12 +106,13 @@ protected:
 
 public:
     AggregateFunctionNullBaseInline(IAggregateFunction* nested_function_,
-                                    const DataTypes& arguments)
+                                    const DataTypes& arguments, bool is_window_function_)
             : IAggregateFunctionHelper<Derived>(arguments),
-              nested_function {assert_cast<NestFunction*>(nested_function_)} {
+              nested_function {assert_cast<NestFunction*>(nested_function_)},
+              is_window_function(is_window_function_) {
         DCHECK(nested_function_ != nullptr);
         if constexpr (result_is_nullable) {
-            if constexpr (is_window_function) {
+            if (this->is_window_function) {
                 // flag|---null_count----|-------padding-------|--nested_data----|
                 size_t nested_align = nested_function->align_of_data();
                 prefix_size = 1 + sizeof(int32_t);
@@ -138,7 +143,7 @@ public:
     }
 
     void create(AggregateDataPtr __restrict place) const override {
-        init(place);
+        init(place, this->is_window_function);
         nested_function->create(nested_place(place));
     }
 
@@ -146,7 +151,7 @@ public:
         nested_function->destroy(nested_place(place));
     }
     void reset(AggregateDataPtr place) const override {
-        init(place);
+        init(place, this->is_window_function);
         nested_function->reset(nested_place(place));
     }
 
@@ -157,7 +162,7 @@ public:
     size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
 
     size_t align_of_data() const override {
-        if constexpr (is_window_function && result_is_nullable) {
+        if (this->is_window_function && result_is_nullable) {
             return std::max(nested_function->align_of_data(), alignof(int32_t));
         } else {
             return nested_function->align_of_data();
@@ -228,20 +233,18 @@ public:
 /** There are two cases: for single argument and variadic.
   * Code for single argument is much more efficient.
   */
-template <typename NestFuction, bool result_is_nullable, bool is_window_function = false>
+template <typename NestFuction, bool result_is_nullable>
 class AggregateFunctionNullUnaryInline final
         : public AggregateFunctionNullBaseInline<
-                  NestFuction, result_is_nullable, is_window_function,
-                  AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable,
-                                                   is_window_function>> {
+                  NestFuction, result_is_nullable,
+                  AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>> {
 public:
     AggregateFunctionNullUnaryInline(IAggregateFunction* nested_function_,
-                                     const DataTypes& arguments)
+                                     const DataTypes& arguments, bool is_window_function_)
             : AggregateFunctionNullBaseInline<
-                      NestFuction, result_is_nullable, is_window_function,
-                      AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable,
-                                                       is_window_function>>(nested_function_,
-                                                                            arguments) {}
+                      NestFuction, result_is_nullable,
+                      AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>(
+                      nested_function_, arguments, is_window_function_) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
@@ -252,22 +255,21 @@ public:
             const IColumn* nested_column = &column->get_nested_column();
             this->nested_function->add(this->nested_place(place), &nested_column, row_num, arena);
         } else {
-            this->update_null_count(place, true);
+            this->update_null_count(place, true, this->is_window_function);
         }
     }
 
     IAggregateFunction* transmit_to_stable() override {
         auto f = AggregateFunctionNullBaseInline<
-                         NestFuction, result_is_nullable, is_window_function,
-                         AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable,
-                                                          is_window_function>>::nested_function
-                         ->transmit_to_stable();
+                         NestFuction, result_is_nullable,
+                         AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>::
+                         nested_function->transmit_to_stable();
         if (!f) {
             return nullptr;
         }
         return new AggregateFunctionNullUnaryInline<
                 typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
-                f, IAggregateFunction::argument_types);
+                f, IAggregateFunction::argument_types, this->is_window_function);
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
@@ -410,14 +412,16 @@ public:
                 null_map_data[outcoming_pos] == 1) {
                 is_previous_frame_start_null = true;
                 DCHECK_EQ(result_is_nullable, true);
-                this->update_null_count(place, false);
+                DCHECK_EQ(this->is_window_function, true);
+                this->update_null_count(place, false, this->is_window_function);
             }
             bool is_current_frame_end_null = false;
             if (incoming_pos >= partition_start && incoming_pos < partition_end &&
                 null_map_data[incoming_pos] == 1) {
                 is_current_frame_end_null = true;
                 DCHECK_EQ(result_is_nullable, true);
-                this->update_null_count(place, true);
+                DCHECK_EQ(this->is_window_function, true);
+                this->update_null_count(place, true, this->is_window_function);
             }
             const IColumn* columns_tmp[2] {nested_column, &(*column->get_null_map_column_ptr())};
             this->nested_function->execute_function_with_incremental(
@@ -425,7 +429,9 @@ public:
                     this->nested_place(place), columns_tmp, arena, is_previous_frame_start_null,
                     is_current_frame_end_null, true, use_null_result, could_use_previous_result);
             DCHECK_EQ(result_is_nullable, true);
-            if (current_frame_end - current_frame_start == this->get_null_count(place)) {
+            DCHECK_EQ(this->is_window_function, true);
+            if (current_frame_end - current_frame_start ==
+                this->get_null_count(place, this->is_window_function)) {
                 this->init_flag(place);
             } else {
                 this->set_flag(place);
@@ -438,20 +444,18 @@ public:
     }
 };
 
-template <typename NestFuction, bool result_is_nullable, bool is_window_function = false>
+template <typename NestFuction, bool result_is_nullable>
 class AggregateFunctionNullVariadicInline final
         : public AggregateFunctionNullBaseInline<
-                  NestFuction, result_is_nullable, is_window_function,
-                  AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable,
-                                                      is_window_function>> {
+                  NestFuction, result_is_nullable,
+                  AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>> {
 public:
     AggregateFunctionNullVariadicInline(IAggregateFunction* nested_function_,
-                                        const DataTypes& arguments)
+                                        const DataTypes& arguments, bool is_window_function_)
             : AggregateFunctionNullBaseInline<
-                      NestFuction, result_is_nullable, is_window_function,
-                      AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable,
-                                                          is_window_function>>(nested_function_,
-                                                                               arguments),
+                      NestFuction, result_is_nullable,
+                      AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>>(
+                      nested_function_, arguments, is_window_function_),
               number_of_arguments(arguments.size()) {
         if (number_of_arguments == 1) {
             throw Exception(
@@ -473,16 +477,15 @@ public:
 
     IAggregateFunction* transmit_to_stable() override {
         auto f = AggregateFunctionNullBaseInline<
-                         NestFuction, result_is_nullable, is_window_function,
-                         AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable,
-                                                             is_window_function>>::nested_function
-                         ->transmit_to_stable();
+                         NestFuction, result_is_nullable,
+                         AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>>::
+                         nested_function->transmit_to_stable();
         if (!f) {
             return nullptr;
         }
         return new AggregateFunctionNullVariadicInline<
-                typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable,
-                is_window_function>(f, IAggregateFunction::argument_types);
+                typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
+                f, IAggregateFunction::argument_types, this->is_window_function);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
