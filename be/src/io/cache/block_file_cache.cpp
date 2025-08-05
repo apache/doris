@@ -283,39 +283,9 @@ UInt128Wrapper BlockFileCache::hash(const std::string& path) {
 BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context_holder(
         const TUniqueId& query_id) {
     SCOPED_CACHE_LOCK(_mutex, this);
-    
-    // First check global config
     if (!config::enable_file_cache_query_limit) {
         return {};
     }
-    
-    // Log before getting query context and checking query-level option
-    LOG(INFO) << "BlockFileCache::get_query_context_holder starting for query: " << print_id(query_id)
-              << ", global enable_file_cache_query_limit: " << config::enable_file_cache_query_limit;
-
-    // Get query context and check query-level option
-    auto query_context = ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(query_id);
-    if (query_context != nullptr) {
-        const auto& query_options = query_context->get_query_options();
-        LOG(INFO) << "Found query context for query: " << print_id(query_id)
-                  << ", query options isset enable_file_cache_query_limit: " << query_options.__isset.enable_file_cache_query_limit;
-        // Check if enable_file_cache_query_limit is set in query options
-        if (query_options.__isset.enable_file_cache_query_limit) {
-            LOG(INFO) << "Query-level enable_file_cache_query_limit is set to: " << query_options.enable_file_cache_query_limit
-                      << " for query: " << print_id(query_id);
-            // If set, use the query-level setting
-            if (!query_options.enable_file_cache_query_limit) {
-                LOG(INFO) << "Query-level file cache is disabled, returning empty holder for query: " << print_id(query_id);
-                return {};
-            }
-        }
-    } else {
-        LOG(INFO) << "No query context found for query: " << print_id(query_id);
-    }
-
-    // Log after query context check
-    LOG(INFO) << "Query context check completed for query: " << print_id(query_id)
-              << ", proceeding to create context holder";
 
     /// if enable_file_cache_query_limit is true,
     /// we create context query for current query.
