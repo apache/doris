@@ -42,7 +42,7 @@ suite ("test_agg_state_max_by") {
 
     test {
         sql """create materialized view k1mb as select k1,max_by(k2,k3) from d_table group by k1;"""
-        exception "duplicate column name k1 in full schema"
+        exception "Duplicate column name 'k1'"
     }
     createMV("create materialized view k1mb as select k1 as k1mb_k1,max_by(k2,k3) from d_table group by k1;")
 
@@ -79,7 +79,7 @@ suite ("test_agg_state_max_by") {
 
     test {
         sql """create materialized view k1mbcp1 as select k1 as k1mbcp1_k1,max_by(k2+k3,abs(k3)) from d_table group by k1;"""
-        exception "duplicate column name __max_by_1 in full schema"
+        exception "Duplicate column name '__max_by_1'"
     }
     createMV("create materialized view k1mbcp1 as select k1 as k1mbcp1_k1,max_by(k2+k3,abs(k3)) as k1mbcp1_max_by from d_table group by k1;")
     createMV("create materialized view k1mbcp2 as select k1 as k1mbcp2_k1,max_by(k2+k3,k3) as k1mbcp2_max_by from d_table group by k1;")
