@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 
@@ -324,22 +325,23 @@ public class DatetimeFunctionBinder {
     }
 
     private Expression processDateFloor(TimeUnit unit, Expression timeStamp, Expression amount) {
-        DateTimeV2Literal e = DateTimeV2Literal.USE_IN_FLOOR_CEIL;
+        DateTimeV2Literal datetimeBase = DateTimeV2Literal.USE_IN_FLOOR_CEIL;
+        DateV2Literal dateBase = DateV2Literal.USE_IN_FLOOR_CEIL;
         switch (unit) {
             case YEAR:
-                return new YearFloor(timeStamp, amount, e);
+                return new YearFloor(timeStamp, amount, dateBase);
             case MONTH:
-                return new MonthFloor(timeStamp, amount, e);
+                return new MonthFloor(timeStamp, amount, dateBase);
             case WEEK:
-                return new WeekFloor(timeStamp, amount, e);
+                return new WeekFloor(timeStamp, amount, dateBase);
             case DAY:
-                return new DayFloor(timeStamp, amount, e);
+                return new DayFloor(timeStamp, amount, dateBase);
             case HOUR:
-                return new HourFloor(timeStamp, amount, e);
+                return new HourFloor(timeStamp, amount, datetimeBase);
             case MINUTE:
-                return new MinuteFloor(timeStamp, amount, e);
+                return new MinuteFloor(timeStamp, amount, datetimeBase);
             case SECOND:
-                return new SecondFloor(timeStamp, amount, e);
+                return new SecondFloor(timeStamp, amount, datetimeBase);
             default:
                 throw new AnalysisException("Unsupported time stamp floor time unit: " + unit
                         + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
@@ -347,22 +349,23 @@ public class DatetimeFunctionBinder {
     }
 
     private Expression processDateCeil(TimeUnit unit, Expression timeStamp, Expression amount) {
-        DateTimeV2Literal e = DateTimeV2Literal.USE_IN_FLOOR_CEIL;
+        DateTimeV2Literal datetimeBase = DateTimeV2Literal.USE_IN_FLOOR_CEIL;
+        DateV2Literal dateBase = DateV2Literal.USE_IN_FLOOR_CEIL;
         switch (unit) {
             case YEAR:
-                return new YearCeil(timeStamp, amount, e);
+                return new YearCeil(timeStamp, amount, dateBase);
             case MONTH:
-                return new MonthCeil(timeStamp, amount, e);
+                return new MonthCeil(timeStamp, amount, dateBase);
             case WEEK:
-                return new WeekCeil(timeStamp, amount, e);
+                return new WeekCeil(timeStamp, amount, dateBase);
             case DAY:
-                return new DayCeil(timeStamp, amount, e);
+                return new DayCeil(timeStamp, amount, dateBase);
             case HOUR:
-                return new HourCeil(timeStamp, amount, e);
+                return new HourCeil(timeStamp, amount, datetimeBase);
             case MINUTE:
-                return new MinuteCeil(timeStamp, amount, e);
+                return new MinuteCeil(timeStamp, amount, datetimeBase);
             case SECOND:
-                return new SecondCeil(timeStamp, amount, e);
+                return new SecondCeil(timeStamp, amount, datetimeBase);
             default:
                 throw new AnalysisException("Unsupported time stamp ceil time unit: " + unit
                         + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
