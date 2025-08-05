@@ -51,11 +51,12 @@ public class AliyunDLFBaseProperties {
             description = "The region of the Aliyun DLF.")
     protected String dlfEndpoint = "";
 
-    @ConnectorProperty(names = {"dlf.uid", "dlf.catalog.uid"},
+    @ConnectorProperty(names = {"dlf.catalog.uid", "dlf.uid"},
             description = "The uid of the Aliyun DLF.")
     protected String dlfUid = "";
 
-    @ConnectorProperty(names = {"dlf.catalog.id"},
+    @ConnectorProperty(names = {"dlf.catalog.id", "dlf.catalog_id"},
+            required = false,
             description = "The catalog id of the Aliyun DLF. If not set, it will be the same as dlf.uid.")
     protected String dlfCatalogId = "";
 
@@ -64,7 +65,7 @@ public class AliyunDLFBaseProperties {
             description = "Enable public access to Aliyun DLF.")
     protected String dlfAccessPublic = "false";
 
-    @ConnectorProperty(names = {DataLakeConfig.CATALOG_PROXY_MODE},
+    @ConnectorProperty(names = {DataLakeConfig.CATALOG_PROXY_MODE, "dlf.proxy.mode"},
             required = false,
             description = "The proxy mode of the Aliyun DLF. Default is DLF_ONLY.")
     protected String dlfProxyMode = "DLF_ONLY";
@@ -94,6 +95,9 @@ public class AliyunDLFBaseProperties {
         }
         if (StringUtils.isBlank(dlfEndpoint)) {
             throw new StoragePropertiesException("dlf.endpoint is required.");
+        }
+        if (StringUtils.isBlank(dlfCatalogId)) {
+            this.dlfCatalogId = dlfUid;
         }
     }
 
