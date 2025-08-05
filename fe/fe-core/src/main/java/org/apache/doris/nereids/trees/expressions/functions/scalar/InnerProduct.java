@@ -50,13 +50,18 @@ public class InnerProduct extends ScalarFunction implements ExplicitlyCastableSi
         super("inner_product", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private InnerProduct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public InnerProduct withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new InnerProduct(children.get(0), children.get(1));
+        return new InnerProduct(getFunctionParams(children));
     }
 
     @Override

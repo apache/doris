@@ -57,13 +57,18 @@ public class MapContainsKey extends ScalarFunction
         super("map_contains_key", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MapContainsKey(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapContainsKey withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MapContainsKey(children.get(0), children.get(1));
+        return new MapContainsKey(getFunctionParams(children));
     }
 
     @Override

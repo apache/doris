@@ -50,13 +50,18 @@ public class CosineDistance extends ScalarFunction implements ExplicitlyCastable
         super("cosine_distance", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CosineDistance(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public CosineDistance withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new CosineDistance(children.get(0), children.get(1));
+        return new CosineDistance(getFunctionParams(children));
     }
 
     @Override

@@ -85,6 +85,11 @@ public class Sum extends NullableAggregateFunction
         super("sum", distinct, alwaysNullable, isSkew, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sum(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MultiDistinctSum convertToMultiDistinct() {
         Preconditions.checkArgument(distinct,
@@ -107,17 +112,17 @@ public class Sum extends NullableAggregateFunction
     @Override
     public Sum withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum(distinct, alwaysNullable, isSkew, children.get(0));
+        return new Sum(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Sum(distinct, alwaysNullable, isSkew, children.get(0));
+        return new Sum(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
     public Expression withIsSkew(boolean isSkew) {
-        return new Sum(distinct, alwaysNullable, isSkew, child());
+        return new Sum(getFunctionParams(distinct, isSkew, children));
     }
 
     @Override
@@ -142,7 +147,7 @@ public class Sum extends NullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new Sum(this.distinct, param);
+        return new Sum(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override

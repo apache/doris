@@ -56,13 +56,18 @@ public class GroupArrayIntersect extends NotNullableAggregateFunction
         super("group_array_intersect", false, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private GroupArrayIntersect(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupArrayIntersect(distinct, children.get(0));
+        return new GroupArrayIntersect(getFunctionParams(distinct, children));
     }
 
     @Override
