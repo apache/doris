@@ -23,7 +23,7 @@ import org.apache.doris.thrift.TPatternType;
 import java.util.Objects;
 
 /**
- * A field inside a StructType.
+ * A field inside a VariantType.
  */
 public class VariantField {
     private final String pattern;
@@ -36,7 +36,7 @@ public class VariantField {
     }
 
     /**
-     * StructField Constructor
+     * VariantField Constructor
      *  @param pattern of this field
      *  @param dataType The data type of this field
      *  @param comment The comment of this field
