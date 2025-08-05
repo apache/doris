@@ -271,7 +271,9 @@ struct FunctionCastTest : public testing::Test {
         }
 
         if (expect_execute_fail) {
+            TestCaseInfo::error_line_number = -1;
             for (const auto& row : data_set) {
+                TestCaseInfo::error_line_number++;
                 auto add_row = row;
                 add_row.first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
                 DataSet one_row_dataset = {add_row};
