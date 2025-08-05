@@ -372,6 +372,11 @@ struct creator_with_type_list_base {
         };
         AggregateFunctionPtr result = nullptr;
         auto type = argument_types[define_index]->get_primitive_type();
+        if (type == PrimitiveType::TYPE_CHAR || type == PrimitiveType::TYPE_STRING ||
+            type == PrimitiveType::TYPE_JSONB) {
+            type = PrimitiveType::TYPE_VARCHAR;
+        }
+
         (
                 [&] {
                     if (type == AllowedTypes) {
