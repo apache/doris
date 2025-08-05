@@ -137,7 +137,7 @@ public class PaimonScanNodeTest {
         params.put("startSnapshotId", "5");
         Map<String, String> result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("5", result.get("scan.snapshot-id"));
-        Assert.assertNull(result.get("scan.mode"));
+        Assert.assertEquals(result.get("scan.mode"), "from-snapshot");
         Assert.assertEquals(2, result.size());
 
         // 2. Both startSnapshotId and endSnapshotId
