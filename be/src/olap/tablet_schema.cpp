@@ -767,6 +767,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
+    _sub_columns.push_back(std::make_shared<TabletColumn>(sub_column));
     sub_column._parent_col_unique_id = this->_unique_id;
     _sub_column_count += 1;
 }
