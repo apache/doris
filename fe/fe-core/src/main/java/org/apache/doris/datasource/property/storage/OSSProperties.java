@@ -140,7 +140,21 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Override
     protected void checkEndpoint() {
         if (StringUtils.isBlank(this.endpoint) && StringUtils.isNotBlank(this.region)) {
-            this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+            Optional<String> uriValueOpt = origProps.entrySet().stream()
+                    .filter(e -> URI_KEYWORDS.stream()
+                            .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
+                    .map(Map.Entry::getValue)
+                    .filter(Objects::nonNull)
+                    .filter(OSSProperties::isKnownObjectStorage)
+                    .findFirst();
+            if (uriValueOpt.isPresent()) {
+                String uri = uriValueOpt.get();
+                // If the URI does not start with http(s), derive endpoint from region
+                // (http(s) URIs are handled by separate logic elsewhere)
+                if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
+                    this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+                }
+            }
         }
         super.checkEndpoint();
     }
