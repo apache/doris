@@ -349,6 +349,8 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
             g_file_cache_cloud_tablet_submitted_segment_size
                     << rowset->rowset_meta()->segment_file_size(seg_id);
         }
+        auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
+        // clang-format off
         _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
                 .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
                 .file_size = rowset->rowset_meta()->segment_file_size(seg_id),
@@ -358,8 +360,8 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         },
-                .download_done {[this, rowset, delay_add_rowset](Status st) {
-                    warm_up_done_cb(rowset, st, delay_add_rowset);
+                .download_done {[self, rowset, delay_add_rowset](Status st) {
+                    self->warm_up_done_cb(rowset, st, delay_add_rowset);
                     if (!st) {
                         LOG_WARNING("add rowset warm up error ").error(st);
                     }
