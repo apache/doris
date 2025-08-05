@@ -29,6 +29,7 @@ import org.apache.doris.regression.util.NodeType
 suite('test_schema_change_with_compaction4', 'nonConcurrent') {
     def getJobState = { tableName ->
         def jobStateResult = sql """ SHOW ALTER TABLE MATERIALIZED VIEW WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+        logger.info("jobStateResult: " + jobStateResult)
         return jobStateResult[0][8]
     }
 
@@ -57,6 +58,7 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
         // check load state
         while (true) {
             def stateResult = sql "show load where Label = '${loadLabel}'"
+            logger.info("stateResult: " + stateResult)
             def loadState = stateResult[stateResult.size() - 1][2].toString()
             if ("CANCELLED".equalsIgnoreCase(loadState)) {
                 throw new IllegalStateException("load ${loadLabel} failed.")
@@ -83,7 +85,7 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
         sql "select count(*) from date"
         // cu compaction
         logger.info("run compaction:" + originTabletId)
-        (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
+        def (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         boolean running = true
         do {
@@ -117,7 +119,7 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
 
         // base compaction
         logger.info("run compaction:" + originTabletId)
-        (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
+        def (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
 
@@ -160,6 +162,8 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
                 running = compactionStatus.run_status
             } while (running)
         }
+    } catch (Exception e) {
+        logger.error("Exception: " + e)
     } finally {
         sql """ CANCEL ALTER TABLE MATERIALIZED VIEW FROM date """
         if (injectBe != null) {
@@ -183,7 +187,7 @@ suite('test_schema_change_with_compaction4', 'nonConcurrent') {
         assertEquals(count[0][0], 23004);
         // check rowsets
         logger.info("run show:" + originTabletId)
-        (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
+        def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
         logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
         assertTrue(out.contains("[0-1]"))
         assertTrue(out.contains("[2-7]"))
