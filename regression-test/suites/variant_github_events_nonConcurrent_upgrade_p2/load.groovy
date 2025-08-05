@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
+suite("regression_test_variant_github_events_upgrade_p2", "nonConcurrent,p2"){
     // prepare test table
     def timeout = 300000
     def delta_time = 1000
