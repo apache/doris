@@ -487,12 +487,12 @@ public abstract class RoutineLoadJob
         }
     }
 
-    private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
+    protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
         if (routineLoadDesc != null) {
-            columnDescs = new ImportColumnDescs();
             if (routineLoadDesc.getColumnsInfo() != null) {
                 ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
                 if (columnsStmt.getColumns() != null) {
+                    columnDescs = new ImportColumnDescs();
                     columnDescs.descs.addAll(columnsStmt.getColumns());
                 }
             }
