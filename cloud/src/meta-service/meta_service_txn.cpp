@@ -2036,6 +2036,7 @@ void MetaServiceImpl::commit_txn_eventually(
         std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer_->submit(instance_id, txn_id);
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::txn_lazy_committer_wait", &txn_id);
         std::pair<MetaServiceCode, std::string> ret = task->wait();
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::task->wait", &ret);
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
