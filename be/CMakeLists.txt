@@ -389,7 +389,7 @@ if (USE_DWARF)
 endif()
 
 # For CMAKE_BUILD_TYPE=Debug
-if (OS_MACOSX AND ARCH_ARM)
+if (ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
     set(CXX_FLAGS_DEBUG "-Og")
 else()
