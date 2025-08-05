@@ -210,5 +210,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     public void initializeHadoopStorageConfig() {
         super.initializeHadoopStorageConfig();
         hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
+        hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
+        hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
     }
 }
