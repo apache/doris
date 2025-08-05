@@ -123,11 +123,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     }
 
     // Log after initializing file cache context holders
-    LOG(INFO) << "Completed file cache context initialization for query: " << print_id(_query_id)
-              << ", holders count: "
-              << (_query_file_cache_context_holders != nullptr
-                          ? _query_file_cache_context_holders.size()
-                          : 0);
+    LOG(INFO) << "Completed file cache context initialization for query: " << print_id(_query_id);
 
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
                                query_options.query_type == TQueryType::LOAD ||
