@@ -1031,48 +1031,48 @@ Status aggregate_variant_extended_info(
 //     return Status::OK();
 // }
 //
-// // Calculate statistics about variant data paths from the encoded sparse column
-// void calculate_variant_stats(const IColumn& encoded_sparse_column,
-//                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
-//                              size_t num_rows) {
-//     // Cast input column to ColumnMap type since sparse column is stored as a map
-//     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
-//
-//     // Get the keys column which contains the paths as strings
-//     const auto& sparse_data_paths =
-//             assert_cast<const ColumnString*>(map_column.get_keys_ptr().get());
-//     const auto& serialized_sparse_column_offsets =
-//             assert_cast<const ColumnArray::Offsets64&>(map_column.get_offsets());
-//     auto& count_map = *stats->mutable_sparse_column_non_null_size();
-//     // Iterate through all paths in the sparse column
-//     for (size_t i = row_pos; i != row_pos + num_rows; ++i) {
-//         size_t offset = serialized_sparse_column_offsets[i - 1];
-//         size_t end = serialized_sparse_column_offsets[i];
-//         for (size_t j = offset; j != end; ++j) {
-//             auto path = sparse_data_paths->get_data_at(j);
-//
-//             const auto& sparse_path = path.to_string();
-//             // If path already exists in statistics, increment its count
-//             if (auto it = count_map.find(sparse_path); it != count_map.end()) {
-//                 ++it->second;
-//             }
-//             // If path doesn't exist and we haven't hit the max statistics size limit,
-//             // add it with count 1
-//             else if (count_map.size() < config::variant_max_sparse_column_statistics_size) {
-//                 count_map.emplace(sparse_path, 1);
-//             }
-//         }
-//     }
-//
-//     if (stats->sparse_column_non_null_size().size() >
-//         config::variant_max_sparse_column_statistics_size) {
-//         throw doris::Exception(
-//                 ErrorCode::INTERNAL_ERROR,
-//                 "Sparse column non null size: {} is greater than max statistics size: {}",
-//                 stats->sparse_column_non_null_size().size(),
-//                 config::variant_max_sparse_column_statistics_size);
-//     }
-// }
+// Calculate statistics about variant data paths from the encoded sparse column
+void calculate_variant_stats(const IColumn& encoded_sparse_column,
+                             segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                             size_t num_rows) {
+    // Cast input column to ColumnMap type since sparse column is stored as a map
+    const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
+
+    // Get the keys column which contains the paths as strings
+    const auto& sparse_data_paths =
+            assert_cast<const ColumnString*>(map_column.get_keys_ptr().get());
+    const auto& serialized_sparse_column_offsets =
+            assert_cast<const ColumnArray::Offsets64&>(map_column.get_offsets());
+    auto& count_map = *stats->mutable_sparse_column_non_null_size();
+    // Iterate through all paths in the sparse column
+    for (size_t i = row_pos; i != row_pos + num_rows; ++i) {
+        size_t offset = serialized_sparse_column_offsets[i - 1];
+        size_t end = serialized_sparse_column_offsets[i];
+        for (size_t j = offset; j != end; ++j) {
+            auto path = sparse_data_paths->get_data_at(j);
+
+            const auto& sparse_path = path.to_string();
+            // If path already exists in statistics, increment its count
+            if (auto it = count_map.find(sparse_path); it != count_map.end()) {
+                ++it->second;
+            }
+            // If path doesn't exist and we haven't hit the max statistics size limit,
+            // add it with count 1
+            else if (count_map.size() < config::variant_max_sparse_column_statistics_size) {
+                count_map.emplace(sparse_path, 1);
+            }
+        }
+    }
+
+    if (stats->sparse_column_non_null_size().size() >
+        config::variant_max_sparse_column_statistics_size) {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Sparse column non null size: {} is greater than max statistics size: {}",
+                stats->sparse_column_non_null_size().size(),
+                config::variant_max_sparse_column_statistics_size);
+    }
+}
 
 /// Calculates number of dimensions in array field.
 /// Returns 0 for scalar fields.
