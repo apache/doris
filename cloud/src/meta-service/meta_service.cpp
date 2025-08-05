@@ -1218,8 +1218,48 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
         msg = "failed to init txn";
         return;
     }
-    internal_get_tablet(code, msg, instance_id, txn.get(), request->tablet_id(),
-                        response->mutable_tablet_meta(), false);
+    if (!is_version_read_enabled(instance_id)) {
+        internal_get_tablet(code, msg, instance_id, txn.get(), request->tablet_id(),
+                            response->mutable_tablet_meta(), false);
+        return;
+    }
+
+    MetaReader reader(instance_id, txn_kv_.get());
+    TabletMetaCloudPB tablet_meta;
+    err = reader.get_tablet_meta(txn.get(), request->tablet_id(), &tablet_meta, nullptr);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get tablet meta, tablet_id={}, err={}", request->tablet_id(),
+                          err);
+        return;
+    }
+
+    if (tablet_meta.has_schema() &&
+        tablet_meta.schema().column_size() > 0) { // tablet meta saved before detach schema kv
+        tablet_meta.set_schema_version(tablet_meta.schema().schema_version());
+        return;
+    }
+
+    if (!tablet_meta.has_schema_version()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "tablet_meta must have either schema or schema_version";
+        response->mutable_tablet_meta()->Clear();
+        return;
+    }
+    auto key = meta_schema_key({instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
+    ValueBuf val_buf;
+    err = cloud::blob_get(txn.get(), key, &val_buf);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get schema, err={}",
+                          err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "not found" : "internal error");
+        return;
+    }
+    if (!parse_schema_value(val_buf, tablet_meta.mutable_schema())) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("malformed schema value, key={}", key);
+    }
+    response->mutable_tablet_meta()->Swap(&tablet_meta);
 }
 
 static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg, Transaction* txn,
