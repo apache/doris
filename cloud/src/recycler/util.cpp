@@ -299,42 +299,4 @@ int get_tablet_meta(TxnKv* txn_kv, const std::string& instance_id, int64_t table
     }
     return 0;
 }
-
-// Helper function to normalize URI by removing duplicate slashes
-// Keeps protocol part (http:// or https://) intact
-// Examples:
-//   "https://example.com//path//to///file" -> "https://example.com/path/to/file"
-//   "http://host.com///bucket//prefix/" -> "http://host.com/bucket/prefix/"
-//   "endpoint.com//bucket///prefix" -> "endpoint.com/bucket/prefix"
-//   "https://account.blob.core.windows.net////container" -> "https://account.blob.core.windows.net/container"
-std::string normalize_uri(const std::string& uri) {
-    if (uri.empty()) {
-        return uri;
-    }
-
-    // Find the end of protocol part (http:// or https://)
-    // Example: in "https://example.com", protocol_end will be 8 (position after "://")
-    size_t protocol_end = uri.find("://");
-    if (protocol_end == std::string::npos) {
-        protocol_end = 0; // No protocol found, start from beginning
-    } else {
-        protocol_end += 3; // Skip past "://"
-    }
-
-    // Keep protocol part (e.g., "https://")
-    std::string result = uri.substr(0, protocol_end);
-
-    // Process the rest of URI to remove duplicate slashes
-    // Example: "//path//to///file" becomes "/path/to/file"
-    for (size_t i = protocol_end; i < uri.length(); i++) {
-        char current = uri[i];
-
-        // Add current character if it's not a slash, or if it's the first slash in sequence
-        // This prevents consecutive slashes like "//" or "///" from being added
-        if (current != '/' || result.empty() || result.back() != '/') {
-            result += current;
-        }
-    }
-    return result;
-}
 } // namespace doris::cloud
