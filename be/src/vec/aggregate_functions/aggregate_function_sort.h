@@ -75,8 +75,11 @@ struct AggregateFunctionSortData {
         PBlock pblock;
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
-        block.serialize(state->be_exec_version(), &pblock, &uncompressed_bytes, &compressed_bytes,
-                        segment_v2::CompressionTypePB::SNAPPY);
+        auto st = block.serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
+                                  &compressed_bytes, segment_v2::CompressionTypePB::SNAPPY);
+        if (!st.ok()) {
+            throw doris::Exception(st);
+        }
 
         write_string_binary(pblock.SerializeAsString(), buf);
     }
@@ -88,7 +91,11 @@ struct AggregateFunctionSortData {
         PBlock pblock;
         pblock.ParseFromString(data);
         auto st = block.deserialize(pblock);
-        CHECK(st.ok());
+        // If memory allocate failed during deserialize, st is not ok, throw exception here to
+        // stop the query.
+        if (!st.ok()) {
+            throw doris::Exception(st);
+        }
     }
 
     void add(const IColumn** columns, size_t columns_num, size_t row_num) {
