@@ -1903,7 +1903,7 @@ public class Config extends ConfigBase {
 
 
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_wg_memory_sum_limit = true;
+    public static boolean enable_wg_memory_sum_limit = false;
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
