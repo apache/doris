@@ -294,18 +294,33 @@ BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context
         return {};
     }
     
+    // Log before getting query context and checking query-level option
+    LOG(INFO) << "BlockFileCache::get_query_context_holder starting for query: " << print_id(query_id)
+              << ", global enable_file_cache_query_limit: " << config::enable_file_cache_query_limit;
+
     // Get query context and check query-level option
     auto query_context = ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(query_id);
     if (query_context != nullptr) {
         const auto& query_options = query_context->get_query_options();
+        LOG(INFO) << "Found query context for query: " << print_id(query_id)
+                  << ", query options isset enable_file_cache_query_limit: " << query_options.__isset.enable_file_cache_query_limit;
         // Check if enable_file_cache_query_limit is set in query options
         if (query_options.__isset.enable_file_cache_query_limit) {
+            LOG(INFO) << "Query-level enable_file_cache_query_limit is set to: " << query_options.enable_file_cache_query_limit
+                      << " for query: " << print_id(query_id);
             // If set, use the query-level setting
             if (!query_options.enable_file_cache_query_limit) {
+                LOG(INFO) << "Query-level file cache is disabled, returning empty holder for query: " << print_id(query_id);
                 return {};
             }
         }
+    } else {
+        LOG(INFO) << "No query context found for query: " << print_id(query_id);
     }
+
+    // Log after query context check
+    LOG(INFO) << "Query context check completed for query: " << print_id(query_id)
+              << ", proceeding to create context holder";
 
     /// if enable_file_cache_query_limit is true,
     /// we create context query for current query.
@@ -1074,7 +1089,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                                                     query_context->get_max_cache_size());
     };
 
-    LOG(DEBUG) << "Starting query context eviction scan: queue_size=" << queue_size
+    VLOG_DEBUG << "Starting query context eviction scan: queue_size=" << queue_size
                << ", max_queue_size=" << max_size
                << ", query_cache_size=" << query_context_cache_size
                << ", query_id=" << print_id(context.query_id);
@@ -1125,7 +1140,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 
     if (is_overflow()) {
-        LOG(DEBUG) << "Query context eviction insufficient, trying to evict from other queues: "
+        VLOG_DEBUG << "Query context eviction insufficient, trying to evict from other queues: "
                    << "removed_size=" << removed_size << ", ghost_remove_size=" << ghost_remove_size
                    << ", needed=" << size;
 
@@ -1134,7 +1149,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                                                                           cur_time, cache_lock)
                                            : false;
         if (!other_queue_success) {
-            LOG(DEBUG) << "Failed to reserve space after exhausting all eviction strategies: "
+            VLOG_DEBUG << "Failed to reserve space after exhausting all eviction strategies: "
                        << "query_limit_enable_evict_from_other_queue="
                        << config::file_cache_query_limit_enable_evict_from_other_queue
                        << ", hash=" << hash.to_string() << ", offset=" << offset
