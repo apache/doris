@@ -75,7 +75,9 @@ public class InitJoinOrder extends OneRewriteRuleFactory {
             right.accept(derive, new DeriveContext());
         }
 
-        if (left.getStats().getRowCount() < right.getStats().getRowCount() * SWAP_THRESHOLD) {
+        // requires "left.getStats().getRowCount() > 0" to avoid dead loop when negative row count is estimated.
+        if (left.getStats().getRowCount() < right.getStats().getRowCount() * SWAP_THRESHOLD
+                && left.getStats().getRowCount() > 0) {
             join = join.withTypeChildren(swapType, right, left,
                     join.getJoinReorderContext());
             return join;
