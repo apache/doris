@@ -117,22 +117,21 @@ public class PartitionInfo {
     }
 
 
-    private void readLock() {
+    protected void readLock() {
         rwLock.readLock().lock();
     }
 
-    private void readUnlock() {
+    protected void readUnlock() {
         rwLock.readLock().unlock();
     }
 
-    private void writeLock() {
+    protected void writeLock() {
         rwLock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    protected void writeUnlock() {
         rwLock.writeLock().unlock();
     }
-
 
     public PartitionType getType() {
         return type;
@@ -443,14 +442,20 @@ public class PartitionInfo {
 
     public void setIsMutable(long partitionId, boolean isMutable) {
         writeLock();
-        idToDataProperty.get(partitionId).setMutable(isMutable);
-        writeUnlock();
+        try {
+            idToDataProperty.get(partitionId).setMutable(isMutable);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void setIsInMemory(long partitionId, boolean isInMemory) {
         writeLock();
-        idToInMemory.put(partitionId, isInMemory);
-        writeUnlock();
+        try {
+            idToInMemory.put(partitionId, isInMemory);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public TTabletType getTabletType(long partitionId) {
@@ -467,8 +472,11 @@ public class PartitionInfo {
 
     public void setTabletType(long partitionId, TTabletType tabletType) {
         writeLock();
-        idToTabletType.put(partitionId, tabletType);
-        writeUnlock();
+        try {
+            idToTabletType.put(partitionId, tabletType);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void dropPartition(long partitionId) {
