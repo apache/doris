@@ -355,8 +355,9 @@ TEST(UtilTest, test_normalize_http_uri) {
     // ===== Azure blob storage specific URLs =====
     EXPECT_EQ(doris::normalize_http_uri("https://account.blob.core.windows.net//container"),
               "https://account.blob.core.windows.net/container");
-    EXPECT_EQ(doris::normalize_http_uri("https://account.blob.core.windows.net///container//prefix"),
-              "https://account.blob.core.windows.net/container/prefix");
+    EXPECT_EQ(
+            doris::normalize_http_uri("https://account.blob.core.windows.net///container//prefix"),
+            "https://account.blob.core.windows.net/container/prefix");
     EXPECT_EQ(doris::normalize_http_uri(
                       "https://account.blob.core.windows.net////container///prefix///file.txt"),
               "https://account.blob.core.windows.net/container/prefix/file.txt");
@@ -400,8 +401,10 @@ TEST(UtilTest, test_normalize_http_uri) {
     // ===== Trailing slashes =====
     EXPECT_EQ(doris::normalize_http_uri("https://example.com/path/"), "https://example.com/path/");
     EXPECT_EQ(doris::normalize_http_uri("https://example.com/path//"), "https://example.com/path/");
-    EXPECT_EQ(doris::normalize_http_uri("https://example.com/path///"), "https://example.com/path/");
-    EXPECT_EQ(doris::normalize_http_uri("https://example.com/path////"), "https://example.com/path/");
+    EXPECT_EQ(doris::normalize_http_uri("https://example.com/path///"),
+              "https://example.com/path/");
+    EXPECT_EQ(doris::normalize_http_uri("https://example.com/path////"),
+              "https://example.com/path/");
 
     // ===== Complex real-world scenarios =====
     // Simulating common configuration mistakes
@@ -409,15 +412,18 @@ TEST(UtilTest, test_normalize_http_uri) {
               "https://endpoint.com/bucket/prefix/file.txt");
 
     // User configured endpoint with trailing slash + bucket with leading slash
-    EXPECT_EQ(doris::normalize_http_uri("https://endpoint.com///bucket"), "https://endpoint.com/bucket");
+    EXPECT_EQ(doris::normalize_http_uri("https://endpoint.com///bucket"),
+              "https://endpoint.com/bucket");
 
     // Multiple slashes everywhere
-    EXPECT_EQ(doris::normalize_http_uri("https://host.com////bucket////prefix////subfolder////file"),
-              "https://host.com/bucket/prefix/subfolder/file");
+    EXPECT_EQ(
+            doris::normalize_http_uri("https://host.com////bucket////prefix////subfolder////file"),
+            "https://host.com/bucket/prefix/subfolder/file");
 
     // ===== Special characters in path =====
-    EXPECT_EQ(doris::normalize_http_uri("https://example.com//path-with-dash//file_with_underscore"),
-              "https://example.com/path-with-dash/file_with_underscore");
+    EXPECT_EQ(
+            doris::normalize_http_uri("https://example.com//path-with-dash//file_with_underscore"),
+            "https://example.com/path-with-dash/file_with_underscore");
     EXPECT_EQ(doris::normalize_http_uri("https://example.com//path.with.dots//file@special"),
               "https://example.com/path.with.dots/file@special");
     EXPECT_EQ(doris::normalize_http_uri("https://example.com//bucket123//prefix456//file789"),
