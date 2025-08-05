@@ -89,6 +89,30 @@ TEST_F(FunctionCastTest, strict_test_from_string_to_date) {
     check_function_for_cast<DataTypeDateV2>(input_types, data_set);
 }
 
+TEST_F(FunctionCastTest, invalid_cases_in_strict_mode) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {// Invalid formats. in strict
+                        {{std::string("abc")}, Null()},
+                        {{std::string("2020-05-05 12:30:60")}, Null()},
+                        {{std::string("2023-07-16T19.123+08:00")}, Null()},
+                        {{std::string("2024/05/01")}, std::string("2024-05-01")},
+                        {{std::string("24012")}, Null()},
+                        {{std::string("2411 123")}, Null()},
+                        {{std::string("2024-05-01 01:030:02")}, Null()},
+                        {{std::string("10000-01-01 00:00:00")}, Null()},
+                        {{std::string("2024-0131T12:00")}, Null()},
+                        {{std::string("2024-05-01@00:00")}, Null()},
+                        {{std::string("20120212051")}, Null()},
+                        {{std::string("2024-05-01T00:00XYZ")}, Null()},
+                        {{std::string("2024-5-1T24:00")}, Null()},
+                        {{std::string("2024-02-30")}, Null()},
+                        {{std::string("2024-05-01T12:60")}, Null()},
+                        {{std::string("2012-06-30T23:59:60")}, Null()},
+                        {{std::string("2024-05-01T00:00+14:30")}, Null()},
+                        {{std::string("2024-05-01T00:00+08:25")}, Null()}};
+    check_function_for_cast_strict_mode<DataTypeDateV2>(input_types, data_set, " ");
+}
+
 TEST_F(FunctionCastTest, non_strict_test_from_string_to_date) {
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {

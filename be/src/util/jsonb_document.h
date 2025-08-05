@@ -363,7 +363,24 @@ struct leg_info {
     bool to_string(std::string* str) const {
         if (type == MEMBER_CODE) {
             str->push_back(BEGIN_MEMBER);
-            str->append(leg_ptr, leg_len);
+            bool contains_space = false;
+            std::string tmp;
+            for (auto* it = leg_ptr; it != (leg_ptr + leg_len); ++it) {
+                if (std::isspace(*it)) {
+                    contains_space = true;
+                } else if (*it == '"' || *it == ESCAPE || *it == '\r' || *it == '\n' ||
+                           *it == '\b' || *it == '\t') {
+                    tmp.push_back(ESCAPE);
+                }
+                tmp.push_back(*it);
+            }
+            if (contains_space) {
+                str->push_back(DOUBLE_QUOTE);
+            }
+            str->append(tmp);
+            if (contains_space) {
+                str->push_back(DOUBLE_QUOTE);
+            }
             return true;
         } else if (type == ARRAY_CODE) {
             str->push_back(BEGIN_ARRAY);
@@ -1519,8 +1536,11 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
     const char* left_quotation_marks = nullptr;
     const char* right_quotation_marks = nullptr;
 
-    for (; !stream->exhausted(); stream->skip(1)) {
-        if (stream->peek() == ESCAPE) {
+    for (; !stream->exhausted(); stream->advance()) {
+        // Only accept space characters quoted by double quotes.
+        if (std::isspace(stream->peek()) && left_quotation_marks == nullptr) {
+            return false;
+        } else if (stream->peek() == ESCAPE) {
             stream->add_leg_len();
             stream->skip(1);
             stream->add_leg_len();

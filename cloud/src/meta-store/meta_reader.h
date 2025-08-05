@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/cloud.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -68,6 +69,12 @@ public:
                                        Versionstamp* versionstamp);
     TxnErrorCode get_tablet_load_stats(Transaction* txn, int64_t tablet_id,
                                        TabletStatsPB* tablet_stats, Versionstamp* versionstamp);
+
+    // Get the tablet meta keys.
+    TxnErrorCode get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
+                                 Versionstamp* versionstamp);
+    TxnErrorCode get_tablet_meta(Transaction* txn, int64_t tablet_id,
+                                 TabletMetaCloudPB* tablet_meta, Versionstamp* versionstamp);
 
 private:
     const std::string_view instance_id_;

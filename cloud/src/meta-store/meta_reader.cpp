@@ -21,6 +21,7 @@
 
 #include "common/logging.h"
 #include "common/util.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -52,6 +53,7 @@ TxnErrorCode MetaReader::get_partition_version(int64_t partition_id, VersionPB* 
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
+
     return get_partition_version(txn.get(), partition_id, version, partition_version);
 }
 
@@ -108,6 +110,25 @@ TxnErrorCode MetaReader::get_tablet_load_stats(Transaction* txn, int64_t tablet_
     }
 
     return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
+                                         Versionstamp* versionstamp) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    return get_tablet_meta(txn.get(), tablet_id, tablet_meta, versionstamp);
+}
+
+TxnErrorCode MetaReader::get_tablet_meta(Transaction* txn, int64_t tablet_id,
+                                         TabletMetaCloudPB* tablet_meta,
+                                         Versionstamp* versionstamp) {
+    std::string tablet_meta_key = versioned::meta_tablet_key({instance_id_, tablet_id});
+    return versioned::document_get(txn, tablet_meta_key, snapshot_version_, tablet_meta,
+                                   versionstamp, snapshot_);
 }
 
 } // namespace doris::cloud

@@ -128,6 +128,11 @@ Status OlapScanner::init() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
+        LOG_WARNING("CloudTablet.capture_rs_readers.return e-230 init")
+                .tag("tablet_id", tablet->tablet_id());
+        return Status::Error<false>(-230, "injected error");
+    });
 
     for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
@@ -303,8 +308,7 @@ Status OlapScanner::_init_tablet_reader_params(
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
-        _tablet_reader_params.target_cast_type_for_variants[ele.first] =
-                ele.second->get_primitive_type();
+        _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     // Condition
     for (auto& filter : filters) {
@@ -459,7 +463,9 @@ Status OlapScanner::_init_variant_columns() {
             // add them into tablet_schema for later column indexing.
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
-                    slot->column_paths(), slot->col_unique_id());
+                    slot->column_paths(), slot->col_unique_id(),
+                    assert_cast<const vectorized::DataTypeVariant&>(*remove_nullable(slot->type()))
+                            .variant_max_subcolumns_count());
             if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }

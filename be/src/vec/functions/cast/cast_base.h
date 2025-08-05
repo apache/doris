@@ -100,6 +100,16 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
                                    size_t input_rows_count,
                                    const NullMap::value_type* null_map = nullptr);
 
+Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
+                                        const ColumnNumbers& arguments, uint32_t result,
+                                        size_t input_rows_count,
+                                        const NullMap::value_type* null_map = nullptr);
+
+Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Block& block,
+                                                    const ColumnNumbers& arguments, uint32_t result,
+                                                    size_t input_rows_count,
+                                                    const NullMap::value_type* null_map = nullptr);
+
 // prepare_unpack_dictionaries -> prepare_remove_nullable -> prepare_impl
 
 WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,

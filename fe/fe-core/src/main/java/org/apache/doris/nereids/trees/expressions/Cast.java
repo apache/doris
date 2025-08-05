@@ -84,6 +84,10 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public boolean nullable() {
         if (SessionVariable.enableStrictCast()) {
+            DataType childDataType = child().getDataType();
+            if (childDataType.isJsonType() && !targetType.isJsonType()) {
+                return true;
+            }
             return child().nullable();
         } else {
             return unStrictCastNullable();
@@ -195,6 +199,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             // Boolean to decimal
             return (targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
                     : ((DecimalV3Type) targetType).getRange()) < 1;
+        } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
+            // Json to other type is always nullable
+            return true;
         }
         return false;
     }

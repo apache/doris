@@ -570,7 +570,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, CharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, VarcharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, StringType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, JsonType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(DateType.INSTANCE, JsonType.INSTANCE, true));
         Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, VariantType.INSTANCE, true));
         Assertions.assertFalse(CheckCast.check(DateV2Type.INSTANCE, BooleanType.INSTANCE, true));
         Assertions.assertFalse(CheckCast.check(DateV2Type.INSTANCE, TinyIntType.INSTANCE, true));
@@ -592,7 +592,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, CharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, StringType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, JsonType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(DateV2Type.INSTANCE, JsonType.INSTANCE, true));
         Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, VariantType.INSTANCE, true));
 
         // Un-strict mode
@@ -616,7 +616,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, CharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, VarcharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, StringType.INSTANCE, false));
-        Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, JsonType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(DateType.INSTANCE, JsonType.INSTANCE, false));
         Assertions.assertTrue(CheckCast.check(DateType.INSTANCE, VariantType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(DateV2Type.INSTANCE, BooleanType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(DateV2Type.INSTANCE, TinyIntType.INSTANCE, false));
@@ -638,7 +638,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, CharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, StringType.INSTANCE, false));
-        Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, JsonType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(DateV2Type.INSTANCE, JsonType.INSTANCE, false));
         Assertions.assertTrue(CheckCast.check(DateV2Type.INSTANCE, VariantType.INSTANCE, false));
     }
 
@@ -665,7 +665,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, CharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, StringType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, JsonType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(DateTimeType.INSTANCE, JsonType.INSTANCE, true));
         Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, VariantType.INSTANCE, true));
         Assertions.assertFalse(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, BooleanType.INSTANCE, true));
         Assertions.assertFalse(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, TinyIntType.INSTANCE, true));
@@ -687,7 +687,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, CharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, JsonType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, JsonType.INSTANCE, true));
         Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, VariantType.INSTANCE, true));
 
         // Un-strict mode
@@ -711,7 +711,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, CharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, StringType.INSTANCE, false));
-        Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, JsonType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(DateTimeType.INSTANCE, JsonType.INSTANCE, false));
         Assertions.assertTrue(CheckCast.check(DateTimeType.INSTANCE, VariantType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, BooleanType.INSTANCE, false));
         Assertions.assertFalse(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, TinyIntType.INSTANCE, false));
@@ -733,7 +733,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, CharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE, false));
-        Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, JsonType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, JsonType.INSTANCE, false));
         Assertions.assertTrue(CheckCast.check(DateTimeV2Type.SYSTEM_DEFAULT, VariantType.INSTANCE, false));
     }
 
@@ -760,7 +760,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, CharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, StringType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, JsonType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(TimeV2Type.INSTANCE, JsonType.INSTANCE, true));
         Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, VariantType.INSTANCE, true));
 
         // Un-strict mode
@@ -784,7 +784,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, CharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, StringType.INSTANCE, false));
-        Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, JsonType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(TimeV2Type.INSTANCE, JsonType.INSTANCE, false));
         Assertions.assertTrue(CheckCast.check(TimeV2Type.INSTANCE, VariantType.INSTANCE, false));
     }
 
@@ -811,7 +811,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, CharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, StringType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, JsonType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(IPv4Type.INSTANCE, JsonType.INSTANCE, true));
         Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, VariantType.INSTANCE, true));
 
         // Un-strict mode
@@ -835,7 +835,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, CharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, StringType.INSTANCE, false));
-        Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, JsonType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(IPv4Type.INSTANCE, JsonType.INSTANCE, false));
         Assertions.assertTrue(CheckCast.check(IPv4Type.INSTANCE, VariantType.INSTANCE, false));
     }
 
@@ -862,7 +862,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, CharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, true));
         Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, StringType.INSTANCE, true));
-        Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, JsonType.INSTANCE, true));
+        Assertions.assertFalse(CheckCast.check(IPv6Type.INSTANCE, JsonType.INSTANCE, true));
         Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, VariantType.INSTANCE, true));
 
         // Un-strict mode
@@ -886,7 +886,7 @@ public class CheckCastTest {
         Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, CharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, false));
         Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, StringType.INSTANCE, false));
-        Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, JsonType.INSTANCE, false));
+        Assertions.assertFalse(CheckCast.check(IPv6Type.INSTANCE, JsonType.INSTANCE, false));
         Assertions.assertTrue(CheckCast.check(IPv6Type.INSTANCE, VariantType.INSTANCE, false));
     }
 

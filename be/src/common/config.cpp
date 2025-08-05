@@ -246,7 +246,7 @@ DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for agent report disk state to FE
-DEFINE_mInt32(report_disk_state_interval_seconds, "60");
+DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
 // the max download speed(KB/s)
@@ -1342,6 +1342,8 @@ DEFINE_mInt32(buffered_reader_read_timeout_ms, "600000");
 DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
+
+DEFINE_mInt32(variant_max_sparse_column_statistics_size, "10000");
 
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB

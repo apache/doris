@@ -65,6 +65,8 @@ public:
 
     int recycle_commit_txn_log(const CommitTxnLogPB& commit_txn_log);
 
+    int recycle_update_tablet_log(const UpdateTabletLogPB& update_tablet_log);
+
     int commit();
 
 private:
@@ -182,6 +184,30 @@ int OperationLogRecycler::recycle_commit_txn_log(const CommitTxnLogPB& commit_tx
     return 0;
 }
 
+int OperationLogRecycler::recycle_update_tablet_log(const UpdateTabletLogPB& update_tablet_log) {
+    MetaReader meta_reader(instance_id_, txn_kv_, log_version_);
+    for (int64_t tablet_id : update_tablet_log.tablet_ids()) {
+        // Find the previous tablet meta (overwrite) to remove.
+        TabletMetaCloudPB tablet_meta;
+        Versionstamp versionstamp;
+        TxnErrorCode err = meta_reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            // No tablet meta found, nothing to recycle.
+            continue;
+        } else if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get tablet meta for recycling operation log")
+                    .tag("tablet_id", tablet_id)
+                    .tag("error_code", err);
+            return -1;
+        }
+
+        std::string tablet_meta_key = versioned::meta_tablet_key({instance_id_, tablet_id});
+        keys_to_remove_.emplace_back(encode_versioned_key(tablet_meta_key, versionstamp));
+    }
+
+    return 0;
+}
+
 int OperationLogRecycler::commit() {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -225,6 +251,7 @@ int OperationLogRecycler::recycle_table_version(int64_t table_id) {
     }
 
     std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
+
     keys_to_remove_.emplace_back(encode_versioned_key(table_version_key, prev_version));
     return 0;
 }
@@ -364,22 +391,26 @@ int InstanceRecycler::recycle_operation_logs() {
 
 int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
                                             OperationLogPB operation_log) {
-#define RECYCLE_OPERATION_LOG(log_type, method_name)                  \
-    if (operation_log.has_##log_type()) {                             \
-        int res = log_recycler.method_name(operation_log.log_type()); \
-        if (res != 0) {                                               \
-            LOG_WARNING("failed to recycle " #log_type " log")        \
-                    .tag("res", res)                                  \
-                    .tag("log_version", log_version.to_string());     \
-            return res;                                               \
-        }                                                             \
-        recycle_log_count++;                                          \
-    }
-
     int recycle_log_count = 0;
     OperationLogRecycler log_recycler(instance_id_, txn_kv_.get(), log_version);
-    RECYCLE_OPERATION_LOG(commit_partition, recycle_commit_partition_log)
-    RECYCLE_OPERATION_LOG(drop_partition, recycle_drop_partition_log)
+
+#define RECYCLE_OPERATION_LOG(log_type, method_name)                      \
+    do {                                                                  \
+        if (operation_log.has_##log_type()) {                             \
+            int res = log_recycler.method_name(operation_log.log_type()); \
+            if (res != 0) {                                               \
+                LOG_WARNING("failed to recycle " #log_type " log")        \
+                        .tag("res", res)                                  \
+                        .tag("log_version", log_version.to_string());     \
+                return res;                                               \
+            }                                                             \
+            recycle_log_count++;                                          \
+        }                                                                 \
+    } while (0)
+
+    RECYCLE_OPERATION_LOG(commit_partition, recycle_commit_partition_log);
+    RECYCLE_OPERATION_LOG(drop_partition, recycle_drop_partition_log);
+    RECYCLE_OPERATION_LOG(update_tablet, recycle_update_tablet_log);
 #undef RECYCLE_OPERATION_LOG
 
     if (operation_log.has_commit_txn()) {

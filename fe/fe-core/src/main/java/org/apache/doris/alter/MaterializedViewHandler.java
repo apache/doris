@@ -163,6 +163,8 @@ public class MaterializedViewHandler extends AlterHandler {
             if (tableNotFinalStateJobIdset == null) {
                 // This could happen when this job is already removed before.
                 // return false, so that we will not set table's to NORMAL again.
+                LOG.warn("alter job is already removed before. tableId: {}, jobId: {}",
+                        tableId, jobId);
                 return false;
             }
             tableNotFinalStateJobIdset.remove(jobId);
@@ -229,6 +231,11 @@ public class MaterializedViewHandler extends AlterHandler {
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -288,6 +295,11 @@ public class MaterializedViewHandler extends AlterHandler {
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
             LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -393,6 +405,11 @@ public class MaterializedViewHandler extends AlterHandler {
             }
             throw e;
         } finally {
+            if (olapTable.getState() != OlapTableState.ROLLUP) {
+                // state is not ROLLUP, means encountered some exception before jobs submitted,
+                // so we need to unblock table here.
+                Env.getCurrentEnv().getGroupCommitManager().unblockTable(olapTable.getId());
+            }
             olapTable.writeUnlock();
         }
     }
@@ -1455,6 +1472,9 @@ public class MaterializedViewHandler extends AlterHandler {
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
+        } else {
+            LOG.warn("Failed to remove job from tableNotFinalStateJobMap, table id: {}, job id: {}",
+                    alterJob.getTableId(), alterJob.getJobId());
         }
     }
 

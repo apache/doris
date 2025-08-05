@@ -130,7 +130,7 @@ TEST_F(TabletSchemaIndexTest, TestUpdateIndexMethod) {
     TabletIndex new_index = create_test_index(1, IndexType::INVERTED, {100}, "v2");
     new_index._properties["new_prop"] = "value";
 
-    _tablet_schema->update_index(col, IndexType::INVERTED, std::move(new_index));
+    _tablet_schema->update_index(col, IndexType::INVERTED, {std::move(new_index)});
 
     const TabletIndex* updated_index = _tablet_schema->inverted_index(100, "v2");
     ASSERT_NE(updated_index, nullptr);
@@ -148,7 +148,7 @@ TEST_F(TabletSchemaIndexTest, TestUpdateIndexAddNewWhenNotExist) {
     col.set_unique_id(200);
 
     TabletIndex new_index = create_test_index(2, IndexType::INVERTED, {200}, "v3");
-    _tablet_schema->update_index(col, IndexType::INVERTED, std::move(new_index));
+    _tablet_schema->update_index(col, IndexType::INVERTED, {std::move(new_index)});
 
     const TabletIndex* index = _tablet_schema->inverted_index(200, "v3");
     ASSERT_EQ(index, nullptr);

@@ -1002,7 +1002,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
-        if (newColumn.getType().isTime() || newColumn.getType().isTimeV2()) {
+        if (newColumn.getType().isTimeV2()) {
             throw new DdlException("Time type is not supported for olap table");
         }
 

@@ -619,6 +619,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 try {
                                     HashMethodType::try_presis_key_and_origin(key, origin,
                                                                               _agg_arena_pool);
+                                    _shared_state->refresh_top_limit(i, key_columns);
                                     auto mapped =
                                             _shared_state->aggregate_data_container->append_data(
                                                     origin);
@@ -627,7 +628,6 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                         throw Exception(st.code(), st.to_string());
                                     }
                                     ctor(key, mapped);
-                                    _shared_state->refresh_top_limit(i, key_columns);
                                 } catch (...) {
                                     // Exception-safety - if it can not allocate memory or create status,
                                     // the destructors will not be called.
