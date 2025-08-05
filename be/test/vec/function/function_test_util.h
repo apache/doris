@@ -198,7 +198,7 @@ inline auto DECIMAL64 = [](int64_t x, int64_t y, int scale) {
     return Decimal64::from_int_frac(x, y, scale);
 };
 inline auto DECIMAL128V2 = [](int128_t x, int128_t y, int scale) {
-    return Decimal128V2::from_int_frac(x, y, scale);
+    return Decimal128V2::from_int_frac(x, y, 9);
 };
 inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
     return Decimal128V3::from_int_frac(x, y, scale);
