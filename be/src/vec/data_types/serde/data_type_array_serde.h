@@ -20,6 +20,8 @@
 #include <glog/logging.h>
 
 #include <cstdint>
+#include <memory>
+#include <ostream>
 #include <utility>
 
 #include "common/status.h"
@@ -33,6 +35,7 @@ class JsonWriter;
 namespace vectorized {
 class IColumn;
 class Arena;
+class IDataType;
 
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
@@ -79,11 +82,6 @@ public:
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override;
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
-
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
@@ -115,6 +113,9 @@ public:
     }
 
     DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
+
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
 
 private:
     template <bool is_binary_format>

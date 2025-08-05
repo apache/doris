@@ -494,6 +494,25 @@ void DataTypeDateTimeV2SerDe::insert_column_last_value_multiple_times(IColumn& c
     UInt64 val = col.get_element(sz - 1);
     col.insert_many_vals(val, times);
 }
+
+void DataTypeDateTimeV2SerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                       ColumnString::Chars& chars,
+                                                       int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_DATETIMEV2);
+    const auto& data_ref =
+            assert_cast<const ColumnVector<TYPE_DATETIMEV2>&>(src_column).get_data_at(row_num);
+    const uint8_t sc = static_cast<uint8_t>(_scale);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&sc),
+           sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t), data_ref.data,
+           data_ref.size);
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
 
@@ -546,5 +565,4 @@ template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataType
         const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
-
 } // namespace doris::vectorized
