@@ -331,7 +331,12 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
 
-    if (config::s3_client_http_scheme == "http") {
+    // If `s3_conf.need_override_endpoint` is true, it usually means we're accessing a non-AWS,
+    // S3-compatible object storage. In such cases, we retain the HTTP scheme for broader compatibility.
+    //
+    // However, if `s3_client_http_scheme` is explicitly set to HTTPS, or if we are indeed
+    // accessing AWS S3 despite `need_override_endpoint` being true, we stick with the default HTTPS scheme.
+    if (config::s3_client_http_scheme == "http" && s3_conf.need_override_endpoint) {
         aws_config.scheme = Aws::Http::Scheme::HTTP;
     }
 
