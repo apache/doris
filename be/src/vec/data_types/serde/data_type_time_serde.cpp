@@ -109,7 +109,10 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode_batch(
         TimeValue::TimeType res;
         CastToTimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(fmt::format("parse {} to time failed: ", str.to_string_view()));
+            return params.status;
+        }
 
         col_data.get_data()[i] = res;
     }
@@ -178,7 +181,10 @@ Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::Column
     for (size_t i = 0; i < int_col.size(); ++i) {
         TimeValue::TimeType val = 0;
         CastToTimeV2::from_integer<true>(int_col.get_element(i), val, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(fmt::format("parse {} to time failed: ", int_col.get_element(i)));
+            return params.status;
+        }
 
         col_data.get_data()[i] = val;
     }
@@ -218,7 +224,11 @@ Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::Co
     for (size_t i = 0; i < float_col.size(); ++i) {
         TimeValue::TimeType val = 0;
         CastToTimeV2::from_float<true>(float_col.get_data()[i], val, _scale, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to time failed: ", float_col.get_data()[i]));
+            return params.status;
+        }
 
         col_data.get_data()[i] = val;
     }
@@ -261,7 +271,12 @@ Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
         CastToTimeV2::from_decimal<true>(decimal_col.get_intergral_part(i),
                                          decimal_col.get_fractional_part(i),
                                          decimal_col.get_scale(), val, _scale, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {}.{} to time failed: ", decimal_col.get_intergral_part(i),
+                                decimal_col.get_fractional_part(i)));
+            return params.status;
+        }
 
         col_data.get_data()[i] = val;
     }

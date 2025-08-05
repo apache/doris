@@ -93,7 +93,11 @@ Status DataTypeDateTimeV2SerDe::from_string_strict_mode_batch(
         DateV2Value<DateTimeV2ValueType> res;
         CastToDatetimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to datetime failed: ", str.to_string_view()));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(res);
     }
@@ -166,7 +170,11 @@ Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::Co
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
         CastToDatetimeV2::from_integer<true>(int_col.get_element(i), val, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to datetime failed: ", int_col.get_element(i)));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(val);
     }
@@ -207,7 +215,11 @@ Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch(
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
         CastToDatetimeV2::from_float<true>(float_col.get_data()[i], val, _scale, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to datetime failed: ", float_col.get_data()[i]));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(val);
     }
@@ -251,7 +263,12 @@ Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch(
         CastToDatetimeV2::from_decimal<true>(decimal_col.get_intergral_part(i),
                                              decimal_col.get_fractional_part(i),
                                              decimal_col.get_scale(), val, _scale, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(fmt::format(
+                    "parse {}.{} to datetime failed: ", decimal_col.get_intergral_part(i),
+                    decimal_col.get_fractional_part(i)));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(val);
     }
