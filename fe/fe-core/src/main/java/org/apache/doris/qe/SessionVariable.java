@@ -5142,7 +5142,7 @@ public class SessionVariable implements Serializable, Writable {
     public int getDefaultVariantMaxSubcolumnsCount() {
         return defaultVariantMaxSubcolumnsCount;
     }
-  
+
     public static boolean isFeDebug() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().feDebug;
