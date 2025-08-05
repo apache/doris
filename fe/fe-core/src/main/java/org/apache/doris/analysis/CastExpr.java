@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -34,6 +33,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -63,8 +63,6 @@ public class CastExpr extends Expr {
 
     // True if this cast does not change the type.
     private boolean noOp = false;
-
-    private boolean notFold = false;
 
     private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
@@ -117,14 +115,14 @@ public class CastExpr extends Expr {
     /**
      * Just use for nereids, put analyze() in finalizeImplForNereids
      */
-    public CastExpr(Type targetType, Expr e, Void v) {
-        Preconditions.checkArgument(targetType.isValid());
+    public CastExpr(Type targetType, Expr e, boolean nullable, boolean isImplicit) {
         Preconditions.checkNotNull(e, "cast child is null");
         opcode = TExprOpcode.CAST;
         type = targetType;
         targetTypeDef = null;
-        isImplicit = true;
+        this.isImplicit = isImplicit;
         children.add(e);
+
 
         noOp = Type.matchExactType(e.type, type, true);
         if (noOp) {
@@ -133,36 +131,16 @@ public class CastExpr extends Expr {
             if (type.isDecimalV2() && e.type.isDecimalV2()) {
                 getChild(0).setType(type);
             }
+            // TODO cast from struct a to struct be, if only changed name, need to remove this cast
             // as the targetType have struct field name, if use the default name will be
             // like col1,col2, col3... in struct, and the filed name is import in BE.
             if (type.isStructType() && e.type.isStructType()) {
                 getChild(0).setType(type);
+            } else {
+                if (SessionVariable.isFeDebug()) {
+                    LOG.warn("should not plan a cast from type " + e.getType() + " to " + targetType);
+                }
             }
-            if (type.isScalarType()) {
-                targetTypeDef = new TypeDef(type);
-            }
-            analysisDone();
-            return;
-        }
-
-        if (e.type.isNull()) {
-            analysisDone();
-            return;
-        }
-
-        // new function
-        if (type.isScalarType()) {
-            Type from = getActualArgTypes(collectChildReturnTypes())[0];
-            Type to = getActualType(type);
-            NullableMode nullableMode = TYPE_NULLABLE_MODE.get(Pair.of(from, to));
-            // for complex type cast to jsonb we make ret is always nullable
-            if (from.isComplexType() && type.isJsonbType()) {
-                nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
-            }
-            fn = new Function(new FunctionName(getFnName(type)), Lists.newArrayList(e.type), type,
-                    false, true, nullableMode);
-        } else {
-            createComplexTypeCastFunction();
         }
 
         analysisDone();
@@ -220,7 +198,7 @@ public class CastExpr extends Expr {
             return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
         } else {
             return "CAST(" + getChild(0).toSql() + " AS "
-                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
+                    + ((isImplicit || targetTypeDef == null) ? type.toString() : targetTypeDef.toSql()) + ")";
         }
     }
 
@@ -234,7 +212,7 @@ public class CastExpr extends Expr {
                     + type.toSql() + ")";
         } else {
             return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
-                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
+                    + ((isImplicit || targetTypeDef == null) ? type.toString() : targetTypeDef.toSql()) + ")";
         }
     }
 
@@ -248,7 +226,7 @@ public class CastExpr extends Expr {
         if (isImplicit && !isVerbose) {
             return getChild(0).toDigest();
         }
-        if (isAnalyzed) {
+        if (isAnalyzed || targetTypeDef == null) {
             return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
         } else {
             return "CAST(" + getChild(0).toDigest() + " AS " + targetTypeDef.toString() + ")";
@@ -268,9 +246,6 @@ public class CastExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(opcode);
-        if (type.isNativeType() && getChild(0).getType().isNativeType()) {
-            msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
-        }
     }
 
     public boolean isImplicit() {
@@ -464,10 +439,6 @@ public class CastExpr extends Expr {
     @Override
     protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return children.get(0).getStringValueInComplexTypeForQuery(options);
-    }
-
-    public void setNotFold(boolean notFold) {
-        this.notFold = notFold;
     }
 
     @Override
