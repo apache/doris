@@ -135,6 +135,11 @@ Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t 
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
+bool VMatchPredicate::could_prune_result_bitmap_for_missing_column(VExprContext* context) {
+    DCHECK_EQ(get_num_children(), 2);
+    return _could_prune_result_bitmap_for_missing_column(context);
+}
+
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
     if (fast_execute(context, block, result_column_id)) {
