@@ -86,7 +86,7 @@ suite("test_black_list","nonConcurrent,p0") {
                 log.info("routine load state: ${state[0][8].toString()}".toString())
                 log.info("reason of state changed: ${state[0][17].toString()}".toString())
                 log.info("other msg: ${state[0][19].toString()}".toString())
-                if (state[0][17].toString().contains("Failed to get info") || state[0][19].toString().contains("Failed to get info")) {
+                if (state[0][17].toString().contains("failed to get latest partition offset") || state[0][19].toString().contains("failed to get latest partition offset")) {
                     break
                 }
                 if (count >= 90) {
