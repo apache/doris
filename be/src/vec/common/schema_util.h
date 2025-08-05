@@ -179,12 +179,11 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
 // Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
 //                        BaseTabletSPtr tablet);
 //
-// // Calculate statistics about variant data paths from the encoded sparse column
-// void calculate_variant_stats(const IColumn& encoded_sparse_column,
-//                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
-//                              size_t num_rows);
-//
-//
+// Calculate statistics about variant data paths from the encoded sparse column
+void calculate_variant_stats(const IColumn& encoded_sparse_column,
+                             segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                             size_t num_rows);
+
 // bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 //                               const std::string& path,
 //                               TabletSchema::SubColumnInfo* sub_column_info);
