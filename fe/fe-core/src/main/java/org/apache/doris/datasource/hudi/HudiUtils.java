@@ -50,7 +50,6 @@ import org.apache.avro.Schema.Field;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -73,7 +72,8 @@ public class HudiUtils {
 
     /**
      * Convert different query instant time format to the commit time format.
-     * Currently we support three kinds of instant time format for time travel query:
+     * Currently we support three kinds of instant time format for time travel
+     * query:
      * 1、yyyy-MM-dd HH:mm:ss
      * 2、yyyy-MM-dd
      * This will convert to 'yyyyMMdd000000'.
@@ -88,11 +88,11 @@ public class HudiUtils {
             return HoodieInstantTimeGenerator.getInstantForDateString(queryInstant);
         } else if (instantLength == HoodieInstantTimeGenerator.SECS_INSTANT_ID_LENGTH
                 || instantLength == HoodieInstantTimeGenerator.MILLIS_INSTANT_ID_LENGTH) { // for yyyyMMddHHmmss[SSS]
-            HoodieActiveTimeline.parseDateFromInstantTime(queryInstant); // validate the format
+            HoodieInstantTimeGenerator.parseDateFromInstantTime(queryInstant); // validate the format
             return queryInstant;
         } else if (instantLength == 10) { // for yyyy-MM-dd
             LocalDate date = LocalDate.parse(queryInstant, DEFAULT_DATE_FORMATTER);
-            return HoodieActiveTimeline.formatDate(java.sql.Date.valueOf(date));
+            return HoodieInstantTimeGenerator.formatDate(java.sql.Date.valueOf(date));
         } else {
             throw new IllegalArgumentException("Unsupported query instant time format: " + queryInstant
                     + ", Supported time format are: 'yyyy-MM-dd HH:mm:ss[.SSS]' "
@@ -308,7 +308,7 @@ public class HudiUtils {
         if (!snapshotInstant.isPresent()) {
             return 0L;
         }
-        return Long.parseLong(snapshotInstant.get().getTimestamp());
+        return Long.parseLong(snapshotInstant.get().requestedTime());
     }
 
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
