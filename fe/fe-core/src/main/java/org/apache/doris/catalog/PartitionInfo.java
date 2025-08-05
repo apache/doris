@@ -117,22 +117,21 @@ public class PartitionInfo {
     }
 
 
-    private void readLock() {
+    protected void readLock() {
         rwLock.readLock().lock();
     }
 
-    private void readUnlock() {
+    protected void readUnlock() {
         rwLock.readLock().unlock();
     }
 
-    private void writeLock() {
+    protected void writeLock() {
         rwLock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    protected void writeUnlock() {
         rwLock.writeLock().unlock();
     }
-
 
     public PartitionType getType() {
         return type;
