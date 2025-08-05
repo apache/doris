@@ -268,8 +268,8 @@ public:
         auto logical_prim_type = logical_data_type->get_primitive_type();
 
         if (logical_prim_type == TYPE_FLOAT) {
-            auto& min_value = min_field->get<float>();
-            auto& max_value = max_field->get<float>();
+            auto& min_value = min_field->get<PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
+            auto& max_value = max_field->get<PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
 
             if (std::isnan(min_value) || std::isnan(max_value)) {
                 return Status::DataQualityError("Can not use this parquet min/max value.");
@@ -282,8 +282,8 @@ public:
                 max_value = 0.0F;
             }
         } else if (logical_prim_type == TYPE_DOUBLE) {
-            auto& min_value = min_field->get<double>();
-            auto& max_value = max_field->get<double>();
+            auto& min_value = min_field->get<PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
+            auto& max_value = max_field->get<PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
 
             if (std::isnan(min_value) || std::isnan(max_value)) {
                 return Status::DataQualityError("Can not use this parquet min/max value.");

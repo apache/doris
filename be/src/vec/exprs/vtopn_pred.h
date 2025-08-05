@@ -119,7 +119,8 @@ public:
 
     VExprSPtr get_binary_expr() const {
         VExprSPtr root;
-
+        auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        auto slot_data_type = remove_nullable(slot_ref->data_type());
         {
             TFunction fn;
             TFunctionName fn_name;
@@ -128,8 +129,13 @@ public:
             fn.__set_name(fn_name);
             fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
             std::vector<TTypeDesc> arg_types;
-            arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
-            arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+            arg_types.push_back(create_type_desc(slot_data_type->get_primitive_type(),
+                                                 slot_data_type->get_precision(),
+                                                 slot_data_type->get_scale()));
+
+            arg_types.push_back(create_type_desc(slot_data_type->get_primitive_type(),
+                                                 slot_data_type->get_precision(),
+                                                 slot_data_type->get_scale()));
             fn.__set_arg_types(arg_types);
             fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
             fn.__set_has_var_args(false);
@@ -143,17 +149,17 @@ public:
             texpr_node.__set_is_nullable(is_nullable());
             root = VectorizedFnCall::create_shared(texpr_node);
         }
-        // add slot
-        auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        root->add_child(children().at(0));
 
+        {
+            // add slot
+            root->add_child(children().at(0));
+        }
         // add Literal
         {
             Field field = _predicate->get_value();
-            auto literal_data_type = remove_nullable(slot_ref->data_type());
-            TExprNode node = create_texpr_node_from(field, literal_data_type->get_primitive_type(),
-                                                    literal_data_type->get_precision(),
-                                                    literal_data_type->get_scale());
+            TExprNode node = create_texpr_node_from(field,slot_data_type->get_primitive_type(),
+                                                    slot_data_type->get_precision(),
+                                                    slot_data_type->get_scale());
             root->add_child(VLiteral::create_shared(node));
         }
         return root;

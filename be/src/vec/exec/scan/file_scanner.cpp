@@ -1152,7 +1152,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         _cur_reader = std::move(hudi_reader);
     } else if (range.table_format_params.table_format_type == "hive") {
         auto hive_reader = HiveParquetReader::create_unique(std::move(parquet_reader), _profile,
-                                                            _state, *_params, range, _io_ctx.get());
+                                                            _state, *_params, range, _io_ctx.get(), &_is_file_slot);
         init_status = hive_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
@@ -1258,7 +1258,7 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader) {
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hive") {
         std::unique_ptr<HiveOrcReader> hive_reader = HiveOrcReader::create_unique(
-                std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+                std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get(), &_is_file_slot);
 
         init_status = hive_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
@@ -1522,6 +1522,7 @@ Status FileScanner::_init_expr_ctxes() {
             continue;
         }
         if (slot_info.is_file_slot) {
+            _is_file_slot.emplace(slot_id);
             _file_slot_descs.emplace_back(it->second);
             _file_col_names.push_back(it->second->col_name());
         } else {

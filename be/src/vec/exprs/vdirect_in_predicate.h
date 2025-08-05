@@ -20,6 +20,9 @@
 #include "common/status.h"
 #include "exprs/hybrid_set.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -31,6 +34,10 @@ public:
     VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter)
             : VExpr(node), _filter(filter), _expr_name("direct_in_predicate") {}
     ~VDirectInPredicate() override = default;
+
+#ifdef BE_TEST
+    VDirectInPredicate() = default;
+#endif
 
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    VExprContext* context) override {
@@ -61,6 +68,42 @@ public:
     const std::string& expr_name() const override { return _expr_name; }
 
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
+
+    VExprSPtr get_in_expr() const {
+        VExprSPtr root;
+        auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        auto slot_data_type = remove_nullable(slot_ref->data_type());
+        {
+            TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+            TExprNode node;
+            node.__set_type(type_desc);
+            node.__set_node_type(TExprNodeType::IN_PRED);
+            node.in_predicate.__set_is_not_in(false);
+            node.__set_opcode(TExprOpcode::FILTER_IN);
+            // VdirectInPredicate assume is_nullable = false.
+            node.__set_is_nullable(false);
+            root = VInPredicate::create_shared(node);
+        }
+        {
+            // add slot
+            root->add_child(children().at(0));
+        }
+        {
+            auto iter = get_set_func()->begin();
+            while (iter->has_next()) {
+                DCHECK(iter->get_value() != nullptr);
+                auto* value = const_cast<void*>(iter->get_value());
+
+                TExprNode node = create_texpr_node_from(value, slot_data_type->get_primitive_type(),
+                                       slot_data_type->get_precision(),
+                                       slot_data_type->get_scale());
+                root->add_child(VLiteral::create_shared(node));
+                iter->next();
+            }
+        }
+
+        return root;
+    }
 
 private:
     Status _do_execute(VExprContext* context, Block* block, int* result_column_id,
