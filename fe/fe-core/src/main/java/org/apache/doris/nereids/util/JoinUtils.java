@@ -288,11 +288,8 @@ public class JoinUtils {
         boolean noNeedCheckColocateGroup = hitSameIndex && (leftTablePartitions.equals(rightTablePartitions))
                 && (leftTablePartitions.size() <= 1);
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-        if (noNeedCheckColocateGroup) {
-            return true;
-        }
-        if (!colocateIndex.isSameGroup(leftTableId, rightTableId)
-                || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId))) {
+        if (!noNeedCheckColocateGroup && (!colocateIndex.isSameGroup(leftTableId, rightTableId)
+                || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
             return false;
         }
 
