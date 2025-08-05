@@ -25,8 +25,9 @@ VALUES (1, 'Alice', DATE '2024-01-01'),
         DATE '2024-02-01'
     ),
     (4, 'David', DATE '2024-02-01'),
-    (5, 'Eve', DATE '2024-03-01'),
-    (6, 'Null Date', NULL);
+    (5, 'Eve', DATE '2024-03-01');
+    -- TODO: add this after fix paimon null date partition issue
+    -- (6, 'Null Date', NULL);
 
 -- Partition by timestamp type
 CREATE TABLE timestamp_partitioned (

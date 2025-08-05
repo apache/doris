@@ -84,7 +84,6 @@ import javax.annotation.Nullable;
 public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
-    private static final String DEFAULT_PARTITION_VALUE = "__DEFAULT_PARTITION__";
 
     public static List<InternalRow> read(
             Table table, @Nullable int[] projection, @Nullable Predicate predicate,
@@ -137,12 +136,8 @@ public class PaimonUtil {
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
                 sb.append(entry.getKey()).append("=");
-                if (entry.getValue().equals(DEFAULT_PARTITION_VALUE)) {
-                    // Paimon uses "__DEFAULT_PARTITION__" to represent the default partition.
-                    sb.append(entry.getValue()).append("/");
-                } else if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
-                    // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the
-                    // integer to a date string.
+                // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the integer to a date string.
+                if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
                     sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
                 } else {
                     sb.append(entry.getValue()).append("/");

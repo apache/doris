@@ -39,7 +39,7 @@
 3
 
 -- !runtime_filter_partition_pruning_date_in_null --
-1
+3
 
 -- !runtime_filter_partition_pruning_timestamp1 --
 1
@@ -135,7 +135,7 @@
 3
 
 -- !runtime_filter_partition_pruning_date_in_null --
-1
+3
 
 -- !runtime_filter_partition_pruning_timestamp1 --
 1
