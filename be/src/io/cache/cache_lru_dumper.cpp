@@ -19,6 +19,7 @@
 
 #include "io/cache/block_file_cache.h"
 #include "io/cache/lru_queue_recorder.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
 #include "vec/common/endian.h"
 
@@ -30,12 +31,12 @@ std::string CacheLRUDumper::Footer::serialize_as_string() const {
 
     // Serialize meta_offset (convert to little-endian)
     uint64_t meta_offset_le;
-    LittleEndian::Store64(&meta_offset_le, meta_offset);
+    encode_fixed64_le(reinterpret_cast<uint8_t*>(&meta_offset_le), meta_offset);
     result.append(reinterpret_cast<const char*>(&meta_offset_le), sizeof(meta_offset_le));
 
     // Serialize checksum (convert to little-endian)
     uint32_t checksum_le;
-    LittleEndian::Store32(&checksum_le, checksum);
+    encode_fixed32_le(reinterpret_cast<uint8_t*>(&checksum_le), checksum);
     result.append(reinterpret_cast<const char*>(&checksum_le), sizeof(checksum_le));
 
     result.append(reinterpret_cast<const char*>(&version), sizeof(version));
@@ -54,13 +55,13 @@ bool CacheLRUDumper::Footer::deserialize_from_string(const std::string& data) {
     // Deserialize meta_offset (convert from little-endian)
     uint64_t meta_offset_le;
     std::memcpy(&meta_offset_le, ptr, sizeof(meta_offset_le));
-    meta_offset = LittleEndian::Load64(&meta_offset_le);
+    meta_offset = decode_fixed64_le(reinterpret_cast<uint8_t*>(&meta_offset_le));
     ptr += sizeof(meta_offset_le);
 
     // Deserialize checksum (convert from little-endian)
     uint32_t checksum_le;
     std::memcpy(&checksum_le, ptr, sizeof(checksum_le));
-    checksum = LittleEndian::Load32(&checksum_le);
+    checksum = decode_fixed32_le(reinterpret_cast<uint8_t*>(&checksum_le));
     ptr += sizeof(checksum_le);
 
     version = *((uint8_t*)ptr);

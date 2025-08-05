@@ -20,6 +20,7 @@
 #include <arrow/array/builder_nested.h>
 
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -27,6 +28,9 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 class Arena;
@@ -285,47 +289,6 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
     result.writeEndBinary();
 }
 
-Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                                  rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& arena, int64_t row_num) const {
-    auto res = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = res.first;
-    row_num = res.second;
-
-    const auto& data_column = assert_cast<const ColumnArray&>(*ptr);
-    const auto& offsets = data_column.get_offsets();
-
-    size_t offset = offsets[row_num - 1];
-    size_t next_offset = offsets[row_num];
-
-    const IColumn& nested_column = data_column.get_data();
-    result.SetArray();
-    for (size_t i = offset; i < next_offset; ++i) {
-        rapidjson::Value val;
-        RETURN_IF_ERROR(
-                nested_serde->write_one_cell_to_json(nested_column, val, allocator, arena, i));
-        result.PushBack(val, allocator);
-    }
-    return Status::OK();
-}
-
-Status DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
-                                                   const rapidjson::Value& result) const {
-    auto& column_array = static_cast<ColumnArray&>(column);
-    auto& offsets_data = column_array.get_offsets();
-    auto& nested_data = column_array.get_data();
-    if (!result.IsArray()) {
-        column_array.insert_default();
-        return Status::OK();
-    }
-    // TODO this is slow should improve performance
-    for (const rapidjson::Value& v : result.GetArray()) {
-        RETURN_IF_ERROR(nested_serde->read_one_cell_from_json(nested_data, v));
-    }
-    offsets_data.emplace_back(result.GetArray().Size());
-    return Status::OK();
-}
-
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     const auto* blob = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(blob->getBlob());
@@ -494,4 +457,74 @@ Status DataTypeArraySerDe::read_column_from_pb(IColumn& column, const PValues& a
     }
     return Status::OK();
 }
+
+template <bool is_strict_mode>
+Status DataTypeArraySerDe::_from_string(StringRef& str, IColumn& column,
+                                        const FormatOptions& options) const {
+    if (str.empty()) {
+        return Status::InvalidArgument("slice is empty!");
+    }
+
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    DCHECK(nested_column.is_nullable());
+    if (str.front() != '[') {
+        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
+                                       str.to_string());
+    }
+    if (str.back() != ']') {
+        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
+                                       str.to_string());
+    }
+    // empty array []
+    if (str.size == 2) {
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
+        return Status::OK();
+    }
+    str = str.substring(1, str.size - 2); // remove '[' and ']'
+
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
+            str, [&](char c) { return c == options.collection_delim; });
+
+    for (auto& e : split_result) {
+        RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
+                nested_serde, nested_column, e.element, options));
+    }
+
+    offsets.emplace_back(offsets.back() + split_result.size());
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::from_string(StringRef& str, IColumn& column,
+                                       const FormatOptions& options) const {
+    return _from_string<false>(str, column, options);
+}
+Status DataTypeArraySerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                   const FormatOptions& options) const {
+    return _from_string<true>(str, column, options);
+}
+void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                  ColumnString::Chars& chars,
+                                                  int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t);
+    chars.resize(new_size);
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+
+    const auto& array_col = assert_cast<const ColumnArray&>(src_column);
+    const IColumn& nested_column = array_col.get_data();
+    const auto& offsets = array_col.get_offsets();
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+    size_t size = end - start;
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&size),
+           sizeof(size_t));
+    for (size_t offset = start; offset != end; ++offset) {
+        nested_serde->write_one_cell_to_binary(nested_column, chars, offset);
+    }
+}
+
 } // namespace doris::vectorized

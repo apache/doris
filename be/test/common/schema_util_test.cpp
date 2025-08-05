@@ -410,7 +410,7 @@ TEST_F(SchemaUtilTest, parse_variant_columns_ambiguous_paths) {
     dynamic_subcolumns.create_root(
             vectorized::ColumnVariant::Subcolumn(string_col->assume_mutable(), string_type, true));
 
-    auto variant_col = ColumnVariant::create(std::move(dynamic_subcolumns), true);
+    auto variant_col = ColumnVariant::create(0, std::move(dynamic_subcolumns));
     auto variant_type = std::make_shared<DataTypeVariant>();
 
     // Construct the block

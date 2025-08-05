@@ -41,7 +41,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
@@ -95,8 +94,6 @@ public class DdlExecutor {
             env.dropFunction((DropFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateEncryptKeyStmt) {
             EncryptKeyHelper.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropEncryptKeyStmt) {
-            EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {
