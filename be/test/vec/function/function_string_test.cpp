@@ -3482,4 +3482,25 @@ TEST(function_string_test, function_xpath_string_test) {
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_split_part_test) {
+    std::string func_name = "split_part";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_INT};
+
+    DataSet data_set = {
+            {{std::string("a,b,c"), std::string(","), std::int32_t(1)}, std::string("a")},
+            {{std::string("a,b,c"), std::string(","), std::int32_t(2)}, std::string("b")},
+            {{std::string("a,b,c"), std::string(","), std::int32_t(3)}, std::string("c")},
+            {{std::string("a,b,c"), std::string(","), std::int32_t(4)}, Null()},
+            {{std::string("a,b,c"), std::string(","), std::int32_t(0)}, Null()},
+            {{std::string("a,b,c"), std::string(","), std::int32_t(-1)}, std::string("c")},
+            {{std::string("a,b,c"), std::string(","), std::int32_t(-2)}, std::string("b")},
+            {{std::string("a,b,c"), std::string(","), std::int32_t(-3)}, std::string("a")},
+            {{std::string("a,b,c"), std::string(":"), std::int32_t(1)}, std::string("a,b,c")},
+
+    };
+
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
 } // namespace doris::vectorized
