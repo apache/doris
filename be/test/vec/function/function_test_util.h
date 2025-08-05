@@ -318,7 +318,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         auto column = desc.data_type->create_column();
         column->reserve(row_size);
 
-        for (int j = 0; j < row_size; j++) {
+        // for function cast, the second column is const but there's many rows in block. so we only insert one row
+        // for the second column.
+        for (int j = 0; j < ((func_name == "CAST" && i == 1) ? 1 : row_size); j++) {
             // null dealed in insert_cell
             EXPECT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i],
                                     datetime_is_string_format));

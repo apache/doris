@@ -21,7 +21,7 @@
 namespace doris::vectorized {
 using namespace ut_type;
 
-TEST_F(FunctionCastTest, strict_test_from_string_to_date) {
+TEST_F(FunctionCastTest, string_to_date_strict_case_non_strict_mode) {
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             // Valid ISO 8601 format with timezone
