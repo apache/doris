@@ -386,13 +386,12 @@ Status VariantColumnWriterImpl::finalize() {
         if (entry->path.has_nested_part()) {
             continue;
         }
-        // TODO(lihangyu): uncomment
-        // TabletSchema::SubColumnInfo sub_column_info;
-        // if (vectorized::schema_util::generate_sub_column_info(
-        //             *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id(),
-        //             entry->path.get_path(), &sub_column_info)) {
-        //     _subcolumns_info.emplace(entry->path.get_path(), std::move(sub_column_info));
-        // }
+        TabletSchema::SubColumnInfo sub_column_info;
+        if (vectorized::schema_util::generate_sub_column_info(
+                    *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id(),
+                    entry->path.get_path(), &sub_column_info)) {
+            _subcolumns_info.emplace(entry->path.get_path(), std::move(sub_column_info));
+        }
     }
 
     RETURN_IF_ERROR(ptr->convert_typed_path_to_storage_type(_subcolumns_info));
