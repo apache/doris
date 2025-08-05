@@ -25,6 +25,7 @@
 #include <numeric>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -258,9 +259,15 @@ void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) 
 
     size_t expected_number_of_arguments = get_number_of_arguments();
 
-    CHECK_EQ(number_of_arguments, expected_number_of_arguments) << fmt::format(
+    DCHECK_EQ(number_of_arguments, expected_number_of_arguments) << fmt::format(
             "Number of arguments for function {} doesn't match: passed {} , should be {}",
             get_name(), number_of_arguments, expected_number_of_arguments);
+    if (number_of_arguments != expected_number_of_arguments) {
+        throw Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "Number of arguments for function {} doesn't match: passed {} , should be {}",
+                get_name(), number_of_arguments, expected_number_of_arguments);
+    }
 }
 
 DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
