@@ -25,12 +25,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.exceptions.DoNotFallbackException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -226,7 +228,7 @@ public class SqlBlockRuleMgr implements Writable {
     /**
      * Match SQL according to rules.
      **/
-    public void matchSql(String originSql, String sqlHash, String user) throws AnalysisException {
+    public void matchSql(String originSql, String sqlHash, String user) {
         if (Config.sql_block_rule_ignore_admin && (Auth.ROOT_USER.equals(user) || Auth.ADMIN_USER.equals(user))) {
             return;
         }
@@ -251,16 +253,18 @@ public class SqlBlockRuleMgr implements Writable {
         }
     }
 
-    private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
+    private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) {
         if (rule.getEnable()) {
             if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
                     && rule.getSqlHash().equals(sqlHash)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
+                throw new NereidsException(new DoNotFallbackException("sql match hash sql block rule: "
+                        + rule.getName()));
             } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
                     && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+                throw new NereidsException(new DoNotFallbackException("sql match regex sql block rule: "
+                        + rule.getName()));
             }
         }
     }
