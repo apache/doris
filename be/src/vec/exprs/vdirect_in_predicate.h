@@ -69,8 +69,11 @@ public:
 
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
 
-    VExprSPtr get_in_expr() const {
-        VExprSPtr root;
+    bool get_slot_in_expr(VExprSPtr& new_root) const {
+        if (!get_child(0)->is_slot_ref()) {
+            return false;
+        }
+
         auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
         auto slot_data_type = remove_nullable(slot_ref->data_type());
         {
@@ -82,11 +85,11 @@ public:
             node.__set_opcode(TExprOpcode::FILTER_IN);
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
-            root = VInPredicate::create_shared(node);
+            new_root = VInPredicate::create_shared(node);
         }
         {
             // add slot
-            root->add_child(children().at(0));
+            new_root->add_child(children().at(0));
         }
         {
             auto iter = get_set_func()->begin();
@@ -95,14 +98,13 @@ public:
                 auto* value = const_cast<void*>(iter->get_value());
 
                 TExprNode node = create_texpr_node_from(value, slot_data_type->get_primitive_type(),
-                                       slot_data_type->get_precision(),
-                                       slot_data_type->get_scale());
-                root->add_child(VLiteral::create_shared(node));
+                                                        slot_data_type->get_precision(),
+                                                        slot_data_type->get_scale());
+                new_root->add_child(VLiteral::create_shared(node));
                 iter->next();
             }
         }
-
-        return root;
+        return true;
     }
 
 private:

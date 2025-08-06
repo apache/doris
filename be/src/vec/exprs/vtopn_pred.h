@@ -157,7 +157,7 @@ public:
         // add Literal
         {
             Field field = _predicate->get_value();
-            TExprNode node = create_texpr_node_from(field,slot_data_type->get_primitive_type(),
+            TExprNode node = create_texpr_node_from(field, slot_data_type->get_primitive_type(),
                                                     slot_data_type->get_precision(),
                                                     slot_data_type->get_scale());
             root->add_child(VLiteral::create_shared(node));

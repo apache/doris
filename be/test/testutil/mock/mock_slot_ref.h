@@ -62,9 +62,7 @@ public:
     }
     const std::string& expr_name() const override { return _name; }
 
-    void set_expr_name(String s) {
-        _name = s;
-    }
+    void set_expr_name(String s) { _name = s; }
 
     static VExprContextSPtrs create_mock_contexts(DataTypePtr data_type);
 

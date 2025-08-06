@@ -52,6 +52,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/schema_scanner.h"
+#include "exprs/create_predicate_function.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/decimalv2_value.h"
@@ -68,9 +69,8 @@
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
-#include "vec/exec/format/parquet/vparquet_reader.h"
-#include "exprs/create_predicate_function.h"
 #include "vec/exec/format/parquet/vparquet_page_index.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 
 namespace doris {
@@ -228,9 +228,8 @@ public:
         builder.data_pagesize(10);
         std::shared_ptr<::parquet::WriterProperties> props = builder.build();
 
-
-        PARQUET_THROW_NOT_OK(
-                ::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), outfile, 3, props));
+        PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(),
+                                                          outfile, 3, props));
 
         std::vector<std::string> table_column_names = {"int32_partial_null_col",
                                                        "int32_all_null_col",
@@ -272,7 +271,7 @@ public:
         p_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, scan_range.size,
                                                 &ctz, nullptr, nullptr);
         p_reader->set_file_reader(local_file_reader);
-        colname_to_slot_id.emplace("int64_col",2);
+        colname_to_slot_id.emplace("int64_col", 2);
         static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, tuple_desc, nullptr,
                                                 &colname_to_slot_id, nullptr, nullptr));
 
@@ -357,7 +356,6 @@ public:
     tparquet::FileMetaData doris_metadata;
     cctz::time_zone ctz = cctz::utc_time_zone();
     std::unordered_map<std::string, int> colname_to_slot_id;
-
 };
 
 TEST_F(ParquetExprTest, test_min_max) {
@@ -898,7 +896,7 @@ TEST_F(ParquetExprTest, test_min_max_p) {
 TEST_F(ParquetExprTest, test_in) {
     int loc = 2;
     auto slot_ref = std::make_shared<MockSlotRef>(loc, std::make_shared<DataTypeInt64>());
-
+    slot_ref->_slot_id = 2;
     VDirectInPredicate direct_in_expr;
     direct_in_expr.add_child(slot_ref);
     {
@@ -925,7 +923,6 @@ TEST_F(ParquetExprTest, test_in) {
         EXPECT_EQ(2, set->size());
     }
 
-
     VDirectInPredicate direct_in_expr3;
     direct_in_expr3.add_child(slot_ref);
     {
@@ -939,7 +936,6 @@ TEST_F(ParquetExprTest, test_in) {
         direct_in_expr3._filter = set;
         EXPECT_EQ(3, set->size());
     }
-
 
     VDirectInPredicate direct_in_expr4;
     direct_in_expr4.add_child(slot_ref);
@@ -955,77 +951,88 @@ TEST_F(ParquetExprTest, test_in) {
         EXPECT_EQ(3, set->size());
     }
 
-
-            auto in_expr = direct_in_expr.get_in_expr();
+    VExprSPtr in_expr;
+    ASSERT_TRUE(direct_in_expr.get_slot_in_expr(in_expr));
     EXPECT_EQ(
-            "InPredicate(SlotRef(slot_id=0 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (0)) VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (1)) VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (2))])",
+            "InPredicate(SlotRef(slot_id=2 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type "
+            "= Nullable(BIGINT), value = (0)) VLiteral (name = Nullable(BIGINT), type = "
+            "Nullable(BIGINT), value = (1)) VLiteral (name = Nullable(BIGINT), type = "
+            "Nullable(BIGINT), value = (2))])",
             in_expr->debug_string());
 
-    auto in_expr2 = direct_in_expr2.get_in_expr();
+    VExprSPtr in_expr2;
+    ASSERT_TRUE(direct_in_expr2.get_slot_in_expr(in_expr2));
     EXPECT_EQ(
-            "InPredicate(SlotRef(slot_id=0 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (1000)) VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (10000000000))])"
-            ,in_expr2->debug_string());
+            "InPredicate(SlotRef(slot_id=2 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type "
+            "= Nullable(BIGINT), value = (1000)) VLiteral (name = Nullable(BIGINT), type = "
+            "Nullable(BIGINT), value = (10000000000))])",
+            in_expr2->debug_string());
 
+    VExprSPtr in_expr3;
+    ASSERT_TRUE(direct_in_expr3.get_slot_in_expr(in_expr3));
+    EXPECT_EQ(
+            "InPredicate(SlotRef(slot_id=2 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type "
+            "= Nullable(BIGINT), value = (10000000004)) VLiteral (name = Nullable(BIGINT), type = "
+            "Nullable(BIGINT), value = (10000000007)) VLiteral (name = Nullable(BIGINT), type = "
+            "Nullable(BIGINT), value = (10000000005))])",
+            in_expr3->debug_string());
 
-            auto in_expr3 = direct_in_expr3.get_in_expr();
-            EXPECT_EQ(
-                    "InPredicate(SlotRef(slot_id=0 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (10000000004)) VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (10000000007)) VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (10000000005))])"
-                    ,in_expr3->debug_string());
-
-            auto in_expr4 = direct_in_expr4.get_in_expr();
-            EXPECT_EQ(
-                    "InPredicate(SlotRef(slot_id=0 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (10000000007)) VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (10000000000)) VLiteral (name = Nullable(BIGINT), type = Nullable(BIGINT), value = (10000000005))])"
-                    ,in_expr4->debug_string());
+    VExprSPtr in_expr4;
+    ASSERT_TRUE(direct_in_expr4.get_slot_in_expr(in_expr4));
+    EXPECT_EQ(
+            "InPredicate(SlotRef(slot_id=2 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type "
+            "= Nullable(BIGINT), value = (10000000007)) VLiteral (name = Nullable(BIGINT), type = "
+            "Nullable(BIGINT), value = (10000000000)) VLiteral (name = Nullable(BIGINT), type = "
+            "Nullable(BIGINT), value = (10000000005))])",
+            in_expr4->debug_string());
 
     {
-        const std::function<bool(const FieldSchema *, ParquetPredicate::ColumnStat *)> &
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
                 get_stat_func =
-                [&](const FieldSchema *, ParquetPredicate::ColumnStat *stat) -> bool {
-                    const auto &column_meta_data = doris_metadata.row_groups[0].columns[loc].meta_data;
-                    auto col_schema = doris_file_metadata->schema().get_column(loc);
-                    if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                             doris_metadata.created_by, stat)
-                            .ok()) {
-                        return false;
-                    }
-                    return true;
-                };
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[0].columns[loc].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(loc);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
         ASSERT_TRUE(p_reader->_expr_push_down(in_expr, get_stat_func));
         ASSERT_FALSE(p_reader->_expr_push_down(in_expr2, get_stat_func));
         ASSERT_TRUE(p_reader->_expr_push_down(in_expr3, get_stat_func));
         ASSERT_FALSE(p_reader->_expr_push_down(in_expr4, get_stat_func));
-
     }
 
     {
-        const std::function<bool(const FieldSchema *, ParquetPredicate::ColumnStat *)> &
+        const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
                 get_stat_func =
-                [&](const FieldSchema *, ParquetPredicate::ColumnStat *stat) -> bool {
-                    const auto &column_meta_data = doris_metadata.row_groups[1].columns[loc].meta_data;
-                    auto col_schema = doris_file_metadata->schema().get_column(loc);
-                    if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
-                                                             doris_metadata.created_by, stat)
-                            .ok()) {
-                        return false;
-                    }
-                    return true;
-                };
+                        [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+            const auto& column_meta_data = doris_metadata.row_groups[1].columns[loc].meta_data;
+            auto col_schema = doris_file_metadata->schema().get_column(loc);
+            if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                     doris_metadata.created_by, stat)
+                         .ok()) {
+                return false;
+            }
+            return true;
+        };
         ASSERT_TRUE(p_reader->_expr_push_down(in_expr, get_stat_func));
         ASSERT_TRUE(p_reader->_expr_push_down(in_expr2, get_stat_func));
         ASSERT_FALSE(p_reader->_expr_push_down(in_expr3, get_stat_func));
         ASSERT_FALSE(p_reader->_expr_push_down(in_expr4, get_stat_func));
-
     }
 }
-
 
 TEST_F(ParquetExprTest, Z_test_page_idx) {
     PageIndex page_index;
     ASSERT_TRUE(p_reader->_has_page_index(doris_metadata.row_groups[0].columns, page_index));
     ASSERT_TRUE(p_reader->_has_page_index(doris_metadata.row_groups[1].columns, page_index));
-    int loc =2;
+    int loc = 2;
     VDirectInPredicate direct_in_expr;
     auto slot_ref = std::make_shared<MockSlotRef>(loc, std::make_shared<DataTypeInt64>());
+    slot_ref->_slot_id = loc;
     direct_in_expr.add_child(slot_ref);
     {
         std::shared_ptr<HybridSetBase> set(create_set(PrimitiveType::TYPE_BIGINT, false));
@@ -1034,9 +1041,10 @@ TEST_F(ParquetExprTest, Z_test_page_idx) {
         direct_in_expr._filter = set;
         EXPECT_EQ(1, set->size());
     }
-    auto in_expr = direct_in_expr.get_in_expr();
-            io::IOContext io_ctx;
-            p_reader->_io_ctx = &io_ctx;
+    VExprSPtr in_expr;
+    ASSERT_TRUE(direct_in_expr.get_slot_in_expr(in_expr));
+    io::IOContext io_ctx;
+    p_reader->_io_ctx = &io_ctx;
     p_reader->_push_down_simple_expr[loc].emplace_back(in_expr);
     p_reader->_enable_filter_by_min_max = true;
     p_reader->_lazy_read_ctx.has_complex_type = false;
@@ -1046,20 +1054,23 @@ TEST_F(ParquetExprTest, Z_test_page_idx) {
     p_reader->_read_table_columns.emplace_back("int64_col");
     p_reader->_read_file_columns.emplace_back("int64_col");
 
-
-
     std::vector<RowRange> candidate_row_ranges;
     ASSERT_TRUE(p_reader->_init_row_groups(true).ok());
 
-    ASSERT_TRUE(p_reader->_process_page_index(doris_metadata.row_groups[0],p_reader->_read_row_groups.front(), candidate_row_ranges).ok());
-    ASSERT_TRUE(candidate_row_ranges.size()==1);
-    ASSERT_EQ(candidate_row_ranges[0].debug_string(),"[0,3)");
+    ASSERT_TRUE(p_reader->_process_page_index(doris_metadata.row_groups[0],
+                                              p_reader->_read_row_groups.front(),
+                                              candidate_row_ranges)
+                        .ok());
+    ASSERT_TRUE(candidate_row_ranges.size() == 1);
+    ASSERT_EQ(candidate_row_ranges[0].debug_string(), "[0,3)");
 
     p_reader->_read_row_groups.pop_front();
     candidate_row_ranges.clear();
-    ASSERT_TRUE(p_reader->_process_page_index(doris_metadata.row_groups[1],p_reader->_read_row_groups.front(), candidate_row_ranges).ok());
-    ASSERT_TRUE(candidate_row_ranges.size()==0);
-
+    ASSERT_TRUE(p_reader->_process_page_index(doris_metadata.row_groups[1],
+                                              p_reader->_read_row_groups.front(),
+                                              candidate_row_ranges)
+                        .ok());
+    ASSERT_TRUE(candidate_row_ranges.size() == 0);
 
     p_reader->_lazy_read_ctx.conjuncts.clear();
 }

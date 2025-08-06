@@ -580,20 +580,29 @@ Status ParquetReader::set_fill_columns(
 
             // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER,  IN_FILTER
             if ((runtime_filter->node_type() == TExprNodeType::BINARY_PRED) &&
-                (runtime_filter->op() == TExprOpcode::GE || runtime_filter->op() == TExprOpcode::LE)) {
+                (runtime_filter->op() == TExprOpcode::GE ||
+                 runtime_filter->op() == TExprOpcode::LE)) {
                 expr = filter_impl;
             } else if (runtime_filter->node_type() == TExprNodeType::IN_PRED &&
                        runtime_filter->op() == TExprOpcode::FILTER_IN) {
-                VDirectInPredicate* direct_in_predicate = assert_cast<VDirectInPredicate*>(filter_impl.get());
+                VDirectInPredicate* direct_in_predicate =
+                        assert_cast<VDirectInPredicate*>(filter_impl.get());
 
-                int max_in_size = _state->query_options().__isset.max_pushdown_conditions_per_column ?
-                                  _state->query_options().max_pushdown_conditions_per_column : 1024;
+                int max_in_size =
+                        _state->query_options().__isset.max_pushdown_conditions_per_column
+                                ? _state->query_options().max_pushdown_conditions_per_column
+                                : 1024;
                 if (direct_in_predicate->get_set_func()->size() == 0 ||
                     direct_in_predicate->get_set_func()->size() > max_in_size) {
                     continue;
                 }
 
-                expr = direct_in_predicate->get_in_expr();
+                VExprSPtr new_in_slot = nullptr;
+                if (direct_in_predicate->get_slot_in_expr(new_in_slot)) {
+                    expr = new_in_slot;
+                } else {
+                    continue;
+                }
             } else {
                 continue;
             }
@@ -1003,7 +1012,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type || _lazy_read_ctx.conjuncts.empty()) {
+    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type ||
+        _lazy_read_ctx.conjuncts.empty()) {
         read_whole_row_group();
         return Status::OK();
     }
@@ -1075,7 +1085,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
                         }
 
                         stat->is_all_null = column_index.null_pages[page_id];
-                        stat->has_null = column_index.null_counts[page_id] > 0 ;
+                        stat->has_null = column_index.null_counts[page_id] > 0;
                         stat->encoded_min_value = encoded_min_vals[page_id];
                         stat->encoded_max_value = encoded_max_vals[page_id];
                         return true;

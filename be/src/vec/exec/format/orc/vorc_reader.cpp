@@ -1003,20 +1003,29 @@ Status OrcReader::set_fill_columns(
 
             // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER,  IN_FILTER
             if ((runtime_filter->node_type() == TExprNodeType::BINARY_PRED) &&
-                            (runtime_filter->op() == TExprOpcode::GE || runtime_filter->op() == TExprOpcode::LE)) {
+                (runtime_filter->op() == TExprOpcode::GE ||
+                 runtime_filter->op() == TExprOpcode::LE)) {
                 expr = filter_impl;
             } else if (runtime_filter->node_type() == TExprNodeType::IN_PRED &&
                        runtime_filter->op() == TExprOpcode::FILTER_IN) {
-                VDirectInPredicate* direct_in_predicate = assert_cast<VDirectInPredicate*>(filter_impl.get());
+                VDirectInPredicate* direct_in_predicate =
+                        assert_cast<VDirectInPredicate*>(filter_impl.get());
 
-                int max_in_size = _state->query_options().__isset.max_pushdown_conditions_per_column ?
-                                  _state->query_options().max_pushdown_conditions_per_column : 1024;
+                int max_in_size =
+                        _state->query_options().__isset.max_pushdown_conditions_per_column
+                                ? _state->query_options().max_pushdown_conditions_per_column
+                                : 1024;
                 if (direct_in_predicate->get_set_func()->size() == 0 ||
                     direct_in_predicate->get_set_func()->size() > max_in_size) {
                     continue;
                 }
 
-                expr = direct_in_predicate->get_in_expr();
+                VExprSPtr new_in_slot = nullptr;
+                if (direct_in_predicate->get_slot_in_expr(new_in_slot)) {
+                    expr = new_in_slot;
+                } else {
+                    continue;
+                }
             } else {
                 continue;
             }

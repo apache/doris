@@ -202,8 +202,8 @@ TExprNode create_texpr_node_from(const vectorized::Field& field, const Primitive
     }
     case TYPE_BIGINT: {
         const auto& storage = static_cast<int64_t>(
-                field.get<typename PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType>());
-        THROW_IF_ERROR(create_texpr_literal_node<TYPE_BOOLEAN>(&storage, &node));
+                field.get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>());
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_BIGINT>(&storage, &node));
         break;
     }
     case TYPE_LARGEINT: {

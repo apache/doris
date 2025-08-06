@@ -46,7 +46,7 @@ Status HiveOrcReader::init_reader(
     if (_state->query_options().hive_orc_use_column_names && !is_hive_col_name) {
         // Directly use the table column name to match the file column name, but pay attention to the case issue.
         RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(tuple_descriptor, orc_type_ptr,
-                                                        table_info_node_ptr));
+                                                        table_info_node_ptr, _is_file_slot));
     } else {
         // hive1 / use index
         std::map<std::string, const SlotDescriptor*> slot_map; // table_name to slot
@@ -99,7 +99,7 @@ Status HiveParquetReader::init_reader(
     if (_state->query_options().hive_parquet_use_column_names) {
         // Directly use the table column name to match the file column name, but pay attention to the case issue.
         RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(tuple_descriptor, *field_desc,
-                                                            table_info_node_ptr));
+                                                            table_info_node_ptr, _is_file_slot));
     } else {                                                   // use idx
         std::map<std::string, const SlotDescriptor*> slot_map; //table_name to slot
         for (const auto& slot : tuple_descriptor->slots()) {

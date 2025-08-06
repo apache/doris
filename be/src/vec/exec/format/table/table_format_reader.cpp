@@ -38,7 +38,8 @@ const Status TableSchemaChangeHelper::BuildTableInfoUtil::SCHEMA_ERROR = Status:
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         const TupleDescriptor* table_tuple_descriptor, const FieldDescriptor& parquet_field_desc,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& node, std::set<TSlotId>* is_file_slot) {
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+        const std::set<TSlotId>* is_file_slot) {
     auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
     auto parquet_fields_schema = parquet_field_desc.get_fields_schema();
     std::map<std::string, size_t> file_column_name_idx_map;
@@ -50,7 +51,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         const auto& table_column_name = slot->col_name();
         // https://github.com/apache/doris/pull/23369/files
         if ((is_file_slot == nullptr || is_file_slot->contains(slot->id())) &&
-                file_column_name_idx_map.contains(table_column_name)) {
+            file_column_name_idx_map.contains(table_column_name)) {
             auto file_column_idx = file_column_name_idx_map[table_column_name];
             std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
             RETURN_IF_ERROR(by_parquet_name(slot->type(), parquet_fields_schema[file_column_idx],
@@ -160,7 +161,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
         const TupleDescriptor* table_tuple_descriptor, const orc::Type* orc_type_ptr,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& node, std::set<TSlotId>* is_file_slot) {
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+        const std::set<TSlotId>* is_file_slot) {
     auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
     std::map<std::string, uint64_t> file_column_name_idx_map;
@@ -172,7 +174,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
     for (const auto& slot : table_tuple_descriptor->slots()) {
         const auto& table_column_name = slot->col_name();
         if ((is_file_slot == nullptr || is_file_slot->contains(slot->id())) &&
-                file_column_name_idx_map.contains(table_column_name)) {
+            file_column_name_idx_map.contains(table_column_name)) {
             auto file_column_idx = file_column_name_idx_map[table_column_name];
             std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
             RETURN_IF_ERROR(by_orc_name(slot->type(), orc_type_ptr->getSubtype(file_column_idx),
