@@ -17,9 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -267,9 +267,9 @@ public class ScalarFunction extends Function {
     @Override
     public String getProperties() {
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateFunctionStmt.OBJECT_FILE_KEY, getLocation() == null ? "" : getLocation().toString());
-        properties.put(CreateFunctionStmt.MD5_CHECKSUM, checksum);
-        properties.put(CreateFunctionStmt.SYMBOL_KEY, symbolName);
+        properties.put(CreateFunctionCommand.OBJECT_FILE_KEY, getLocation() == null ? "" : getLocation().toString());
+        properties.put(CreateFunctionCommand.MD5_CHECKSUM, checksum);
+        properties.put(CreateFunctionCommand.SYMBOL_KEY, symbolName);
         return new Gson().toJson(properties);
     }
 }
