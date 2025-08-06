@@ -19,30 +19,20 @@
 // TODO: date datetime comparison still has bug, need fix.
 suite('test_simplify_comparison_predicate', 'nonConcurrent') {
     def tbl = 'test_simplify_comparison_predicate_tbl'
-    def falseOrNull = { expr -> "${expr} IS NULL AND NULL" }
+    def falseOrNull = { expr -> "AND[${expr} IS NULL,NULL]" }
     def checkExplain = { expression, resExpression ->
-        def checker = { explainString, exception, startTime, endTime ->
-            assertNull(exception)
-            def foundOutputExprs = false
-            def succ = false
-            for (def line : explainString.split('\n')) {
-                if (foundOutputExprs) {
-                    assertTrue(line.contains(resExpression), "'${line}' no contains '${resExpression}'")
-                    succ = true
-                    break
-                }
-                if (line.contains('OUTPUT EXPRS:')) {
-                    foundOutputExprs = true
-                }
+        def shapePlan = sql("EXPLAIN SHAPE PLAN SELECT ${expression} FROM ${tbl}")
+        // logger.info("shape plan:  ${shapePlan}")
+        def foundOutputExprs = false
+        for (def node : shapePlan) {
+            def line = node.get(0)
+            if (line.contains('PhysicalProject')) {
+                def expectSubStr = "PhysicalProject[${resExpression}"
+                assertTrue(line.contains(expectSubStr), "'${line}' no contains '${expectSubStr}'")
+                foundOutputExprs = true
             }
-            assertTrue(foundOutputExprs)
-            assertTrue(succ)
         }
-
-        explain {
-            sql "SELECT ${expression} FROM ${tbl}"
-            check checker
-        }
+        assertTrue(foundOutputExprs)
     }
     def testSimplify = { checkNullColumn, checkNotNullColumn, expression, resExpression ->
         def types = ['']
@@ -76,6 +66,8 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
 
     setFeConfigTemporary([disable_datev1:false, disable_decimalv2:false]) {
         sql """
+            SET detail_shape_nodes='PhysicalProject';
+
             DROP TABLE IF EXISTS ${tbl} FORCE;
 
             CREATE TABLE ${tbl} (
@@ -138,10 +130,10 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify false, false, 'c_decimal_5_2_null = CAST(1.12 as DECIMAL(10, 5))',  '(c_decimal_5_2_null = 1.12)'
         testSimplify false, false, 'c_decimal_5_2_null = CAST(1.123 as DECIMAL(10, 5))',  falseOrNull('c_decimal_5_2_null')
         testSimplify false, false, 'c_decimal_5_2 = CAST(1.123 as DECIMAL(10, 5))',  'FALSE'
-        testSimplify false, false, 'c_decimal_5_2_null > CAST(1.123 as DECIMAL(10, 5))',  'c_decimal_5_2_null > 1.12'
-        testSimplify false, false, 'c_decimal_5_2_null >= CAST(1.123 as DECIMAL(10, 5))',  'c_decimal_5_2_null >= 1.13'
-        testSimplify false, false, 'c_decimal_5_2_null <= CAST(1.123 as DECIMAL(10, 5))',  'c_decimal_5_2_null <= 1.12'
-        testSimplify false, false, 'c_decimal_5_2_null < CAST(1.123 as DECIMAL(10, 5))',  'c_decimal_5_2_null < 1.13'
+        testSimplify false, false, 'c_decimal_5_2_null > CAST(1.123 as DECIMAL(10, 5))',  '(c_decimal_5_2_null > 1.12)'
+        testSimplify false, false, 'c_decimal_5_2_null >= CAST(1.123 as DECIMAL(10, 5))',  '(c_decimal_5_2_null >= 1.13)'
+        testSimplify false, false, 'c_decimal_5_2_null <= CAST(1.123 as DECIMAL(10, 5))',  '(c_decimal_5_2_null <= 1.12)'
+        testSimplify false, false, 'c_decimal_5_2_null < CAST(1.123 as DECIMAL(10, 5))',  '(c_decimal_5_2_null < 1.13)'
         testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) = '2000-01-01'", "(c_datetime_0 = '2000-01-01 00:00:00')"
         testSimplify false, false, "CAST(c_datetime_0 AS DATETIME(5)) = '2000-01-01 00:00:00.1'", 'FALSE'
         testSimplify false, false, "CAST(c_datetime_0_null AS DATETIME(5)) = '2000-01-01 00:00:00.1'", falseOrNull('c_datetime_0_null')
@@ -161,10 +153,10 @@ suite('test_simplify_comparison_predicate', 'nonConcurrent') {
         testSimplify false, false, "c_date = '2000-01-01 00:00:01'", 'FALSE'
         testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) = '2000-01-01 00:00:01'", falseOrNull('c_date_null')
         testSimplify false, false, "CAST(c_date_null AS DATETIME(5)) <=> '2000-01-01 00:00:01'", 'FALSE'
-        testSimplify false, false, "CAST(c_date AS DATETIME(5)) > '2000-01-01 00:00:01'", "c_date > '2000-01-01'"
-        testSimplify false, false, "CAST(c_date AS DATETIME(5)) >= '2000-01-01 00:00:01'", "c_date >= '2000-01-02'"
-        testSimplify false, false, "CAST(c_date AS DATETIME(5)) <= '2000-01-01 00:00:01'", "c_date <= '2000-01-01'"
-        testSimplify false, false, "CAST(c_date AS DATETIME(5)) < '2000-01-01 00:00:01'", "c_date < '2000-01-02'"
+        testSimplify false, false, "CAST(c_date AS DATETIME(5)) > '2000-01-01 00:00:01'", "(c_date > '2000-01-01')"
+        testSimplify false, false, "CAST(c_date AS DATETIME(5)) >= '2000-01-01 00:00:01'", "(c_date >= '2000-01-02')"
+        testSimplify false, false, "CAST(c_date AS DATETIME(5)) <= '2000-01-01 00:00:01'", "(c_date <= '2000-01-01')"
+        testSimplify false, false, "CAST(c_date AS DATETIME(5)) < '2000-01-01 00:00:01'", "(c_date < '2000-01-02')"
 
         sql "DROP TABLE IF EXISTS ${tbl} FORCE"
     }
