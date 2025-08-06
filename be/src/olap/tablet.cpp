@@ -3503,7 +3503,8 @@ Status Tablet::update_delete_bitmap_without_lock(
 
     // calculate delete bitmap between segments if necessary.
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
-    RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
+    RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset->tablet_schema(), rowset, segments,
+                                                        delete_bitmap));
 
     // get all base rowsets to calculate on
     std::vector<RowsetSharedPtr> specified_rowsets;
@@ -4089,13 +4090,12 @@ void Tablet::clear_cache() {
 }
 
 Status Tablet::calc_delete_bitmap_between_segments(
-        RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
-        DeleteBitmapPtr delete_bitmap) {
+        TabletSchemaSPtr schema, RowsetSharedPtr rowset,
+        const std::vector<segment_v2::SegmentSharedPtr>& segments, DeleteBitmapPtr delete_bitmap) {
     size_t const num_segments = segments.size();
     if (num_segments < 2) {
         return Status::OK();
     }
-    TabletSchemaSPtr schema = rowset->tablet_schema();
     OlapStopWatch watch;
     auto const rowset_id = rowset->rowset_id();
     size_t seq_col_length = 0;
