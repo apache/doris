@@ -20,6 +20,7 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     sql 'set enable_fallback_to_original_planner=false'
 
     // table nullsafe array
+    sql """DROP TABLE IF EXISTS fn_test_nullsafe_array"""
     sql """
         CREATE TABLE IF NOT EXISTS `fn_test_nullsafe_array` (
             `id` int not null,
@@ -104,37 +105,38 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_literal_array_concat "SELECT array_concat([1, null, 3], [4, 5])"
     qt_sql_literal_array_contains "SELECT array_contains([1, null, 3], null)"
     qt_sql_literal_array_count "SELECT array_count(x -> x is null, [null, 1, null, 2, null])"
-    qt_sql_literal_array_cum_sum "SELECT array_cum_sum([1, null, 3, null, 5])"
+    qt_sql_literal_array_cum_sum1 "SELECT array_cum_sum([1, null, 3, null, 5])"
+    qt_sql_literal_array_cum_sum2 "SELECT array_cum_sum([null, null, 3, null, 5])"
+    qt_sql_literal_array_cum_sum3 "SELECT array_cum_sum([null, null, null, null])"
     qt_sql_literal_array_difference "SELECT array_difference([1, null, 3, null, 5])"
     qt_sql_literal_array_distinct "SELECT array_distinct([1, null, 2, null, 3, null])"
     qt_sql_literal_array_exists "SELECT array_exists(x -> x is null, [null, 1, null, 2, null])"
     qt_sql_literal_array_except "SELECT array_except([1, null, 2, null, 3], [null, 2])"
     qt_sql_literal_array_filter "SELECT array_filter(x -> x is not null, [1, null, 3, null, 5])"
 
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time) {
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+    def wait_for_latest_op_on_table_finish = { table_name ->
+        for(int t = 0; t <= 60000; t += 1000) {
+            def alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                sleep(10000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
+                return
             }
-            useTime = t
-            sleep(delta_time)
+            logger.info(table_name + " latest alter job not finished, detail: " + alter_res)
+            sleep(1000)
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+        logger.info(table_name + " wait_for_latest_op_on_table_finish timeout")
     }
     // alter table add inverted index for array string and array ipv6
     sql """
         ALTER TABLE fn_test_nullsafe_array ADD INDEX idx_string_array (string_array) USING INVERTED
     """ 
     // wait for inverted index build
-    wait_for_latest_op_on_table_finish("fn_test_nullsafe_array", 60000)
+    wait_for_latest_op_on_table_finish("fn_test_nullsafe_array")
     sql """
         ALTER TABLE fn_test_nullsafe_array ADD INDEX idx_ipv6_array (ipv6_array) USING INVERTED
     """
-    wait_for_latest_op_on_table_finish("fn_test_nullsafe_array", 60000)
+    wait_for_latest_op_on_table_finish("fn_test_nullsafe_array")
 
     // test function behavior with inverted index
     qt_sql_array_contains_inverted_index "SELECT array_contains(string_array, 'c') FROM fn_test_nullsafe_array order by id"

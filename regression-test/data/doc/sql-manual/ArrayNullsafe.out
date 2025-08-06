@@ -112,9 +112,9 @@ false
 \N
 
 -- !sql_array_cum_sum3 --
-[0, 0, 0, 0, 0]
-[0, 0, 0, 0, 0]
-[0, 0, 0, 0, 0]
+[null, null, null, null, null]
+[null, null, null, null, null]
+[null, null, null, null, null]
 []
 \N
 
@@ -238,8 +238,14 @@ true
 -- !sql_literal_array_count --
 3
 
--- !sql_literal_array_cum_sum --
+-- !sql_literal_array_cum_sum1 --
 [1, 1, 4, 4, 9]
+
+-- !sql_literal_array_cum_sum2 --
+[null, null, 3, 3, 8]
+
+-- !sql_literal_array_cum_sum3 --
+[null, null, null, null]
 
 -- !sql_literal_array_difference --
 [0, null, null, null, null]
