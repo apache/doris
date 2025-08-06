@@ -4512,8 +4512,8 @@ TEST(MetaServiceTest, DecodeTest) {
     std::cout << "rowset2=" << proto_to_json(rowset2) << std::endl;
 }
 
-static void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
-                             int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res) {
+void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                      int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res) {
     brpc::Controller cntl;
     GetTabletStatsRequest req;
     auto idx = req.add_tablet_idx();

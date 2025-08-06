@@ -63,6 +63,8 @@ extern void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const s
                           int64_t table_id, int64_t partition_id, int64_t tablet_id);
 extern void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
                        int64_t partition_id, int64_t tablet_id);
+extern void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                             int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res);
 
 void insert_compact_rowset(Transaction* txn, std::string instance_id, int64_t tablet_id,
                            int64_t partition_id, int64_t start_version, int64_t end_version,
@@ -72,6 +74,53 @@ void insert_compact_rowset(Transaction* txn, std::string instance_id, int64_t ta
     compact_rowset.set_end_version(end_version);
     std::string key = versioned::meta_rowset_compact_key({instance_id, tablet_id, end_version});
     ASSERT_TRUE(versioned::document_put(txn, key, std::move(compact_rowset)));
+}
+
+void update_tablet_compact_stats(Transaction* txn, std::string instance_id, int64_t tablet_id,
+                                 int start_version, int end_version, int num_rows) {
+    MetaReader reader(instance_id, nullptr);
+    std::vector<RowsetMetaCloudPB> rowset_metas;
+    ASSERT_EQ(reader.get_rowset_metas(txn, tablet_id, start_version, end_version, &rowset_metas),
+              TxnErrorCode::TXN_OK);
+
+    int input_data_size = 0;
+    int input_num_rows = 0;
+    int input_num_rowsets = 0;
+    int input_num_segments = 0;
+    int input_index_size = 0;
+    int input_segment_size = 0;
+    for (const auto& rowset_meta : rowset_metas) {
+        input_data_size += rowset_meta.total_disk_size();
+        input_num_rows += rowset_meta.num_rows();
+        input_num_rowsets += 1; // Each rowset is considered as one rowset
+        input_num_segments += rowset_meta.num_segments();
+        input_index_size += rowset_meta.index_disk_size();
+        input_segment_size += rowset_meta.data_disk_size();
+    }
+
+    std::string key = versioned::tablet_compact_stats_key({instance_id, tablet_id});
+    TabletStatsPB stats;
+    ASSERT_EQ(versioned::document_get(txn, key, &stats, nullptr), TxnErrorCode::TXN_OK);
+
+    // See create_rowset() for the calculation of data size
+    stats.set_data_size(stats.data_size() + num_rows * 110 - input_data_size);
+    stats.set_num_rows(stats.num_rows() + num_rows - input_num_rows);
+    stats.set_num_rowsets(stats.num_rowsets() + 1 - input_num_rowsets);
+    stats.set_num_segments(stats.num_segments() + 1 - input_num_segments);
+    stats.set_index_size(stats.index_size() + num_rows * 10 - input_index_size);
+    stats.set_segment_size(stats.segment_size() + num_rows * 100 - input_segment_size);
+    ASSERT_TRUE(versioned::document_put(txn, key, std::move(stats)));
+}
+
+void compact_rowset(TxnKv* txn_kv, std::string instance_id, int64_t tablet_id, int64_t partition_id,
+                    int64_t start_version, int64_t end_version, int num_rows) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    insert_compact_rowset(txn.get(), instance_id, tablet_id, partition_id, start_version,
+                          end_version, num_rows);
+    update_tablet_compact_stats(txn.get(), instance_id, tablet_id, start_version, end_version,
+                                num_rows);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
 // Create a MULTI_VERSION_READ_WRITE instance and refresh the resource manager.
@@ -381,6 +430,90 @@ TEST(MetaServiceVersionedReadTest, GetTablet) {
 
         // Verify the tablet schema
         ASSERT_TRUE(resp.tablet_meta().has_schema());
+    }
+}
+
+TEST(MetaServiceVersionedReadTest, GetTabletStats) {
+    auto meta_service = get_meta_service(false);
+
+    std::string instance_id = "test_cloud_instance_id";
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+    {
+        GetTabletStatsResponse res;
+        get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.tablet_stats_size(), 1);
+        EXPECT_EQ(res.tablet_stats(0).data_size(), 0);
+        EXPECT_EQ(res.tablet_stats(0).num_rows(), 0);
+        EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 1);
+        EXPECT_EQ(res.tablet_stats(0).num_segments(), 0);
+        EXPECT_EQ(res.tablet_stats(0).index_size(), 0);
+        EXPECT_EQ(res.tablet_stats(0).segment_size(), 0);
+    }
+
+    {
+        // Insert rowset
+        config::split_tablet_stats = false;
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 10000, "label1", table_id,
+                                              partition_id, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 10000, "label2", table_id,
+                                              partition_id, tablet_id));
+        config::split_tablet_stats = true;
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 10000, "label3", table_id,
+                                              partition_id, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 10000, "label4", table_id,
+                                              partition_id, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 10000, "label5", table_id,
+                                              partition_id, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 10000, "label6", table_id,
+                                              partition_id, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(insert_rowset(meta_service.get(), 10000, "label7", table_id,
+                                              partition_id, tablet_id));
+    }
+
+    {
+        GetTabletStatsResponse res;
+        get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.tablet_stats_size(), 1);
+        EXPECT_EQ(res.tablet_stats(0).data_size(), 77000);
+        EXPECT_EQ(res.tablet_stats(0).num_rows(), 700);
+        EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 8);
+        EXPECT_EQ(res.tablet_stats(0).num_segments(), 7);
+        EXPECT_EQ(res.tablet_stats(0).index_size(), 7000);
+        EXPECT_EQ(res.tablet_stats(0).segment_size(), 70000);
+    }
+
+    {
+        // Compact some rowsets, the rows is not changed
+        auto txn_kv = meta_service->txn_kv();
+        compact_rowset(txn_kv.get(), instance_id, tablet_id, partition_id, 2, 4, 300);
+        compact_rowset(txn_kv.get(), instance_id, tablet_id, partition_id, 6, 7, 200);
+    }
+
+    {
+        // rowset.set_num_segments(1);
+        // rowset.set_num_rows(num_rows);
+        // rowset.set_data_disk_size(num_rows * 100);
+        // rowset.set_index_disk_size(num_rows * 10);
+        // rowset.set_total_disk_size(num_rows * 110);
+        GetTabletStatsResponse res;
+        get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.tablet_stats_size(), 1);
+        EXPECT_EQ(res.tablet_stats(0).data_size(), 77000);
+        EXPECT_EQ(res.tablet_stats(0).num_rows(), 700);
+        EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 5); // 0-1, 2-4, 5, 6-7, 8
+        EXPECT_EQ(res.tablet_stats(0).num_segments(), 4);
+        EXPECT_EQ(res.tablet_stats(0).index_size(), 7000);
+        EXPECT_EQ(res.tablet_stats(0).segment_size(), 70000);
     }
 }
 
