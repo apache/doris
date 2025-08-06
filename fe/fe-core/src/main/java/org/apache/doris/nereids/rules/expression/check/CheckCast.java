@@ -86,13 +86,15 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.remove(DateTimeType.class);
         allowedTypes.remove(DateTimeV2Type.class);
         allowedTypes.remove(TimeV2Type.class);
-        allowToComplexType(allowedTypes);
+        allowedTypes.add(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(BooleanType.class, allowedTypes);
 
         // Numeric
         allowedTypes = Sets.newHashSet();
         allowToBasicType(allowedTypes);
-        allowToComplexType(allowedTypes);
+        allowedTypes.add(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(TinyIntType.class, allowedTypes);
         strictCastWhiteList.put(SmallIntType.class, allowedTypes);
         strictCastWhiteList.put(IntegerType.class, allowedTypes);
@@ -113,8 +115,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
         allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
-        allowedTypes.remove(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(DateType.class, allowedTypes);
         strictCastWhiteList.put(DateV2Type.class, allowedTypes);
 
@@ -128,8 +129,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateTimeV2Type.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
-        allowedTypes.remove(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(DateTimeType.class, allowedTypes);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
 
@@ -146,8 +146,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateTimeV2Type.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
-        allowedTypes.remove(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(TimeV2Type.class, allowedTypes);
 
         // Char, Varchar, String
@@ -156,6 +155,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
         allowToComplexType(allowedTypes);
+        allowedTypes.remove(HllType.class);
+        allowedTypes.remove(BitmapType.class);
+        allowedTypes.remove(QuantileStateType.class);
         strictCastWhiteList.put(CharType.class, allowedTypes);
         strictCastWhiteList.put(VarcharType.class, allowedTypes);
         strictCastWhiteList.put(StringType.class, allowedTypes);
@@ -165,60 +167,66 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(IPv4Type.class);
         allowedTypes.add(IPv6Type.class);
         allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
-        allowedTypes.remove(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(IPv4Type.class, allowedTypes);
 
         // IPV6
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(IPv6Type.class);
         allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
-        allowedTypes.remove(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(IPv6Type.class, allowedTypes);
 
         // bitmap
         allowedTypes = Sets.newHashSet();
-        allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
-        allowedTypes.remove(JsonType.class);
+        allowedTypes.add(BitmapType.class);
         strictCastWhiteList.put(BitmapType.class, allowedTypes);
 
         // hll
         allowedTypes = Sets.newHashSet();
-        allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
-        allowedTypes.remove(JsonType.class);
+        allowedTypes.add(HllType.class);
         strictCastWhiteList.put(HllType.class, allowedTypes);
+
+        // quantile
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(QuantileStateType.class);
+        strictCastWhiteList.put(QuantileStateType.class, allowedTypes);
 
         // array
         allowedTypes = Sets.newHashSet();
         allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
+        allowedTypes.add(ArrayType.class);
+        allowedTypes.add(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(ArrayType.class, allowedTypes);
 
         // map
         allowedTypes = Sets.newHashSet();
         allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
-        allowedTypes.remove(JsonType.class);
+        allowedTypes.add(MapType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(MapType.class, allowedTypes);
 
         // struct
         allowedTypes = Sets.newHashSet();
         allowToStringLikeType(allowedTypes);
-        allowToComplexType(allowedTypes);
+        allowedTypes.add(StructType.class);
+        allowedTypes.add(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(StructType.class, allowedTypes);
 
         // json
         allowedTypes = Sets.newHashSet();
         allowToBasicType(allowedTypes);
-        allowToComplexType(allowedTypes);
         allowedTypes.remove(DateType.class);
         allowedTypes.remove(DateV2Type.class);
         allowedTypes.remove(DateTimeType.class);
         allowedTypes.remove(DateTimeV2Type.class);
         allowedTypes.remove(TimeV2Type.class);
+        allowedTypes.add(ArrayType.class);
+        allowedTypes.add(StructType.class);
+        allowedTypes.add(JsonType.class);
+        allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(JsonType.class, allowedTypes);
 
         // variant
@@ -332,7 +340,10 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         }
         // The following code is old check logic.
         if (originalType instanceof CharacterType && !(targetType instanceof PrimitiveType)) {
-            return true;
+            // CharacterType couldn't cast to Object type which contains HllType, BitmapType or QuantileStateType
+            return !checkTypeContainsType(targetType, HllType.class)
+                    && !checkTypeContainsType(targetType, BitmapType.class)
+                    && !checkTypeContainsType(targetType, QuantileStateType.class);
         }
         if (originalType instanceof AggStateType && targetType instanceof CharacterType) {
             return true;
@@ -359,8 +370,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                 }
             }
             return true;
-        } else if (originalType instanceof JsonType || targetType instanceof JsonType) {
-            return !originalType.isComplexType() || checkMapKeyIsStringLikeForJson(originalType);
+        } else if (originalType.isComplexType() && targetType.isJsonType()) {
+            return !checkTypeContainsType(originalType, MapType.class);
         } else {
             return checkPrimitiveType(originalType, targetType);
         }
@@ -374,6 +385,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      *   4. target type is null type
      */
     private static boolean checkPrimitiveType(DataType originalType, DataType targetType) {
+        if (originalType.isJsonType() || targetType.isJsonType()) {
+            return true;
+        }
         if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
             return false;
         }
@@ -393,21 +407,28 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     }
 
     /**
-     * check if complexType type which contains map, make sure key is string like for json
+     * check if sourceType contains the given targetType
      *
-     * @param complexType need to check
-     * @return true if complexType can cast to json
+     * @param sourceType need to check
+     * @param targetType targetType to find
+     * @return true if complexType contains the targetType.
      */
-    public static boolean checkMapKeyIsStringLikeForJson(DataType complexType) {
-        if (complexType.isMapType()) {
-            return ((MapType) complexType).getKeyType().isStringLikeType();
-        } else if (complexType.isArrayType()) {
-            return checkMapKeyIsStringLikeForJson(((ArrayType) complexType).getItemType());
-        } else if (complexType.isStructType()) {
-            for (StructField f : ((StructType) complexType).getFields()) {
-                return checkMapKeyIsStringLikeForJson(f.getDataType());
+    public static boolean checkTypeContainsType(DataType sourceType, Class<? extends DataType> targetType) {
+        if (sourceType.getClass().equals(targetType)) {
+            return true;
+        }
+        if (sourceType.isArrayType()) {
+            return checkTypeContainsType(((ArrayType) sourceType).getItemType(), targetType);
+        } else if (sourceType.isMapType()) {
+            return checkTypeContainsType(((MapType) sourceType).getKeyType(), targetType)
+                    || checkTypeContainsType(((MapType) sourceType).getValueType(), targetType);
+        } else if (sourceType.isStructType()) {
+            for (StructField f : ((StructType) sourceType).getFields()) {
+                if (checkTypeContainsType(f.getDataType(), targetType)) {
+                    return true;
+                }
             }
         }
-        return true;
+        return false;
     }
 }
