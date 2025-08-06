@@ -203,6 +203,30 @@ PhysicalResultSink
 -- !join_9_result --
 10	1	1
 
+-- !join_10_shape --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=() build RFs:RF0 a->[a]
+----PhysicalProject[t1.a]
+------PhysicalOlapScan[t1] apply RFs: RF0
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.b = 10))
+--------PhysicalOlapScan[t3]
+
+-- !join_10_result --
+1
+
+-- !join_11_shape --
+PhysicalResultSink
+--hashJoin[NULL_AWARE_LEFT_ANTI_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=()
+----PhysicalProject[t1.a]
+------PhysicalOlapScan[t1]
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.b = 10))
+--------PhysicalOlapScan[t3]
+
+-- !join_11_result --
+10
+
 -- !subquery_1_shape --
 PhysicalResultSink
 --PhysicalEmptyRelation
