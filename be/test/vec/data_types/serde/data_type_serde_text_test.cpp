@@ -354,6 +354,8 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
 }
 
 // test for array and map
+
+// test for array and map
 TEST(TextSerde, ComplexTypeSerdeTextTest) {
     // array-scala
     {
@@ -425,11 +427,14 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                                 "\\N",
                                 "[null,null,null]",
                         },
-                        {"[null, null]", "[2022-07-13 12:30:00, null, 2022-07-13 12:30:00]", "\\N",
-                         "[null, null, null]"},
-                        {"[2022-07-13 00:00:00, 2022-07-13 12:30:00]",
-                         "[2022-07-13 12:30:00, 2022-07-13 00:00:00, 2022-07-13 12:30:00]", "\\N",
-                         "[null, null, null]"}),
+                        {"[\"2022-07-13 00:00:00\", \"2022-07-13 12:30:00\"]",
+                         "[\"2022-07-13 12:30:00\", \"2022-07-13 00:00:00\", \"2022-07-13 "
+                         "12:30:00\"]",
+                         "\\N", "[null, null, null]"},
+                        {"[\"2022-07-13 00:00:00\", \"2022-07-13 12:30:00\"]",
+                         "[\"2022-07-13 12:30:00\", \"2022-07-13 00:00:00\", \"2022-07-13 "
+                         "12:30:00\"]",
+                         "\\N", "[null, null, null]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DECIMAL,
                         {"[4, 5.5, 6.67]",
@@ -562,7 +567,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
 
     // map-scala-scala
     {
-        // nested key type , nested value type, test std::string , expect string
+        // nested key type , nested value type, test string , expect string
         typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> nested_field_types = {
@@ -597,29 +602,38 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                                    "{null:null, 67.6:67.7}", "{null:null, null:1, 1:null}"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATE, FieldType::OLAP_FIELD_TYPE_DATETIME,
-                        {"{2022-07-13: 2022-07-13 12:30:00, 2022-07-13 12:30:00: 2022-07-13 "
-                         "12:30:00, 2022-07-13 12:30:00.000: 2022-07-13 12:30:00.000, null: null, "
-                         "2022-07-13:'2022-07-13 12:30:00'}",
+                        {"{\"2022-07-13\": \"2022-07-13 12:30:00\", \"2022-07-13 12:30:00\": "
+                         "2022-07-13 "
+                         "12:30:00, \"2022-07-13 12:30:00.000\": 2022-07-13 12:30:00.000, null: "
+                         "null, "
+                         "\"2022-07-13\":'2022-07-13 12:30:00'}",
                          // escaped char ':'
-                         "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
-                         "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}",
+                         "{2022-07-13 12\\:30\\:00: \"2022-07-13\", 2022-07-13 12\\:30\\:00.000: "
+                         "\"2022-07-13 12:30:00.000\", \"2022-07-13\":\'$2022-07-13 12:30:00\'}",
                          "\\N"},
-                        {"{\"2022-07-13\":2022-07-13 12:30:00, \"2022-07-13\":null, "
-                         "\"2022-07-13\":null, null:null, \"2022-07-13\":null}",
-                         "{\"2022-07-13\":2022-07-13 00:00:00, \"2022-07-13\":2022-07-13 12:30:00, "
+                        {"{\"2022-07-13\":\"2022-07-13 12:30:00\", \"2022-07-13\":\"2022-07-13 "
+                         "12:30:00\", "
+                         "\"2022-07-13\":\"2022-07-13 12:30:00\", null:null, "
+                         "\"2022-07-13\":\"2022-07-13 12:30:00\"}",
+                         "{\"2022-07-13\":\"2022-07-13 00:00:00\", \"2022-07-13\":\"2022-07-13 "
+                         "12:30:00\", "
                          "\"2022-07-13\":null}",
                          "\\N"}),
-                FieldType_RandStr(
-                        FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
-                        {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, null: null}",
-                         "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
-                         "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
-                         "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
-                        {"{2022-07-13 12:00:00:null, 2022-07-13 00:00:00:12.456754320, "
-                         "null:null}",
-                         "{null:null}",
-                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:null}",
-                         "{2022-07-13 12:30:00:12.456754320, null:12.340000000}"}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATETIME,
+                                  FieldType::OLAP_FIELD_TYPE_DECIMAL,
+                                  {"{\"2022-07-13 12:30:00\": 12.45675432, \"2022-07-13\": "
+                                   "12.45675432, null: null}",
+                                   "{\"$2022-07-13 12:30:00\": \"12.45675432\"}",
+                                   "{\"2022-07-13 12\\:30\\:00\":12.45675432, "
+                                   "\"2022-07-13#12:30:00\": 12.45675432}",
+                                   "{\"2022-07-13 12\\:30\\:00.0000\":12.45675432, null:12.34}"},
+                                  {"{\"2022-07-13 12:30:00\":12.456754320, \"2022-07-13 "
+                                   "00:00:00\":12.456754320, "
+                                   "null:null}",
+                                   "{null:null}",
+                                   "{\"2022-07-13 12:30:00\":12.456754320, \"2022-07-13 "
+                                   "12:30:00\":12.456754320}",
+                                   "{\"2022-07-13 12:30:00\":12.456754320, null:12.340000000}"}),
         };
 
         for (auto type_pair : nested_field_types) {
@@ -658,8 +672,6 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         EXPECT_FALSE(st.ok());
                         continue;
                     }
-                    auto deser_result_str = map_data_type_ptr->to_string(*col, 0);
-                    std::cout << "deser_result_str: " << deser_result_str << std::endl;
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());
@@ -672,7 +684,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 // from_string
                 {
                     ReadBuffer rb(rand_str.data(), rand_str.size());
-                    std::cout << "from std::string rb: " << rb.to_string() << std::endl;
+                    std::cout << "from string rb: " << rb.to_string() << std::endl;
                     Status stat = map_data_type_ptr->from_string(rb, col2.get());
                     std::cout << stat.to_json() << std::endl;
                     auto ser_col = ColumnString::create();
@@ -700,21 +712,24 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          // escaped char ':'
                          "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
                          "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}"},
-                        {"{\"2022-07-13\":2022-07-13 12:30:00, \"2022-07-13\":null, "
-                         "\"2022-07-13\":null, null:null, \"2022-07-13\":2022-07-13 12:30:00}",
-                         "{\"2022-07-13\":2022-07-13 00:00:00, \"2022-07-13\":2022-07-13 12:30:00, "
-                         "\"2022-07-13\":2022-07-13 12:30:00}"}),
+                        {"{\"2022-07-13\":\"2022-07-13 12:30:00\", \"2022-07-13\":null, "
+                         "\"2022-07-13\":null, null:null, \"2022-07-13\":\"2022-07-13 12:30:00\"}",
+                         "{\"2022-07-13\":\"2022-07-13 00:00:00\", \"2022-07-13\":\"2022-07-13 "
+                         "12:30:00\", "
+                         "\"2022-07-13\":\"2022-07-13 12:30:00\"}"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
                         {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, null: null}",
                          "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
                          "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
                          "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
-                        {"{2022-07-13 12:00:00:null, 2022-07-13 00:00:00:12.456754320, "
+                        {"{\"2022-07-13 12:00:00\":null, \"2022-07-13 "
+                         "00:00:00\":12.456754320, "
                          "null:null}",
-                         "{2022-07-13 12:30:00:12.456754320}",
-                         "{2022-07-13 12:30:00:12.456754320, 2022-07-13 12:00:00:null}",
-                         "{2022-07-13 12:30:00:12.456754320, null:12.340000000}"}),
+                         "{\"2022-07-13 12:30:00\":12.456754320}",
+                         "{\"2022-07-13 12:30:00\":12.456754320, \"2022-07-13 "
+                         "12:00:00\":null}",
+                         "{\"2022-07-13 12:30:00\":12.456754320, null:12.340000000}"}),
         };
         for (auto type_pair : field_types) {
             auto key_type = std::get<0>(type_pair);
@@ -753,8 +768,6 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         EXPECT_FALSE(st.ok());
                         continue;
                     }
-                    auto deser_result_str = map_data_type_ptr->to_string(*col, 0);
-                    std::cout << "deser_result_str: " << deser_result_str << std::endl;
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
                     VectorBufferWriter buffer_writer(*ser_col.get());

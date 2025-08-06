@@ -47,13 +47,18 @@ public class Exp extends ScalarFunction
         super("exp", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Exp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Exp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Exp(children.get(0));
+        return new Exp(getFunctionParams(children));
     }
 
     @Override

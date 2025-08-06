@@ -297,4 +297,20 @@ suite("test_round") {
         SELECT number, dec190, round_bankers(dec190, 0), round_bankers(dec190, number), dec199, round_bankers(dec199, 0), round_bankers(dec199, number), 
             dec1919, round_bankers(dec1919, 0), round_bankers(dec1919, number) FROM test_enhanced_round_dec128 order by rid;
     """
+
+    multi_sql """
+        drop table if exists test_round_bankers_scale;
+        create table test_round_bankers_scale(id bigint, a decimal(32,6)) properties ("replication_num" = "1");
+        insert into test_round_bankers_scale values(1, 37.283424);
+        """
+
+    test {
+        sql ("select round_bankers(a, -1) from test_round_bankers_scale order by id")
+        result([[new BigDecimal(40)]])
+    }
+
+    test {
+        sql ("select round_bankers(a, 1-2) from test_round_bankers_scale order by id")
+        result([[new BigDecimal(40)]])
+    }
 }

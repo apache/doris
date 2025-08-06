@@ -83,13 +83,18 @@ public class NullIf extends ScalarFunction
         super("nullif", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private NullIf(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public NullIf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new NullIf(children.get(0), children.get(1));
+        return new NullIf(getFunctionParams(children));
     }
 
     @Override

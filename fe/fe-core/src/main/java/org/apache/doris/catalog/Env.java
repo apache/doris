@@ -30,7 +30,6 @@ import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -118,13 +117,16 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
-import org.apache.doris.encryption.KeyManager;
+import org.apache.doris.encryption.KeyManagerFactory;
+import org.apache.doris.encryption.KeyManagerInterface;
+import org.apache.doris.encryption.KeyManagerStore;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
@@ -591,7 +593,9 @@ public class Env {
 
     private DictionaryManager dictionaryManager;
 
-    private KeyManager keyManager;
+    private KeyManagerStore keyManagerStore;
+
+    private KeyManagerInterface keyManager;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -693,6 +697,13 @@ public class Env {
 
     public BinlogManager getBinlogManager() {
         return binlogManager;
+    }
+
+    public KeyManagerInterface getKeyManager() throws Exception {
+        if (keyManager == null) {
+            throw new Exception("The keyManager is null, possibly due to a missing implementation of KeyManager");
+        }
+        return keyManager;
     }
 
     private static class SingletonHolder {
@@ -845,7 +856,8 @@ public class Env {
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
         this.dictionaryManager = new DictionaryManager();
-        this.keyManager = new KeyManager();
+        this.keyManagerStore = new KeyManagerStore();
+        this.keyManager = KeyManagerFactory.getKeyManager();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -997,6 +1009,10 @@ public class Env {
 
     public PlsqlManager getPlsqlManager() {
         return plsqlManager;
+    }
+
+    public KeyManagerStore getKeyManagerStore() {
+        return keyManagerStore;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1956,6 +1972,9 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        if (keyManager != null) {
+            keyManager.init();
+        }
     }
 
     // start threads that should run on all FE
@@ -2514,9 +2533,9 @@ public class Env {
         return checksum;
     }
 
-    public long loadKeyManager(DataInputStream in, long checksum) throws IOException {
-        this.keyManager = KeyManager.read(in);
-        LOG.info("finished replay KeyManager from image");
+    public long loadKeyManagerStore(DataInputStream in, long checksum) throws IOException {
+        this.keyManagerStore = KeyManagerStore.read(in);
+        LOG.info("finished replay KeyManagerStore from image");
         return checksum;
     }
 
@@ -2815,8 +2834,8 @@ public class Env {
         return checksum;
     }
 
-    public long saveKeyManager(CountingDataOutputStream out, long checksum) throws IOException {
-        this.keyManager.write(out);
+    public long saveKeyManagerStore(CountingDataOutputStream out, long checksum) throws IOException {
+        this.keyManagerStore.write(out);
         LOG.info("finished save KeyManager to image");
         return checksum;
     }
@@ -4568,6 +4587,9 @@ public class Env {
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
             sb.append(")");
+        } else if (table.getType() == TableType.JDBC_EXTERNAL_TABLE) {
+            JdbcExternalTable jdbcTable = (JdbcExternalTable) table;
+            addTableComment(jdbcTable, sb);
         } else if (table.getType() == TableType.ODBC) {
             OdbcTable odbcTable = (OdbcTable) table;
 
@@ -6535,24 +6557,6 @@ public class Env {
             ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
                 ctl.replayTruncateTable(info);
-            }
-        }
-    }
-
-    public void createFunction(CreateFunctionStmt stmt) throws UserException {
-        if (SetType.GLOBAL.equals(stmt.getType())) {
-            globalFunctionMgr.addFunction(stmt.getFunction(), stmt.isIfNotExists());
-        } else {
-            Database db = getInternalCatalog().getDbOrDdlException(stmt.getFunctionName().getDb());
-            db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
-            if (stmt.getFunction().isUDTFunction()) {
-                // all of the table function in doris will have two function
-                // one is the noraml, and another is outer, the different of them is deal with
-                // empty: whether need to insert NULL result value
-                Function outerFunction = stmt.getFunction().clone();
-                FunctionName name = outerFunction.getFunctionName();
-                name.setFn(name.getFunction() + "_outer");
-                db.addFunction(outerFunction, stmt.isIfNotExists());
             }
         }
     }

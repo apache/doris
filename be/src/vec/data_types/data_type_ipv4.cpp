@@ -24,6 +24,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 
@@ -40,8 +41,7 @@ size_t DataTypeIPv4::number_length() const {
     return 16;
 }
 void DataTypeIPv4::push_number(ColumnString::Chars& chars, const IPv4& num) const {
-    auto value = IPv4Value(num);
-    auto ipv4_str = value.to_string();
+    auto ipv4_str = CastToString::from_ip(num);
     chars.insert(ipv4_str.begin(), ipv4_str.end());
 }
 

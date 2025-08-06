@@ -54,10 +54,15 @@ public class SecondsSub extends ScalarFunction
         super("seconds_sub", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SecondsSub(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public SecondsSub withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new SecondsSub(children.get(0), children.get(1));
+        return new SecondsSub(getFunctionParams(children));
     }
 
     @Override

@@ -55,6 +55,11 @@ public class Log extends ScalarFunction
         super("log", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Log(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -62,11 +67,7 @@ public class Log extends ScalarFunction
     public Log withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2,
                 "Log function should have 1 or 2 children, but got: %s", children.size());
-        if (children.size() == 1) {
-            return new Log(children.get(0));
-        } else {
-            return new Log(children.get(0), children.get(1));
-        }
+        return new Log(getFunctionParams(children));
     }
 
     @Override

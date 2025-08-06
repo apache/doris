@@ -36,6 +36,7 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -291,6 +292,20 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
     return Status::OK();
 }
 
+Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
+                                           const TabletColumn* column, io::FileWriter* file_writer,
+                                           std::unique_ptr<ColumnWriter>* writer) {
+    if (column->is_extracted_column()) {
+        VLOG_DEBUG << "gen subwriter for " << column->path_info_ptr()->get_path();
+        *writer = std::unique_ptr<ColumnWriter>(new VariantSubcolumnWriter(
+                opts, column, std::unique_ptr<Field>(FieldFactory::create(*column))));
+        return Status::OK();
+    }
+    *writer = std::unique_ptr<ColumnWriter>(new VariantColumnWriter(
+            opts, column, std::unique_ptr<Field>(FieldFactory::create(*column))));
+    return Status::OK();
+}
+
 //Todo(Amory): here should according nullable and offset and need sub to simply this function
 Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn* column,
                             io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer) {
@@ -319,10 +334,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             return Status::OK();
         }
         case FieldType::OLAP_FIELD_TYPE_VARIANT: {
-            // Use ScalarColumnWriter to write it's only root data
-            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
-                    new ScalarColumnWriter(opts, std::move(field), file_writer));
-            *writer = std::move(writer_local);
+            // Process columns with sparse column
+            RETURN_IF_ERROR(create_variant_writer(opts, column, file_writer, writer));
             return Status::OK();
         }
         default:
@@ -1155,6 +1168,54 @@ Status MapColumnWriter::write_inverted_index() {
     }
     return Status::OK();
 }
+
+VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts,
+                                         const TabletColumn* column, std::unique_ptr<Field> field)
+        : ColumnWriter(std::move(field), opts.meta->is_nullable()) {
+    _impl = std::make_unique<VariantColumnWriterImpl>(opts, column);
+}
+
+Status VariantColumnWriter::init() {
+    return _impl->init();
+}
+
+Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    _next_rowid += num_rows;
+    return _impl->append_data(ptr, num_rows);
+}
+
+uint64_t VariantColumnWriter::estimate_buffer_size() {
+    return _impl->estimate_buffer_size();
+}
+
+Status VariantColumnWriter::finish() {
+    return _impl->finish();
+}
+Status VariantColumnWriter::write_data() {
+    return _impl->write_data();
+}
+Status VariantColumnWriter::write_ordinal_index() {
+    return _impl->write_ordinal_index();
+}
+
+Status VariantColumnWriter::write_zone_map() {
+    return _impl->write_zone_map();
+}
+
+Status VariantColumnWriter::write_bitmap_index() {
+    return _impl->write_bitmap_index();
+}
+Status VariantColumnWriter::write_inverted_index() {
+    return _impl->write_inverted_index();
+}
+Status VariantColumnWriter::write_bloom_filter_index() {
+    return _impl->write_bloom_filter_index();
+}
+Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                            size_t num_rows) {
+    return _impl->append_nullable(null_map, ptr, num_rows);
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

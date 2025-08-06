@@ -58,14 +58,18 @@ public class IntersectCount extends NotNullableAggregateFunction
                 ExpressionUtils.mergeArguments(arg0, arg1, arg2, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private IntersectCount(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public IntersectCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 3);
-        return new IntersectCount(distinct, children.get(0), children.get(1), children.get(2),
-                children.subList(3, children.size()).toArray(new Expression[0]));
+        return new IntersectCount(getFunctionParams(distinct, children));
     }
 
     @Override
