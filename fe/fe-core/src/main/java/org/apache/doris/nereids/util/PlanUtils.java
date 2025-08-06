@@ -169,7 +169,7 @@ public class PlanUtils {
             List<? extends Expression> targetExpressions) {
         Set<Slot> nonfoldableSlots = Sets.newHashSet();
         for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
-            if (kv.getValue().containsNonfoldable()) {
+            if (kv.getValue().containsUniqueScalarFunction()) {
                 nonfoldableSlots.add(kv.getKey());
             }
         }

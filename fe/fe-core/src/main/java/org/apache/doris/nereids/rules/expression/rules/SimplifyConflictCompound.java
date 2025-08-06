@@ -65,13 +65,11 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
         Map<Expression, Pair<Boolean, Boolean>> exprExistMarks = Maps.newLinkedHashMap();
         boolean canSimplify = false;
         for (Expression child : flatten) {
-            if (!child.containsNonfoldable()) {
-                if (child instanceof CompoundPredicate) {
-                    Expression newChild = rewrite((CompoundPredicate) child);
-                    if (!child.equals(newChild)) {
-                        child = newChild;
-                        changed = true;
-                    }
+            if (child instanceof CompoundPredicate) {
+                Expression newChild = rewrite((CompoundPredicate) child);
+                if (!child.equals(newChild)) {
+                    child = newChild;
+                    changed = true;
                 }
                 Pair<Expression, Boolean> pair = normalComparisonAndNot(child);
                 Expression normalExpr = pair.first;
@@ -86,6 +84,16 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
                 }
                 exprExistMarks.put(normalExpr, mark);
             }
+            Pair<Expression, Boolean> pair = normalComparisonAndNot(child);
+            Expression normalExpr = pair.first;
+            boolean isNot = pair.second;
+            Pair<Boolean, Boolean> mark = exprExistMarks.computeIfAbsent(normalExpr, k -> Pair.of(false, false));
+            if (isNot) {
+                mark = Pair.of(mark.first, true);
+            } else {
+                mark = Pair.of(true, mark.second);
+            }
+            exprExistMarks.put(normalExpr, mark);
             newChildren.add(child);
         }
         if (!canSimplify && !changed) {

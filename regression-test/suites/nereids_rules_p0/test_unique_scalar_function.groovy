@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_nonfoldable') {
+suite('test_unique_scalar_function') {
     sql 'SET enable_nereids_planner=true'
     sql 'SET runtime_filter_mode=OFF'
     sql 'SET enable_fallback_to_original_planner=false'
