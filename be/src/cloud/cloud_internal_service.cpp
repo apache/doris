@@ -373,8 +373,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
     }
     if (wait && wait->timed_wait(due_time)) {
         g_file_cache_warm_up_rowset_wait_for_compaction_timeout_num << 1;
-        LOG_WARNING("the time spent warming up {} rowsets exceeded {} ms",
-                    request->rowset_metas().size(), request->sync_wait_timeout_ms());
+        LOG_WARNING("the time spent warming up {} rowsets for tablet {} exceeded {} ms",
+                    request->rowset_metas().size(), tablet_id, request->sync_wait_timeout_ms());
     }
 }
 

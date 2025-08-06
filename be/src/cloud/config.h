@@ -134,6 +134,11 @@ DECLARE_mBool(enable_standby_passive_compaction);
 
 DECLARE_mDouble(standby_compaction_version_ratio);
 
+// When event driven warm-up is enabled by the user, turning on this option can help
+// avoid file cache misses in the read cluster caused by compaction.
+// If enabled, compaction will wait for the warm-up to complete before committing.
+//
+// ATTN: Enabling this option may slow down compaction due to the added wait.
 DECLARE_mBool(enable_compaction_delay_commit_for_warm_up);
 
 DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);

@@ -1044,6 +1044,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     }
 
     int64_t timeout_ms = -1;
+    // if the `job_id` is not empty, it means this rowset was produced by a compaction job.
     if (config::enable_compaction_delay_commit_for_warm_up && !job_id.empty()) {
         // 1. assume the download speed is 100MB/s
         // 2. we double the download time as timeout for safety
