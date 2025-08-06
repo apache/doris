@@ -4100,8 +4100,8 @@ Status Tablet::calc_delete_bitmap_between_segments(
     auto const rowset_id = rowset->rowset_id();
     size_t seq_col_length = 0;
     if (schema->has_sequence_col()) {
-        auto seq_col_idx = _tablet_meta->tablet_schema()->sequence_col_idx();
-        seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length() + 1;
+        auto seq_col_idx = schema->sequence_col_idx();
+        seq_col_length = schema->column(seq_col_idx).length() + 1;
     }
     size_t rowid_length = 0;
     if (!schema->cluster_key_idxes().empty()) {
