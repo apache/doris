@@ -269,11 +269,11 @@ public class IcebergRestProperties extends MetastoreProperties {
 
     private void addGlueRestCatalogProperties() {
         if (Strings.isNotBlank(icebergRestSigningName) && icebergRestSigningName.equalsIgnoreCase("glue")) {
-            icebergRestCatalogProperties.put("iceberg.rest.signing-name", "glue");
-            icebergRestCatalogProperties.put("iceberg.rest.sigv4-enabled", icebergRestSigV4Enabled);
-            icebergRestCatalogProperties.put("iceberg.rest.access-key-id", icebergRestAccessKeyId);
-            icebergRestCatalogProperties.put("iceberg.rest.secret-access-key", icebergRestSecretAccessKey);
-            icebergRestCatalogProperties.put("iceberg.rest.signing-region", icebergRestSigningRegion);
+            icebergRestCatalogProperties.put("rest.signing-name", "glue");
+            icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
+            icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
+            icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
+            icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
         }
     }
 
