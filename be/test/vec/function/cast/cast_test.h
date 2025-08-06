@@ -247,9 +247,15 @@ struct FunctionCastTest : public testing::Test {
 
         if (!data_set.empty()) {
             data_set[0].first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
-            static_cast<void>(check_function<ResultDataType, true, true>(
-                    func_name, input_types, data_set, result_scale, result_precision,
-                    expect_execute_fail, expect_result_ne, enable_strict_cast));
+            if (datetime_is_string_format) {
+                static_cast<void>(check_function<ResultDataType, true, true>(
+                        func_name, input_types, data_set, result_scale, result_precision,
+                        expect_execute_fail, expect_result_ne, enable_strict_cast));
+            } else {
+                static_cast<void>(check_function<ResultDataType, true, false>(
+                        func_name, input_types, data_set, result_scale, result_precision,
+                        expect_execute_fail, expect_result_ne, enable_strict_cast));
+            }
         }
     }
 
