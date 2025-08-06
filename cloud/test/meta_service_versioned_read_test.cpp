@@ -647,4 +647,133 @@ TEST(MetaServiceVersionedReadTest, UpdateTablet) {
     get_and_check_tablet_meta(tablet_id1, 300, true, true);
 }
 
+TEST(MetaServiceVersionedReadTest, IndexRequest) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "commit_index";
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    constexpr int64_t db_id = 123;
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+
+    {
+        // Prepare index
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    {
+        // Commit index
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.set_is_new_table(true);
+        meta_service->commit_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    {
+        // Prepare index again
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED)
+                << res.status().DebugString();
+    }
+
+    {
+        // Commit index again
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.set_is_new_table(true);
+        meta_service->commit_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+}
+
+TEST(MetaServiceVersionedReadTest, PartitionRequest) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "PartitionRequest";
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    constexpr int64_t db_id = 1;
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+
+    {
+        // Prepare transaction
+        brpc::Controller ctrl;
+        PartitionRequest req;
+        PartitionResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.add_partition_ids(partition_id);
+        meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    {
+        // Commit partition
+        brpc::Controller ctrl;
+        PartitionRequest req;
+        PartitionResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.add_partition_ids(partition_id);
+        meta_service->commit_partition(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    {
+        // Prepare partition again
+        brpc::Controller ctrl;
+        PartitionRequest req;
+        PartitionResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.add_partition_ids(partition_id);
+        meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED)
+                << res.status().DebugString();
+    }
+
+    {
+        // Commit partition again
+        brpc::Controller ctrl;
+        PartitionRequest req;
+        PartitionResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.add_partition_ids(partition_id);
+        meta_service->commit_partition(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+}
+
 } // namespace doris::cloud
