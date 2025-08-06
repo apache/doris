@@ -266,6 +266,33 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     }
 
     @Override
+    public String getObjectETag(String remotePath) {
+        try {
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            HeadObjectResponse response = getClient()
+                    .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
+            String eTag = response.eTag();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getObjectETag success: {}, eTag: {}", remotePath, eTag);
+            }
+            return eTag;
+        } catch (S3Exception e) {
+            if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
+                LOG.warn("getObjectETag failed - file not found: {}", remotePath);
+            } else {
+                LOG.warn("getObjectETag failed: {}", e.getMessage());
+            }
+            return null;
+        } catch (UserException ue) {
+            LOG.warn("getObjectETag failed - connect to s3 failed: {}", ue.getMessage());
+            return null;
+        } catch (Exception e) {
+            LOG.warn("getObjectETag failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
     public Status getObject(String remoteFilePath, File localFile) {
         try {
             S3URI uri = S3URI.create(remoteFilePath, isUsePathStyle, forceParsingByStandardUri);
