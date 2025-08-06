@@ -2487,13 +2487,6 @@ load_property ::=
     :}
     ;
 
-show_create_load_stmt ::=
-    KW_SHOW KW_CREATE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowCreateLoadStmt(jobLabel);
-    :}
-    ;
-
 tbl_pattern ::=
     ident_or_star:db
     {:
