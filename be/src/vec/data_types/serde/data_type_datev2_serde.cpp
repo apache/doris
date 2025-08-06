@@ -309,7 +309,10 @@ Status DataTypeDateV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
     DateV2Value<DateV2ValueType> res;
     CastToDateV2::from_string_strict_mode<true>(str, res, options.timezone, params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
-    RETURN_IF_ERROR(params.status);
+    if (!params.status.ok()) [[unlikely]] {
+        params.status.prepend(fmt::format("parse {} to date failed: ", str.to_string_view()));
+        return params.status;
+    }
 
     col_data.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res));
     return Status::OK();

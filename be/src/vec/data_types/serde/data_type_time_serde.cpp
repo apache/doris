@@ -144,7 +144,11 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
     TimeValue::TimeType res;
     CastToTimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
-    RETURN_IF_ERROR(params.status);
+    if (!params.status.ok()) [[unlikely]] {
+        params.status.prepend(fmt::format("parse {} to time failed: ", str.to_string_view()));
+        return params.status;
+    }
+
     col_data.insert_value(res);
     return Status::OK();
 }

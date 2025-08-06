@@ -437,7 +437,10 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& co
     CastToDateOrDatetime::from_string_strict_mode<true, IsDatetime>(str, res, options.timezone,
                                                                     params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
-    RETURN_IF_ERROR(params.status);
+    if (!params.status.ok()) [[unlikely]] {
+        params.status.prepend(fmt::format("parse {} to {} failed: ", str.to_string_view(), name()));
+        return params.status;
+    }
     col_data.insert_value(binary_cast<CppType, NativeType>(res));
 
     return Status::OK();

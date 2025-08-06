@@ -132,7 +132,10 @@ Status DataTypeDateTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn&
     DateV2Value<DateTimeV2ValueType> res;
     CastToDatetimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
-    RETURN_IF_ERROR(params.status);
+    if (!params.status.ok()) [[unlikely]] {
+        params.status.prepend(fmt::format("parse {} to datetime failed: ", str.to_string_view()));
+        return params.status;
+    }
     col_data.insert_value(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(res));
     return Status::OK();
 }
