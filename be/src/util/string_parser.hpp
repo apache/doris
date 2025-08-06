@@ -23,6 +23,7 @@
 #include <fast_float/fast_float.h>
 #include <fast_float/parse_number.h>
 #include <glog/logging.h>
+#include <sys/types.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -211,6 +212,43 @@ bool consume_digit(const char*& s, const char* end, T& out, vectorized::CastPara
             }
             out = out * 10 + (*s - '0');
         }
+    }
+    return true;
+}
+
+// specialized version for 2 digits, which is used very often in date/time parsing.
+template <>
+inline bool consume_digit<uint32_t, 2, -1>(const char*& s, const char* end, uint32_t& out,
+                                           vectorized::CastParameters& params) {
+    out = 0;
+    if (s == end || s + 1 == end || !is_numeric_ascii(*s) || !is_numeric_ascii(*(s + 1)))
+            [[unlikely]] {
+        params.status = Status::InvalidArgument(
+                "StringParser: failed to consume 2 digits, got '{}'", std::string {s, end});
+        return false;
+    }
+    out = (s[0] - '0') * 10 + (s[1] - '0');
+    s += 2; // consume 2 digits
+    return true;
+}
+
+// specialized version for 1 or 2 digits, which is used very often in date/time parsing.
+template <>
+inline bool consume_digit<uint32_t, 1, 2>(const char*& s, const char* end, uint32_t& out,
+                                          vectorized::CastParameters& params) {
+    out = 0;
+    if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
+        params.status = Status::InvalidArgument(
+                "StringParser: failed to consume 1 or 2 digits, got '{}'", std::string {s, end});
+        return false;
+    } else if (s + 1 != end && is_numeric_ascii(*(s + 1))) {
+        // consume 2 digits
+        out = (*s - '0') * 10 + (*(s + 1) - '0');
+        s += 2;
+    } else {
+        // consume 1 digit
+        out = *s - '0';
+        ++s;
     }
     return true;
 }
