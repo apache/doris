@@ -399,6 +399,7 @@ bool ParquetReader::_check_expr_can_push_down(const VExprSPtr& expr) {
         if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
             return _check_slot_can_push_down(expr);
         }
+        return false;
     }
     default: {
         return false;
@@ -537,6 +538,7 @@ bool ParquetReader::_expr_push_down(
         } else if (fn_name == "is_not_null_pred") {
             return _simple_expr_push_down(expr, ParquetPredicate::OP::IS_NOT_NULL, get_stat_func);
         }
+        return false;
     }
     default: {
         return false;

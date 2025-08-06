@@ -283,6 +283,8 @@ public:
         p_reader->_ctz = &ctz;
     }
 
+    void TearDown() override { delete doris_file_metadata; }
+
     static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
                                   std::vector<std::string> table_column_names,
                                   std::vector<TPrimitiveType::type> types) {
@@ -340,9 +342,6 @@ public:
             t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
         }
     };
-
-    //        st = io::global_local_filesystem()->delete_directory(test_dir);
-    //        EXPECT_TRUE(st.ok()) << st;
 
     std::string file_path;
     std::unique_ptr<ParquetReader> p_reader;
