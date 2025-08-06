@@ -185,6 +185,10 @@ public class SchemaScanNode extends ScanNode {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
         }
+        if (!frontendConjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(frontendConjuncts);
+            output.append(prefix).append("FRONTEND PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString());

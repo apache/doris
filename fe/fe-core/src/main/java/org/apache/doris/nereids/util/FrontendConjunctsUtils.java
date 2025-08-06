@@ -29,16 +29,21 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.Maps;
 import com.google.gson.reflect.TypeToken;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
  * FrontendConjunctsUtils
  */
 public class FrontendConjunctsUtils {
+    private static final Logger LOG = LogManager.getLogger(FrontendConjunctsUtils.class);
+
     public static List<Expression> convertToExpression(String conjuncts) {
         List<Expr> exprs = GsonUtils.GSON.fromJson(conjuncts, new TypeToken<List<Expr>>() {
         }.getType());
@@ -82,23 +87,37 @@ public class FrontendConjunctsUtils {
      * @return isFiltered
      */
     public static boolean isFiltered(Expression expression, Map<String, Object> values) {
-        Expression rewrittenExpr = expression.rewriteUp(expr -> {
-            if (expr instanceof UnboundSlot) {
-                List<String> nameParts = ((UnboundSlot) expr).getNameParts();
-                if (!CollectionUtils.isEmpty(nameParts) && nameParts.size() == 1) {
-                    String name = nameParts.get(0).toLowerCase();
-                    if (values.containsKey(name)) {
-                        return Literal.of(values.get(name));
+        try {
+            AtomicBoolean containsAllColumn = new AtomicBoolean(true);
+            Expression rewrittenExpr = expression.rewriteUp(expr -> {
+                if (expr instanceof UnboundSlot) {
+                    List<String> nameParts = ((UnboundSlot) expr).getNameParts();
+                    if (!CollectionUtils.isEmpty(nameParts) && nameParts.size() == 1) {
+                        String name = nameParts.get(0).toLowerCase();
+                        if (values.containsKey(name)) {
+                            return Literal.of(values.get(name));
+                        } else {
+                            containsAllColumn.set(false);
+                        }
                     }
                 }
+                return expr;
+            });
+            // expression is: c1=v1 or c2=v2,
+            // if values is {c1=v3}
+            // we should not return true, because c2 may equals v2
+            if (!containsAllColumn.get()) {
+                return false;
             }
-            return expr;
-        });
-
-        Expression evaluate = FoldConstantRuleOnFE.evaluate(rewrittenExpr, null);
-        if (evaluate instanceof BooleanLiteral && !((BooleanLiteral) evaluate).getValue()) {
-            return true;
+            Expression evaluate = FoldConstantRuleOnFE.evaluate(rewrittenExpr, null);
+            if (evaluate instanceof BooleanLiteral && !((BooleanLiteral) evaluate).getValue()) {
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            LOG.warn("frontend conjuncts deal fail: expression: {}, values: {}", expression, values, e);
+            return false;
         }
-        return false;
+
     }
 }
