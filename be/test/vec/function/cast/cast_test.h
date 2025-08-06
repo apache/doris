@@ -229,8 +229,6 @@ struct FunctionCastTest : public testing::Test {
                     << ", result: " << to_type->to_string(*result, i)
                     << ", expected: " << to_type->to_string(*expected, i);
         }
-
-        std::cout << "block \n" << block.dump_data() << "\n";
     }
 
     // we always need return nullable=true for cast function because of its' get_return_type weird
@@ -240,18 +238,19 @@ struct FunctionCastTest : public testing::Test {
                                  bool expect_execute_fail = false, bool expect_result_ne = false) {
         std::string func_name = "CAST";
 
-        InputTypeSet add_input_types = input_types;
         if constexpr (IsDataTypeDecimal<ResultDataType>) {
             ResultDataType result_data_type(result_precision, result_scale);
-            add_input_types.emplace_back(ConstedNotnull {result_data_type.get_primitive_type()});
+            input_types.emplace_back(ConstedNotnull {result_data_type.get_primitive_type()});
         } else {
-            add_input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
+            input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
         }
 
-        data_set[0].first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
-        static_cast<void>(check_function<ResultDataType, true, true>(
-                func_name, add_input_types, data_set, result_scale, result_precision,
-                expect_execute_fail, expect_result_ne, enable_strict_cast));
+        if (!data_set.empty()) {
+            data_set[0].first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
+            static_cast<void>(check_function<ResultDataType, true, true>(
+                    func_name, input_types, data_set, result_scale, result_precision,
+                    expect_execute_fail, expect_result_ne, enable_strict_cast));
+        }
     }
 
     // we always need return nullable=true for cast function because of its' get_return_type weird
@@ -262,12 +261,11 @@ struct FunctionCastTest : public testing::Test {
         const bool expect_execute_fail = !expect_error.empty();
         std::string func_name = "CAST";
 
-        InputTypeSet add_input_types = input_types;
         if constexpr (IsDataTypeDecimal<ResultDataType>) {
             ResultDataType result_data_type(result_precision, result_scale);
-            add_input_types.emplace_back(ConstedNotnull {result_data_type.get_primitive_type()});
+            input_types.emplace_back(ConstedNotnull {result_data_type.get_primitive_type()});
         } else {
-            add_input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
+            input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
         }
 
         if (expect_execute_fail) {
@@ -279,7 +277,7 @@ struct FunctionCastTest : public testing::Test {
                 DataSet one_row_dataset = {add_row};
 
                 Status st = check_function<ResultDataType, true, true>(
-                        func_name, add_input_types, one_row_dataset, result_scale, result_precision,
+                        func_name, input_types, one_row_dataset, result_scale, result_precision,
                         true, false, true);
                 EXPECT_TRUE(st.msg().find(expect_error) != std::string::npos)
                         << "\nexpect error: " << expect_error << ", but got: " << st.msg();
@@ -287,11 +285,12 @@ struct FunctionCastTest : public testing::Test {
         } else {
             // row.first is input, in cast we have two columns and the second is a placeholder of target type.
             // we need some data in it. it's a const column. so only need one row.
-            data_set[0].first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
-
-            static_cast<void>(check_function<ResultDataType, true, true>(
-                    func_name, add_input_types, data_set, result_scale, result_precision, false,
-                    false, true));
+            if (!data_set.empty()) {
+                data_set[0].first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
+                static_cast<void>(check_function<ResultDataType, true, true>(
+                        func_name, input_types, data_set, result_scale, result_precision, false,
+                        false, true));
+            }
         }
     }
 
