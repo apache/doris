@@ -52,6 +52,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"
     };
+
+    private static final String[] REGION_NAMES = {
+            "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
+    };
+
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
@@ -199,6 +204,16 @@ public class S3Properties extends AbstractS3CompatibleProperties {
          */
         if (!Strings.isNullOrEmpty(endpoint)) {
             return endpoint.contains("amazonaws.com");
+        }
+
+        // guess from region
+        String region = Stream.of(REGION_NAMES)
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (!Strings.isNullOrEmpty(region)) {
+            return true;
         }
         Optional<String> uriValue = origProps.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase("uri"))
