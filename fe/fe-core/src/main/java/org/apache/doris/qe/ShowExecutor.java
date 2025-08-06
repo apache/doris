@@ -23,14 +23,12 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
-import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -83,8 +81,6 @@ public class ShowExecutor {
         checkStmtSupported();
         if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowCreateMTMVStmt) {
-            handleShowCreateMTMV();
         } else if (stmt instanceof ShowEnginesStmt) {
             handleShowEngines();
         } else if (stmt instanceof ShowCreateLoadStmt) {
@@ -149,17 +145,6 @@ public class ShowExecutor {
             return CaseSensibility.TABLE.getCaseSensibility();
         }
         return false;
-    }
-
-    private void handleShowCreateMTMV() throws AnalysisException {
-        ShowCreateMTMVStmt showStmt = (ShowCreateMTMVStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(showStmt.getCtl())
-                .getDbOrAnalysisException(showStmt.getDb());
-        MTMV mtmv = (MTMV) db.getTableOrAnalysisException(showStmt.getTable());
-        List<List<String>> rows = Lists.newArrayList();
-        String mtmvDdl = Env.getMTMVDdl(mtmv);
-        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Handle help statement.
