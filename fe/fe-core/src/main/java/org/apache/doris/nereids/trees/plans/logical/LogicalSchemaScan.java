@@ -154,11 +154,13 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
         return Objects.equals(schemaCatalog, that.schemaCatalog)
                 && Objects.equals(schemaDatabase, that.schemaDatabase)
                 && Objects.equals(schemaTable, that.schemaTable)
+                && Objects.equals(frontendConjuncts, that.frontendConjuncts)
                 && filterPushed == that.filterPushed;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable, filterPushed);
+        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable, filterPushed,
+                frontendConjuncts);
     }
 }

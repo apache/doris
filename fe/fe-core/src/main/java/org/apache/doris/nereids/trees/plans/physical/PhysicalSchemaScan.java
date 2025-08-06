@@ -140,12 +140,13 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
         PhysicalSchemaScan that = (PhysicalSchemaScan) o;
         return Objects.equals(schemaCatalog, that.schemaCatalog)
                 && Objects.equals(schemaDatabase, that.schemaDatabase)
+                && Objects.equals(frontendConjuncts, that.frontendConjuncts)
                 && Objects.equals(schemaTable, that.schemaTable);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable);
+        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
     }
 
     @Override
