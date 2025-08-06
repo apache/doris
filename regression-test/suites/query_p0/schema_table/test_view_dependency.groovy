@@ -98,6 +98,13 @@ suite("test_view_dependency") {
 
     qt_sql "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' order by view_catalog,view_schema,view_name"
 
+    order_qt_filter_1 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME = 'mv_c'"
+    order_qt_filter_2 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME like 'mv_%'"
+    order_qt_filter_3 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_NAME in('mv_c','mv_a')"
+    order_qt_filter_4 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW'"
+    order_qt_filter_5 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW' and VIEW_NAME not in('mv_c','mv_a')"
+    order_qt_filter_6 "select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db' and VIEW_TYPE = 'MATERIALIZED_VIEW' or VIEW_NAME = 'stu_view_1'"
+
     // support eq
     def explain = sql """explain select * from information_schema.view_dependency where view_schema = 'test_view_dependency_db'"""
     assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
