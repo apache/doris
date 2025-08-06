@@ -74,8 +74,7 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
                 return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
             }
             partition_ids.insert(tablet_writer_it->second->partition_id());
-            writers.push_back(
-                    static_cast<CloudDeltaWriter*>(tablet_writer_it->second.get()));
+            writers.push_back(static_cast<CloudDeltaWriter*>(tablet_writer_it->second.get()));
         }
         if (config::skip_writing_empty_rowset_metadata && !writers.empty()) {
             RETURN_IF_ERROR(CloudDeltaWriter::batch_init(writers));

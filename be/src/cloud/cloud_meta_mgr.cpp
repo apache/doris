@@ -1625,11 +1625,11 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
         // missing versions are those that are not in the existing_versions
         if (version.first > last_version + 1) {
             // there is a hole between versions
-            auto prev_rowset = tablet->get_rowset_by_version(version);
+            auto prev_non_hole_rowset = tablet->get_rowset_by_version(version);
             for (int64_t ver = last_version + 1; ver < version.first; ++ver) {
                 RowsetSharedPtr hole_rowset;
                 RETURN_IF_ERROR(create_empty_rowset_for_hole(
-                        tablet, ver, prev_rowset->rowset_meta(), &hole_rowset));
+                        tablet, ver, prev_non_hole_rowset->rowset_meta(), &hole_rowset));
                 hole_rowsets.push_back(hole_rowset);
             }
         }
@@ -1639,9 +1639,9 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
     for (; last_version + 1 <= max_version; ++last_version) {
         // if the last version is less than max_version, we need to fill the hole
         RowsetSharedPtr hole_rowset;
-        auto prev_rowset = tablet->get_rowset_by_version(existing_versions.back());
-        RETURN_IF_ERROR(create_empty_rowset_for_hole(tablet, last_version + 1,
-                                                     prev_rowset->rowset_meta(), &hole_rowset));
+        auto prev_non_hole_rowset = tablet->get_rowset_by_version(existing_versions.back());
+        RETURN_IF_ERROR(create_empty_rowset_for_hole(
+                tablet, last_version + 1, prev_non_hole_rowset->rowset_meta(), &hole_rowset));
         hole_rowsets.push_back(hole_rowset);
     }
 
@@ -1649,17 +1649,17 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
         size_t hole_count = hole_rowsets.size();
         tablet->add_rowsets(std::move(hole_rowsets), false, wlock, false);
         g_cloud_version_hole_filled_count << hole_count;
-        LOG(INFO) << "Filled " << hole_count << " version holes for tablet " 
-                  << tablet->tablet_id();
+        LOG(INFO) << "Filled " << hole_count << " version holes for tablet " << tablet->tablet_id();
     }
     return Status::OK();
 }
 
 Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t version,
-                                                   RowsetMetaSharedPtr prev_rowset_meta, RowsetSharedPtr* rowset) {
+                                                  RowsetMetaSharedPtr prev_rowset_meta,
+                                                  RowsetSharedPtr* rowset) {
     // Create a RowsetMeta for the empty rowset
     auto rs_meta = std::make_shared<RowsetMeta>();
-    
+
     // Generate a deterministic rowset ID for the hole (same tablet_id + version = same rowset_id)
     RowsetId hole_rowset_id;
     hole_rowset_id.init(2, 0, tablet->tablet_id(), version);
@@ -1670,14 +1670,14 @@ Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t v
     load_id.set_hi(tablet->tablet_id());
     load_id.set_lo(version);
     rs_meta->set_load_id(load_id);
-    
+
     // Basic tablet information
     rs_meta->set_tablet_id(tablet->tablet_id());
     rs_meta->set_index_id(tablet->index_id());
     rs_meta->set_partition_id(tablet->partition_id());
     rs_meta->set_tablet_uid(tablet->tablet_uid());
     rs_meta->set_version(Version(version, version));
-    
+
     // Copy schema and other metadata from template
     rs_meta->set_tablet_schema(prev_rowset_meta->tablet_schema());
     rs_meta->set_rowset_type(prev_rowset_meta->rowset_type());
@@ -1693,10 +1693,11 @@ Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t v
     rs_meta->set_num_segments(0);
     rs_meta->set_segments_overlap(NONOVERLAPPING);
     rs_meta->set_rowset_state(VISIBLE);
-    
+
     // Set creation time
     rs_meta->set_creation_time(UnixSeconds());
-    
+    rs_meta->set_newest_write_timestamp(UnixSeconds());
+
     // Create the rowset
     Status s = RowsetFactory::create_rowset(nullptr, "", rs_meta, rowset);
     if (!s.ok()) {
@@ -1709,8 +1710,7 @@ Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t v
     (*rowset)->set_hole_rowset(true);
 
     LOG(INFO) << "Created empty rowset for version hole"
-              << ", tablet_id: " << tablet->tablet_id()
-              << ", version: " << version
+              << ", tablet_id: " << tablet->tablet_id() << ", version: " << version
               << ", rowset_id: " << (*rowset)->rowset_id().to_string();
 
     return Status::OK();

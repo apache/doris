@@ -158,12 +158,11 @@ private:
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
                                      bool full_sync = false, SyncRowsetStats* sync_stats = nullptr);
-    
+
     // Fill version holes by creating empty rowsets for missing versions
-    Status fill_version_holes(CloudTablet* tablet,
-                              int64_t max_version,
+    Status fill_version_holes(CloudTablet* tablet, int64_t max_version,
                               std::unique_lock<std::shared_mutex>& wlock);
-    
+
     // Create an empty rowset to fill a version hole
     Status create_empty_rowset_for_hole(CloudTablet* tablet, int64_t version,
                                         RowsetMetaSharedPtr prev_rowset_meta,

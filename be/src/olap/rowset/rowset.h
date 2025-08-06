@@ -364,11 +364,9 @@ protected:
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
 
-    // only used for cloud mode.
-    // whether this rowset is a hole rowset.
+    // only used for cloud mode, it indicates whether this rowset is a hole rowset.
     // a hole rowset is a rowset that has no data, but is used to fill the version gap
-    // it is used to ensure that the version sequence is continuous
-    // and the rowset is not empty.
+    // it is used to ensure that the version sequence is continuous.
     bool _is_hole_rowset = false;
 };
 
