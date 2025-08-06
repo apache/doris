@@ -368,9 +368,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr right = children.get(h);
                     CompoundPredicate cp = new CompoundPredicate(op, left, right);
                     boolean nullable = left.getNullableFromNereids().isPresent() && left.getNullableFromNereids().get()
-                            || left.isNullable()
+                            || !left.getNullableFromNereids().isPresent() && left.isNullable()
                             || right.getNullableFromNereids().isPresent() && right.getNullableFromNereids().get()
-                            || right.isNullable();
+                            || !right.getNullableFromNereids().isPresent() && right.isNullable();
                     cp.setNullableFromNereids(nullable);
                     results.push(cp);
                     stack.pop();
