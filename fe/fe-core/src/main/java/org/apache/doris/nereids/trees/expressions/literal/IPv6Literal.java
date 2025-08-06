@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IPv6Type;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.googlecode.ipv6.IPv6Address;
 
 import java.util.regex.Pattern;
@@ -91,10 +92,18 @@ public class IPv6Literal extends Literal implements ComparableLiteral {
      */
     public void checkValueValid(String ipv6) throws AnalysisException {
         if (ipv6.length() > 39) {
-            throw new AnalysisException("The length of IPv6 must not exceed 39.");
-        } else if (!IPV6_STD_REGEX.matcher(ipv6).matches() && !IPV6_COMPRESS_REGEX.matcher(ipv6).matches()
-                && !IPV6_MAPPED_REGEX.matcher(ipv6).matches()) {
-            throw new AnalysisException("Invalid IPv6 format.");
+            throw new AnalysisException("The length of IPv6 must not exceed 39: " + ipv6);
+        } else if (!isValidIPv6(ipv6)) {
+            throw new AnalysisException("Invalid IPv6 format: " + ipv6);
         }
+    }
+
+    @VisibleForTesting
+    public static boolean isValidIPv6(String ipv6) {
+        if (IPV6_STD_REGEX.matcher(ipv6).matches() || IPV6_COMPRESS_REGEX.matcher(ipv6).matches()
+                || IPV6_MAPPED_REGEX.matcher(ipv6).matches()) {
+            return true;
+        }
+        return false;
     }
 }
