@@ -231,10 +231,56 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
 
     out.close();
 
+    if (_is_first_dump) [[unlikely]] {
+        // we back up two dumps (one for last before be restart, one for first after be restart)
+        // for later debug the restore process
+        try {
+            if (std::filesystem::exists(final_filename)) {
+                std::string backup_filename = final_filename + "_" + _start_time + "_last";
+                std::rename(final_filename.c_str(), backup_filename.c_str());
+            }
+            std::string timestamped_filename = final_filename + "_" + _start_time;
+            std::filesystem::copy_file(tmp_filename, timestamped_filename);
+
+            std::filesystem::path dir = std::filesystem::path(final_filename).parent_path();
+            std::string prefix = std::filesystem::path(final_filename).filename().string();
+            uint64_t total_size = 0;
+            std::vector<std::pair<std::filesystem::path, std::filesystem::file_time_type>> files;
+            for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+                if (entry.path().filename().string().find(prefix) == 0) {
+                    total_size += entry.file_size();
+                    files.emplace_back(entry.path(), entry.last_write_time());
+                }
+            }
+            if (total_size > 5ULL * 1024 * 1024 * 1024) {
+                // delete oldest two files
+                std::sort(files.begin(), files.end(),
+                          [](const auto& a, const auto& b) { return a.second < b.second; });
+                if (!files.empty()) {
+                    auto remove_file = [](const std::filesystem::path& file_path) {
+                        std::error_code ec;
+                        bool removed = std::filesystem::remove(file_path, ec);
+                        LOG(INFO) << "Remove " << (removed ? "succeeded" : "failed")
+                                  << " for file: " << file_path
+                                  << (ec ? ", error: " + ec.message() : "");
+                        return removed;
+                    };
+
+                    remove_file(files[0].first);
+                    if (files.size() > 1) {
+                        remove_file(files[1].first);
+                    }
+                }
+            }
+        } catch (const std::filesystem::filesystem_error& e) {
+            LOG(WARNING) << "failed to handle first dump case: " << e.what();
+        }
+        _is_first_dump = false;
+    }
+
     // Rename tmp to formal file
     try {
         std::rename(tmp_filename.c_str(), final_filename.c_str());
-        std::remove(tmp_filename.c_str());
         file_size = std::filesystem::file_size(final_filename);
     } catch (const std::filesystem::filesystem_error& e) {
         LOG(WARNING) << "failed to rename " << tmp_filename << " to " << final_filename
