@@ -2772,15 +2772,10 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
     response->mutable_txn_info()->CopyFrom(txn_info);
 } // end commit_txn_with_sub_txn
 
-static bool fuzzy_random() {
-    return std::chrono::steady_clock::now().time_since_epoch().count() & 0x01;
-}
-
 static bool force_txn_lazy_commit() {
-    if (config::enable_cloud_txn_lazy_commit_fuzzy_test) [[unlikely]] {
-        return fuzzy_random();
-    }
-    return false;
+    static std::mt19937 rng(20250806 /* seed */);
+    static std::uniform_int_distribution<int> dist(1, 100);
+    return dist(rng) <= config::cloud_txn_lazy_commit_fuzzy_possibility;
 }
 
 void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
@@ -2831,7 +2826,8 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     while ((!enable_txn_lazy_commit_feature ||
             (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold))) {
         if (force_txn_lazy_commit()) {
-            LOG(INFO) << "fuzzy test force_txn_lazy_commit, txn_id=" << txn_id;
+            LOG(INFO) << "fuzzy test force_txn_lazy_commit, txn_id=" << txn_id
+                      << " force_posibility=" << config::cloud_txn_lazy_commit_fuzzy_possibility;
             break;
         }
 
