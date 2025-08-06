@@ -443,6 +443,7 @@ public:
             return column_stat.is_all_null;
         }
         }
+        return false;
     }
 };
 #include "common/compile_check_end.h"

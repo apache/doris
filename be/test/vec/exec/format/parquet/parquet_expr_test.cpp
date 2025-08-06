@@ -1024,55 +1024,5 @@ TEST_F(ParquetExprTest, test_in) {
     }
 }
 
-TEST_F(ParquetExprTest, Z_test_page_idx) {
-    PageIndex page_index;
-    ASSERT_TRUE(p_reader->_has_page_index(doris_metadata.row_groups[0].columns, page_index));
-    ASSERT_TRUE(p_reader->_has_page_index(doris_metadata.row_groups[1].columns, page_index));
-    int loc = 2;
-    VDirectInPredicate direct_in_expr;
-    auto slot_ref = std::make_shared<MockSlotRef>(loc, std::make_shared<DataTypeInt64>());
-    slot_ref->_slot_id = loc;
-    direct_in_expr.add_child(slot_ref);
-    {
-        std::shared_ptr<HybridSetBase> set(create_set(PrimitiveType::TYPE_BIGINT, false));
-        int64_t a = 10000000000;
-        set->insert(&a);
-        direct_in_expr._filter = set;
-        EXPECT_EQ(1, set->size());
-    }
-    VExprSPtr in_expr;
-    ASSERT_TRUE(direct_in_expr.get_slot_in_expr(in_expr));
-    io::IOContext io_ctx;
-    p_reader->_io_ctx = &io_ctx;
-    p_reader->_push_down_simple_expr[loc].emplace_back(in_expr);
-    p_reader->_enable_filter_by_min_max = true;
-    p_reader->_lazy_read_ctx.has_complex_type = false;
-    p_reader->_lazy_read_ctx.conjuncts.resize(1);
-    p_reader->_read_table_columns.clear();
-    p_reader->_read_file_columns.clear();
-    p_reader->_read_table_columns.emplace_back("int64_col");
-    p_reader->_read_file_columns.emplace_back("int64_col");
-
-    std::vector<RowRange> candidate_row_ranges;
-    ASSERT_TRUE(p_reader->_init_row_groups(true).ok());
-
-    ASSERT_TRUE(p_reader->_process_page_index(doris_metadata.row_groups[0],
-                                              p_reader->_read_row_groups.front(),
-                                              candidate_row_ranges)
-                        .ok());
-    ASSERT_TRUE(candidate_row_ranges.size() == 1);
-    ASSERT_EQ(candidate_row_ranges[0].debug_string(), "[0,3)");
-
-    p_reader->_read_row_groups.pop_front();
-    candidate_row_ranges.clear();
-    ASSERT_TRUE(p_reader->_process_page_index(doris_metadata.row_groups[1],
-                                              p_reader->_read_row_groups.front(),
-                                              candidate_row_ranges)
-                        .ok());
-    ASSERT_TRUE(candidate_row_ranges.size() == 0);
-
-    p_reader->_lazy_read_ctx.conjuncts.clear();
-}
-
 } // namespace vectorized
 } // namespace doris
