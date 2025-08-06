@@ -54,7 +54,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     };
 
     private static final String[] REGION_NAMES = {
-            "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
     };
 
     @Setter
@@ -316,3 +316,4 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         return "https://s3." + region + ".amazonaws.com";
     }
 }
+
