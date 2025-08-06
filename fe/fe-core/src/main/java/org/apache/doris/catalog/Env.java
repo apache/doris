@@ -7204,6 +7204,16 @@ public class Env {
         AgentTaskExecutor.submit(batchTask);
     }
 
+    // sync table
+    public void syncTable(String dbName, String tableName) throws DdlException {
+        // wait for group commit data visible
+        Database db = getInternalCatalog().getDbOrDdlException(dbName);
+        Table table = db.getTableOrDdlException(tableName);
+        GroupCommitManager groupCommitManager = getGroupCommitManager();
+        long tableId = table.getId();
+        groupCommitManager.waitWalFinished(tableId);
+    }
+
     private static void addTableComment(TableIf table, StringBuilder sb) {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
