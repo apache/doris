@@ -617,20 +617,17 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     auto new_schema_inverted_indexs = new_schema->inverted_indexs(column_new);
     auto old_schema_inverted_indexs = old_schema->inverted_indexs(column_old);
 
-    // TODO(lihangyu): multi indexes, use comment to replace this
-    return new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size();
+    if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
+        return true;
+    }
 
-    // if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
-    //     return true;
-    // }
+    for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
+        if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
+            return true;
+        }
+    }
 
-    // for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
-    //     if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
-    //         return true;
-    //     }
-    // }
-
-    // return false;
+    return false;
 }
 
 TabletColumn create_sparse_column(const TabletColumn& variant) {

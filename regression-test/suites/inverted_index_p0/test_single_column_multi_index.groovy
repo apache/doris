@@ -186,12 +186,12 @@ suite("test_single_column_multi_index", "nonConcurrent") {
                 GetDebugPoint().disableDebugPointForAllBEs("inverted_index_reader._select_best_reader")
             }
 
-            // GetDebugPoint().enableDebugPointForAllBEs("inverted_index_reader._select_best_reader", [type: 1])
-            // try {
-            //     qt_sql """ select count() from ${tableName} where (request = 'GET /images/hm_bg.jpg HTTP/1.0'); """
-            // } finally {
-            //     GetDebugPoint().disableDebugPointForAllBEs("inverted_index_reader._select_best_reader")
-            // }
+            GetDebugPoint().enableDebugPointForAllBEs("inverted_index_reader._select_best_reader", [type: 1])
+            try {
+                qt_sql """ select count() from ${tableName} where (request = 'GET /images/hm_bg.jpg HTTP/1.0'); """
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("inverted_index_reader._select_best_reader")
+            }
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
         }
