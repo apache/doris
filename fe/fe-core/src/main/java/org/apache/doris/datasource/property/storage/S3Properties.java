@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
@@ -121,6 +122,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 
+    private static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
+
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
@@ -224,6 +227,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 && StringUtils.isNotBlank(s3IAMRole)) {
             backendProperties.put("AWS_ROLE_ARN", s3IAMRole);
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
+        }
+
+        // If the catalog type is Iceberg S3 tables, there is no need to override the endpoint.
+        // Otherwise, set NEED_OVERRIDE_ENDPOINT to true.
+        // TODO: In the future, if more such property inferences are needed, consider
+        //  extracting them into a rule engine.
+        if (origProps.containsKey(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE)
+                && IcebergExternalCatalog.ICEBERG_S3_TABLES.equals(origProps
+                .get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE))) {
+            backendProperties.put(NEED_OVERRIDE_ENDPOINT, "false");
+        } else {
+            backendProperties.put(NEED_OVERRIDE_ENDPOINT, "true");
         }
         return backendProperties;
     }

@@ -148,6 +148,7 @@ public class S3PropertiesTest {
         Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("6000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
+        Assertions.assertEquals("true", s3Props.get("AWS_NEED_OVERRIDE_ENDPOINT"));
         origProps.remove("use_path_style");
         origProps.remove("s3.connection.maximum");
         origProps.remove("s3.connection.timeout");
@@ -221,7 +222,7 @@ public class S3PropertiesTest {
 
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
-            @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
+                                                                      @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
 
         new Expectations() {
             {
@@ -364,6 +365,21 @@ public class S3PropertiesTest {
         Assertions.assertEquals("base-access-key", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("base-secret-key", result.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("us-west-2", result.get("AWS_REGION"));
+    }
+
+    @Test
+    public void testOverrideEndpoint() throws UserException {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("type", "iceberg");
+        origProps.put("iceberg.catalog.type", "s3tables");
+        origProps.put("s3.region", "us-west-2");
+        origProps.put("s3.access_key", "base-access-key");
+        origProps.put("s3.secret_key", "base-secret-key");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("false", s3Properties.getBackendConfigProperties().get("AWS_NEED_OVERRIDE_ENDPOINT"));
+        origProps.put("iceberg.catalog.type", "glue");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("true", s3Properties.getBackendConfigProperties().get("AWS_NEED_OVERRIDE_ENDPOINT"));
     }
 
     @Test
