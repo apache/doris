@@ -712,6 +712,10 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
         if (v.second < cp) {
             continue;
         }
+        // Skip hole rowsets, which are not counted in the statistics
+        if (r->is_hole_rowset()) {
+            continue;
+        }
 
         cumu_num_deltas += r->is_segments_overlapping() ? r->num_segments() : 1;
         ++cumu_num_rowsets;

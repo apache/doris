@@ -2736,7 +2736,8 @@ void MetaServiceImpl::get_partition_pending_txn_id(std::string_view instance_id,
                                                    int64_t table_id, int64_t partition_id,
                                                    int64_t tablet_id, std::stringstream& ss,
                                                    MetaServiceCode& code, std::string& msg,
-                                                   int64_t& first_txn_id, Transaction* txn) {
+                                                   int64_t& first_txn_id,
+                                                   int64_t& partition_version, Transaction* txn) {
     std::string ver_val;
     std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
     TxnErrorCode err = txn->get(ver_key, &ver_val);
@@ -2769,6 +2770,7 @@ void MetaServiceImpl::get_partition_pending_txn_id(std::string_view instance_id,
     } else {
         first_txn_id = -1;
     }
+    partition_version = version_pb.version();
 }
 
 void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
@@ -2842,13 +2844,15 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             // there is maybe a lazy commit txn when call get_rowset
             // we need advance lazy commit txn here
             int64_t first_txn_id = -1;
+            int64_t partition_version = -1;
             if (!is_versioned_read) {
                 get_partition_pending_txn_id(instance_id, idx.db_id(), idx.table_id(),
                                              idx.partition_id(), tablet_id, ss, code, msg,
-                                             first_txn_id, txn.get());
+                                             first_txn_id, partition_version, txn.get());
                 if (code != MetaServiceCode::OK) {
                     return;
                 }
+                response->set_partition_max_version(partition_version);
             } else {
                 err = reader.get_partition_pending_txn_id(txn.get(), idx.partition_id(),
                                                           &first_txn_id);

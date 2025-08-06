@@ -20,6 +20,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
 #include "olap/delta_writer.h"
 #include "runtime/thread_context.h"
 
@@ -99,6 +100,11 @@ CloudRowsetBuilder* CloudDeltaWriter::rowset_builder() {
 }
 
 void CloudDeltaWriter::update_tablet_stats() {
+    // If the delta writer is not initialized, it means that no data has been written,
+    // so we do not need to update the tablet stats.
+    if (!_is_init) {
+        return;
+    }
     rowset_builder()->update_tablet_stats();
 }
 
@@ -112,6 +118,9 @@ Status CloudDeltaWriter::commit_rowset() {
         // No data to write, but still need to write a empty rowset kv to keep version continuous
         RETURN_IF_ERROR(_rowset_builder->init());
         RETURN_IF_ERROR(_rowset_builder->build_rowset());
+        if (config::skip_writing_empty_rowset_metadata) {
+            return Status::OK();
+        }
     }
     return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
 }

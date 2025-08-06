@@ -1233,6 +1233,8 @@ message GetRowsetResponse {
     optional TabletStatsPB stats = 3;
     // Return dict value if SchemaOp is RETURN_DICT
     optional SchemaCloudDictionary schema_dict = 4;
+    // The current max version of the partition.
+    optional int64 partition_max_version = 5;
 }
 
 message GetSchemaDictRequest {

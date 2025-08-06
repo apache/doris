@@ -1597,5 +1597,16 @@ void CloudCompactionMixin::update_compaction_level() {
     }
 }
 
+// should skip hole rowsets, ortherwise the count will be wrong in ms
+int64_t CloudCompactionMixin::num_input_rowsets() const {
+    int64_t count = 0;
+    for (const auto& r : _input_rowsets) {
+        if (!r->is_hole_rowset()) {
+            count++;
+        }
+    }
+    return count;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris
