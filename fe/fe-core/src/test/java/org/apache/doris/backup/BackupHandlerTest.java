@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
@@ -320,6 +319,6 @@ public class BackupHandlerTest {
         handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, true));
 
         // drop repo
-        handler.dropRepository(new DropRepositoryStmt("repo"));
+        handler.dropRepository("repo");
     }
 }
