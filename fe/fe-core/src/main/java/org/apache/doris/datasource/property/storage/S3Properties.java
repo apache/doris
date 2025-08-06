@@ -289,4 +289,15 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 ProfileCredentialsProvider.create(),
                 InstanceProfileCredentialsProvider.create());
     }
+
+    @Override
+    protected String getEndpointFromRegion() {
+        if (!StringUtils.isBlank(region)) {
+            return endpoint;
+        }
+        if (StringUtils.isBlank(region)) {
+            return "";
+        }
+        return "https://s3." + region + ".amazonaws.com";
+    }
 }

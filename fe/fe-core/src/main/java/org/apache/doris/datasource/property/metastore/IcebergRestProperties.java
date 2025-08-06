@@ -137,17 +137,17 @@ public class IcebergRestProperties extends MetastoreProperties {
             description = "The signing name for the iceberg rest catalog service.")
     private String icebergRestSigningName = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.signing-region"},
+    @ConnectorProperty(names = {"iceberg.rest.signing-region", "s3.region"},
             required = false,
             description = "The signing region for the iceberg rest catalog service.")
     private String icebergRestSigningRegion = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.access-key-id"},
+    @ConnectorProperty(names = {"iceberg.rest.access-key-id", "s3.access_key"},
             required = false,
             description = "The access key ID for the iceberg rest catalog service.")
     private String icebergRestAccessKeyId = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.secret-access-key"},
+    @ConnectorProperty(names = {"iceberg.rest.secret-access-key", "s3.secret_key"},
             required = false,
             description = "The secret access key for the iceberg rest catalog service.")
     private String icebergRestSecretAccessKey = "";
