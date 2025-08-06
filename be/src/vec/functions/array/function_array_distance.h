@@ -140,25 +140,35 @@ public:
             }
 
             dst_null_data[row] = false;
-            if (offsets1[row] != offsets2[row]) [[unlikely]] {
+
+            // Calculate actual array sizes for current row.
+            // For nullable arrays, we cannot compare absolute offset values directly because:
+            // 1. When a row is null, its offset might equal the previous offset (no elements added)
+            // 2. Or it might include the array size even if the row is null (implementation dependent)
+            // Therefore, we must calculate the actual array size as: offsets[row] - offsets[row-1]
+            ssize_t size1 = offsets1[row] - offsets1[row - 1];
+            ssize_t size2 = offsets2[row] - offsets2[row - 1];
+
+            if (size1 != size2) [[unlikely]] {
                 return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
-                        get_name(), offsets1[row] - offsets1[row - 1],
-                        offsets2[row] - offsets2[row - 1]);
+                        get_name(), size1, size2);
             }
 
             typename DistanceImpl::State st;
             for (ssize_t pos = offsets1[row - 1]; pos < offsets1[row]; ++pos) {
+                // Calculate corresponding position in the second array
+                ssize_t pos2 = offsets2[row - 1] + (pos - offsets1[row - 1]);
                 if (arr1.nested_nullmap_data && arr1.nested_nullmap_data[pos]) {
                     dst_null_data[row] = true;
                     break;
                 }
-                if (arr2.nested_nullmap_data && arr2.nested_nullmap_data[pos]) {
+                if (arr2.nested_nullmap_data && arr2.nested_nullmap_data[pos2]) {
                     dst_null_data[row] = true;
                     break;
                 }
                 DistanceImpl::accumulate(st, nested_col1->get_element(pos),
-                                         nested_col2->get_element(pos));
+                                         nested_col2->get_element(pos2));
             }
             if (!dst_null_data[row]) {
                 dst_data[row] = DistanceImpl::finalize(st);
