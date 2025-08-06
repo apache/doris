@@ -50,6 +50,16 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
     return serdes;
 }
 
+Status DataTypeSerDe::default_from_string(StringRef& str, IColumn& column) const {
+    cctz::time_zone timezone_obj;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    DataTypeSerDe::FormatOptions options;
+    options.converted_from_string = true;
+    options.escape_char = '\\';
+    options.timezone = &timezone_obj;
+    return from_string(str, column, options);
+}
+
 Status DataTypeSerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
                                                        ColumnString& to_column) const {
     const auto size = from_column.size();

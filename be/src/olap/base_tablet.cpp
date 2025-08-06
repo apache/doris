@@ -989,10 +989,9 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
         const auto& column = schema.column(cids[i]);
         if (column.has_default_value()) {
             const auto& default_value = default_values[i];
-            vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
-                                      default_value.size());
-            RETURN_IF_ERROR(ref_block.get_by_position(i).type->from_string(
-                    rb, mutable_default_value_columns[i].get()));
+            StringRef str(default_value);
+            RETURN_IF_ERROR(ref_block.get_by_position(i).type->get_serde()->default_from_string(
+                    str, *mutable_default_value_columns[i]));
         }
     }
     default_value_block.set_columns(std::move(mutable_default_value_columns));

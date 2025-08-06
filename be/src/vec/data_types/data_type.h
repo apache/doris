@@ -94,9 +94,6 @@ public:
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
 
     virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
-    // only for compound type now.
-    virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
-
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 

@@ -802,9 +802,9 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
     if (seq_column.has_default_value()) {
         auto idx = tablet_schema.sequence_col_idx() - tablet_schema.num_key_columns();
         const auto& default_value = info.default_values[idx];
-        vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()), default_value.size());
-        RETURN_IF_ERROR(block.get_by_position(0).type->from_string(
-                rb, block.get_by_position(0).column->assume_mutable().get()));
+        StringRef str {default_value};
+        RETURN_IF_ERROR(block.get_by_position(0).type->get_serde()->default_from_string(
+                str, *block.get_by_position(0).column->assume_mutable().get()));
 
     } else {
         block.get_by_position(0).column->assume_mutable()->insert_default();
