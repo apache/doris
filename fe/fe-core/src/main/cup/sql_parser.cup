@@ -1277,10 +1277,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
     :}
-    | KW_ALTER KW_WORKLOAD KW_POLICY ident_or_text:policyName opt_properties:properties
-    {:
-        RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
-    :}
     | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
     opt_properties:properties
     {:
