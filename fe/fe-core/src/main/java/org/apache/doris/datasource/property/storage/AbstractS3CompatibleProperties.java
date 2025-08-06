@@ -248,6 +248,9 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         setEndpoint(endpoint);
     }
 
+    // This method should be overridden by subclasses to provide a default endpoint based on the region.
+    // Because for aws s3, only region is needed, the endpoint can be constructed from the region.
+    // But for other s3 compatible storage, the endpoint may need to be specified explicitly.
     protected String getEndpointFromRegion() {
         return "";
     }

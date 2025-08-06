@@ -46,12 +46,12 @@ import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
 
-    private static final String[] ENDPOINT_NAMES = {
+    private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"
     };
 
-    private static final String[] REGION_NAMES = {
+    private static final String[] REGION_NAMES_FOR_GUESSING = {
             "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
     };
 
@@ -194,7 +194,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * @return
      */
     protected static boolean guessIsMe(Map<String, String> origProps) {
-        String endpoint = Stream.of(ENDPOINT_NAMES)
+        String endpoint = Stream.of(ENDPOINT_NAMES_FOR_GUESSING)
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()
@@ -210,7 +210,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
 
         // guess from region
-        String region = Stream.of(REGION_NAMES)
+        String region = Stream.of(REGION_NAMES_FOR_GUESSING)
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()
