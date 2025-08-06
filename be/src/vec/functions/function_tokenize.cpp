@@ -63,6 +63,35 @@ Status parse(const std::string& str, std::map<std::string, std::string>& result)
     return Status::OK();
 }
 
+void FunctionTokenize::_do_tokenize_none(const ColumnString& src_column_string,
+                                         const MutableColumnPtr& dest_column_ptr) const {
+    ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
+    for (size_t i = 0; i < src_offsets_size; i++) {
+        const StringRef tokenize_str = src_column_string.get_data_at(i);
+
+        rapidjson::Document doc;
+        doc.SetArray();
+        rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+
+        rapidjson::Value obj(rapidjson::kObjectType);
+        obj.AddMember(
+                "token",
+                rapidjson::Value(tokenize_str.data,
+                                 static_cast<rapidjson::SizeType>(tokenize_str.size), allocator)
+                        .Move(),
+                allocator);
+        doc.PushBack(obj, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+        writer.SetFormatOptions(rapidjson::kFormatSingleLineArray);
+        doc.Accept(writer);
+        const std::string json_array_str = buffer.GetString();
+
+        dest_column_ptr->insert_data(json_array_str.data(), json_array_str.size());
+    }
+}
+
 void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                                     InvertedIndexCtx& inverted_index_ctx,
                                     const MutableColumnPtr& dest_column_ptr) const {
@@ -131,6 +160,14 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
                         "unsupported parser type. currently, only 'english', 'chinese', "
                         "'unicode', 'icu', 'basic' and 'ik' analyzers are supported.");
+            }
+
+            // Special handling for PARSER_NONE: return original string as single token
+            if (inverted_index_ctx.custom_analyzer.empty() &&
+                inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_NONE) {
+                _do_tokenize_none(*col_left, dest_column_ptr);
+                block.replace_by_position(result, std::move(dest_column_ptr));
+                return Status::OK();
             }
 
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
