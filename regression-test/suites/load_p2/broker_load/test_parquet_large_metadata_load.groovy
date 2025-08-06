@@ -62,7 +62,7 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
     }
     
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=45000"]
-    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
+    def task_info = ["${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
     def error_msg = [""]
     // test unified load
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
