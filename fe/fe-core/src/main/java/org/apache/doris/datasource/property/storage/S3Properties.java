@@ -307,7 +307,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Override
     protected String getEndpointFromRegion() {
-        if (!StringUtils.isBlank(region)) {
+        if (!StringUtils.isBlank(endpoint)) {
             return endpoint;
         }
         if (StringUtils.isBlank(region)) {
