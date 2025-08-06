@@ -102,7 +102,7 @@ CloudRowsetBuilder* CloudDeltaWriter::rowset_builder() {
 void CloudDeltaWriter::update_tablet_stats() {
     // If the delta writer is not initialized, it means that no data has been written,
     // so we do not need to update the tablet stats.
-    if (!_is_init) {
+    if (!_is_init && config::skip_writing_empty_rowset_metadata) {
         return;
     }
     rowset_builder()->update_tablet_stats();
@@ -114,14 +114,31 @@ const RowsetMetaSharedPtr& CloudDeltaWriter::rowset_meta() {
 
 Status CloudDeltaWriter::commit_rowset() {
     std::lock_guard<bthread::Mutex> lock(_mtx);
+
+    // Handle empty rowset (no data written)
     if (!_is_init) {
-        // No data to write, but still need to write a empty rowset kv to keep version continuous
-        RETURN_IF_ERROR(_rowset_builder->init());
-        RETURN_IF_ERROR(_rowset_builder->build_rowset());
-        if (config::skip_writing_empty_rowset_metadata) {
-            return Status::OK();
-        }
+        return _commit_empty_rowset();
     }
+
+    // Handle normal rowset with data
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
+}
+
+Status CloudDeltaWriter::_commit_empty_rowset() {
+    // If skip writing empty rowset metadata is enabled,
+    // we do not prepare rowset to meta service.
+    if (config::skip_writing_empty_rowset_metadata) {
+        rowset_builder()->set_skip_writing_rowset_metadata(true);
+    }
+
+    RETURN_IF_ERROR(_rowset_builder->init());
+    RETURN_IF_ERROR(_rowset_builder->build_rowset());
+
+    // If skip writing empty rowset metadata is enabled, we do not commit rowset to meta service.
+    if (config::skip_writing_empty_rowset_metadata) {
+        return Status::OK();
+    }
+    // write a empty rowset kv to keep version continuous
     return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
 }
 

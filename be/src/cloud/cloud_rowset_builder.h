@@ -39,6 +39,8 @@ public:
 
     Status set_txn_related_delete_bitmap();
 
+    void set_skip_writing_rowset_metadata(bool skip) { _skip_writing_rowset_metadata = skip; }
+
 private:
     // Convert `_tablet` from `BaseTablet` to `CloudTablet`
     CloudTablet* cloud_tablet();
@@ -46,6 +48,10 @@ private:
     Status check_tablet_version_count();
 
     CloudStorageEngine& _engine;
+
+    // whether to skip writing rowset metadata to meta service.
+    // This is used for empty rowset when config::skip_writing_empty_rowset_metadata is true.
+    bool _skip_writing_rowset_metadata = false;
 };
 
 } // namespace doris
