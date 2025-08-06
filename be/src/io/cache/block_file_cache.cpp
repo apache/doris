@@ -262,15 +262,14 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
 
     // Check file_cache_query_limit_bytes configuration
     if (config::file_cache_query_limit_bytes != 0) {
-        if (_max_query_cache_size == 0) {
-            _max_query_cache_size = config::file_cache_query_limit_bytes;
-            LOG(INFO) << "_max_query_cache_size set to " << _max_query_cache_size
-                      << " from file_cache_query_limit_bytes configuration";
-        } else {
-            LOG(WARNING) << "file_cache_query_limit_bytes (" << config::file_cache_query_limit_bytes
-                         << ") is ignored because _max_query_cache_size (" << _max_query_cache_size
+        if (_max_query_cache_size != 0) {
+            LOG(WARNING) << "query_limit(" << _max_query_cache_size
+                         << ")  in file_cache_path is ignored because file_cache_query_limit_bytes (" << config::file_cache_query_limit_bytes
                          << ") is already set";
         }
+        LOG(INFO) << "_max_query_cache_size set to " << config::file_cache_query_limit_bytes
+                << " from file_cache_query_limit_bytes configuration";
+        _max_query_cache_size = config::file_cache_query_limit_bytes;
     }
 }
 
@@ -1950,6 +1949,14 @@ void BlockFileCache::run_background_monitor() {
                 _hit_ratio_1h->set_value((double)_num_hit_blocks_1h->get_value() /
                                          _num_read_blocks_1h->get_value());
             }
+        }
+
+        if (config::file_cache_query_limit_bytes != 0 &&
+            config::file_cache_query_limit_bytes != _max_query_cache_size) {
+            LOG(INFO) << "file_cache_query_limit_bytes(" << config::file_cache_query_limit_bytes 
+                    << ") has changed, set it to max_query_cache_size, original max_query_cache_size("
+                     << _max_query_cache_size << ")";
+            _max_query_cache_size = config::file_cache_query_limit_bytes;
         }
     }
 }
