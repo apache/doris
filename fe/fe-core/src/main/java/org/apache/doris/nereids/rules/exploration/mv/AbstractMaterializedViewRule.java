@@ -31,6 +31,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
@@ -53,11 +54,14 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.VariantType;
@@ -68,6 +72,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
@@ -1033,5 +1038,137 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
          * Except for COMPLETE and VIEW_PARTIAL and QUERY_PARTIAL
          */
         NOT_MATCH
+    }
+
+    /**
+     * Try rewrite limit node
+     */
+    protected Plan tryRewriteLimit(LogicalLimit<Plan> queryLimitNode, LogicalLimit<Plan> viewLimitNode,
+            Plan tmpRwritePlan, StructInfo queryStructInfo,
+            MaterializationContext materializationContext) {
+        if (queryLimitNode == null || viewLimitNode == null) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query limit rewrite fail, queryLimitNode or viewLimitNode is null",
+                    () -> String.format("queryLimitNode = %s,\n viewLimitNode = %s,\n",
+                            queryLimitNode, viewLimitNode));
+            return null;
+        }
+        Pair<Long, Long> limitAndOffset = rewriteLimitAndOffset(
+                Pair.of(queryLimitNode.getLimit(), queryLimitNode.getOffset()),
+                Pair.of(viewLimitNode.getLimit(), viewLimitNode.getOffset()));
+        if (limitAndOffset == null) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query limit rewrite fail, query limit is not consistent with view limit",
+                    () -> String.format("query limit = %s,\n view limit = %s,\n",
+                            queryLimitNode.treeString(),
+                            viewLimitNode.treeString()));
+            return null;
+        }
+        return new LogicalLimit<>(limitAndOffset.key(), limitAndOffset.value(), LimitPhase.GLOBAL, tmpRwritePlan);
+    }
+
+    /**
+     * Try rewrite topN node
+     */
+    protected Plan tryRewriteTopN(LogicalTopN<Plan> queryTopNode, LogicalTopN<Plan> viewTopNode,
+            SlotMapping viewToQuerySlotMapping, Plan tmpRwritePlan, StructInfo queryStructInfo,
+            StructInfo viewStructInfo, MaterializationContext materializationContext, CascadesContext cascadesContext) {
+        if (queryTopNode == null || viewTopNode == null) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query topN rewrite fail, queryLimitNode or viewLimitNode is null",
+                    () -> String.format("queryTopNode = %s,\n viewTopNode = %s,\n",
+                            queryTopNode, viewTopNode));
+            return null;
+        }
+        Pair<Long, Long> limitAndOffset = rewriteLimitAndOffset(
+                Pair.of(queryTopNode.getLimit(), queryTopNode.getOffset()),
+                Pair.of(viewTopNode.getLimit(), viewTopNode.getOffset()));
+        if (limitAndOffset == null) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query topN limit and offset rewrite fail, query topN is not consistent with view topN",
+                    () -> String.format("query topN = %s,\n view topN = %s,\n",
+                            queryTopNode.treeString(),
+                            viewTopNode.treeString()));
+            return null;
+        }
+        // check the order keys of TopN between query and view is consistent
+        List<OrderKey> queryOrderKeys = queryTopNode.getOrderKeys();
+        List<OrderKey> viewOrderKeys = viewTopNode.getOrderKeys();
+        if (queryOrderKeys.size() != viewOrderKeys.size()) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query topN order keys size is not consistent with view topN order keys size",
+                    () -> String.format("query topN order keys = %s,\n view topN order keys = %s,\n",
+                            queryOrderKeys, viewOrderKeys));
+            return null;
+        }
+        List<Expression> queryOrderKeysExpressions = queryOrderKeys.stream()
+                .map(OrderKey::getExpr).collect(Collectors.toList());
+        List<? extends Expression> queryOrderByExpressionsShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                queryOrderKeysExpressions, queryStructInfo.getTopPlan(), queryStructInfo.getTableBitSet());
+
+        List<OrderKey> queryShuttledOrderKeys = new ArrayList<>();
+        for (int i = 0; i < queryOrderKeys.size(); i++) {
+            OrderKey queryOrderKey = queryOrderKeys.get(i);
+            queryShuttledOrderKeys.add(new OrderKey(queryOrderByExpressionsShuttled.get(i), queryOrderKey.isAsc(),
+                    queryOrderKey.isNullFirst()));
+        }
+        List<OrderKey> viewShuttledOrderKeys = new ArrayList<>();
+        List<? extends Expression> viewOrderByExpressionsShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                viewOrderKeys.stream().map(OrderKey::getExpr).collect(Collectors.toList()),
+                viewStructInfo.getTopPlan(), new BitSet());
+        List<Expression> viewOrderByExpressionsQueryBasedSet = ExpressionUtils.replace(
+                viewOrderByExpressionsShuttled.stream().map(Expression.class::cast).collect(Collectors.toList()),
+                viewToQuerySlotMapping.toSlotReferenceMap());
+        for (int j = 0; j < viewOrderKeys.size(); j++) {
+            OrderKey viewOrderKey = viewOrderKeys.get(j);
+            viewShuttledOrderKeys.add(new OrderKey(viewOrderByExpressionsQueryBasedSet.get(j), viewOrderKey.isAsc(),
+                    viewOrderKey.isNullFirst()));
+        }
+        if (!queryShuttledOrderKeys.equals(viewShuttledOrderKeys)) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "view topN order key doesn't match query order key",
+                    () -> String.format("queryShuttledOrderKeys = %s,\n viewShuttledOrderKeys = %s,\n",
+                            queryShuttledOrderKeys, viewShuttledOrderKeys));
+            return null;
+        }
+
+        // try to rewrite the order by expressions using the mv scan slot
+        List<Expression> rewrittenExpressions = rewriteExpression(queryOrderKeysExpressions,
+                queryStructInfo.getTopPlan(), materializationContext.shuttledExprToScanExprMapping,
+                viewToQuerySlotMapping, queryStructInfo.getTableBitSet(), ImmutableMap.of(), cascadesContext);
+        if (rewrittenExpressions == null) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "query topN order keys rewrite fail, query topN order keys is not consistent "
+                            + "with view topN order keys",
+                    () -> String.format("query topN order keys = %s,\n shuttledExprToScanExprMapping = %s,\n",
+                            queryOrderKeysExpressions, materializationContext.shuttledExprToScanExprMapping));
+            return null;
+        }
+        List<OrderKey> rewrittenOrderKeys = new ArrayList<>();
+        for (int i = 0; i < rewrittenExpressions.size(); i++) {
+            OrderKey queryOrderKey = queryOrderKeys.get(i);
+            rewrittenOrderKeys.add(new OrderKey(rewrittenExpressions.get(i), queryOrderKey.isAsc(),
+                    queryOrderKey.isNullFirst()));
+        }
+        return new LogicalTopN<>(rewrittenOrderKeys, limitAndOffset.key(), limitAndOffset.value(), tmpRwritePlan);
+    }
+
+    /**
+     * The key of pair is limit, the value of pair is offset
+     * if return null, means cannot rewrite
+     */
+    protected Pair<Long, Long> rewriteLimitAndOffset(Pair<Long, Long> queryLimitNode, Pair<Long, Long> viewLimitNode) {
+        if (queryLimitNode == null || viewLimitNode == null) {
+            return null;
+        }
+        long queryOffset = queryLimitNode.value();
+        long queryLimit = queryLimitNode.key();
+
+        long viewOffset = viewLimitNode.value();
+        long viewLimit = viewLimitNode.key();
+        if (queryOffset >= viewOffset && queryOffset + queryLimit <= viewOffset + viewLimit) {
+            return Pair.of(queryLimit, queryOffset - viewOffset);
+        }
+        return null;
     }
 }
