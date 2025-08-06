@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -111,6 +112,7 @@ public class PushDownFilterIntoSchemaScan extends OneRewriteRuleFactory {
     private boolean supportOnFe(Expression expression) {
         return expression instanceof EqualTo
                 || expression instanceof Or
+                || expression instanceof InPredicate
                 || expression instanceof LessThan
                 || expression instanceof LessThanEqual
                 || expression instanceof GreaterThan
