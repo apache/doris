@@ -318,6 +318,11 @@ public:
 
     std::vector<std::string> get_index_file_names();
 
+    // check if the rowset is a hole rowset
+    bool is_hole_rowset() const { return _is_hole_rowset; }
+    // set the rowset as a hole rowset
+    void set_hole_rowset(bool is_hole_rowset) { _is_hole_rowset = is_hole_rowset; }
+
 protected:
     friend class RowsetFactory;
 
@@ -358,6 +363,13 @@ protected:
 
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
+
+    // only used for cloud mode.
+    // whether this rowset is a hole rowset.
+    // a hole rowset is a rowset that has no data, but is used to fill the version gap
+    // it is used to ensure that the version sequence is continuous
+    // and the rowset is not empty.
+    bool _is_hole_rowset = false;
 };
 
 // `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
