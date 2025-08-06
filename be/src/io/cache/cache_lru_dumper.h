@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -38,7 +40,14 @@ class LRUQueueRecorder;
 class CacheLRUDumper {
 public:
     CacheLRUDumper(BlockFileCache* mgr, LRUQueueRecorder* recorder)
-            : _mgr(mgr), _recorder(recorder) {};
+            : _mgr(mgr), _recorder(recorder) {
+        auto now = std::chrono::system_clock::now();
+        auto in_time_t = std::chrono::system_clock::to_time_t(now);
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&in_time_t), "%Y%m%d%H%M%S");
+        _start_time = ss.str();
+    };
+
     void dump_queue(const std::string& queue_name);
     void restore_queue(LRUQueue& queue, const std::string& queue_name,
                        std::lock_guard<std::mutex>& cache_lock);
@@ -79,5 +88,8 @@ private:
 
     BlockFileCache* _mgr;
     LRUQueueRecorder* _recorder;
+
+    std::string _start_time;
+    bool _is_first_dump = true;
 };
 } // namespace doris::io
