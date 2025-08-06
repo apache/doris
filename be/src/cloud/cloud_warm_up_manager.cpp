@@ -237,7 +237,7 @@ void CloudWarmUpManager::handle_jobs() {
                     submit_download_tasks(
                             storage_resource.value()->remote_segment_path(*rs, seg_id),
                             rs->segment_file_size(seg_id), storage_resource.value()->fs,
-                            expiration_time, wait, [tablet, rs, seg_id](Status st) {
+                            expiration_time, wait, false, [tablet, rs, seg_id](Status st) {
                                 VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                            << seg_id << " completed";
                                 if (tablet->complete_rowset_segment_warmup(rs->rowset_id(), st) ==

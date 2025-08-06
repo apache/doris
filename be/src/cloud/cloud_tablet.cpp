@@ -384,9 +384,9 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
                     g_file_cache_cloud_tablet_submitted_segment_num << 1;
-                    if (rs->rowset_meta()->segment_file_size(seg_id) > 0) {
+                    if (rowset->rowset_meta()->segment_file_size(seg_id) > 0) {
                         g_file_cache_cloud_tablet_submitted_segment_size
-                                << rs->rowset_meta()->segment_file_size(seg_id);
+                                << rowset->rowset_meta()->segment_file_size(seg_id);
                     }
                     auto self = std::dynamic_pointer_cast<CloudTablet>(shared_from_this());
                     // clang-format off
