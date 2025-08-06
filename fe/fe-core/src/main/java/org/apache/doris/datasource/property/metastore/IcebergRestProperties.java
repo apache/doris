@@ -126,6 +126,32 @@ public class IcebergRestProperties extends MetastoreProperties {
             description = "The cache TTL for case insensitive name matching in ms.")
     private String icebergRestCaseInsensitiveNameMatchingCacheTtlMs = "0";
 
+    // The following properties are specific to AWS Glue Rest Catalog
+    @ConnectorProperty(names = {"iceberg.rest.sigv4-enabled"},
+            required = false,
+            description = "True for Glue Rest Catalog")
+    private String icebergRestSigV4Enabled = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.signing-name"},
+            required = false,
+            description = "The signing name for the iceberg rest catalog service.")
+    private String icebergRestSigningName = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.signing-region"},
+            required = false,
+            description = "The signing region for the iceberg rest catalog service.")
+    private String icebergRestSigningRegion = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.access-key-id"},
+            required = false,
+            description = "The access key ID for the iceberg rest catalog service.")
+    private String icebergRestAccessKeyId = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.secret-access-key"},
+            required = false,
+            description = "The secret access key for the iceberg rest catalog service.")
+    private String icebergRestSecretAccessKey = "";
+
     public IcebergRestProperties(Map<String, String> origProps) {
         super(Type.ICEBERG_REST, origProps);
     }
@@ -173,6 +199,15 @@ public class IcebergRestProperties extends MetastoreProperties {
                 throw new IllegalArgumentException("OAuth2 requires either credential or token");
             }
         }
+
+        // Check for glue rest catalog specific properties
+        rules.requireIf(icebergRestSigningName, "glue",
+                new String[] {icebergRestSigningRegion,
+                        icebergRestAccessKeyId,
+                        icebergRestSecretAccessKey,
+                        icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region, access-key-id, secret-access-key "
+                        + "and sigv4-enabled set to true when signing-name is glue");
         return rules;
     }
 
@@ -184,6 +219,8 @@ public class IcebergRestProperties extends MetastoreProperties {
         addOptionalProperties();
         // Authentication properties
         addAuthenticationProperties();
+        // Glue Rest Catalog specific properties
+        addGlueRestCatalogProperties();
     }
 
     private void addCoreCatalogProperties() {
@@ -229,6 +266,17 @@ public class IcebergRestProperties extends MetastoreProperties {
             icebergRestCatalogProperties.put(OAuth2Properties.TOKEN, icebergRestOauth2Token);
         }
     }
+
+    private void addGlueRestCatalogProperties() {
+        if (Strings.isNotBlank(icebergRestSigningName) && icebergRestSigningName.equalsIgnoreCase("glue")) {
+            icebergRestCatalogProperties.put("iceberg.rest.signing-name", "glue");
+            icebergRestCatalogProperties.put("iceberg.rest.sigv4-enabled", icebergRestSigV4Enabled);
+            icebergRestCatalogProperties.put("iceberg.rest.access-key-id", icebergRestAccessKeyId);
+            icebergRestCatalogProperties.put("iceberg.rest.secret-access-key", icebergRestSecretAccessKey);
+            icebergRestCatalogProperties.put("iceberg.rest.signing-region", icebergRestSigningRegion);
+        }
+    }
+
 
     public Map<String, String> getIcebergRestCatalogProperties() {
         return Collections.unmodifiableMap(icebergRestCatalogProperties);
