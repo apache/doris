@@ -255,7 +255,7 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
     case PrimitiveType::TYPE_DATETIMEV2:
         return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
-    case PrimitiveType::TYPE_TIME:
+    case PrimitiveType::TYPE_TIMEV2:
         return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
     case PrimitiveType::TYPE_IPV4:
         return create_ip_wrapper<DataTypeIPv4>(context, from_type);
