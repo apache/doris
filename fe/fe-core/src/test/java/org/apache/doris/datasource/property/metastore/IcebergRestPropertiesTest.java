@@ -411,9 +411,9 @@ public class IcebergRestPropertiesTest {
 
         // The error message should mention the required properties
         String errorMessage = exception.getMessage();
-        Assertions.assertTrue(errorMessage.contains("signing-region") ||
-                errorMessage.contains("access-key-id") ||
-                errorMessage.contains("secret-access-key") ||
-                errorMessage.contains("sigv4-enabled"));
+        Assertions.assertTrue(errorMessage.contains("signing-region")
+                || errorMessage.contains("access-key-id")
+                || errorMessage.contains("secret-access-key")
+                || errorMessage.contains("sigv4-enabled"));
     }
 }
