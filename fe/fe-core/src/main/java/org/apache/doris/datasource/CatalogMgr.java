@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
@@ -248,15 +247,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         long id = Env.getCurrentEnv().getNextId();
         CatalogIf catalog = CatalogFactory.createFromCommand(id, cmd);
         createCatalogImpl(catalog, cmd.getCatalogName(), cmd.isSetIfNotExists());
-    }
-
-    /**
-     * Create and hold the catalog instance and write the meta log.
-     */
-    public void createCatalog(CreateCatalogStmt stmt) throws UserException {
-        long id = Env.getCurrentEnv().getNextId();
-        CatalogIf catalog = CatalogFactory.createFromStmt(id, stmt);
-        createCatalogImpl(catalog, stmt.getCatalogName(), stmt.isSetIfNotExists());
     }
 
     /**

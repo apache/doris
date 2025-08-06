@@ -29,7 +29,6 @@ import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CopyStmt;
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateIndexPolicyStmt;
 import org.apache.doris.analysis.CreateJobStmt;
@@ -181,8 +180,6 @@ public class DdlExecutor {
             env.getIndexPolicyMgr().createIndexPolicy((CreateIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropIndexPolicyStmt) {
             env.getIndexPolicyMgr().dropIndexPolicy((DropIndexPolicyStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateCatalogStmt) {
-            env.getCatalogMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
             env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {

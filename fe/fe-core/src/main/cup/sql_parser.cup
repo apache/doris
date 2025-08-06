@@ -1631,17 +1631,8 @@ opt_intermediate_type ::=
 
 // Create Statement
 create_stmt ::=
-    /* Catalog */
-    KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_comment:comment opt_properties:properties
-    {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties, comment);
-    :}
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_comment:comment opt_properties:properties
-    {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties, comment);
-    :}
     /* Table */
-    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
+    KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
     {:
         RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, rollupNames, false);
     :}
