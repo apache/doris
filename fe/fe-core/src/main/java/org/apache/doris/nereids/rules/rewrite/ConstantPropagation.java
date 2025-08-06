@@ -239,9 +239,17 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         hashOtherConjuncts.addAll(join.getHashJoinConjuncts());
         hashOtherConjuncts.addAll(join.getOtherJoinConjuncts());
         if (!hashOtherConjuncts.isEmpty()) {
+            // useInnerInfer = true means for a nullable column 'column_a', will extract constant relation
+            // (include 'nullable_a = column_b' and 'nullable_a = literal') from the expression itself,
+            // then use the extracted constant relation + children's constant relation to rewrite the expression.
+            // then its effect will result in: the special NULL (those all its ancestors are AND/OR) will be replaced
+            // with FALSE;
+            // so useInnerInfer = false will not replace the NULL with FALSE.
+            // For null ware left anti join, NULL can not replace with FALSE.
+            boolean useInnerInfer = join.getJoinType() != JoinType.NULL_AWARE_LEFT_ANTI_JOIN;
             Expression oldHashOtherPredicate = ExpressionUtils.and(hashOtherConjuncts);
             Expression newHashOtherPredicate
-                    = replaceConstantsAndRewriteExpr(join, oldHashOtherPredicate, true, context);
+                    = replaceConstantsAndRewriteExpr(join, oldHashOtherPredicate, useInnerInfer, context);
             if (!isExprEqualIgnoreOrder(oldHashOtherPredicate, newHashOtherPredicate)) {
                 // TODO: code from FindHashConditionForJoin
                 Pair<List<Expression>, List<Expression>> pair
@@ -262,8 +270,10 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         if (!join.getMarkJoinConjuncts().isEmpty()) {
             // TODO: we may extract more constant relations from hash conjuncts,
             //       then we may make mark join conjuncts more simplify.
+            // mark join conjuncts may rewrite to hash join conjuncts and join convert to null aware anti join.
+            // we don't replaced NULL with FALSE in mark join conjuncts, so let useInnerInfer = false.
             Expression oldMarkPredicate = ExpressionUtils.and(join.getMarkJoinConjuncts());
-            Expression newMarkPredicate = replaceConstantsAndRewriteExpr(join, oldMarkPredicate, true, context);
+            Expression newMarkPredicate = replaceConstantsAndRewriteExpr(join, oldMarkPredicate, false, context);
             newMarkJoinConjuncts = ExpressionUtils.extractConjunction(newMarkPredicate);
             if (Sets.newHashSet(newMarkJoinConjuncts).equals(Sets.newHashSet(join.getMarkJoinConjuncts()))) {
                 newMarkJoinConjuncts = join.getMarkJoinConjuncts();

@@ -97,8 +97,8 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     read_options.record_rowids = record_rowids;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
-        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(ctx.rowset_id, *segments,
-                                                                    delete_bitmap));
+        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+                ctx.tablet_schema, ctx.rowset_id, *segments, delete_bitmap));
         for (auto& seg_ptr : *segments) {
             auto d = delete_bitmap->get_agg(
                     {ctx.rowset_id, seg_ptr->id(), DeleteBitmap::TEMP_VERSION_COMMON});

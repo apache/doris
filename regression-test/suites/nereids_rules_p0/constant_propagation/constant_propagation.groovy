@@ -35,9 +35,9 @@ suite('constant_propagation') {
         SET runtime_filter_type=2;
         """
 
-    sql 'drop table if exists t1'
-    sql 'drop table if exists t2'
-    sql 'drop table if exists t3'
+    sql 'drop table if exists t1 force'
+    sql 'drop table if exists t2 force'
+    sql 'drop table if exists t3 force'
 
     sql """
     create table t1(a int, b int, c int, d int, e int, f int,
@@ -95,6 +95,18 @@ suite('constant_propagation') {
 
     sql '''
     insert into t3 values(1, 10, 100, 1000), (2, 20, 200, 2000), (3, 30, 300, 3000)
+    '''
+
+    multi_sql'''
+        drop table if exists s1 force;
+        drop table if exists s2 force;
+        drop table if exists s3 force;
+        create table s1(c1 int, c2 int) properties ('replication_num' = '1');
+        create table s2(c1 int, c2 int) properties ('replication_num' = '1');
+        create table s3(c1 int, c2 int) properties ('replication_num' = '1');
+        insert into s1 values (1,2),(1,3), (2,4), (2,5), (3,3), (3,4), (20,2), (22,3), (24,4);
+        insert into s2 values (1,4), (1,2),  (2,4), (3,7), (3,9),(5,1);
+        insert into s3 values (1,9), (1,8),  (2,6), (3,7), (3,9),(5,1);
     '''
 
     explain_and_result 'string_1',  """
@@ -201,6 +213,50 @@ suite('constant_propagation') {
        select t1.a, t2.x, t3.a
        from t1 join t2 on t1.a = t2.x * 10 join t3 on t2.x = t3.a where t1.a = 10
     '''
+
+    explain_and_result 'join_10', '''
+        select t1.a
+        from t1 where t1.a in (select t3.a from t3 where t3.b = 10);
+    '''
+
+    explain_and_result 'join_11', '''
+        select t1.a
+        from t1 where t1.a not in (select t3.a from t3 where t3.b = 10);
+    '''
+
+    /* // BUG start
+    // BUG: the result should  '[[null], [null]]', but be return '[[true], [true]]'
+    explain_and_result  'join_12', '''
+         select 1  in (select null from t2)
+         from t1;
+    '''
+
+    // BUG: the result should  '[[null], [null]]', but be return '[[false], [false]]'
+    explain_and_result  'join_13', '''
+        select 1 not in (select null from t2)
+        from t1;
+    '''
+
+    // OK
+    explain_and_result 'join_14', '''
+        select null  in (select c1 from s2) from s1
+    '''
+
+    // BUG: the result expect multi rows with null, but be return multi rows with true
+    explain_and_result 'join_15', '''
+        select null  in (select 1 from s2) from s1
+    '''
+
+    // BUG: the result expect multi rows with null, but be return multi rows with true
+    explain_and_result 'join_16', '''
+        select 1  in (select null from s2) from s1
+    '''
+
+    // BUG: the result expect multi rows with null, but be return multi rows with false
+    explain_and_result 'join_17', '''
+        select 1 not in (select null from s2) from s1
+    '''
+    */ // BUG end
 
     explain_and_result 'subquery_1', '''
        select a, x

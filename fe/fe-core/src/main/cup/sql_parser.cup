@@ -1269,10 +1269,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
-    | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
-    :}
     | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
     {:
         RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
@@ -1639,22 +1635,6 @@ create_stmt ::=
     | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_comment:comment opt_properties:properties
     {:
          RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties, comment);
-    :}
-    /* Function */
-    | KW_CREATE opt_var_type:type opt_aggregate:isAggregate KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
-    {:
-        RESULT = new CreateFunctionStmt(type, ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
-    :}
-    | KW_CREATE opt_var_type:type KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_WITH KW_PARAMETER LPAREN opt_ident_list:parameters RPAREN KW_AS expr:func
-    {:
-        RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, parameters, func);
-    :}
-    | KW_CREATE opt_var_type:type KW_TABLES KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
-    {:
-        RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, returnType, intermediateType, properties);
     :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
@@ -2607,10 +2587,6 @@ drop_stmt ::=
     {:
         RESULT = new DropTableStmt(ifExists, name, true, false);
     :}
-    | KW_DROP KW_REPOSITORY ident:repoName
-    {:
-        RESULT = new DropRepositoryStmt(repoName);
-    :}
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
@@ -3549,11 +3525,6 @@ show_param ::=
     | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
-    :}
-    /* show column stats */
-    | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
-    {:
-        RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
     :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:

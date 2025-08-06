@@ -82,7 +82,7 @@ public:
     Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
+    Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
