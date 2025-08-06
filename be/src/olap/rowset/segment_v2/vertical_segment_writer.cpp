@@ -229,11 +229,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
         if (!inverted_indexs.empty()) {
-            // TODO(lihangyu) multi indexes
-            // for (const auto& index : inverted_indexs) {
-            //     opts.inverted_indexs.emplace_back(index);
-            // }
-            opts.inverted_index = inverted_indexs.front();
+            opts.inverted_indexes = inverted_indexs;
             opts.need_inverted_index = true;
             DCHECK(_index_file_writer != nullptr);
         }
