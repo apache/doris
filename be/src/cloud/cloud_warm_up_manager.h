@@ -99,8 +99,7 @@ private:
 
     void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
                                int64_t expiration_time,
-                               std::shared_ptr<bthread::CountdownEvent> wait,
-                               bool is_index = false,
+                               std::shared_ptr<bthread::CountdownEvent> wait, bool is_index = false,
                                std::function<void(Status)> done_cb = nullptr);
     std::mutex _mtx;
     std::condition_variable _cond;
