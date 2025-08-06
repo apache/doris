@@ -5039,7 +5039,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
 
         auto argument_size = arguments.size();
@@ -5050,7 +5050,7 @@ public:
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             argument_primitive_types[i] =
-                    block.get_by_position(arguments[i]).type->get_primitive_type();
+                    block.get_by_position(arguments[i]).type->get_type_as_type_descriptor().type;
         }
 
         auto res_col = ColumnInt64::create();
