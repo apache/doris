@@ -1178,6 +1178,8 @@ int InstanceRecycler::recycle_indexes() {
 
 bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string instance_id,
                              int64_t tablet_id) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("check_lazy_txn_finished::bypass_check", true);
+
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -2036,6 +2038,7 @@ int InstanceRecycler::delete_rowset_data(
 
 int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
                                          const std::string& rowset_id) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("delete_rowset_data::bypass_check", true);
     auto it = accessor_map_.find(resource_id);
     if (it == accessor_map_.end()) {
         LOG_WARNING("instance has no such resource id")

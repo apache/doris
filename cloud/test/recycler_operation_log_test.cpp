@@ -27,6 +27,7 @@
 
 #include "common/config.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
@@ -35,6 +36,7 @@
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
+#include "mock_resource_manager.h"
 #include "recycler/checker.h"
 #include "recycler/recycler.h"
 #include "recycler/util.h"
@@ -44,6 +46,42 @@ using namespace doris::cloud;
 extern std::string instance_id;
 extern int64_t current_time;
 extern doris::cloud::RecyclerThreadPoolGroup thread_group;
+
+std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
+    int ret = 0;
+    // MemKv
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    if (txn_kv != nullptr) {
+        ret = txn_kv->init();
+        [&] { ASSERT_EQ(ret, 0); }();
+    }
+    [&] { ASSERT_NE(txn_kv.get(), nullptr); }();
+
+    // FdbKv
+    //     config::fdb_cluster_file_path = "fdb.cluster";
+    //     static auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<FdbTxnKv>());
+    //     static std::atomic<bool> init {false};
+    //     bool tmp = false;
+    //     if (init.compare_exchange_strong(tmp, true)) {
+    //         int ret = txn_kv->init();
+    //         [&] { ASSERT_EQ(ret, 0); ASSERT_NE(txn_kv.get(), nullptr); }();
+    //     }
+
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove("\x00", "\xfe"); // This is dangerous if the fdb is not correctly set
+    EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto rs = mock_resource_mgr ? std::make_shared<MockResourceManager>(txn_kv)
+                                : std::make_shared<ResourceManager>(txn_kv);
+    auto rl = std::make_shared<RateLimiter>();
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    return std::make_unique<MetaServiceProxy>(std::move(meta_service));
+}
+
+std::unique_ptr<MetaServiceProxy> get_meta_service() {
+    return get_meta_service(true);
+}
 
 // Convert a string to a hex-escaped string.
 // A non-displayed character is represented as \xHH where HH is the hexadecimal value of the character.
@@ -961,9 +999,33 @@ TEST(RecycleOperationLogTest, RecycleUpdateTabletLog) {
     ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }
 
+namespace doris::cloud {
 TEST(RecycleOperationLogTest, RecycleCompactionLog) {
+    auto meta_service = get_meta_service(false);
+    instance_id = "compaction_log_test";
+    auto* sp = doris::SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        doris::SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = doris::try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
+
+    sp->set_call_back("check_lazy_txn_finished::bypass_check", [&](auto&& args) {
+        auto* ret = doris::try_any_cast_ret<bool>(args);
+        ret->first = true;
+        ret->second = true;
+    });
+    sp->set_call_back("delete_rowset_data::bypass_check", [&](auto&& args) {
+        auto* ret = doris::try_any_cast_ret<bool>(args);
+        ret->first = true;
+        ret->second = true;
+    });
+    sp->enable_processing();
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
@@ -974,13 +1036,136 @@ TEST(RecycleOperationLogTest, RecycleCompactionLog) {
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
-    uint64_t tablet_id = 1;
-    int64_t start_version = 1;
-    int64_t end_version = 5;
+    constexpr int64_t table_id = 20001;
+    constexpr int64_t index_id = 20002;
+    constexpr int64_t partition_id = 20003;
+    constexpr int64_t tablet_id = 20004;
+    constexpr int64_t txn_id = 30001;
+    constexpr int64_t output_start_version = 2;
+    constexpr int64_t output_end_version = 4;
+    const std::string job_id = "test_compaction_job";
+    const std::string initiator = "test_be";
     int64_t creation_time = ::time(nullptr);
 
+    // Step 1: Create tablet first with proper tablet index
     {
-        // Put a compaction log with multiple recycle rowsets
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        doris::TabletMetaCloudPB tablet_meta;
+        tablet_meta.set_tablet_id(tablet_id);
+        tablet_meta.set_table_id(table_id);
+        tablet_meta.set_index_id(index_id);
+        tablet_meta.set_partition_id(partition_id);
+        tablet_meta.set_creation_time(creation_time);
+        tablet_meta.set_cumulative_layer_point(1);
+
+        auto tablet_meta_key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        txn->put(tablet_meta_key, tablet_meta.SerializeAsString());
+
+        // Create tablet index to pass check_lazy_txn_finished
+        TabletIndexPB tablet_idx;
+        tablet_idx.set_db_id(1); // dummy db_id
+        tablet_idx.set_table_id(table_id);
+        tablet_idx.set_index_id(index_id);
+        tablet_idx.set_partition_id(partition_id);
+        auto tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
+        txn->put(tablet_idx_key, tablet_idx.SerializeAsString());
+
+        // Create partition version (required for lazy txn check)
+        VersionPB version_pb;
+        version_pb.set_version(1);
+        // Note: no pending_txn_ids, so check_lazy_txn_finished will pass
+        auto ver_key = partition_version_key({instance_id, 1, table_id, partition_id});
+        txn->put(ver_key, version_pb.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Step 2: Create input rowsets on this tablet (versions 2-4)
+    std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int i = 0; i < 3; ++i) {
+            doris::RowsetMetaCloudPB rowset;
+            rowset.set_rowset_id(i + 100);
+            rowset.set_rowset_id_v2(fmt::format("input_rowset_{}", i));
+            rowset.set_tablet_id(tablet_id); // Belongs to our tablet
+            rowset.set_partition_id(partition_id);
+            rowset.set_start_version(i + 2);
+            rowset.set_end_version(i + 2);
+            rowset.set_num_rows(50 * (i + 1));
+            rowset.set_total_disk_size(1024 * 50 * (i + 1));
+            rowset.set_num_segments(i + 1);
+            input_rowsets.push_back(rowset);
+
+            // Put rowset to tablet's meta storage
+            auto rowset_key = meta_rowset_key({instance_id, tablet_id, rowset.end_version()});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Step 3: Create output rowset as tmp rowset for this tablet
+    doris::RowsetMetaCloudPB output_rowset;
+    output_rowset.set_rowset_id(200);
+    output_rowset.set_rowset_id_v2("output_rowset_compacted");
+    output_rowset.set_tablet_id(tablet_id); // Belongs to our tablet
+    output_rowset.set_partition_id(partition_id);
+    output_rowset.set_start_version(output_start_version);
+    output_rowset.set_end_version(output_end_version);
+    output_rowset.set_txn_id(txn_id);
+    output_rowset.set_num_rows(100);
+    output_rowset.set_total_disk_size(1024 * 100);
+    output_rowset.set_num_segments(1);
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Put tmp rowset for this tablet
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        auto tmp_rowset_val = output_rowset.SerializeAsString();
+        txn->put(tmp_rowset_key, tmp_rowset_val);
+
+        // Create initial tablet stats for this tablet
+        TabletStatsPB initial_stats;
+        initial_stats.set_num_rows(150); // Total from input rowsets
+        initial_stats.set_data_size(150 * 50);
+        initial_stats.set_num_rowsets(3);
+        initial_stats.set_num_segments(6);
+        initial_stats.set_index_size(100);
+        initial_stats.set_segment_size(200);
+        initial_stats.set_cumulative_point(1);
+
+        auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        auto stats_val = initial_stats.SerializeAsString();
+        txn->put(stats_key, stats_val);
+
+        // Create tablet compact stats for versioned storage for this tablet
+        auto tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        auto tablet_compact_stats_val = initial_stats.SerializeAsString();
+        versioned_put(txn.get(), tablet_compact_stats_key, tablet_compact_stats_val);
+
+        // Create versioned compact rowset keys for this tablet that should be deleted later
+        for (const auto& rowset : input_rowsets) {
+            auto meta_rowset_compact_key = versioned::meta_rowset_compact_key(
+                    {instance_id, tablet_id, rowset.end_version()});
+            versioned_put(txn.get(), meta_rowset_compact_key, rowset.SerializeAsString());
+        }
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Step 4: Simulate compaction on this tablet using actual finish tablet job logic
+    // This creates a compaction operation log similar to how finish_tablet_job does it
+    {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
@@ -989,25 +1174,18 @@ TEST(RecycleOperationLogTest, RecycleCompactionLog) {
                 versionstamp.data().size());
 
         auto* compaction_log = operation_log.mutable_compaction();
-        compaction_log->set_tablet_id(tablet_id);
-        compaction_log->set_start_version(start_version);
-        compaction_log->set_end_version(end_version);
+        compaction_log->set_tablet_id(tablet_id); // Compaction on our tablet
+        compaction_log->set_start_version(output_start_version);
+        compaction_log->set_end_version(output_end_version);
 
-        // Add multiple recycle rowsets
-        for (int i = 0; i < 3; ++i) {
+        // Add input rowsets as recycle rowsets (this is what finish_tablet_job does)
+        for (const auto& input_rowset : input_rowsets) {
             auto* recycle_rowset = compaction_log->add_recycle_rowsets();
             recycle_rowset->set_creation_time(creation_time);
             recycle_rowset->set_type(RecycleRowsetPB::COMPACT);
 
             auto* rowset_meta = recycle_rowset->mutable_rowset_meta();
-            rowset_meta->set_rowset_id(i);
-            rowset_meta->set_rowset_id_v2(fmt::format("rowset_{}", i));
-            rowset_meta->set_tablet_id(tablet_id);
-            rowset_meta->set_start_version(start_version + i);
-            rowset_meta->set_end_version(start_version + i);
-            rowset_meta->set_num_rows(1000 * (i + 1));
-            rowset_meta->set_total_disk_size(1024 * 1024 * (i + 1));
-            rowset_meta->set_num_segments(i + 1);
+            *rowset_meta = input_rowset;
         }
 
         std::unique_ptr<Transaction> txn;
@@ -1017,37 +1195,137 @@ TEST(RecycleOperationLogTest, RecycleCompactionLog) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
-    // Recycle the operation logs
+    // Step 5: Verify that compact tablet stat key and compact rowset keys exist before recycling
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check tablet compact stats exist for our tablet
+        auto tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        std::string tablet_compact_stats_value;
+        ASSERT_EQ(versioned_get(txn.get(), tablet_compact_stats_key, nullptr,
+                                &tablet_compact_stats_value),
+                  TxnErrorCode::TXN_OK)
+                << "Tablet compact stats should exist before recycling for tablet " << tablet_id;
+
+        // Check compact rowset keys exist for our tablet
+        for (const auto& rowset : input_rowsets) {
+            auto meta_rowset_compact_key = versioned::meta_rowset_compact_key(
+                    {instance_id, tablet_id, rowset.end_version()});
+            std::string compact_rowset_value;
+            ASSERT_EQ(versioned_get(txn.get(), meta_rowset_compact_key, nullptr,
+                                    &compact_rowset_value),
+                      TxnErrorCode::TXN_OK)
+                    << "Compact rowset key should exist for tablet " << tablet_id << " version "
+                    << rowset.end_version();
+        }
+    }
+
+    // Step 6: Recycle the operation logs
     ASSERT_EQ(recycler.recycle_operation_logs(), 0);
 
-    // Verify that recycle rowset records are created for each rowset
-    for (int i = 0; i < 3; ++i) {
-        std::string rowset_id = fmt::format("rowset_{}", i);
+    // Step 7: Verify that recycle rowset records are created for each input rowset from this tablet
+    for (const auto& input_rowset : input_rowsets) {
+        std::string rowset_id = input_rowset.rowset_id_v2();
         std::string recycle_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
 
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         std::string value;
         TxnErrorCode err = txn->get(recycle_key, &value);
-        ASSERT_EQ(err, TxnErrorCode::TXN_OK)
-                << "Recycle rowset record should exist for " << rowset_id;
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK) << "Recycle rowset record should exist for tablet "
+                                             << tablet_id << " rowset " << rowset_id;
 
         RecycleRowsetPB recycle_rowset_pb;
         ASSERT_TRUE(recycle_rowset_pb.ParseFromString(value));
         ASSERT_EQ(recycle_rowset_pb.creation_time(), creation_time);
         ASSERT_EQ(recycle_rowset_pb.type(), RecycleRowsetPB::COMPACT);
         ASSERT_EQ(recycle_rowset_pb.rowset_meta().rowset_id_v2(), rowset_id);
-        ASSERT_EQ(recycle_rowset_pb.rowset_meta().tablet_id(), tablet_id);
-        ASSERT_EQ(recycle_rowset_pb.rowset_meta().start_version(), start_version + i);
-        ASSERT_EQ(recycle_rowset_pb.rowset_meta().end_version(), start_version + i);
-        ASSERT_EQ(recycle_rowset_pb.rowset_meta().num_rows(), 1000 * (i + 1));
-        ASSERT_EQ(recycle_rowset_pb.rowset_meta().total_disk_size(), 1024 * 1024 * (i + 1));
-        ASSERT_EQ(recycle_rowset_pb.rowset_meta().num_segments(), i + 1);
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().tablet_id(),
+                  tablet_id); // Verify belongs to our tablet
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().partition_id(), partition_id);
     }
 
-    // Scan all keys to verify that operation log is removed and only recycle rowset records remain
+    // Step 8: Create recycle index record to mark the tablet for deletion
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        RecycleIndexPB recycle_index_pb;
+        recycle_index_pb.set_db_id(1); // Dummy db_id
+        recycle_index_pb.set_table_id(table_id);
+        recycle_index_pb.set_state(RecycleIndexPB::DROPPED);
+        recycle_index_pb.set_expiration(0); // Immediate expiration for testing
+
+        std::string recycle_key = recycle_index_key({instance_id, index_id});
+        txn->put(recycle_key, recycle_index_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Step 9: Use recycler to delete tablets (this will clean up compact keys)
+    RecyclerMetricsContext ctx(instance_id, "test");
+    ASSERT_EQ(recycler.recycle_tablets(table_id, index_id, ctx), 0);
+
+    // Step 10: After tablet deletion, verify that compact tablet stat key and compact rowset keys are properly deleted
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check that tablet compact stats are deleted for our tablet
+        auto tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        std::string tablet_compact_stats_value;
+        TxnErrorCode stats_err = versioned_get(txn.get(), tablet_compact_stats_key, nullptr,
+                                               &tablet_compact_stats_value);
+        ASSERT_EQ(stats_err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Tablet compact stats should be deleted after tablet " << tablet_id
+                << " deletion";
+
+        // Check that compact rowset keys are deleted for our tablet
+        for (const auto& rowset : input_rowsets) {
+            auto meta_rowset_compact_key = versioned::meta_rowset_compact_key(
+                    {instance_id, tablet_id, rowset.end_version()});
+            std::string compact_rowset_value;
+            TxnErrorCode rowset_err = versioned_get(txn.get(), meta_rowset_compact_key, nullptr,
+                                                    &compact_rowset_value);
+            ASSERT_EQ(rowset_err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << "Compact rowset key should be deleted for tablet " << tablet_id
+                    << " version " << rowset.end_version();
+        }
+
+        // Verify that regular rowset keys are also deleted for our tablet
+        for (const auto& rowset : input_rowsets) {
+            auto rowset_key = meta_rowset_key({instance_id, tablet_id, rowset.end_version()});
+            std::string rowset_value;
+            TxnErrorCode rowset_err = txn->get(rowset_key, &rowset_value);
+            ASSERT_EQ(rowset_err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << "Regular rowset key should be deleted for tablet " << tablet_id
+                    << " version " << rowset.end_version();
+        }
+
+        // Verify that tablet stats are also deleted for our tablet
+        auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string stats_value;
+        TxnErrorCode stats_key_err = txn->get(stats_key, &stats_value);
+        ASSERT_EQ(stats_key_err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Tablet stats should be deleted for tablet " << tablet_id;
+
+        // Verify that tmp rowset is also deleted for our tablet
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        std::string tmp_rowset_value;
+        TxnErrorCode tmp_err = txn->get(tmp_rowset_key, &tmp_rowset_value);
+        ASSERT_EQ(tmp_err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Tmp rowset should be deleted for tablet " << tablet_id;
+    }
+
+    // Step 11: Verify final state - only recycle rowset records should remain
     remove_instance_info(txn_kv.get());
 
-    // Should have 3 recycle rowset records
-    ASSERT_EQ(count_range(txn_kv.get()), 3) << "Should have 3 recycle rowset records";
+    // Should have 3 recycle rowset records only
+    size_t expected_count = 3; // Only recycle rowset records should remain after tablet deletion
+    ASSERT_EQ(count_range(txn_kv.get()), expected_count)
+            << "Should have only 3 recycle rowset records remaining after tablet deletion";
 }
+} // namespace doris::cloud

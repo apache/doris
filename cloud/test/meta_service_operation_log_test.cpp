@@ -1529,49 +1529,138 @@ TEST(MetaServiceOperationLogTest, CompactionLog) {
         create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
     }
 
-    // Create some rowsets for compaction
-    std::vector<doris::RowsetMetaCloudPB> test_rowsets;
-    for (int i = 0; i < 3; ++i) {
-        auto rowset = create_rowset(i + 100, tablet_id, partition_id, i + 2, 50 * (i + 1));
-        test_rowsets.push_back(rowset);
-        CreateRowsetResponse res;
-        commit_rowset(meta_service.get(), rowset, res);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    }
-
-    // Simulate a compaction job that would generate operation log
+    // Create input rowsets for compaction (versions 2-4)
+    std::vector<doris::RowsetMetaCloudPB> input_rowsets;
     auto txn_kv = meta_service->txn_kv();
-    size_t num_logs_before = count_range(txn_kv.get(), versioned::log_key(instance_id),
-                                         versioned::log_key(instance_id) + "\xFF");
-
     {
-        // Simulate compaction operation by directly writing operation log
-        // In a real scenario, this would be done through finish_compaction_job
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
 
-        // Create compaction log
-        CompactionLogPB compaction_log;
-        compaction_log.set_tablet_id(tablet_id);
+        for (int i = 0; i < 3; ++i) {
+            auto rowset = create_rowset(i + 100, tablet_id, partition_id, i + 2, 50 * (i + 1));
+            input_rowsets.push_back(rowset);
 
-        // Add rowsets that are being compacted away as recycle_rowsets
-        for (const auto& rowset : test_rowsets) {
-            RecycleRowsetPB* recycle_rowset = compaction_log.add_recycle_rowsets();
-            recycle_rowset->set_creation_time(::time(nullptr));
-            recycle_rowset->mutable_rowset_meta()->CopyFrom(rowset);
-            recycle_rowset->set_type(RecycleRowsetPB::COMPACT);
+            // Put rowset directly to meta storage
+            auto rowset_key = meta_rowset_key({instance_id, tablet_id, rowset.end_version()});
+            auto rowset_val = rowset.SerializeAsString();
+            txn->put(rowset_key, rowset_val);
         }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
 
-        // Write operation log
-        std::string operation_log_key = versioned::log_key({instance_id});
-        std::string operation_log_value;
-        OperationLogPB operation_log;
-        operation_log.mutable_compaction()->CopyFrom(compaction_log);
+    // Create output rowset as tmp rowset
+    constexpr int64_t txn_id = 30001;
+    constexpr int64_t output_start_version = 2;
+    constexpr int64_t output_end_version = 4;
+    auto output_rowset = create_rowset(200, tablet_id, partition_id, output_start_version, 100);
+    output_rowset.set_end_version(output_end_version); // Set end version to create 2-4 range
+    output_rowset.set_txn_id(txn_id);
 
-        ASSERT_TRUE(operation_log.SerializeToString(&operation_log_value));
-        versioned_put(txn.get(), operation_log_key, operation_log_value);
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Put tmp rowset
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        auto tmp_rowset_val = output_rowset.SerializeAsString();
+        txn->put(tmp_rowset_key, tmp_rowset_val);
+
+        // Create initial tablet stats
+        TabletStatsPB initial_stats;
+        initial_stats.set_num_rows(150); // Total from input rowsets
+        initial_stats.set_data_size(150 * 50);
+        initial_stats.set_num_rowsets(3);
+        initial_stats.set_num_segments(3);
+        initial_stats.set_index_size(100);
+        initial_stats.set_segment_size(200);
+        initial_stats.set_cumulative_point(1);
+
+        auto stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        auto stats_val = initial_stats.SerializeAsString();
+        txn->put(stats_key, stats_val);
+
+        // Create tablet compact stats for versioned storage
+        auto tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        auto tablet_compact_stats_val = initial_stats.SerializeAsString();
+        versioned_put(txn.get(), tablet_compact_stats_key, tablet_compact_stats_val);
 
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Start compaction job first
+    const std::string job_id = "test_compaction_job";
+    const std::string initiator = "test_be";
+
+    {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        StartTabletJobResponse res;
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+        compaction->set_base_compaction_cnt(0);
+        compaction->set_cumulative_compaction_cnt(0);
+        compaction->add_input_versions(2);
+        compaction->add_input_versions(4);
+        long now = time(nullptr);
+        compaction->set_expiration(now + 12);
+        compaction->set_lease(now + 3);
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    size_t num_logs_before = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                         versioned::log_key(instance_id) + "\xFF");
+
+    // Now use real finish_tablet_job to trigger process_compaction_job
+    {
+        brpc::Controller cntl;
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        req.set_action(FinishTabletJobRequest::COMMIT);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator(initiator);
+        compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+
+        // Input versions and rowsets
+        compaction->add_input_versions(2);
+        compaction->add_input_versions(4);
+
+        // Output information
+        compaction->add_txn_id(txn_id);
+        compaction->add_output_versions(output_end_version);
+        compaction->add_output_rowset_ids(output_rowset.rowset_id_v2());
+        compaction->set_output_cumulative_point(5);
+
+        // Compaction stats for updating tablet stats
+        compaction->set_size_input_rowsets(150 * 50); // Size of input rowsets
+        compaction->set_index_size_input_rowsets(100);
+        compaction->set_segment_size_input_rowsets(200);
+        compaction->set_num_input_rows(150);
+        compaction->set_num_input_rowsets(3);
+        compaction->set_num_input_segments(3);
+
+        compaction->set_size_output_rowsets(100 * 50); // Size of output rowset
+        compaction->set_index_size_output_rowsets(50);
+        compaction->set_segment_size_output_rowsets(100);
+        compaction->set_num_output_rows(100);
+        compaction->set_num_output_rowsets(1);
+        compaction->set_num_output_segments(1);
+
+        // This will trigger process_compaction_job internally
+        meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 
     // Verify that operation log was created
@@ -1595,16 +1684,107 @@ TEST(MetaServiceOperationLogTest, CompactionLog) {
 
         const auto& compaction_log = operation_log.compaction();
         ASSERT_EQ(compaction_log.tablet_id(), tablet_id);
+        ASSERT_EQ(compaction_log.start_version(), 2);
+        ASSERT_EQ(compaction_log.end_version(), 4);
         ASSERT_EQ(compaction_log.recycle_rowsets_size(), 3);
 
-        // Verify recycle rowsets content
+        // Verify recycle rowsets content - these should be the input rowsets marked for recycling
         for (int i = 0; i < compaction_log.recycle_rowsets_size(); ++i) {
             const auto& recycle_rowset = compaction_log.recycle_rowsets(i);
             ASSERT_EQ(recycle_rowset.type(), RecycleRowsetPB::COMPACT);
             ASSERT_EQ(recycle_rowset.rowset_meta().tablet_id(), tablet_id);
             ASSERT_EQ(recycle_rowset.rowset_meta().partition_id(), partition_id);
             ASSERT_GT(recycle_rowset.creation_time(), 0);
+
+            // Verify this matches one of our input rowsets
+            bool found_matching_rowset = false;
+            for (const auto& input_rowset : input_rowsets) {
+                if (recycle_rowset.rowset_meta().rowset_id_v2() == input_rowset.rowset_id_v2()) {
+                    found_matching_rowset = true;
+                    ASSERT_EQ(recycle_rowset.rowset_meta().start_version(),
+                              input_rowset.start_version());
+                    ASSERT_EQ(recycle_rowset.rowset_meta().end_version(),
+                              input_rowset.end_version());
+                    break;
+                }
+            }
+            ASSERT_TRUE(found_matching_rowset) << "Recycle rowset should match an input rowset";
         }
+    }
+
+    // Verify tablet compact stats were updated
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string tablet_compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        std::string tablet_compact_stats_value;
+        Versionstamp* versionstamp = nullptr;
+        ASSERT_EQ(versioned_get(txn.get(), tablet_compact_stats_key, versionstamp,
+                                &tablet_compact_stats_value),
+                  TxnErrorCode::TXN_OK);
+
+        TabletStatsPB compact_stats;
+        ASSERT_TRUE(compact_stats.ParseFromString(tablet_compact_stats_value));
+        ASSERT_EQ(compact_stats.cumulative_compaction_cnt(), 1);
+        ASSERT_EQ(compact_stats.cumulative_point(), 5);
+        ASSERT_GT(compact_stats.last_cumu_compaction_time_ms(), 0);
+        // Check that rowset count decreased: 3 input -> 1 output = -2
+        ASSERT_EQ(compact_stats.num_rowsets(), 1); // 3 - 3 + 1 = 1
+    }
+
+    // Verify input rowsets were removed and output rowset was created correctly
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // All original input rowsets (versions 2, 3, 4) should be deleted
+        for (const auto& rowset : input_rowsets) {
+            if (rowset.end_version() < 4) {
+                auto rowset_key = meta_rowset_key({instance_id, tablet_id, rowset.end_version()});
+                std::string rowset_value;
+                auto result = txn->get(rowset_key, &rowset_value);
+                EXPECT_EQ(result, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                        << "Input rowset version " << rowset.end_version()
+                        << " should have been removed after compaction";
+            } else {
+                // The new output rowset (2-4) should exist at version 4 (end_version)
+                auto output_rowset_key =
+                        meta_rowset_key({instance_id, tablet_id, output_end_version});
+                std::string output_rowset_value;
+                ASSERT_EQ(txn->get(output_rowset_key, &output_rowset_value), TxnErrorCode::TXN_OK)
+                        << "Output rowset should exist at version " << output_end_version;
+                // Verify this is the correct output rowset (2-4 range)
+                doris::RowsetMetaCloudPB output_meta;
+                ASSERT_TRUE(output_meta.ParseFromString(output_rowset_value));
+                ASSERT_EQ(output_meta.rowset_id_v2(), output_rowset.rowset_id_v2())
+                        << "Output rowset should have the correct rowset ID";
+                ASSERT_EQ(output_meta.tablet_id(), tablet_id);
+                ASSERT_EQ(output_meta.start_version(), output_start_version);
+                ASSERT_EQ(output_meta.end_version(), output_end_version);
+            }
+        }
+
+        // Verify versioned compact rowset exists for output version
+        auto meta_rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_id, tablet_id, output_end_version});
+        std::string compact_rowset_value;
+        Versionstamp* versionstamp = nullptr;
+        ASSERT_EQ(versioned_get(txn.get(), meta_rowset_compact_key, versionstamp,
+                                &compact_rowset_value),
+                  TxnErrorCode::TXN_OK);
+    }
+
+    // Verify tmp rowset was removed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        std::string tmp_rowset_value;
+        ASSERT_EQ(txn->get(tmp_rowset_key, &tmp_rowset_value), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Tmp rowset should have been removed after compaction";
     }
 }
 

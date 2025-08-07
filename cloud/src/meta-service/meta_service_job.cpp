@@ -747,7 +747,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                             const FinishTabletJobRequest* request,
                             FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                             std::string& instance_id, std::string& job_key, bool& need_commit,
-                            std::string& use_version, bool is_version_write_enabled) {
+                            std::string& use_version, bool is_versioned_read) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -870,7 +870,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     internal_get_tablet_stats(code, msg, txn.get(), instance_id, request->job().idx(), *stats,
                               detached_stats, config::snapshot_get_tablet_stats);
 
-    if (is_version_write_enabled) {
+    if (is_versioned_read) {
         // read old TabletCompactStatsKey -> TabletStatsPB
         std::string tablet_compact_stats_version_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
@@ -1035,7 +1035,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
             recycle_rowset.set_type(RecycleRowsetPB::COMPACT);
 
-            if (is_version_write_enabled) {
+            if (is_versioned_read) {
                 compaction_log.add_recycle_rowsets()->CopyFrom(recycle_rowset);
             } else {
                 auto recycle_val = recycle_rowset.SerializeAsString();
@@ -1127,7 +1127,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     int64_t version = compaction.output_versions(0);
     auto rowset_key = meta_rowset_key({instance_id, tablet_id, version});
     txn->put(rowset_key, tmp_rowset_val);
-    if (is_version_write_enabled) {
+    if (is_versioned_read) {
         std::string meta_rowset_compact_key =
                 versioned::meta_rowset_compact_key({instance_id, tablet_id, version});
         versioned_put(txn.get(), meta_rowset_compact_key, tmp_rowset_val);
@@ -1150,7 +1150,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                                         : -1);
     need_commit = true;
 
-    if (!compaction_log.recycle_rowsets().empty() && is_version_write_enabled) {
+    if (!compaction_log.recycle_rowsets().empty() && is_versioned_read) {
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
@@ -1172,7 +1172,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                const FinishTabletJobRequest* request,
                                FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                                std::string& instance_id, std::string& job_key, bool& need_commit,
-                               std::string& use_version, bool is_version_write_enabled) {
+                               std::string& use_version, bool is_versioned_read) {
     //==========================================================================
     //                                check
     //==========================================================================
