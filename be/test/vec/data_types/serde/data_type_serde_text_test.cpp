@@ -789,20 +789,19 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
         typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
                            std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
-        std::vector<FieldType_RandStr> nested_field_types = {
-                FieldType_RandStr(
-                        FieldType::OLAP_FIELD_TYPE_STRING,
-                        {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), "
-                         "-, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
-                        {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
-                         "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
-                         "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
-                         "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"},
-                        {""},
-                        {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
-                         "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
-                         "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
-                         "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"})};
+        std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
+                FieldType::OLAP_FIELD_TYPE_STRING,
+                {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), "
+                 "-, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
+                {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
+                 "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
+                 "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
+                 "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"},
+                {""},
+                {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
+                 "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
+                 "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
+                 "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"})};
         // array type
         for (auto type_pair : nested_field_types) {
             auto type = std::get<0>(type_pair);
