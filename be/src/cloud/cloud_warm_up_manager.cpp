@@ -227,7 +227,7 @@ void CloudWarmUpManager::handle_jobs() {
                         expiration_time = 0;
                     }
 
-                    if (tablet->add_rowset_warmup_state(rs, WarmUpState::TRIGGERED_BY_JOB)) {
+                    if (!tablet->add_rowset_warmup_state(rs, WarmUpState::TRIGGERED_BY_JOB)) {
                         LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
                                   << ", skip it";
                         continue;
