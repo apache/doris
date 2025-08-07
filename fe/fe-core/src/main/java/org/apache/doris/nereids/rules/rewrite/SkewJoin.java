@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.BackendClause;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.JoinSkewInfo;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -52,18 +54,28 @@ public class SkewJoin extends OneRewriteRuleFactory {
     }
 
     private static Plan transform(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
+        StatsDerive derive = new StatsDerive(false);
+
         LogicalJoin<Plan, Plan> join = ctx.root;
         Expression skewExpr = null;
         List<Expression> hotValues = new ArrayList<>();
         if (join.getHashJoinConjuncts().size() != 1) {
             return null;
         }
+        AbstractPlan left = (AbstractPlan) join.left();
+        if (left.getStats() == null) {
+            left.accept(derive, new DeriveContext());
+        }
+        AbstractPlan right = (AbstractPlan) join.right();
+        if (right.getStats() == null) {
+            right.accept(derive, new DeriveContext());
+        }
+
         EqualPredicate equal = (EqualPredicate) join.getHashJoinConjuncts().get(0);
         if (join.left().getOutputSet().contains(equal.right())) {
             equal = equal.commute();
         }
         if (join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()) {
-            AbstractPlan left = (AbstractPlan) join.left();
             Expression leftEqHand = equal.child(0);
             if (left.getStats().findColumnStatistics(leftEqHand) != null
                     && left.getStats().findColumnStatistics(leftEqHand).getHotValues() != null) {
@@ -71,7 +83,6 @@ public class SkewJoin extends OneRewriteRuleFactory {
                 hotValues.addAll(left.getStats().findColumnStatistics(leftEqHand).getHotValues().keySet());
             }
         } else if (join.getJoinType().isRightOuterJoin()) {
-            AbstractPlan right = (AbstractPlan) join.right();
             Expression rightEqHand = equal.child(1);
             if (right.getStats().findColumnStatistics(rightEqHand) != null
                     && right.getStats().findColumnStatistics(rightEqHand).getHotValues() != null) {
