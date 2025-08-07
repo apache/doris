@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -34,6 +33,7 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -91,10 +91,16 @@ public class RefreshCatalogTest extends TestWithFeService {
     protected void runAfterAll() throws Exception {
         super.runAfterAll();
         rootCtx.setThreadLocalInfo();
-        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
-        env.getCatalogMgr().dropCatalog(stmt);
-        stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test2");
-        env.getCatalogMgr().dropCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop catalog test1");
+        if (logicalPlan instanceof DropCatalogCommand) {
+            ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+
+        logicalPlan = nereidsParser.parseSingle("drop catalog test2");
+        if (logicalPlan instanceof DropCatalogCommand) {
+            ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Test
