@@ -527,7 +527,7 @@ public class SchemaTable extends Table {
                     // See: https://dev.mysql.com/doc/refman/8.4/en/show-processlist.html
                     new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
                             builder().column("CurrentConnected", ScalarType.createVarchar(16))
-                                    .column("Id", ScalarType.createType(PrimitiveType.LARGEINT))
+                                    .column("Id", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("User", ScalarType.createVarchar(32))
                                     .column("Host", ScalarType.createVarchar(261))
                                     .column("LoginTime", ScalarType.createType(PrimitiveType.DATETIMEV2))
