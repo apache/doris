@@ -43,7 +43,7 @@ import java.util.List;
  *                  but for simple reason, we still treat it as non-deterministic.
  * 3. random(a, b): random a big int value between a and b.
  */
-public class Random extends UniqueScalarFunction
+public class Random extends UniqueFunction
         implements ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
@@ -92,7 +92,7 @@ public class Random extends UniqueScalarFunction
     }
 
     /** constructor for withChildren and reuse signature */
-    private Random(ScalarFunctionParams functionParams) {
+    private Random(UniqueFunctionParams functionParams) {
         super(functionParams);
     }
 

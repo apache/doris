@@ -27,12 +27,12 @@ import java.util.List;
  *
  * e.g. random(), uuid(), etc.
  *
- * for unique scalar functions in PROJECT/HAVING/QUALIFY/SORT/AGG OUTPUT/REPEAT OUTPUT,
- * if they have a related AGG plan, need bind their unique id to the matched AGG's group by unique scalar functions.
+ * for unique functions in PROJECT/HAVING/QUALIFY/SORT/AGG OUTPUT/REPEAT OUTPUT,
+ * if they have a related AGG plan, need bind their unique id to the matched AGG's group by unique functions.
  * case as below:
  *
- * 1. if no aggregate or the aggregate group by expressions don't contain unique scalar function,
- *    then all the unique scalar function will be different.
+ * 1. if no aggregate or the aggregate group by expressions don't contain unique function,
+ *    then all the unique function will be different.
  *    example i:  for sql 'select random1(), a + random2()
  *                         from t
  *                         order by random3(), a + random4()',
@@ -49,10 +49,10 @@ import java.util.List;
  *    example iii: for sql 'select a + random1(), sum(a + random2()), max(a + random3())
  *                          from t
  *                          group by a',
- *                 since the group by list (a) not contain unique scalar function, so random1(), random2(), random3()
+ *                 since the group by list (a) not contain unique function, so random1(), random2(), random3()
  *                 will be different.
  *
- * 2. if some aggregate group by expressions contains unique scalar function, then bind unique id to unique scalar
+ * 2. if some aggregate group by expressions contains unique function, then bind unique id to unique
  *    function  with the longest matched group by.
  *    example: for sql 'select random1(), a + random2(), sum(random3()), sum(a + random4())
  *                      from t
@@ -67,14 +67,23 @@ import java.util.List;
  *                      equal to random9(), then update their unique id to the same.
  *              notice for FILTER random5()/random6(), they will be different with all other randoms.
  *
- * 3. if it's a distinct project and no contains aggregate functions and no contains aggregate plan.
+ * 3. for logical repeat, will flatten grouping sets like an aggregate's group by lists, then whole match the group by
+ *    expressions and bind the unique id.
+ *    example: for sql 'select random1(),  random2(),  a + random3(), a + random4()
+ *                      from t
+ *                      group by grouping sets ((), (random5()), (random6()), (a + random7()), (a + random8()))'
+ *             firstly, handle with the grouping sets:  random5() equals to random6(),  random7() equals random8();
+ *             then, handle with the repeat output: random1()/random2() equal to random5(),
+ *                   random3()/random4() equal to random7()
+ *
+ * 4. if it's a distinct project and no contains aggregate functions and no contains aggregate plan.
  *    then it will rewrite to an aggregate, but will have some difference with the origin raw aggregate.
  *    example: for sql 'select distinct random1(), random2(), a + random3(), a + random4()
  *                      from t
  *                      order by random5(), a + random6()',
  *             it will rewrite to 'select random1(), random2(), a + random3(), a + random4()
  *                                 from t
- *                                 group by random1(), random2(), a + random3(), a + random5()
+ *                                 group by random1(), random2(), a + random3(), a + random4()
  *                                 order by random5(), a + random6()',
  *             for the rewritten aggregate,
  *             firstly, for the group by: the group by expressions will not try to match with each other even if
@@ -86,26 +95,38 @@ import java.util.List;
  *                      the same.
  *
  */
-public abstract class UniqueScalarFunction extends ScalarFunction {
+public abstract class UniqueFunction extends ScalarFunction {
 
     protected final ExprId uniqueId;
 
     // when compare and bind unique id with group by expressions, should ignore the unique id
     protected final boolean ignoreUniqueId;
 
-    public UniqueScalarFunction(String name, ExprId uniqueId, boolean ignoreUniqueId, Expression... arguments) {
+    /** constructor for withChildren and reuse signature */
+    public UniqueFunction(UniqueFunctionParams functionParams) {
+        super(functionParams);
+        this.uniqueId = functionParams.uniqueId;
+        this.ignoreUniqueId = functionParams.ignoreUniqueId;
+    }
+
+    public UniqueFunction(String name, ExprId uniqueId, boolean ignoreUniqueId, Expression... arguments) {
         super(name, arguments);
         this.uniqueId = uniqueId;
         this.ignoreUniqueId = ignoreUniqueId;
     }
 
-    public UniqueScalarFunction(String name, ExprId uniqueId, boolean ignoreUniqueId, List<Expression> arguments) {
+    public UniqueFunction(String name, ExprId uniqueId, boolean ignoreUniqueId, List<Expression> arguments) {
         super(name, arguments);
         this.uniqueId = uniqueId;
         this.ignoreUniqueId = ignoreUniqueId;
     }
 
-    public abstract UniqueScalarFunction withIgnoreUniqueId(boolean ignoreUniqueId);
+    public abstract UniqueFunction withIgnoreUniqueId(boolean ignoreUniqueId);
+
+    @Override
+    protected UniqueFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new UniqueFunctionParams(this, getName(), uniqueId, ignoreUniqueId, arguments, isInferred());
+    }
 
     @Override
     public boolean foldable() {
@@ -125,7 +146,7 @@ public abstract class UniqueScalarFunction extends ScalarFunction {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        UniqueScalarFunction other = (UniqueScalarFunction) o;
+        UniqueFunction other = (UniqueFunction) o;
         // in BindExpression phase, when compare two expression equals except the unique id,
         // will set ignoreUniqueId = true temporarily, after bind expression, will recover ignoreUniqueId = false
         if (ignoreUniqueId || other.ignoreUniqueId) {

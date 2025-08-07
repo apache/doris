@@ -167,19 +167,19 @@ public class PlanUtils {
      */
     public static boolean canReplaceWithProjections(List<? extends NamedExpression> childProjects,
             List<? extends Expression> targetExpressions) {
-        Set<Slot> nonfoldableSlots = Sets.newHashSet();
+        Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
         for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
-            if (kv.getValue().containsUniqueScalarFunction()) {
-                nonfoldableSlots.add(kv.getKey());
+            if (kv.getValue().containsUniqueFunction()) {
+                uniqueFunctionSlots.add(kv.getKey());
             }
         }
-        if (nonfoldableSlots.isEmpty()) {
+        if (uniqueFunctionSlots.isEmpty()) {
             return true;
         }
 
         Set<Slot> counterSet = Sets.newHashSet();
         return targetExpressions.stream().noneMatch(target -> target.anyMatch(
-                e -> (e instanceof Slot) && nonfoldableSlots.contains(e) && !counterSet.add((Slot) e)));
+                e -> (e instanceof Slot) && uniqueFunctionSlots.contains(e) && !counterSet.add((Slot) e)));
     }
 
     public static Plan skipProjectFilterLimit(Plan plan) {

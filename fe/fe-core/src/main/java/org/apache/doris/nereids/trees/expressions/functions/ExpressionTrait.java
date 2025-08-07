@@ -74,9 +74,9 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     }
 
     /**
-     * foldable() mainly use in fold expression. Udf and UniqueScalarFunction are not foldable.
+     * foldable() mainly use in fold expression. Udf and UniqueFunction are not foldable.
      * But if want to check an expression contains non-idempotent, such as `rand()`, `uuid()`, etc.,
-     * you should use Expression::containsUniqueScalarFunction instead.
+     * you should use Expression::containsUniqueFunction instead.
      */
     default boolean foldable() {
         return true;

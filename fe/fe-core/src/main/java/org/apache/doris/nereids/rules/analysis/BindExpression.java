@@ -40,7 +40,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -1125,19 +1124,19 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     /**
-     *  Bind unique scalar function's unique id.
+     *  Bind unique function's unique id.
      *  If two group by expressions equal when ignore unique id, then they should be the same,
      *  then will replace one to another.
      */
     private List<Expression> bindGroupByUniqueId(List<Expression> groupByExpressions) {
-        // if two group expression equals ignore unique id, then their unique scalar function's unique id should the
+        // if two group expression equals ignore unique id, then their unique function's unique id should the
         // same, for example:
         // 1. for 'group by a + random(), a + random()', the two 'random()' should the same, and replace the second
         //    group by to the first group by;
         // 2. for 'group by a + random(), a + random() + 1', the two 'random()' will be different.
         int containsUniqueGroupByCount = 0;
         for (Expression groupByExpr : groupByExpressions) {
-            if (groupByExpr.containsUniqueScalarFunction()) {
+            if (groupByExpr.containsUniqueFunction()) {
                 containsUniqueGroupByCount++;
             }
         }
@@ -1151,7 +1150,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 groupByExpressions.size());
         for (Expression groupByExpr : groupByExpressions) {
             Expression newGroupByExpr = groupByExpr;
-            if (groupByExpr.containsUniqueScalarFunction()) {
+            if (groupByExpr.containsUniqueFunction()) {
                 Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupByExpr, true);
                 Expression previousGroupByExpr = ignoreUniqueIdGroupByExprs.get(ignoreUniqueIdExpr);
                 if (previousGroupByExpr == null) {
@@ -1183,10 +1182,10 @@ public class BindExpression implements AnalysisRuleFactory {
     // for sql 'select a + random(),  a + random(10) + 1 from t group by a + random(), a +random(10)',
     // notice the random() have different unique id, need bind the select list 'a + random' to the first group by
     // expression, and bind the select list 'a + random(10) + 1' to second group by expression.
-    // for unique scalar function, we bind their unique id to group by expression's unique id,
+    // for unique function, we bind their unique id to group by expression's unique id,
     // and bind only for agg/having/sort/qualify plan node.
     // the bind steps:
-    // 1. find group by expression which contains unique scalar function, put them into a replaced map M,
+    // 1. find group by expression which contains unique function, put them into a replaced map M,
     //    the map key is group by expression with ignore unique id, the map value is the origin group by expression.
     // 2. for an expression E, when want to bind its unique ids, do:
     //    a) let E1 = rewrite E with ignore unique ids;
@@ -1194,7 +1193,7 @@ public class BindExpression implements AnalysisRuleFactory {
     //    c) let E3 = rewrite E2 with enable unique ids. then E3 is the bind unique id expression for E.
     private <T extends Expression> T bindExprUniqueIdWithGroupBy(T expression,
             Map<Expression, Expression> bindUniqueIdReplaceMap) {
-        if (!expression.containsUniqueScalarFunction() || bindUniqueIdReplaceMap.isEmpty()) {
+        if (!expression.containsUniqueFunction() || bindUniqueIdReplaceMap.isEmpty()) {
             return expression;
         }
 
@@ -1240,7 +1239,7 @@ public class BindExpression implements AnalysisRuleFactory {
     private Map<Expression, Expression> getGroupByUniqueFuncReplaceMap(List<Expression> groupByByExpressions) {
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         for (Expression expression : groupByByExpressions) {
-            if (expression.containsUniqueScalarFunction()) {
+            if (expression.containsUniqueFunction()) {
                 Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
                 // for sql:
                 //    select distinct a + random(),  a + random()
@@ -1274,7 +1273,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     = ImmutableList.builderWithExpectedSize(boundGroupingSet.size());
             for (Expression groupBy : boundGroupingSet) {
                 Expression newGroupBy = groupBy;
-                if (groupBy.containsUniqueScalarFunction()) {
+                if (groupBy.containsUniqueFunction()) {
                     Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupBy, true);
                     Expression previousGroupBy = ignoreUniqueIdGroupByExpressions.get(ignoreUniqueIdGroupBy);
                     if (previousGroupBy == null) {

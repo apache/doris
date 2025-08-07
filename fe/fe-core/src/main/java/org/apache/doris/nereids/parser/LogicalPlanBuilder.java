@@ -4030,7 +4030,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
                 LogicalPlan project = new LogicalProject<>(projects, isDistinct, aggregate);
                 // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
-                // unique scalar functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
+                // unique functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
                 Expression havingExpr = getExpression(havingClause.get().booleanExpression());
                 selectPlan = new LogicalHaving<>(ImmutableSet.of(havingExpr), project);
             } else {
@@ -4040,7 +4040,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // support qualify clause
             if (qualifyClause.isPresent()) {
                 // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
-                // unique scalar functions, like 'sum(random()) over() > 0.5 and sum(random()) over() > 0.5'
+                // unique functions, like 'sum(random()) over() > 0.5 and sum(random()) over() > 0.5'
                 // => 'sum(random()) over() > 0.5'
                 Expression qualifyExpr = getExpression(qualifyClause.get().booleanExpression());
                 selectPlan = new LogicalQualify<>(ImmutableSet.of(qualifyExpr), selectPlan);
@@ -4357,7 +4357,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withFilter(LogicalPlan input, Optional<WhereClauseContext> whereCtx) {
         return input.optionalMap(whereCtx,
                 // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
-                // unique scalar functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
+                // unique functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
                 () -> new LogicalFilter<>(ImmutableSet.of(getExpression(whereCtx.get().booleanExpression())), input));
     }
 
@@ -4407,7 +4407,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
             }
             // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
-            // unique scalar functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
+            // unique functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
             Expression havingExpr = getExpression(havingCtx.get().booleanExpression());
             return new LogicalHaving<>(ImmutableSet.of(havingExpr), input);
         });
