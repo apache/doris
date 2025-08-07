@@ -64,6 +64,12 @@ suite ("test_varchar_schema_change") {
         //     exception "Nothing is changed"
         // }
 
+        test {
+            sql """ alter table ${tableName} modify column c2 varchar(65536) """
+
+            exception "VARCHAR size must be <= 65533"
+        }
+
         sql """ alter table ${tableName} modify column c2 varchar(30) """
         int max_try_secs = 300
         Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
