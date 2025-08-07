@@ -437,7 +437,7 @@ class IndexCompactionUtils {
         // only base compaction can handle delete predicate
         BaseCompaction compaction(*engine_ref, tablet);
         compaction._input_rowsets = std::move(rowsets);
-        compaction.build_basic_info();
+        RETURN_IF_ERROR(compaction.build_basic_info());
 
         std::vector<RowsetReaderSharedPtr> input_rs_readers;
         create_input_rowsets_readers(compaction, input_rs_readers);

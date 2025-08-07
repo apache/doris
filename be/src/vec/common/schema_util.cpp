@@ -775,6 +775,16 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
 
 Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr>& intputs,
                                                RowsetSharedPtr output, BaseTabletSPtr tablet) {
+    if (output->tablet_schema()->num_variant_columns() == 0) {
+        return Status::OK();
+    }
+    // check no extended schema in output rowset
+    for (const auto& column : output->tablet_schema()->columns()) {
+        if (column->is_extracted_column()) {
+            return Status::InternalError("Unexpected extracted column {} in output rowset",
+                                         column->name());
+        }
+    }
     // only check path stats for dup_keys since the rows may be merged in other models
     if (tablet->keys_type() != KeysType::DUP_KEYS) {
         return Status::OK();
@@ -833,6 +843,7 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
             }
         }
     }
+
     return Status::OK();
 }
 
@@ -1350,8 +1361,7 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
         auto index_ptr = std::make_shared<TabletIndex>(*parent_indexes[0]);
         index_ptr->set_escaped_escaped_index_suffix_path(suffix_path);
         // no need parse for bkd index or array index
-        // TODO(lihangyu): uncomment
-        // index_ptr->remove_parser_and_analyzer();
+        index_ptr->remove_parser_and_analyzer();
         subcolumns_indexes.emplace_back(std::move(index_ptr));
         return true;
     }

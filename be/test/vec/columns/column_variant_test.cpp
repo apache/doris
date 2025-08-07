@@ -1408,7 +1408,7 @@ TEST_F(ColumnVariantTest, clear) {
 }
 
 TEST_F(ColumnVariantTest, convert_column_if_overflow) {
-    // convert_column_if_overflow may need impl in ColumnObject, like ColumnArray?
+    // convert_column_if_overflow may need impl in ColumnVariant, like ColumnArray?
     auto ret = column_variant->convert_column_if_overflow();
     EXPECT_EQ(ret.get(), column_variant.get());
 }
@@ -2509,7 +2509,7 @@ TEST_F(ColumnVariantTest, unnest) {
 }
 
 TEST_F(ColumnVariantTest, path_in_data_builder_test) {
-    // Create a ColumnObject with nested subcolumns
+    // Create a ColumnVariant with nested subcolumns
     auto variant = ColumnVariant::create(5);
 
     // Test case 1: Build a nested path with PathInDataBuilder

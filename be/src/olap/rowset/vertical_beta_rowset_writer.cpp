@@ -178,6 +178,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
     writer_options.max_rows_per_segment = context.max_rows_per_segment;
+    writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
