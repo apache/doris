@@ -3500,10 +3500,6 @@ show_param ::=
     {:
         RESULT = new ShowEnginesStmt();
     :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:table
-    {:
-        RESULT = new ShowCreateMTMVStmt(table);
-    :}
     | KW_WARNINGS limit_clause
     {:
         RESULT = new ShowWarningStmt();
