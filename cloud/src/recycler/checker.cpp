@@ -897,7 +897,7 @@ int InstanceChecker::do_inverted_check() {
     return num_file_leak > 0 ? 1 : check_ret;
 }
 
-int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& check_func) {
+int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t, bool)>& check_func) {
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_rowset_key({instance_id_, 0, 0});
     auto end = meta_rowset_key({instance_id_, std::numeric_limits<int64_t>::max(), 0});
@@ -943,7 +943,9 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
 
             if (tablet_meta.enable_unique_key_merge_on_write()) {
                 // only check merge-on-write table
-                int ret = check_func(tablet_id);
+                bool has_sequence_col = tablet_meta.schema().has_sequence_col_idx() &&
+                                        tablet_meta.schema().sequence_col_idx() != -1;
+                int ret = check_func(tablet_id, has_sequence_col);
                 if (ret < 0) {
                     // return immediately when encounter unexpected error,
                     // otherwise, we continue to check the next tablet
@@ -1431,7 +1433,8 @@ int InstanceChecker::check_inverted_index_file_storage_format_v2(
 }
 
 int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
-        int64_t tablet_id, int64_t& rowsets_with_useless_delete_bitmap_version) {
+        int64_t tablet_id, bool has_sequence_col,
+        int64_t& rowsets_with_useless_delete_bitmap_version) {
     // end_version: create_time
     std::map<int64_t, int64_t> tablet_rowsets_map {};
     // rowset_id: {start_version, end_version}
@@ -1554,11 +1557,16 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
             if (tablet_rowsets_map.find(version) != tablet_rowsets_map.end()) {
                 continue;
             }
-            if (rowset_version_map.find(rowset_id) == rowset_version_map.end()) {
+            auto version_it = rowset_version_map.find(rowset_id);
+            if (version_it == rowset_version_map.end()) {
                 // checked in do_delete_bitmap_inverted_check
                 continue;
             }
             if (pending_delete_bitmaps.contains(std::string(k))) {
+                continue;
+            }
+            if (has_sequence_col && version >= version_it->second.first &&
+                version <= version_it->second.second) {
                 continue;
             }
             // there may be an interval in this situation:
@@ -1605,11 +1613,11 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check(int version) {
     int64_t tablet_id_with_max_rowsets_with_useless_delete_bitmap_version = 0;
 
     // check that for every visible rowset, there exists at least delete one bitmap in MS
-    int ret = traverse_mow_tablet([&](int64_t tablet_id) {
+    int ret = traverse_mow_tablet([&](int64_t tablet_id, bool has_sequence_col) {
         ++total_tablets_num;
         int64_t rowsets_with_useless_delete_bitmap_version = 0;
         int res = check_delete_bitmap_storage_optimize_v2(
-                tablet_id, rowsets_with_useless_delete_bitmap_version);
+                tablet_id, has_sequence_col, rowsets_with_useless_delete_bitmap_version);
         if (rowsets_with_useless_delete_bitmap_version >
             max_rowsets_with_useless_delete_bitmap_version) {
             max_rowsets_with_useless_delete_bitmap_version =
