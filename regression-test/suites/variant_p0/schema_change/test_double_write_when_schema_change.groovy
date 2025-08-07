@@ -57,7 +57,7 @@ suite("double_write_schema_change_with_variant", "nonConcurrent") {
 
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
-    sql "set disable_variant_flatten_nested = false"
+    sql "set enable_variant_flatten_nested = true"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
