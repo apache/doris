@@ -844,7 +844,7 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
 }
 
 static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t partition_id,
-                         int64_t tablet_id, bool is_mow = false) {
+                         int64_t tablet_id, bool is_mow = false, bool has_sequence_col = false) {
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
@@ -852,6 +852,9 @@ static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int6
     doris::TabletMetaCloudPB tablet_meta;
     tablet_meta.set_tablet_id(tablet_id);
     tablet_meta.set_enable_unique_key_merge_on_write(is_mow);
+    if (has_sequence_col) {
+        tablet_meta.mutable_schema()->set_sequence_col_idx(1);
+    }
     auto val = tablet_meta.SerializeAsString();
     auto key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     txn->put(key, val);
@@ -4183,8 +4186,9 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {
     int64_t rowset_start_id = 600;
 
     for (int tablet_id = 900011; tablet_id <= 900015; ++tablet_id) {
-        ASSERT_EQ(0,
-                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        bool has_sequence_col = tablet_id % 2 == 0;
+        ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true,
+                                   has_sequence_col));
         std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
                                                               {6, 7}, {8, 8}, {9, 9}};
         std::vector<std::vector<int64_t>> delete_bitmaps_vers {
@@ -4253,6 +4257,7 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
         std::vector<Rowset> rowsets;
         bool skip_create_rowset = false;
         std::unordered_set<int> skip_create_rowset_index;
+        bool has_seq_col = false;
         bool create_pending_delete_bitmap;
         int64_t pending_delete_bitmap_version;
     };
@@ -4282,12 +4287,20 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
     tablet3.create_pending_delete_bitmap = true;
     tablet3.pending_delete_bitmap_version = 5;
     tablets.push_back(tablet3);
+    // tablet with sequence col
+    Tablet tablet4 = {{{2, 2, {3, 7, 11}, current_time, 2, false},
+                       {3, 3, {7, 11}, current_time, 1, false},
+                       {4, 4, {7, 11}, current_time, 3, false},
+                       {5, 7, {5, 6, 7, 11}, expire_time, 1, false},
+                       {8, 11, {8, 9, 10}, expire_time, 2, false}}};
+    tablet4.has_seq_col = true;
+    tablets.push_back(tablet4);
 
     for (int i = 0; i < tablets.size(); ++i) {
         int tablet_id = 900021 + i;
-        ASSERT_EQ(0,
-                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
         auto& tablet = tablets[i];
+        ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true,
+                                   tablet.has_seq_col));
         auto& rowsets = tablet.rowsets;
         for (int j = 0; j < rowsets.size(); j++) {
             auto& rowset = rowsets[j];

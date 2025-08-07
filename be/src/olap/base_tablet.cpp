@@ -1836,11 +1836,11 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
 
 void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rowset_count,
                                                            int64_t& useless_rowset_version_count) {
-    std::set<RowsetId> rowset_ids;
+    std::map<RowsetId, Version> rowset_ids;
     std::set<int64_t> end_versions;
     traverse_rowsets(
             [&rowset_ids, &end_versions](const RowsetSharedPtr& rs) {
-                rowset_ids.emplace(rs->rowset_id());
+                rowset_ids[rs->rowset_id()] = rs->version();
                 end_versions.emplace(rs->end_version());
             },
             true);
@@ -1851,13 +1851,23 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
         _tablet_meta->delete_bitmap()->traverse_rowset_and_version(
                 // 0: rowset and rowset with version exists
                 // -1: rowset does not exist
-                // -2: rowset exist, rowset with version does not exist
+                // -2: find next <rowset, version>
+                //     rowset exist, rowset with version does not exist
+                //     sequence table
                 [&](const RowsetId& rowset_id, int64_t version) {
-                    if (rowset_ids.find(rowset_id) == rowset_ids.end()) {
+                    auto rowset_it = rowset_ids.find(rowset_id);
+                    if (rowset_it == rowset_ids.end()) {
                         useless_rowsets.emplace(rowset_id);
                         return -1;
                     }
                     if (end_versions.find(version) == end_versions.end()) {
+                        if (tablet_schema()->has_sequence_col()) {
+                            auto rowset_version = rowset_it->second;
+                            if (version >= rowset_version.first &&
+                                version <= rowset_version.second) {
+                                return -2;
+                            }
+                        }
                         if (useless_rowset_versions.find(rowset_id) ==
                             useless_rowset_versions.end()) {
                             useless_rowset_versions[rowset_id] = {};
