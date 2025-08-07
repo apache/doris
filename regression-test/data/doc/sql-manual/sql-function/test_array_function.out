@@ -96,10 +96,10 @@ false
 true
 
 -- !sql --
-\N
+false
 
 -- !sql --
-\N
+true
 
 -- !sql --
 1	["HELLO", "ALOHA"]
@@ -359,6 +359,30 @@ false
 
 -- !sql --
 \N
+
+-- !sql --
+\N
+
+-- !sql --
+[1, 5, 2, 6, 3]
+
+-- !sql --
+["world", "hello"]
+
+-- !sql --
+\N
+
+-- !sql --
+[null, "world", "hello"]
+
+-- !sql --
+[null, "world", "hello"]
+
+-- !sql --
+6
+
+-- !sql --
+6
 
 -- !sql --
 \N

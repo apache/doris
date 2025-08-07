@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_function", "p0") {
+suite("test_array_function_doc", "p0") {
     
     def tableName = "array_table"
     sql """
