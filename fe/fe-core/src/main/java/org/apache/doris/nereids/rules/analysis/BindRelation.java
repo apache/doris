@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -283,8 +284,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 if (function == null) {
                     return olapScan;
                 }
-                Alias alias = new Alias(exprId, ImmutableList.of(function), col.getName(),
-                        olapScan.qualified(), true);
+                Alias alias = new Alias(StatementScopeIdGenerator.newExprId(), ImmutableList.of(function),
+                        col.getName(), olapScan.qualified(), true);
                 outputExpressions.add(alias);
             }
         }
