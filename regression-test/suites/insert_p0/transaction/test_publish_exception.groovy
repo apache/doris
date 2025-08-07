@@ -35,9 +35,12 @@ suite("test_publish_exception", "nonConcurrent") {
                 );
     """
     DebugPoint.enableDebugPointForAllFEs('PublishVersionDaemon.tryFinishTxnSync.fail')
-    sql "begin"
-    sql """insert into ${tableName} values(1,1,5,'{"b":"b"}'),(1,1,4,'{"b":"b"}'),(1,1,3,'{"b":"b"}')"""
-    sql "commit"
+    test {
+        sql "begin"
+        sql """insert into ${tableName} values(1,1,5,'{"b":"b"}'),(1,1,4,'{"b":"b"}'),(1,1,3,'{"b":"b"}')"""
+        sql "commit"
+        exception "transaction commit successfully, BUT data will be visible later"
+    }
 
     def result = sql "SELECT * from ${tableName}"
     assert result.size() == 0
