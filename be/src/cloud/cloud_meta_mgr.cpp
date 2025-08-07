@@ -1733,6 +1733,10 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
         existing_versions.emplace_back(rs->version());
     }
 
+    if (existing_versions.empty()) {
+        return Status::OK();
+    }
+
     // sort the existing versions in ascending order
     std::sort(existing_versions.begin(), existing_versions.end(),
               [](const Version& a, const Version& b) {
