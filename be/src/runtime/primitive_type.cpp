@@ -72,9 +72,6 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::TIMEV2:
         return TYPE_TIMEV2;
 
-    case TPrimitiveType::TIME:
-        return TYPE_TIMEV2;
-
     case TPrimitiveType::VARCHAR:
         return TYPE_VARCHAR;
 

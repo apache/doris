@@ -100,23 +100,31 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
                                    size_t input_rows_count,
                                    const NullMap::value_type* null_map = nullptr);
 
+Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
+                                        const ColumnNumbers& arguments, uint32_t result,
+                                        size_t input_rows_count,
+                                        const NullMap::value_type* null_map = nullptr);
+
+Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Block& block,
+                                                    const ColumnNumbers& arguments, uint32_t result,
+                                                    size_t input_rows_count,
+                                                    const NullMap::value_type* null_map = nullptr);
+
 // prepare_unpack_dictionaries -> prepare_remove_nullable -> prepare_impl
 
 WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
                                         const DataTypePtr& to_type);
 
 WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
-                                    const DataTypePtr& to_type, bool skip_not_null_check);
+                                    const DataTypePtr& to_type);
 
 WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
-                         const DataTypePtr& to_type, bool requested_result_is_nullable);
+                         const DataTypePtr& to_type);
 
 ElementWrappers get_element_wrappers(FunctionContext* context, const DataTypes& from_element_types,
                                      const DataTypes& to_element_types);
 
 WrapperType create_identity_wrapper(const DataTypePtr&);
-
-WrapperType create_nothing_wrapper(const IDataType* to_type);
 
 } // namespace CastWrapper
 

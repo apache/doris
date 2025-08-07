@@ -72,12 +72,8 @@ public:
         typename FromFieldType::NativeType scale_multiplier =
                 DataTypeDecimal<FromFieldType::PType>::get_scale_multiplier(from_scale);
         for (size_t i = 0; i < size; ++i) {
-            if constexpr (IsDecimalV2<FromFieldType>) {
-                vec_to_data[i] = binary_cast<int128_t, DecimalV2Value>(vec_from_data[i]);
-            } else {
-                CastToFloat::_from_decimalv3(vec_from_data[i], from_scale, vec_to_data[i],
-                                             scale_multiplier, params);
-            }
+            CastToFloat::_from_decimalv3(vec_from_data[i], from_scale, vec_to_data[i],
+                                         scale_multiplier, params);
         }
 
         block.get_by_position(result).column = std::move(col_to);

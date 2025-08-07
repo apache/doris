@@ -38,7 +38,7 @@ suite ("MVWithAs") {
     sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
     sql """insert into MVWithAs values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view MVWithAs_mv as select user_id, count(tag_id) from MVWithAs group by user_id;")
+    createMV("create materialized view MVWithAs_mv as select user_id as a1, count(tag_id) from MVWithAs group by user_id;")
 
     sleep(3000)
 

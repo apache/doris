@@ -664,6 +664,7 @@ struct TJdbcScanNode {
   2: optional string table_name
   3: optional string query_string
   4: optional Types.TOdbcTableType table_type
+  5: optional bool is_tvf
 }
 
 struct TBrokerScanNode {

@@ -716,10 +716,10 @@ int InstanceRecycler::do_recycle() {
 }
 
 /**
- * 1. delete all remote data
- * 2. delete all kv
- * 3. remove instance kv
- */
+* 1. delete all remote data
+* 2. delete all kv
+* 3. remove instance kv
+*/
 int InstanceRecycler::recycle_deleted_instance() {
     LOG_WARNING("begin to recycle deleted instance").tag("instance_id", instance_id_);
 
@@ -1107,6 +1107,29 @@ int InstanceRecycler::recycle_indexes() {
                     .tag("index_id", index_id);
             return -1;
         }
+
+        if (index_pb.has_db_id()) {
+            // Recycle the versioned keys
+            std::unique_ptr<Transaction> txn;
+            err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to create txn").tag("err", err);
+                return -1;
+            }
+            std::string meta_key = versioned::meta_index_key({instance_id_, index_id});
+            std::string index_key = versioned::index_index_key({instance_id_, index_id});
+            std::string index_inverted_key = versioned::index_inverted_key(
+                    {instance_id_, index_pb.db_id(), index_pb.table_id(), index_id});
+            versioned_remove_all(txn.get(), meta_key);
+            txn->remove(index_key);
+            txn->remove(index_inverted_key);
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to commit txn").tag("err", err);
+                return -1;
+            }
+        }
+
         metrics_context.total_recycled_num = ++num_recycled;
         metrics_context.report();
         check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);
@@ -2597,7 +2620,33 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);
 
-    TxnErrorCode err = txn->commit();
+    std::string versioned_idx_key = versioned::tablet_index_key({instance_id_, tablet_id});
+    std::string tablet_index_val;
+    TxnErrorCode err = txn->get(versioned_idx_key, &tablet_index_val);
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get tablet index kv")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("err", err);
+        ret = -1;
+    } else if (err == TxnErrorCode::TXN_OK) {
+        // If the tablet index kv exists, we need to delete it
+        TabletIndexPB tablet_index_pb;
+        if (!tablet_index_pb.ParseFromString(tablet_index_val)) {
+            LOG_WARNING("failed to parse tablet index pb")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id);
+            ret = -1;
+        } else {
+            std::string versioned_inverted_idx_key = versioned::tablet_inverted_index_key(
+                    {instance_id_, tablet_index_pb.db_id(), tablet_index_pb.table_id(),
+                     tablet_index_pb.index_id(), tablet_index_pb.partition_id(), tablet_id});
+            txn->remove(versioned_inverted_idx_key);
+            txn->remove(versioned_idx_key);
+        }
+    }
+
+    err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete rowset kv of tablet " << tablet_id << ", err=" << err;
         ret = -1;

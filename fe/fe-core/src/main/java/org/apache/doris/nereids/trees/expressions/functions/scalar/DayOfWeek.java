@@ -52,13 +52,18 @@ public class DayOfWeek extends ScalarFunction
         super("dayofweek", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DayOfWeek(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DayOfWeek withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DayOfWeek(children.get(0));
+        return new DayOfWeek(getFunctionParams(children));
     }
 
     @Override

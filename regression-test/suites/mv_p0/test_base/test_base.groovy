@@ -38,7 +38,7 @@ suite ("test_base") {
     sql """insert into dwd(id) values(1);"""
 
     createMV ("""
-            create materialized view dwd_mv as SELECT created_at, id FROM dwd;
+            create materialized view dwd_mv as SELECT created_at as a1, id  as a2 FROM dwd;
     """)
 
     sql """insert into dwd(id) values(2);"""

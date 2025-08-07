@@ -85,12 +85,12 @@ PhysicalResultSink
 -- !join_1_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalProject[t2.x, t2.y, t2.z]
-------filter(((cast(x as BIGINT) + cast(y as BIGINT)) = 1))
---------PhysicalOlapScan[t2]
 ----PhysicalProject[t1.a, t1.b, t1.c]
 ------filter((t1.a = 1) and (t1.b = 1))
 --------PhysicalOlapScan[t1]
+----PhysicalProject[t2.x, t2.y, t2.z]
+------filter(((cast(x as BIGINT) + cast(y as BIGINT)) = 1))
+--------PhysicalOlapScan[t2]
 
 -- !join_1_result --
 
@@ -190,18 +190,42 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t2.x = t3.a)) otherCondition=() build RFs:RF0 a->[x]
 ----NestedLoopJoin[CROSS_JOIN]
-------PhysicalProject[t2.x]
---------filter(((cast(x as BIGINT) * 10) = 10))
-----------PhysicalOlapScan[t2] apply RFs: RF0
 ------PhysicalProject[t1.a]
 --------filter((t1.a = 10))
 ----------PhysicalOlapScan[t1]
+------PhysicalProject[t2.x]
+--------filter(((cast(x as BIGINT) * 10) = 10))
+----------PhysicalOlapScan[t2] apply RFs: RF0
 ----PhysicalProject[t3.a]
 ------filter(((cast(a as BIGINT) * 10) = 10) and (t3.__DORIS_DELETE_SIGN__ = 0))
 --------PhysicalOlapScan[t3]
 
 -- !join_9_result --
 10	1	1
+
+-- !join_10_shape --
+PhysicalResultSink
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=() build RFs:RF0 a->[a]
+----PhysicalProject[t1.a]
+------PhysicalOlapScan[t1] apply RFs: RF0
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.b = 10))
+--------PhysicalOlapScan[t3]
+
+-- !join_10_result --
+1
+
+-- !join_11_shape --
+PhysicalResultSink
+--hashJoin[NULL_AWARE_LEFT_ANTI_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=()
+----PhysicalProject[t1.a]
+------PhysicalOlapScan[t1]
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.b = 10))
+--------PhysicalOlapScan[t3]
+
+-- !join_11_result --
+10
 
 -- !subquery_1_shape --
 PhysicalResultSink
@@ -263,29 +287,31 @@ PhysicalResultSink
 -- !subquery_7_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalProject[t2.x]
-------filter(((cast(x as BIGINT) * 10) = 10))
---------PhysicalOlapScan[t2]
 ----PhysicalProject[t.a]
 ------filter((t1.a = 10))
 --------PhysicalOlapScan[t1]
+----PhysicalProject[t2.x]
+------filter(((cast(x as BIGINT) * 10) = 10))
+--------PhysicalOlapScan[t2]
 
 -- !subquery_7_result --
 10	1
 
 -- !subquery_8_shape --
 PhysicalResultSink
---NestedLoopJoin[CROSS_JOIN]
-----PhysicalUnion
-------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
---------filter(((cast(a as BIGINT) * 10) = 10))
-----------PhysicalOlapScan[t1]
-------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
---------filter((t2.x = 10))
-----------PhysicalOlapScan[t2]
-----PhysicalProject[t3.a]
-------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 2))
---------PhysicalOlapScan[t3]
+--PhysicalQuickSort[MERGE_SORT, orderKeys=(k asc null first, b asc null first)]
+----PhysicalQuickSort[LOCAL_SORT, orderKeys=(k asc null first, b asc null first)]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalUnion
+----------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
+------------filter(((cast(a as BIGINT) * 10) = 10))
+--------------PhysicalOlapScan[t1]
+----------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
+------------filter((t2.x = 10))
+--------------PhysicalOlapScan[t2]
+--------PhysicalProject[t3.a]
+----------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 2))
+------------PhysicalOlapScan[t3]
 
 -- !subquery_8_result --
 10	2	2

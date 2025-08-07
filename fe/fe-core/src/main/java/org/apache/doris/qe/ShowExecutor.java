@@ -19,18 +19,14 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.HelpStmt;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
-import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
-import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -56,7 +52,6 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,16 +78,12 @@ public class ShowExecutor {
         checkStmtSupported();
         if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowCreateMTMVStmt) {
-            handleShowCreateMTMV();
         } else if (stmt instanceof ShowEnginesStmt) {
             handleShowEngines();
         } else if (stmt instanceof ShowCreateLoadStmt) {
             handleShowCreateLoad();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
-        } else if (stmt instanceof ShowColumnStatsStmt) {
-            handleShowColumnStats();
         } else if (stmt instanceof DiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowIndexPolicyStmt) {
@@ -149,17 +140,6 @@ public class ShowExecutor {
             return CaseSensibility.TABLE.getCaseSensibility();
         }
         return false;
-    }
-
-    private void handleShowCreateMTMV() throws AnalysisException {
-        ShowCreateMTMVStmt showStmt = (ShowCreateMTMVStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(showStmt.getCtl())
-                .getDbOrAnalysisException(showStmt.getDb());
-        MTMV mtmv = (MTMV) db.getTableOrAnalysisException(showStmt.getTable());
-        List<List<String>> rows = Lists.newArrayList();
-        String mtmvDdl = Env.getMTMVDdl(mtmv);
-        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Handle help statement.
@@ -257,36 +237,6 @@ public class ShowExecutor {
             throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showCreateLoadStmt.getMetaData(), rows);
-    }
-
-    private void handleShowColumnStats() throws AnalysisException {
-        ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
-        TableIf tableIf = showColumnStatsStmt.getTable();
-        List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics = new ArrayList<>();
-        Set<String> columnNames = showColumnStatsStmt.getColumnNames();
-        PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
-        boolean showCache = showColumnStatsStmt.isCached();
-        boolean isAllColumns = showColumnStatsStmt.isAllColumns();
-        if (partitionNames != null) {
-            List<String> partNames = partitionNames.getPartitionNames() == null
-                    ? new ArrayList<>(tableIf.getPartitionNames())
-                    : partitionNames.getPartitionNames();
-            if (showCache) {
-                resultSet = showColumnStatsStmt.constructPartitionCachedColumnStats(
-                    getCachedPartitionColumnStats(columnNames, partNames, tableIf), tableIf);
-            } else {
-                List<ResultRow> partitionColumnStats =
-                        StatisticsRepository.queryColumnStatisticsByPartitions(tableIf, columnNames, partNames);
-                resultSet = showColumnStatsStmt.constructPartitionResultSet(partitionColumnStats, tableIf);
-            }
-        } else {
-            if (isAllColumns && !showCache) {
-                getStatsForAllColumns(columnStatistics, tableIf);
-            } else {
-                getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache);
-            }
-            resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
-        }
     }
 
     private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,

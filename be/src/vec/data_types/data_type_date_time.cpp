@@ -31,6 +31,7 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -48,11 +49,7 @@ size_t DataTypeDateTime::number_length() const {
 
 void DataTypeDateTime::push_number(ColumnString::Chars& chars, const Int64& num) const {
     doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(num);
-
-    char buf[64];
-    char* pos = value.to_string(buf);
-    // DateTime to_string the end is /0
-    chars.insert(buf, pos - 1);
+    CastToString::push_date_or_datetime(value, chars);
 }
 
 std::string DataTypeDateTime::to_string(const IColumn& column, size_t row_num) const {

@@ -35,7 +35,7 @@ suite ("dup_mv_abs") {
     sql "insert into dup_mv_abs select 2,2,2,'b';"
     sql "insert into dup_mv_abs select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12a as select k1,abs(k2) from dup_mv_abs;")
+    createMV ("create materialized view k12a as select k1 as a1,abs(k2) from dup_mv_abs;")
     sleep(3000)
 
     sql "insert into dup_mv_abs select -4,-4,-4,'d';"

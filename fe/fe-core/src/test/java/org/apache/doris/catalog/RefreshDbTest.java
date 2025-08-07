@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -31,6 +30,7 @@ import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -56,14 +56,19 @@ public class RefreshDbTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
+
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt("create catalog test1 properties(\n"
+        String createStmt = "create catalog test1 properties(\n"
                 + "    \"type\" = \"test\",\n"
                 + "    \"catalog_provider.class\" "
                 + "= \"org.apache.doris.catalog.RefreshTableTest$RefreshTableProvider\"\n"
-                + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                + ");";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Override

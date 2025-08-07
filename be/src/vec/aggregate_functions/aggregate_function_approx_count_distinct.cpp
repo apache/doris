@@ -17,7 +17,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
-#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
 
@@ -27,14 +27,12 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    auto res = creator_with_any::create<AggregateFunctionApproxCountDistinct>(
-            argument_types, result_is_nullable, attr);
-    if (!res) {
-        throw Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Unsupported type for approx_count_distinct: " + argument_types[0]->get_name());
-    }
-    return res;
+    return creator_with_type_list<
+            TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
+            TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+            TYPE_DECIMALV2, TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_DATEV2, TYPE_DATETIMEV2, TYPE_IPV4,
+            TYPE_IPV6>::create<AggregateFunctionApproxCountDistinct>(argument_types,
+                                                                     result_is_nullable, attr);
 }
 
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory) {

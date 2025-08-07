@@ -26,7 +26,11 @@ namespace doris::vectorized::CastWrapper {
 WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                const DataTypeMap& to_type) {
     if (is_string_type(from_type->get_primitive_type())) {
-        return cast_from_string_to_generic;
+        if (context->enable_strict_mode()) {
+            return cast_from_string_to_complex_type_strict_mode;
+        } else {
+            return cast_from_string_to_complex_type;
+        }
     }
     const auto* from = check_and_get_data_type<DataTypeMap>(from_type.get());
     if (!from) {

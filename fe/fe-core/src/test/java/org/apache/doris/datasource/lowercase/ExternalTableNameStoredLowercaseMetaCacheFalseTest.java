@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.lowercase;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.SwitchStmt;
@@ -27,6 +26,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
@@ -50,14 +52,18 @@ public class ExternalTableNameStoredLowercaseMetaCacheFalseTest extends TestWith
         rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt("create catalog test1 properties(\n"
-                        + "    \"type\" = \"test\",\n"
-                        + "    \"use_meta_cache\" = \"false\",\n"
-                        + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameStoredLowercaseMetaCacheFalseTest$ExternalTableNameStoredLowercaseProvider\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+        String createStmt = "create catalog test1 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"false\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameStoredLowercaseMetaCacheFalseTest$ExternalTableNameStoredLowercaseProvider\"\n"
+                + ");";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Override

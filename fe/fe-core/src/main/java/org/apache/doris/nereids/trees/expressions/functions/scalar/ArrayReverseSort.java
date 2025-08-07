@@ -50,6 +50,11 @@ public class ArrayReverseSort extends ScalarFunction
         super("array_reverse_sort", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayReverseSort(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -64,7 +69,7 @@ public class ArrayReverseSort extends ScalarFunction
     @Override
     public ArrayReverseSort withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayReverseSort(children.get(0));
+        return new ArrayReverseSort(getFunctionParams(children));
     }
 
     @Override
