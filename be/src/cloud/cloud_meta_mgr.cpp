@@ -475,18 +475,16 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
-Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data,
-                                         bool sync_delete_bitmap, bool full_sync,
+Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options,
                                          SyncRowsetStats* sync_stats) {
     std::unique_lock lock {tablet->get_sync_meta_lock()};
-    return sync_tablet_rowsets_unlocked(tablet, lock, warmup_delta_data, sync_delete_bitmap,
-                                        full_sync, sync_stats);
+    return sync_tablet_rowsets_unlocked(tablet, lock, options, sync_stats);
 }
 
 Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                   std::unique_lock<bthread::Mutex>& lock,
-                                                  bool warmup_delta_data, bool sync_delete_bitmap,
-                                                  bool full_sync, SyncRowsetStats* sync_stats) {
+                                                  const SyncOptions& options,
+                                                  SyncRowsetStats* sync_stats) {
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
@@ -516,7 +514,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         idx->set_partition_id(tablet->partition_id());
         {
             std::shared_lock rlock(tablet->get_header_lock());
-            if (full_sync) {
+            if (options.full_sync) {
                 req.set_start_version(0);
             } else {
                 req.set_start_version(tablet->max_version_unlocked() + 1);
@@ -587,15 +585,15 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
 
         // If is mow, the tablet has no delete bitmap in base rowsets.
         // So dont need to sync it.
-        if (sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
+        if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
                             DBUG_BLOCK);
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
-                                                resp.stats(), req.idx(), &delete_bitmap, full_sync,
-                                                sync_stats);
+                                                resp.stats(), req.idx(), &delete_bitmap,
+                                                options.full_sync, sync_stats);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
                 LOG_INFO("rowset meta is expired, need to retry, " + tablet_info)
                         .tag("tried", tried)
@@ -662,7 +660,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 }
 
                 LOG_INFO("[verbose] sync tablet delete bitmap " + tablet_info)
-                        .tag("full_sync", full_sync)
+                        .tag("full_sync", options.full_sync)
                         .tag("old_max_version", old_max_version)
                         .tag("new_max_version", new_max_version)
                         .tag("cumu_compaction_cnt", resp.stats().cumulative_compaction_cnt())
@@ -769,8 +767,43 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
-                tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
-                RETURN_IF_ERROR(tablet->merge_rowsets_schema());
+                if (config::enable_query_driven_warmup && options.warmup_delta_data &&
+                    options.query_version > 0 && !tablet->enable_unique_key_merge_on_write()) {
+                    VLOG_DEBUG << "warmup rowset";
+                    std::vector<RowsetSharedPtr> new_rowsets;
+                    std::vector<RowsetSharedPtr> overlapping_rowsets;
+                    if (tablet->split_rowsets_by_version_overlap(rowsets, &new_rowsets,
+                                                                 &overlapping_rowsets)) {
+                        VLOG_DEBUG << "warmup rowset, split into 2 sets, new_rowsets: "
+                                   << new_rowsets.size()
+                                   << ", overlapping_rowsets: " << overlapping_rowsets.size();
+                        // add all new rowsets directly, warmup async
+                        tablet->add_rowsets(std::move(new_rowsets), version_overlap, wlock, true);
+                        for (auto rs : overlapping_rowsets) {
+                            if (rs->version().second == 1) {
+                                // [0-1] rowset is empty for each tablet, skip it
+                                continue;
+                            }
+                            // the rowset will be added to tablet meta in the callback method after warm up
+                            tablet->warm_up_rowset_unlocked(rs, true, true);
+                        }
+                    } else {
+                        VLOG_DEBUG << "warmup rowset, can't split into 2 sets";
+                        // add all rowsets directly, warmup async
+                        tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, true);
+                    }
+                } else {
+                    VLOG_DEBUG << "add rowset without warmup, the config is: "
+                               << config::enable_query_driven_warmup
+                               << ", is mow: " << tablet->enable_unique_key_merge_on_write()
+                               << ", version_overlap: " << version_overlap
+                               << ", warmup_delta_data: " << options.warmup_delta_data;
+                    tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
+                                        version_overlap || options.warmup_delta_data);
+                }
+                if (options.merge_schema) {
+                    RETURN_IF_ERROR(tablet->merge_rowsets_schema());
+                }
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
