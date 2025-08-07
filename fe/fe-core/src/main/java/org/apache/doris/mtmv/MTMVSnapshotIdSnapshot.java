@@ -26,14 +26,25 @@ import com.google.gson.annotations.SerializedName;
 public class MTMVSnapshotIdSnapshot implements MTMVSnapshotIf {
     @SerializedName("s")
     private long snapshotId;
+    @SerializedName("t")
+    private long timestamp;
+
+    public MTMVSnapshotIdSnapshot(long snapshotId, long timestamp) {
+        this.snapshotId = snapshotId;
+        this.timestamp = timestamp;
+    }
 
     public MTMVSnapshotIdSnapshot(long snapshotId) {
-        this.snapshotId = snapshotId;
+        this(snapshotId, 0L);
     }
 
     @Override
     public long getSnapshotVersion() {
         return snapshotId;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
     }
 
     @Override
@@ -45,18 +56,19 @@ public class MTMVSnapshotIdSnapshot implements MTMVSnapshotIf {
             return false;
         }
         MTMVSnapshotIdSnapshot that = (MTMVSnapshotIdSnapshot) o;
-        return snapshotId == that.snapshotId;
+        return snapshotId == that.snapshotId && timestamp == that.timestamp;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(snapshotId);
+        return Objects.hashCode(snapshotId, timestamp);
     }
 
     @Override
     public String toString() {
         return "MTMVSnapshotIdSnapshot{"
                 + "snapshotId=" + snapshotId
+                + ", timestamp=" + timestamp
                 + '}';
     }
 }

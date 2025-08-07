@@ -143,25 +143,33 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
         return UnboundLogicalProperties.INSTANCE;
     }
 
+    public UnboundRelation withScanParams(TableScanParams scanParams) {
+        return new UnboundRelation(relationId, nameParts,
+            groupExpression, Optional.of(getLogicalProperties()),
+            partNames, isTempPart, tabletIds, hints, tableSample,
+            indexName, scanParams, indexInSqlString, tableSnapshot);
+    }
+
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundRelation(relationId, nameParts,
                 groupExpression, Optional.of(getLogicalProperties()),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, indexInSqlString, tableSnapshot);
+                partNames, isTempPart, tabletIds, hints, tableSample,
+                indexName, scanParams, indexInSqlString, tableSnapshot);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(relationId, nameParts, groupExpression,
-                logicalProperties, partNames, isTempPart, tabletIds, hints, tableSample, indexName, null,
+                logicalProperties, partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
                 indexInSqlString, tableSnapshot);
     }
 
     public UnboundRelation withIndexInSql(Pair<Integer, Integer> index) {
         return new UnboundRelation(relationId, nameParts, groupExpression,
                 Optional.of(getLogicalProperties()), partNames, isTempPart, tabletIds, hints, tableSample, indexName,
-                null, Optional.of(index), tableSnapshot);
+            scanParams, Optional.of(index), tableSnapshot);
     }
 
     @Override

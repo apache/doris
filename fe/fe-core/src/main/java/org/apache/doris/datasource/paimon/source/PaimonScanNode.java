@@ -75,16 +75,18 @@ public class PaimonScanNode extends FileQueryScanNode {
     // The keys of incremental read params for Paimon SDK
     private static final String PAIMON_SCAN_SNAPSHOT_ID = "scan.snapshot-id";
     private static final String PAIMON_SCAN_MODE = "scan.mode";
+    private static final String PAIMON_FROM_SNAPSHOT = "from-snapshot";
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
     private static final String PAIMON_INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
     private static final String PAIMON_INCREMENTAL_BETWEEN_TIMESTAMP = "incremental-between-timestamp";
+
     // The keys of incremental read params for Doris Statement
-    private static final String DORIS_START_SNAPSHOT_ID = "startSnapshotId";
-    private static final String DORIS_END_SNAPSHOT_ID = "endSnapshotId";
-    private static final String DORIS_START_TIMESTAMP = "startTimestamp";
-    private static final String DORIS_END_TIMESTAMP = "endTimestamp";
-    private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
-    private static final String DEFAULT_INCREMENTAL_BETWEEN_SCAN_MODE = "auto";
+    public static final String DORIS_START_SNAPSHOT_ID = "startSnapshotId";
+    public static final String DORIS_END_SNAPSHOT_ID = "endSnapshotId";
+    public static final String DORIS_START_TIMESTAMP = "startTimestamp";
+    public static final String DORIS_END_TIMESTAMP = "endTimestamp";
+    public static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
+    public static final String DEFAULT_INCREMENTAL_BETWEEN_SCAN_MODE = "auto";
 
     private enum SplitReadType {
         JNI,
@@ -484,7 +486,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // Check if timestamp-based parameters exist
         boolean hasStartTimestamp = params.containsKey(DORIS_START_TIMESTAMP)
                 && params.get(DORIS_START_TIMESTAMP) != null;
-        boolean hasEndTimestamp = params.containsKey(DORIS_END_TIMESTAMP) && params.get(DORIS_END_TIMESTAMP) != null;
+        boolean hasEndTimestamp = params.containsKey(DORIS_END_TIMESTAMP)
+                && params.get(DORIS_END_TIMESTAMP) != null;
 
         // Check if any snapshot-based parameters are present
         boolean hasSnapshotParams = hasStartSnapshotId || hasEndSnapshotId || hasIncrementalBetweenScanMode;
@@ -621,6 +624,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (hasStartSnapshotId && !hasEndSnapshotId) {
                 // Only startSnapshotId is specified
                 paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, params.get(DORIS_START_SNAPSHOT_ID));
+                paimonScanParams.put(PAIMON_SCAN_MODE, PAIMON_FROM_SNAPSHOT);
             } else if (hasStartSnapshotId && hasEndSnapshotId) {
                 // Both start and end snapshot IDs are specified
                 String startSId = params.get(DORIS_START_SNAPSHOT_ID);

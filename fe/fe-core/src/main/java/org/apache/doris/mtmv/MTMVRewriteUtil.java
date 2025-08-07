@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -65,20 +66,52 @@ public class MTMVRewriteUtil {
         MTMVRefreshContext refreshContext = null;
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
+        if (refreshContext == null) {
+            try {
+                refreshContext = MTMVRefreshContext.buildContext(mtmv);
+            } catch (AnalysisException e) {
+                LOG.warn("buildContext failed", e);
+                // After failure, one should quickly return to avoid repeated failures
+                return res;
+            }
+        }
+        if (mtmv.getIncrementalRefresh()) {
+            try {
+                MTMVSnapshotIf tableSnapshotInfo = MaterializedViewUtils.getIncrementalMVTableSnapshotInfo(mtmv);
+                MTMVSnapshotIf mvSnapshotInfo = MaterializedViewUtils.getIncrementalMVSnapshotInfo(mtmv);
+                long tableSnapshotTimestamp = 0L;
+                long mvSnapshotTimestamp = 0L;
+                if (tableSnapshotInfo instanceof MTMVSnapshotIdSnapshot
+                        && mvSnapshotInfo instanceof MTMVSnapshotIdSnapshot) {
+                    tableSnapshotTimestamp = ((MTMVSnapshotIdSnapshot) tableSnapshotInfo).getTimestamp();
+                    mvSnapshotTimestamp = ((MTMVSnapshotIdSnapshot) mvSnapshotInfo).getTimestamp();
+                }
+                if (mvSnapshotTimestamp > 0 && (tableSnapshotTimestamp == mvSnapshotTimestamp
+                        || (gracePeriodMills > 0 && tableSnapshotTimestamp > mvSnapshotTimestamp
+                        && tableSnapshotTimestamp <= (mvSnapshotTimestamp + gracePeriodMills) && !forceConsistent))) {
+                    for (Partition partition : allPartitions) {
+                        if (mtmvNeedComparePartitions == null) {
+                            mtmvNeedComparePartitions = getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext,
+                                relatedPartitions);
+                        }
+                        // if the partition which query not used, should not compare partition version
+                        if (!mtmvNeedComparePartitions.contains(partition.getName())) {
+                            continue;
+                        }
+                        res.add(partition);
+                    }
+                }
+            } catch (AnalysisException e) {
+                // ignore it
+                LOG.warn("check isMTMVPartitionSync failed", e);
+            }
+            return res;
+        }
         for (Partition partition : allPartitions) {
             if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
                     + gracePeriodMills) && !forceConsistent) {
                 res.add(partition);
                 continue;
-            }
-            if (refreshContext == null) {
-                try {
-                    refreshContext = MTMVRefreshContext.buildContext(mtmv);
-                } catch (AnalysisException e) {
-                    LOG.warn("buildContext failed", e);
-                    // After failure, one should quickly return to avoid repeated failures
-                    return res;
-                }
             }
             if (mtmvNeedComparePartitions == null) {
                 mtmvNeedComparePartitions = getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext,

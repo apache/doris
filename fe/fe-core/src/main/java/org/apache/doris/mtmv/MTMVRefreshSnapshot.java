@@ -70,6 +70,14 @@ public class MTMVRefreshSnapshot {
         return relatedPartitionSnapshot.equals(baseTableCurrentSnapshot);
     }
 
+    public MTMVSnapshotIf getMVSnapshot(String mtmvPartitionName, BaseTableInfo tableInfo) {
+        MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
+        if (partitionSnapshot == null) {
+            return null;
+        }
+        return partitionSnapshot.getTableSnapshot(tableInfo);
+    }
+
     public void updateSnapshots(Map<String, MTMVRefreshPartitionSnapshot> addPartitionSnapshots,
             Set<String> mvPartitionNames) {
         if (!MapUtils.isEmpty(addPartitionSnapshots)) {
