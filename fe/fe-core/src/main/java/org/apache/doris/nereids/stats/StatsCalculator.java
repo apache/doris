@@ -117,6 +117,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -1200,16 +1201,22 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             double rowCount = calculator.getTableRowCount(scan);
             // row count not available
             if (rowCount == -1) {
-                LOG.info("disable join reorder since row count not available: "
-                        + scan.getTable().getNameWithFullQualifiers());
-                return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
+                try {
+                    context.getConnectContext().getSessionVariable()
+                            .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true");
+                    LOG.info("disable join reorder since table row count is not available :"
+                            + scan.getTable().getName());
+                } catch (Exception e) {
+                    LOG.error("disable NereidsJoinReorderOnce failed", e);
+                }
             }
             if (scan instanceof OlapScan) {
                 // ndv abnormal
                 Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
                 if (reason.isPresent()) {
                     try {
-                        ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                        ConnectContext.get().getSessionVariable()
+                                .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true");
                         LOG.info("disable join reorder since col stats invalid: "
                                 + reason.get());
                     } catch (Exception e) {

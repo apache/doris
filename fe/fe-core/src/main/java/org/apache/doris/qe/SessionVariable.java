@@ -3079,5 +3079,19 @@ public class SessionVariable implements Serializable, Writable {
         return enableCooldownReplicaAffinity;
     }
 
+    /**
+     *
+     * @return true iff set success
+     */
+    public boolean setVarOnce(String varName, String value) {
+        try {
+            setIsSingleSetVar(true);
+            VariableMgr.setVar(this, new SetVar(varName, new StringLiteral(value)));
+            return true;
+        } catch (DdlException e) {
+            LOG.warn("set onece {} = {} failed", varName, value);
+            return false;
+        }
+    }
 }
 
