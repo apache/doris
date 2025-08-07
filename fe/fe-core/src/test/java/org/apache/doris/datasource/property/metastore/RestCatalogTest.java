@@ -31,10 +31,12 @@ import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.io.CloseableIterable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
+@Disabled("Disabled until fill ak/sk")
 public class RestCatalogTest {
 
     // set your AWS access key and secret key

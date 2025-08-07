@@ -246,12 +246,12 @@ public class IcebergRestPropertiesTest {
         restProps.initNormalizeAndCheckProps();
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("glue", catalogProps.get("iceberg.rest.signing-name"));
-        Assertions.assertEquals("us-east-1", catalogProps.get("iceberg.rest.signing-region"));
-        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("iceberg.rest.access-key-id"));
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("rest.access-key-id"));
         Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-                catalogProps.get("iceberg.rest.secret-access-key"));
-        Assertions.assertEquals("true", catalogProps.get("iceberg.rest.sigv4-enabled"));
+                catalogProps.get("rest.secret-access-key"));
+        Assertions.assertEquals("true", catalogProps.get("rest.sigv4-enabled"));
     }
 
     @Test
@@ -269,8 +269,8 @@ public class IcebergRestPropertiesTest {
         restProps.initNormalizeAndCheckProps();
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("glue", catalogProps.get("iceberg.rest.signing-name"));
-        Assertions.assertEquals("us-west-2", catalogProps.get("iceberg.rest.signing-region"));
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-west-2", catalogProps.get("rest.signing-region"));
     }
 
     @Test
@@ -341,11 +341,11 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         // Should not contain glue-specific properties
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.signing-name"));
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.signing-region"));
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.access-key-id"));
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.secret-access-key"));
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.sigv4-enabled"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.signing-name"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.signing-region"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
     }
 
     @Test
@@ -363,11 +363,11 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         // Should not contain glue-specific properties since signing-name is not "glue"
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.signing-name"));
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.signing-region"));
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.access-key-id"));
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.secret-access-key"));
-        Assertions.assertFalse(catalogProps.containsKey("iceberg.rest.sigv4-enabled"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.signing-name"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.signing-region"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
     }
 
     @Test
@@ -389,12 +389,12 @@ public class IcebergRestPropertiesTest {
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         // Should have both OAuth2 and Glue properties
         Assertions.assertEquals("my-access-token", catalogProps.get(OAuth2Properties.TOKEN));
-        Assertions.assertEquals("glue", catalogProps.get("iceberg.rest.signing-name"));
-        Assertions.assertEquals("us-east-1", catalogProps.get("iceberg.rest.signing-region"));
-        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("iceberg.rest.access-key-id"));
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("rest.access-key-id"));
         Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-                catalogProps.get("iceberg.rest.secret-access-key"));
-        Assertions.assertEquals("true", catalogProps.get("iceberg.rest.sigv4-enabled"));
+                catalogProps.get("rest.secret-access-key"));
+        Assertions.assertEquals("true", catalogProps.get("rest.sigv4-enabled"));
     }
 
     @Test
