@@ -89,7 +89,7 @@ public:
     const RowDescriptor& intermediate_row_desc() const override {
         return _child->intermediate_row_desc();
     }
-    RowDescriptor& row_descriptor() override { return _child->row_descriptor(); }
+    const RowDescriptor& row_descriptor() override { return _child->row_descriptor(); }
     const RowDescriptor& row_desc() const override { return _child->row_desc(); }
 
 private:
