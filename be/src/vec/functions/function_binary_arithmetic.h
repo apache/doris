@@ -238,6 +238,8 @@ struct DecimalBinaryOperation {
     using OpTraits = OperationTraits<Operation, A, B>;
 
     using NativeResultType = typename NativeType<ResultType>::Type;
+    using NativeLeftType = typename NativeType<A>::Type;
+    using NativeRightType = typename NativeType<B>::Type;
     using Op = Operation<NativeResultType, NativeResultType>;
 
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
@@ -654,7 +656,7 @@ private:
     }
 
     /// null_map for divide and mod
-    static ALWAYS_INLINE NativeResultType apply(NativeResultType a, NativeResultType b,
+    static ALWAYS_INLINE NativeResultType apply(const NativeLeftType& a, const NativeRightType& b,
                                                 UInt8& is_null,
                                                 const ResultType& max_result_number) {
         static_assert(OpTraits::is_division || OpTraits::is_mod);
