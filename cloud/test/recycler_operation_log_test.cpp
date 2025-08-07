@@ -960,3 +960,94 @@ TEST(RecycleOperationLogTest, RecycleUpdateTabletLog) {
     remove_instance_info(txn_kv.get());
     ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }
+
+TEST(RecycleOperationLogTest, RecycleCompactionLog) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    uint64_t tablet_id = 1;
+    int64_t start_version = 1;
+    int64_t end_version = 5;
+    int64_t creation_time = ::time(nullptr);
+
+    {
+        // Put a compaction log with multiple recycle rowsets
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+
+        auto* compaction_log = operation_log.mutable_compaction();
+        compaction_log->set_tablet_id(tablet_id);
+        compaction_log->set_start_version(start_version);
+        compaction_log->set_end_version(end_version);
+
+        // Add multiple recycle rowsets
+        for (int i = 0; i < 3; ++i) {
+            auto* recycle_rowset = compaction_log->add_recycle_rowsets();
+            recycle_rowset->set_creation_time(creation_time);
+            recycle_rowset->set_type(RecycleRowsetPB::COMPACT);
+
+            auto* rowset_meta = recycle_rowset->mutable_rowset_meta();
+            rowset_meta->set_rowset_id(i);
+            rowset_meta->set_rowset_id_v2(fmt::format("rowset_{}", i));
+            rowset_meta->set_tablet_id(tablet_id);
+            rowset_meta->set_start_version(start_version + i);
+            rowset_meta->set_end_version(start_version + i);
+            rowset_meta->set_num_rows(1000 * (i + 1));
+            rowset_meta->set_total_disk_size(1024 * 1024 * (i + 1));
+            rowset_meta->set_num_segments(i + 1);
+        }
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Verify that recycle rowset records are created for each rowset
+    for (int i = 0; i < 3; ++i) {
+        std::string rowset_id = fmt::format("rowset_{}", i);
+        std::string recycle_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK)
+                << "Recycle rowset record should exist for " << rowset_id;
+
+        RecycleRowsetPB recycle_rowset_pb;
+        ASSERT_TRUE(recycle_rowset_pb.ParseFromString(value));
+        ASSERT_EQ(recycle_rowset_pb.creation_time(), creation_time);
+        ASSERT_EQ(recycle_rowset_pb.type(), RecycleRowsetPB::COMPACT);
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().rowset_id_v2(), rowset_id);
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().tablet_id(), tablet_id);
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().start_version(), start_version + i);
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().end_version(), start_version + i);
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().num_rows(), 1000 * (i + 1));
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().total_disk_size(), 1024 * 1024 * (i + 1));
+        ASSERT_EQ(recycle_rowset_pb.rowset_meta().num_segments(), i + 1);
+    }
+
+    // Scan all keys to verify that operation log is removed and only recycle rowset records remain
+    remove_instance_info(txn_kv.get());
+
+    // Should have 3 recycle rowset records
+    ASSERT_EQ(count_range(txn_kv.get()), 3) << "Should have 3 recycle rowset records";
+}

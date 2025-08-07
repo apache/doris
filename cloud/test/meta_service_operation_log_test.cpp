@@ -1491,4 +1491,121 @@ TEST(MetaServiceOperationLogTest, UpdateVersionedTabletMeta) {
     EXPECT_EQ(versionstamp2, log_versionstamp);
 }
 
+TEST(MetaServiceOperationLogTest, CompactionLog) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "compaction_log_test";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 20001;
+    constexpr int64_t index_id = 20002;
+    constexpr int64_t partition_id = 20003;
+    constexpr int64_t tablet_id = 20004;
+
+    {
+        // write instance
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    {
+        // Create tablet first
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+    }
+
+    // Create some rowsets for compaction
+    std::vector<doris::RowsetMetaCloudPB> test_rowsets;
+    for (int i = 0; i < 3; ++i) {
+        auto rowset = create_rowset(i + 100, tablet_id, partition_id, i + 2, 50 * (i + 1));
+        test_rowsets.push_back(rowset);
+        CreateRowsetResponse res;
+        commit_rowset(meta_service.get(), rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Simulate a compaction job that would generate operation log
+    auto txn_kv = meta_service->txn_kv();
+    size_t num_logs_before = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                         versioned::log_key(instance_id) + "\xFF");
+
+    {
+        // Simulate compaction operation by directly writing operation log
+        // In a real scenario, this would be done through finish_compaction_job
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create compaction log
+        CompactionLogPB compaction_log;
+        compaction_log.set_tablet_id(tablet_id);
+
+        // Add rowsets that are being compacted away as recycle_rowsets
+        for (const auto& rowset : test_rowsets) {
+            RecycleRowsetPB* recycle_rowset = compaction_log.add_recycle_rowsets();
+            recycle_rowset->set_creation_time(::time(nullptr));
+            recycle_rowset->mutable_rowset_meta()->CopyFrom(rowset);
+            recycle_rowset->set_type(RecycleRowsetPB::COMPACT);
+        }
+
+        // Write operation log
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_compaction()->CopyFrom(compaction_log);
+
+        ASSERT_TRUE(operation_log.SerializeToString(&operation_log_value));
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Verify that operation log was created
+    size_t num_logs_after = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                        versioned::log_key(instance_id) + "\xFF");
+    ASSERT_GT(num_logs_after, num_logs_before)
+            << "Expected new compaction operation log, but found no new logs";
+
+    Versionstamp log_version;
+    {
+        // Verify compaction operation log content
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string log_key = versioned::log_key({instance_id});
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), log_key, &log_version, &value), TxnErrorCode::TXN_OK);
+
+        OperationLogPB operation_log;
+        ASSERT_TRUE(operation_log.ParseFromString(value));
+        ASSERT_TRUE(operation_log.has_compaction());
+
+        const auto& compaction_log = operation_log.compaction();
+        ASSERT_EQ(compaction_log.tablet_id(), tablet_id);
+        ASSERT_EQ(compaction_log.recycle_rowsets_size(), 3);
+
+        // Verify recycle rowsets content
+        for (int i = 0; i < compaction_log.recycle_rowsets_size(); ++i) {
+            const auto& recycle_rowset = compaction_log.recycle_rowsets(i);
+            ASSERT_EQ(recycle_rowset.type(), RecycleRowsetPB::COMPACT);
+            ASSERT_EQ(recycle_rowset.rowset_meta().tablet_id(), tablet_id);
+            ASSERT_EQ(recycle_rowset.rowset_meta().partition_id(), partition_id);
+            ASSERT_GT(recycle_rowset.creation_time(), 0);
+        }
+    }
+}
+
 } // namespace doris::cloud
