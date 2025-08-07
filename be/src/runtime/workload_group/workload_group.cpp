@@ -112,12 +112,7 @@ bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {
         // If a group is enable memory overcommit, then not need check the limit
         // It is always true, and it will only fail when process memory is not
         // enough.
-        if (_enable_memory_overcommit) {
-            _wg_refresh_interval_memory_growth.fetch_add(size);
-            return true;
-        } else {
-            return false;
-        }
+        return false;
     } else {
         _wg_refresh_interval_memory_growth.fetch_add(size);
         return true;

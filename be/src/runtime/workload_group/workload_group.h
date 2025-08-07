@@ -228,7 +228,6 @@ private:
     int64_t _version;
     std::atomic<int> _min_cpu_percent = 0;
     std::atomic<int> _max_cpu_percent = 100;
-    bool _enable_memory_overcommit = true;
     std::atomic<int64_t> _memory_limit = 1 << 30; // Default to 1GB
     std::atomic<int> _min_memory_percent = 0;
     std::atomic<int> _max_memory_percent = 100;

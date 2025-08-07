@@ -102,7 +102,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
-    // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
             .add(MAX_CPU_PERCENT).add(MIN_CPU_PERCENT)
             .add(MAX_MEMORY_PERCENT).add(MIN_MEMORY_PERCENT)

@@ -94,7 +94,6 @@ suite("test_crud_wlg") {
     // reset normal group property
     sql "alter workload group normal $forComputeGroupStr properties ( 'cpu_share'='1024' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'memory_limit'='50%' );"
-    sql "alter workload group normal $forComputeGroupStr properties ( 'enable_memory_overcommit'='true' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'max_concurrency'='2147483647' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'max_queue_size'='0' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'queue_timeout'='0' );"
@@ -133,11 +132,10 @@ suite("test_crud_wlg") {
             "properties ( " +
             "    'cpu_share'='10', " +
             "    'memory_limit'='10%', " +
-            "    'enable_memory_overcommit'='true' " +
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     def query_cg_result  = sql "select distinct compute_group from information_schema.workload_groups where name in ('normal','test_group')"
     String cg_name = query_cg_result[0][0]
@@ -148,40 +146,21 @@ suite("test_crud_wlg") {
 
     // test drop workload group
     sql "create workload group if not exists test_drop_wg $forComputeGroupStr properties ('cpu_share'='10')"
-    qt_show_del_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    qt_show_del_wg_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
     sql "drop workload group test_drop_wg $forComputeGroupStr"
-    qt_show_del_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    qt_show_del_wg_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
 
 
     sql "alter workload group test_group $forComputeGroupStr properties ( 'memory_limit'='11%' );"
     qt_mem_limit_1 """ select count(1) from ${table_name} """
-    qt_mem_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_mem_limit_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
-    // test enable_memory_overcommit
-    test {
-        sql "alter workload group test_group $forComputeGroupStr properties ( 'enable_memory_overcommit'='1' );"
-
-        exception "must be true or false"
-    }
-
-    sql "alter workload group test_group $forComputeGroupStr properties ( 'enable_memory_overcommit'='true' );"
-    qt_mem_overcommit_1 """ select count(1) from ${table_name} """
-    sql "alter workload group test_group $forComputeGroupStr properties ( 'enable_memory_overcommit'='false' );"
-    qt_mem_overcommit_2 """ select count(1) from ${table_name} """
-    qt_mem_overcommit_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
-
-    // test cpu_hard_limit
-    test {
-        sql "alter workload group test_group $forComputeGroupStr properties ( 'cpu_hard_limit'='101%' );"
-
-        exception "The allowed cpu_hard_limit value is -1 or a positive integer"
-    }
 
     sql "alter workload group test_group $forComputeGroupStr properties ( 'cpu_hard_limit'='99%' );"
 
     sql "alter workload group test_group $forComputeGroupStr properties ( 'cpu_hard_limit'='20%' );"
     qt_cpu_hard_limit_1 """ select count(1) from ${table_name} """
-    qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test query queue
     test {
@@ -226,7 +205,7 @@ suite("test_crud_wlg") {
     sql "alter workload group test_group $forComputeGroupStr properties('remote_read_bytes_per_second'='104857600')"
     sql "alter workload group test_group $forComputeGroupStr properties('read_bytes_per_second'='104857600')"
     qt_queue_1 """ select count(1) from ${table_name} """
-    qt_show_queue "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_queue "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test create group failed
     // failed for cpu_share
@@ -235,7 +214,6 @@ suite("test_crud_wlg") {
                 "properties ( " +
                 "    'cpu_share'='-2', " +
                 "    'memory_limit'='1%', " +
-                "    'enable_memory_overcommit'='true' " +
                 ");"
 
         exception "The allowed cpu_share value is -1 or a positive integer"
@@ -248,7 +226,6 @@ suite("test_crud_wlg") {
                 "properties ( " +
                 "    'cpu_share'='10', " +
                 "    'memory_limit'='3%', " +
-                "    'enable_memory_overcommit'='1', " +
                 " 'cpu_hard_limit'='1%' " +
                 ");"
 
@@ -256,7 +233,7 @@ suite("test_crud_wlg") {
     }
 
     // test show workload groups
-    qt_select_tvf_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_select_tvf_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test auth
     sql """drop user if exists test_wlg_user"""
@@ -382,7 +359,7 @@ suite("test_crud_wlg") {
         exception "should bigger than memory_low_watermark"
     }
     sql "create workload group if not exists spill_group_test $forComputeGroupStr properties (  'memory_low_watermark'='10%','memory_high_watermark'='10%');"
-    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    qt_show_spill_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
 
     test {
         sql "create workload group if not exists spill_group_test $forComputeGroupStr properties (  'memory_low_watermark'='20%','memory_high_watermark'='10%');"
@@ -391,7 +368,7 @@ suite("test_crud_wlg") {
 
     // 2 alter low
     sql "alter workload group spill_group_test $forComputeGroupStr properties ( 'memory_low_watermark'='5%' );"
-    qt_show_spill_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    qt_show_spill_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
 
     test {
         sql "alter workload group spill_group_test $forComputeGroupStr properties ( 'memory_low_watermark'='20%' );"
@@ -420,7 +397,7 @@ suite("test_crud_wlg") {
 
     // 3 alter high
     sql "alter workload group spill_group_test $forComputeGroupStr properties ( 'memory_high_watermark'='40%' );"
-    qt_show_spill_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    qt_show_spill_3 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
     test {
         sql "alter workload group spill_group_test $forComputeGroupStr properties ( 'memory_high_watermark'='1%' );"
         exception "should bigger than memory_low_watermark"
@@ -593,14 +570,13 @@ suite("test_crud_wlg") {
 
     // test default value
     sql "drop workload group if exists default_val_wg $forComputeGroupStr"
-    sql "create workload group default_val_wg $forComputeGroupStr properties('enable_memory_overcommit'='true');"
-    qt_select_default_val_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    sql "create workload group default_val_wg $forComputeGroupStr properties('max_concurrency'='10');"
+    qt_select_default_val_wg_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql """
             alter workload group default_val_wg $forComputeGroupStr properties(
                 'cpu_share'='1024',
                 'memory_limit'='1%',
-                'enable_memory_overcommit'='true',
                 'max_concurrency'='100',
                 'max_queue_size'='1',
                 'queue_timeout'='123',
@@ -612,13 +588,12 @@ suite("test_crud_wlg") {
                 'remote_read_bytes_per_second'='10');
     """
 
-    qt_select_default_val_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql """
        alter workload group default_val_wg $forComputeGroupStr properties(
         'cpu_share'='-1',
         'memory_limit'='-1',
-        'enable_memory_overcommit'='true',
         'max_concurrency'='2147483647',
         'max_queue_size'='0',
         'queue_timeout'='0',
@@ -631,54 +606,7 @@ suite("test_crud_wlg") {
         );
     """
 
-    qt_select_default_val_wg_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_3 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql "drop workload group if exists default_val_wg $forComputeGroupStr"
 
-//    for (int i = 0; i < 20; i++) {
-//        // 1. SHOW BACKENDS get be ip and http port
-//        Map<String, String> backendId_to_backendIP = new HashMap<>();
-//        Map<String, String> backendId_to_backendHttpPort = new HashMap<>();
-//        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-//        // Print above maps in logger.
-//        logger.info("backendId_to_backendIP: " + backendId_to_backendIP);
-//        logger.info("backendId_to_backendHttpPort: " + backendId_to_backendHttpPort);
-//
-//        // 2. CREATE WORKLOAD GROUP
-//        sql "drop workload group if exists test_wg_metrics;"
-//        sql "create workload group if not exists $forComputeGroupStr test_wg_metrics " +
-//                "properties ( " +
-//                "    'cpu_share'='10', " +
-//                "    'memory_limit'='10%', " +
-//                "    'enable_memory_overcommit'='true' " +
-//                ");"
-//        sql "set workload_group=test_wg_metrics;"
-//        def wg = sql "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,compute_group,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'test_wg_metrics' order by name;"
-//        logger.info("wg: $wg");
-//
-//        // 3. EXECUTE A QUERY SO THAT THE WORKLOAD GROUP IS USED
-//        sql "select count(*) from numbers(\"number\"=\"100\");"
-//
-//        // curl backend http port to get metrics
-//        // get first backendId
-//        def backendId = backendId_to_backendIP.keySet().iterator().next();
-//        def backendIP = backendId_to_backendIP.get(backendId);
-//        def backendHttpPort = backendId_to_backendHttpPort.get(backendId);
-//        logger.info("backendId: " + backendId + ", backendIP: " + backendIP + ", backendHttpPort: " + backendHttpPort);
-//
-//        // Create a for loop to get metrics 5 times
-//        for (int j = 0; j < 5; j++) {
-//            String metrics = getMetrics(backendIP, backendHttpPort);
-//            String filteredMetrics = metrics.split('\n').findAll { line ->
-//                line.startsWith('doris_be_thread_pool') && line.contains('workload_group="test_wg_metrics"') && line.contains('thread_pool_name="Scan_test_wg_metrics"')
-//            }.join('\n')
-//            // Filter metrics with name test_wg_metrics
-//            logger.info("filteredMetrics: " + filteredMetrics);
-//            List<String> lines = filteredMetrics.split('\n').findAll { it.trim() }
-//            assert lines.size() == 5
-//        }
-//
-//        sql "drop workload group if exists test_wg_metrics;"
-//    }
-//    sql "drop workload group if exists test_wg_metrics;"
-}
