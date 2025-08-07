@@ -97,7 +97,7 @@ struct RowsetWriterContext {
     bool write_file_cache = false;
     bool is_hot_data = false;
     uint64_t file_cache_ttl_sec = 0;
-    uint64_t approximate_write_bytes = 0;
+    uint64_t approximate_bytes_to_write = 0;
     /// end file cache opts
 
     // segcompaction for this RowsetWriter, disable it for some transient writers
@@ -156,7 +156,7 @@ struct RowsetWriterContext {
                 .file_cache_expiration = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
                                                  ? newest_write_timestamp + file_cache_ttl_sec
                                                  : 0,
-                .approximate_write_bytes = approximate_write_bytes,
+                .approximate_bytes_to_write = approximate_bytes_to_write,
         };
 
         return opts;
