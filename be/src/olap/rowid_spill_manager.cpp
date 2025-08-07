@@ -47,9 +47,8 @@ Status RowIdSpillManager::init(const std::vector<uint32_t>& segment_row_counts) 
     return Status::OK();
 }
 
-Status RowIdSpillManager::spill_segment_mapping(
-        uint32_t segment_id,
-        const std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>& mappings) {
+Status RowIdSpillManager::spill_segment_mapping(uint32_t segment_id,
+                                                const RowIdMappingType& mappings) {
     std::lock_guard<std::mutex> lock(_mutex);
 
     if (segment_id >= _segment_infos.size()) {
@@ -80,9 +79,7 @@ Status RowIdSpillManager::spill_segment_mapping(
     return Status::OK();
 }
 
-Status RowIdSpillManager::read_segment_mapping(
-        uint32_t segment_id,
-        std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>* mappings) {
+Status RowIdSpillManager::read_segment_mapping(uint32_t segment_id, RowIdMappingType* mappings) {
     return read_segment_mapping_internal(
             segment_id, [&](uint32_t src_row_id, uint32_t dst_segment_id, uint32_t dst_row_id) {
                 mappings->emplace(src_row_id, std::make_pair(dst_segment_id, dst_row_id));
@@ -103,7 +100,7 @@ Status RowIdSpillManager::read_segment_mapping_internal(
     }
 
     uint64_t file_offset = _header.data_offset + info.offset;
-    size_t bytes = info.size * ENTRY_BYTES;
+    std::size_t bytes = info.size * ENTRY_BYTES;
     std::string buffer(bytes, '\0');
     ssize_t bytes_read = ::pread(_fd, buffer.data(), bytes, file_offset);
     if (bytes_read != static_cast<ssize_t>(bytes)) {
@@ -111,7 +108,7 @@ Status RowIdSpillManager::read_segment_mapping_internal(
     }
 
     const char* ptr = buffer.data();
-    for (size_t i = 0; i < info.size; i++) {
+    for (std::size_t i = 0; i < info.size; i++) {
         uint32_t src_row_id = decode_fixed32_le(reinterpret_cast<const uint8_t*>(ptr));
         ptr += sizeof(uint32_t);
         uint32_t dst_segment_id = decode_fixed32_le(reinterpret_cast<const uint8_t*>(ptr));

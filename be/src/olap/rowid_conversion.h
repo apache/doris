@@ -179,7 +179,7 @@ private:
     std::uint32_t _cur_dst_segment_rowid {0};
 
     int64_t _tablet_id {};
-    std::string _tablet_path {};
+    std::string _tablet_path;
 };
 
 #include "common/compile_check_end.h"

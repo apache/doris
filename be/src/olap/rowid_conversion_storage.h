@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory_resource>
 #include <unordered_map>
 #include <vector>
 
@@ -36,7 +37,7 @@ public:
     virtual Status get(uint32_t segment_id, uint32_t row_id,
                        std::pair<uint32_t, uint32_t>* value) = 0;
     virtual void prune_segment_mapping(uint32_t segment_id) = 0;
-    virtual size_t memory_usage() const = 0;
+    virtual std::size_t memory_usage() const = 0;
     virtual const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>&
     get_rowid_conversion_map() const = 0;
 };
@@ -46,7 +47,7 @@ class RowIdMemoryStorage final : public RowIdConversionStorage {
 public:
     Status init(const std::vector<uint32_t>& segment_row_counts) override {
         _segments.resize(segment_row_counts.size());
-        for (size_t i = 0; i < segment_row_counts.size(); ++i) {
+        for (std::size_t i = 0; i < segment_row_counts.size(); ++i) {
             _segments[i].resize(segment_row_counts[i], {UINT32_MAX, UINT32_MAX});
         }
         return Status::OK();
@@ -55,9 +56,6 @@ public:
     Status add(uint32_t segment_id, uint32_t row_id,
                const std::pair<uint32_t, uint32_t>& value) override {
         auto& vec = _segments[segment_id];
-        if (row_id >= vec.size()) {
-            vec.resize(row_id + 1, {UINT32_MAX, UINT32_MAX});
-        }
         vec[row_id] = value;
         return Status::OK();
     }
@@ -85,8 +83,8 @@ public:
         }
     }
 
-    size_t memory_usage() const override {
-        size_t total = 0;
+    std::size_t memory_usage() const override {
+        std::size_t total = 0;
         for (const auto& vec : _segments) {
             total += vec.capacity() * sizeof(std::pair<uint32_t, uint32_t>);
         }
@@ -122,6 +120,7 @@ public:
         // Check if need to spill
         if (segment_mapping.size() >= _spill_threshold) {
             RETURN_IF_ERROR(_spill_manager->spill_segment_mapping(segment_id, segment_mapping));
+            _is_spilled[segment_id] = true;
             segment_mapping.clear();
         }
         return Status::OK();
@@ -148,15 +147,7 @@ public:
         }
     }
 
-    size_t memory_usage() const override {
-        size_t total = 0;
-        for (const auto& map : _segments) {
-            total +=
-                    map.bucket_count() * (sizeof(uint32_t) + sizeof(std::pair<uint32_t, uint32_t>));
-        }
-        return total + _segments.capacity() *
-                               sizeof(std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>);
-    }
+    std::size_t memory_usage() const override { return _tracking_resource.bytes_allocated(); }
 
     const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& get_rowid_conversion_map()
             const override {
@@ -164,9 +155,12 @@ public:
     }
 
 private:
-    static constexpr size_t _spill_threshold = 1000000; // 1M entries
+    static constexpr std::size_t _spill_threshold = 1000000; // 1M entries
     std::string _spill_dir;
-    std::vector<std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>> _segments;
+
+    TrackableResource _tracking_resource;
+    std::vector<RowIdMappingType> _segments;
+
     std::vector<uint32_t> _segment_sizes;
     std::vector<bool> _is_spilled;
 

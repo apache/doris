@@ -21,16 +21,46 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <memory_resource>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "olap/olap_common.h"
-#include "util/uid_util.h"
 
 namespace doris {
+
+class TrackableResource : public std::pmr::memory_resource {
+public:
+    explicit TrackableResource(
+            std::pmr::memory_resource* upstream = std::pmr::get_default_resource())
+            : _upstream(upstream) {}
+
+    std::size_t bytes_allocated() const { return _bytes_allocated; }
+    void reset() { _bytes_allocated = 0; }
+
+private:
+    void* do_allocate(std::size_t bytes, std::size_t alignment) override {
+        _bytes_allocated += bytes;
+        return _upstream->allocate(bytes, alignment);
+    }
+
+    void do_deallocate(void* p, std::size_t bytes, std::size_t alignment) override {
+        _bytes_allocated -= bytes;
+        _upstream->deallocate(p, bytes, alignment);
+    }
+
+    bool do_is_equal(const memory_resource& other) const noexcept override {
+        return this == &other;
+    }
+
+    std::pmr::memory_resource* _upstream;
+    std::size_t _bytes_allocated {0};
+};
+
+using RowIdMappingType = std::pmr::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>;
 
 class RowIdSpillManager {
 public:
@@ -46,10 +76,10 @@ public:
         uint64_t size;      // actual element count spilled to file
     };
 
-    static constexpr size_t ENTRY_BYTES =
+    static constexpr std::size_t ENTRY_BYTES =
             sizeof(uint32_t) * 3; // src_row_id, dst_segment_id, dst_row_id
 
-    explicit RowIdSpillManager(const std::string& path) : _path(path) {}
+    explicit RowIdSpillManager(std::string path) : _path(std::move(path)) {}
 
     ~RowIdSpillManager() {
         if (_fd >= 0) {
@@ -61,14 +91,10 @@ public:
     Status init(const std::vector<uint32_t>& segment_row_counts);
 
     // Write segment data to spill file
-    Status spill_segment_mapping(
-            uint32_t segment_id,
-            const std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>& mappings);
+    Status spill_segment_mapping(uint32_t segment_id, const RowIdMappingType& mappings);
 
     // Read all mappings for a segment
-    Status read_segment_mapping(
-            uint32_t segment_id,
-            std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>* mappings);
+    Status read_segment_mapping(uint32_t segment_id, RowIdMappingType* mappings);
     Status read_segment_mapping_internal(
             uint32_t segment_id, const std::function<void(uint32_t, uint32_t, uint32_t)>& callback);
 
