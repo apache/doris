@@ -129,6 +129,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistanc
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32Internal;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
@@ -771,6 +772,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Left.class, "left", "strleft"),
             scalar(Length.class, "length"),
             scalar(Crc32.class, "crc32"),
+            scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln", "dlog1"),
             scalar(Locate.class, "locate"),

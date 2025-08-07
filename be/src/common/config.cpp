@@ -245,7 +245,7 @@ DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for refresh storage policy from FE
 DEFINE_mInt32(storage_refresh_storage_policy_task_interval_seconds, "5");
 // the interval time(seconds) for agent report disk state to FE
-DEFINE_mInt32(report_disk_state_interval_seconds, "60");
+DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
 // the max download speed(KB/s)
@@ -1508,7 +1508,12 @@ DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "4");
+// The number of compaction tasks generated each time.
+// -1 means automatic number, other values mean fixed number.
+DEFINE_mInt32(compaction_num_per_round, "-1");
+// Max automatic compaction task generated num per round.
+// Only valid if "compaction_num_per_round = 0"
+DEFINE_mInt32(max_automatic_compaction_num_per_round, "64");
 
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
@@ -1530,7 +1535,7 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_quorum_success_write, "true");
 DEFINE_mDouble(quorum_success_max_wait_multiplier, "0.2");
-DEFINE_mInt64(quorum_success_min_wait_seconds, "10");
+DEFINE_mInt64(quorum_success_min_wait_seconds, "60");
 DEFINE_mInt32(quorum_success_remaining_timeout_seconds, "30");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");

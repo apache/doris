@@ -1,0 +1,24 @@
+From 0c18bd91955f6ad48582c01901ffadd4ad5a149c Mon Sep 17 00:00:00 2001
+From: BiteTheDDDDt <xl@selectdb.com>
+Date: Tue, 15 Jul 2025 12:57:25 +0800
+Subject: [PATCH] resolve missing uint8_t define
+
+---
+ .../azure-security-attestation/src/private/crypto/inc/crypto.hpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp b/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp
+index 9a98f204..8f338436 100644
+--- a/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp
++++ b/sdk/attestation/azure-security-attestation/src/private/crypto/inc/crypto.hpp
+@@ -2,6 +2,7 @@
+ // Licensed under the MIT License.
+ 
+ #pragma once
++#include <cstdint>
+ #include <ctime>
+ #include <memory>
+ #include <string>
+-- 
+2.43.5
+

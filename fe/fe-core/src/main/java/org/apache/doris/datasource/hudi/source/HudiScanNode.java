@@ -210,7 +210,7 @@ public class HudiScanNode extends HiveScanNode {
                 partitionInit = true;
                 return;
             }
-            queryInstant = snapshotInstant.get().getTimestamp();
+            queryInstant = snapshotInstant.get().requestedTime();
         }
 
         HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
@@ -230,12 +230,12 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
-    protected Map<String, String> getLocationProperties() throws UserException {
+    protected Map<String, String> getLocationProperties() {
         if (incrementalRead) {
             return incrementalRelation.getHoodieParams();
         } else {
             // HudiJniScanner uses hadoop client to read data.
-            return hmsTable.getHadoopProperties();
+            return hmsTable.getBackendStorageProperties();
         }
     }
 
@@ -322,7 +322,7 @@ public class HudiScanNode extends HiveScanNode {
             this.selectedPartitionNum = prunedPartitions.size();
 
             String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
-            String basePath = metaClient.getBasePathV2().toString();
+            String basePath = metaClient.getBasePath().toString();
 
             List<HivePartition> hivePartitions = Lists.newArrayList();
             prunedPartitions.forEach(
@@ -368,7 +368,7 @@ public class HudiScanNode extends HiveScanNode {
         if (partition.isDummyPartition()) {
             partitionName = "";
         } else {
-            partitionName = FSUtils.getRelativePartitionPath(hudiClient.getBasePathV2(),
+            partitionName = FSUtils.getRelativePartitionPath(hudiClient.getBasePath(),
                     new StoragePath(partition.getPath()));
         }
 
@@ -422,7 +422,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         if (!partitionInit) {
             try {
-                prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
                         -> getPrunedPartitions(hudiClient));
             } catch (Exception e) {
                 throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -431,7 +431,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
         try {
-            hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+            hmsTable.getCatalog().getExecutionAuthenticator().execute(() -> {
                 getPartitionsSplits(prunedPartitions, splits);
                 return null;
             });
@@ -497,7 +497,7 @@ public class HudiScanNode extends HiveScanNode {
         if (!partitionInit) {
             // Non partition table will get one dummy partition
             try {
-                prunedPartitions = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                prunedPartitions = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
                         -> getPrunedPartitions(hudiClient));
             } catch (Exception e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);

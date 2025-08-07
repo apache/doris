@@ -36,7 +36,7 @@ public:
     // This method is idempotent for a same request.
     Status process_alter_tablet(const TAlterTabletReqV2& request);
 
-    void clean_up_on_failed();
+    void clean_up_on_failure();
 
 private:
     Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,

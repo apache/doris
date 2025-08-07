@@ -23,10 +23,12 @@
 #include <string.h>
 
 #include <algorithm>
+#include <bit>
 #include <ostream>
 #include <string>
 #include <type_traits>
 
+#include "absl/strings/substitute.h"
 #include "common/status.h"
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
@@ -351,38 +353,28 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;
 
-    static UnsignedCppType encode_float(UnsignedCppType val) {
-        constexpr UnsignedCppType sign_bit = (UnsignedCppType)1
-                                             << (sizeof(UnsignedCppType) * 8 - 1);
-        if (val & sign_bit) {
-            return ~val;
-        } else {
-            return val ^ sign_bit;
-        }
+    static UnsignedCppType encode_float(CppType value) {
+        return sortable_float_bits(float_to_int_bits(value));
     }
 
-    static UnsignedCppType decode_float(UnsignedCppType val) {
-        constexpr UnsignedCppType sign_bit = (UnsignedCppType)1
-                                             << (sizeof(UnsignedCppType) * 8 - 1);
-        if (val & sign_bit) {
-            return val ^ sign_bit;
-        } else {
-            return ~val;
-        }
+    static CppType decode_float(UnsignedCppType sortable_bits) {
+        return int_bits_to_float(unsortable_float_bits(sortable_bits));
     }
 
+    // -infinity < -100.0 < -1.0 < -0.0 < 0.0 < 1.0 < 100.0 < infinity < NaN
     static void full_encode_ascending(const void* value, std::string* buf) {
         CppType val;
-        memcpy(&val, value, sizeof(CppType));
-        UnsignedCppType unsigned_val;
-        memcpy(&unsigned_val, &val, sizeof(UnsignedCppType));
-        unsigned_val = encode_float(unsigned_val);
+        std::memcpy(&val, value, sizeof(CppType));
+        UnsignedCppType sortable_val = encode_float(val);
+        constexpr UnsignedCppType sign_bit = UnsignedCppType(1)
+                                             << (sizeof(UnsignedCppType) * 8 - 1);
+        sortable_val ^= sign_bit;
         if constexpr (sizeof(UnsignedCppType) == 4) {
-            unsigned_val = BigEndian::FromHost32(unsigned_val);
-        } else {
-            unsigned_val = BigEndian::FromHost64(unsigned_val);
+            sortable_val = BigEndian::FromHost32(sortable_val);
+        } else if constexpr (sizeof(UnsignedCppType) == 8) {
+            sortable_val = BigEndian::FromHost64(sortable_val);
         }
-        buf->append((char*)&unsigned_val, sizeof(UnsignedCppType));
+        buf->append(reinterpret_cast<const char*>(&sortable_val), sizeof(UnsignedCppType));
     }
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
@@ -391,22 +383,59 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
         }
-        UnsignedCppType unsigned_val;
-        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
+        UnsignedCppType sortable_val;
+        std::memcpy(&sortable_val, encoded_key->data, sizeof(UnsignedCppType));
         if constexpr (sizeof(UnsignedCppType) == 4) {
-            unsigned_val = BigEndian::FromHost32(unsigned_val);
-        } else {
-            unsigned_val = BigEndian::FromHost64(unsigned_val);
+            sortable_val = BigEndian::FromHost32(sortable_val);
+        } else if constexpr (sizeof(UnsignedCppType) == 8) {
+            sortable_val = BigEndian::FromHost64(sortable_val);
         }
-        unsigned_val = decode_float(unsigned_val);
-        CppType val;
-        memcpy(&val, &unsigned_val, sizeof(CppType));
-        memcpy(cell_ptr, &val, sizeof(CppType));
+        constexpr UnsignedCppType sign_bit = UnsignedCppType(1)
+                                             << (sizeof(UnsignedCppType) * 8 - 1);
+        sortable_val ^= sign_bit;
+        CppType val = decode_float(sortable_val);
+        std::memcpy(cell_ptr, &val, sizeof(CppType));
         encoded_key->remove_prefix(sizeof(UnsignedCppType));
         return Status::OK();
+    }
+
+private:
+    static UnsignedCppType float_to_int_bits(CppType value) {
+        if (std::isnan(value)) {
+            if constexpr (std::is_same_v<CppType, float>) {
+                return 0x7FC00000U;
+            } else {
+                return 0x7FF8000000000000ULL;
+            }
+        }
+
+        UnsignedCppType result;
+        std::memcpy(&result, &value, sizeof(CppType));
+        return result;
+    }
+
+    static UnsignedCppType sortable_float_bits(UnsignedCppType bits) {
+        constexpr int32_t shift = sizeof(UnsignedCppType) * 8 - 1;
+        constexpr UnsignedCppType sign_bit = static_cast<UnsignedCppType>(1) << shift;
+        if ((bits & sign_bit) != 0) {
+            return bits ^ (sign_bit - 1);
+        } else {
+            return bits;
+        }
+    }
+
+    static CppType int_bits_to_float(UnsignedCppType bits) {
+        CppType result;
+        std::memcpy(&result, &bits, sizeof(CppType));
+        return result;
+    }
+
+    static UnsignedCppType unsortable_float_bits(UnsignedCppType sortable_bits) {
+        return sortable_float_bits(sortable_bits);
     }
 };
 

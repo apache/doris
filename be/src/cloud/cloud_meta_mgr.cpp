@@ -493,6 +493,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
 
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
+    std::string tablet_info =
+            fmt::format("tablet_id={} table_id={} index_id={} partition_id={}", tablet->tablet_id(),
+                        tablet->table_id(), tablet->index_id(), tablet->partition_id());
     int tried = 0;
     while (true) {
         std::shared_ptr<MetaService_Stub> stub;
@@ -541,13 +544,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 std::uniform_int_distribution<uint32_t> u(20, 200);
                 std::uniform_int_distribution<uint32_t> u1(500, 1000);
                 uint32_t duration_ms = tried >= 100 ? u(rng) : u1(rng);
-                std::this_thread::sleep_for(milliseconds(duration_ms));
-                LOG_INFO("failed to get rowset meta")
+                bthread_usleep(duration_ms * 1000);
+                LOG_INFO("failed to get rowset meta, " + tablet_info)
                         .tag("reason", cntl.ErrorText())
-                        .tag("tablet_id", tablet_id)
-                        .tag("table_id", table_id)
-                        .tag("index_id", index_id)
-                        .tag("partition_id", tablet->partition_id())
                         .tag("tried", tried)
                         .tag("sleep", duration_ms);
                 continue;
@@ -555,18 +554,26 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             return Status::RpcError("failed to get rowset meta: {}", cntl.ErrorText());
         }
         if (resp.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
-            return Status::NotFound("failed to get rowset meta: {}", resp.status().msg());
+            LOG(WARNING) << "failed to get rowset meta, err=" << resp.status().msg() << " "
+                         << tablet_info;
+            return Status::NotFound("failed to get rowset meta: {}, {}", resp.status().msg(),
+                                    tablet_info);
         }
         if (resp.status().code() != MetaServiceCode::OK) {
-            return Status::InternalError("failed to get rowset meta: {}", resp.status().msg());
+            LOG(WARNING) << " failed to get rowset meta, err=" << resp.status().msg() << " "
+                         << tablet_info;
+            return Status::InternalError("failed to get rowset meta: {}, {}", resp.status().msg(),
+                                         tablet_info);
         }
         if (latency > 100 * 1000) { // 100ms
             LOG(INFO) << "finish get_rowset rpc. rowset_meta.size()=" << resp.rowset_meta().size()
-                      << ", latency=" << latency << "us";
+                      << ", latency=" << latency << "us"
+                      << " " << tablet_info;
         } else {
             LOG_EVERY_N(INFO, 100)
                     << "finish get_rowset rpc. rowset_meta.size()=" << resp.rowset_meta().size()
-                    << ", latency=" << latency << "us";
+                    << ", latency=" << latency << "us"
+                    << " " << tablet_info;
         }
 
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
@@ -590,16 +597,13 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                 resp.stats(), req.idx(), &delete_bitmap, full_sync,
                                                 sync_stats);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
-                LOG_INFO("rowset meta is expired, need to retry")
-                        .tag("tablet", tablet->tablet_id())
+                LOG_INFO("rowset meta is expired, need to retry, " + tablet_info)
                         .tag("tried", tried)
                         .error(st);
                 continue;
             }
             if (!st.ok()) {
-                LOG_WARNING("failed to get delete bitmap")
-                        .tag("tablet", tablet->tablet_id())
-                        .error(st);
+                LOG_WARNING("failed to get delete bitmap, " + tablet_info).error(st);
                 return st;
             }
             tablet->tablet_meta()->delete_bitmap()->merge(delete_bitmap);
@@ -657,9 +661,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                     }
                 }
 
-                LOG_INFO("[verbose] sync tablet delete bitmap")
-                        .tag("tablet_id", tablet->tablet_id())
-                        .tag("table_id", tablet->table_id())
+                LOG_INFO("[verbose] sync tablet delete bitmap " + tablet_info)
                         .tag("full_sync", full_sync)
                         .tag("old_max_version", old_max_version)
                         .tag("new_max_version", new_max_version)
@@ -707,7 +709,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 stats.cumulative_compaction_cnt() < tablet->cumulative_compaction_cnt())
                     [[unlikely]] {
                 // stale request, ignore
-                LOG_WARNING("stale get rowset meta request")
+                LOG_WARNING("stale get rowset meta request " + tablet_info)
                         .tag("resp_base_compaction_cnt", stats.base_compaction_cnt())
                         .tag("base_compaction_cnt", tablet->base_compaction_cnt())
                         .tag("resp_cumulative_compaction_cnt", stats.cumulative_compaction_cnt())
@@ -1011,11 +1013,18 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     // Replace schema dictionary keys based on the rowset's index ID to maintain schema consistency.
     CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
     // if not enable dict cache, then directly return true to avoid refresh
-    bool replaced =
+    Status replaced_st =
             config::variant_use_cloud_schema_dict_cache
                     ? engine.get_schema_cloud_dictionary_cache().replace_schema_to_dict_keys(
                               rs_meta_pb.index_id(), req.mutable_rowset_meta())
-                    : true;
+                    : Status::OK();
+    // if the replaced_st is not ok and alse not NotFound, then we need to just return the replaced_st
+    VLOG_DEBUG << "replace schema to dict keys, replaced_st: " << replaced_st.to_string()
+               << ", replaced_st.is<ErrorCode::NOT_FOUND>(): "
+               << replaced_st.is<ErrorCode::NOT_FOUND>();
+    if (!replaced_st.ok() && !replaced_st.is<ErrorCode::NOT_FOUND>()) {
+        return replaced_st;
+    }
     Status st = retry_rpc("commit rowset", req, &resp, &MetaService_Stub::commit_rowset);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
@@ -1029,7 +1038,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     // If dictionary replacement fails, it may indicate that the local schema dictionary is outdated.
     // Refreshing the dictionary here ensures that the rowset metadata is updated with the latest schema definitions,
     // which is critical for maintaining consistency between the rowset and its corresponding schema.
-    if (!replaced) {
+    if (replaced_st.is<ErrorCode::NOT_FOUND>()) {
         RETURN_IF_ERROR(
                 engine.get_schema_cloud_dictionary_cache().refresh_dict(rs_meta_pb.index_id()));
     }

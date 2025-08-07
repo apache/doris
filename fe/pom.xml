@@ -226,7 +226,7 @@ under the License.
         <avro.version>1.12.0</avro.version>
        <parquet.version>1.15.2</parquet.version>
         <spark.version>3.4.3</spark.version>
-        <hudi.version>0.15.0</hudi.version>
+        <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
         <gcs.dependency.scope>compile</gcs.dependency.scope>

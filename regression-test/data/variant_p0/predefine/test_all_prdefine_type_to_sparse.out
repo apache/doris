@@ -3,7 +3,7 @@
 {"array_bigint_1":"Int8","array_boolean_1":"UInt8","array_char_1":"String","array_date_1":"DateV2","array_datetime_1":"DateTimeV2","array_decimal128_1":"Decimal128V3","array_decimal256_1":"Decimal256","array_decimal32_1":"Decimal32","array_decimal64_1":"Decimal64","array_double_1":"Float64","array_float_1":"Float64","array_int_1":"Int8","array_ipv4_1":"IPv4","array_ipv6_1":"IPv6","array_largeint_1":"Int128","array_smallint_1":"Int8","array_string_1":"String","array_tinyint_1":"Int8","bigint_1":"Int8","boolean_1":"UInt8","char_1":"String","date_1":"DateV2","datetime_1":"DateTimeV2","decimal128_1":"Decimal128V3","decimal256_1":"Decimal256","decimal32_1":"Decimal32","decimal64_1":"Decimal64","double_1":"Float64","float_1":"Float64","int_1":"Int8","ipv4_1":"IPv4","ipv6_1":"IPv6","largeint_1":"Int128","other_1":"String","smallint_1":"Int8","string_1":"String","tinyint_1":"Int8"}
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 
 -- !sql_compaction_before --
@@ -18,7 +18,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.tinyint_1	tinyint	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -35,7 +35,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.smallint_1	smallint	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -55,7 +55,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.int_1	int	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -79,7 +79,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.bigint_1	bigint	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -108,7 +108,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.largeint_1	largeint	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -143,7 +143,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.char_1	text	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -185,7 +185,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.string_1	text	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -235,7 +235,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.string_1	text	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -293,7 +293,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.double_1	double	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -360,7 +360,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal32_1	decimal(8,2)	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -437,7 +437,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal64_1	decimal(16,9)	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -525,7 +525,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal128_1	decimal(36,9)	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -625,7 +625,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -713,18 +713,18 @@ var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 
 -- !sql_compaction_before --
 id	bigint	No	true	\N	
@@ -738,7 +738,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -826,18 +826,18 @@ var.decimal256_1	unknown type: UNSUPPORTED_TYPE	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -864,7 +864,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.date_1	date	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -952,18 +952,18 @@ var.date_1	date	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -1004,7 +1004,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.ipv4_1	ipv4	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1092,18 +1092,18 @@ var.ipv4_1	ipv4	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -1159,7 +1159,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.ipv6_1	ipv6	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1247,18 +1247,18 @@ var.ipv6_1	ipv6	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -1330,7 +1330,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.ipv6_1	ipv6	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1418,18 +1418,18 @@ var.ipv6_1	ipv6	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -1517,7 +1517,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_tinyint_1	array<tinyint>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1605,18 +1605,18 @@ var.array_tinyint_1	array<tinyint>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -1722,7 +1722,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_smallint_1	array<smallint>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -1810,18 +1810,18 @@ var.array_smallint_1	array<smallint>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -1915,7 +1915,7 @@ var.array_smallint_1	array<smallint>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -1946,7 +1946,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_int_1	array<int>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -2034,18 +2034,18 @@ var.array_int_1	array<int>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -2139,7 +2139,7 @@ var.array_int_1	array<int>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -2190,7 +2190,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_bigint_1	array<bigint>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -2278,18 +2278,18 @@ var.array_bigint_1	array<bigint>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -2383,7 +2383,7 @@ var.array_bigint_1	array<bigint>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -2455,7 +2455,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_largeint_1	array<largeint>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -2543,18 +2543,18 @@ var.array_largeint_1	array<largeint>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -2648,7 +2648,7 @@ var.array_largeint_1	array<largeint>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -2707,7 +2707,7 @@ var.array_largeint_1	array<largeint>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -2742,7 +2742,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_char_1	array<text>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -2830,18 +2830,18 @@ var.array_char_1	array<text>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -2935,7 +2935,7 @@ var.array_char_1	array<text>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -2994,7 +2994,7 @@ var.array_char_1	array<text>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -3052,7 +3052,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_string_1	array<text>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -3140,18 +3140,18 @@ var.array_string_1	array<text>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -3245,7 +3245,7 @@ var.array_string_1	array<text>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -3304,7 +3304,7 @@ var.array_string_1	array<text>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -3386,7 +3386,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_float_1	array<float>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -3474,18 +3474,18 @@ var.array_float_1	array<float>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -3579,7 +3579,7 @@ var.array_float_1	array<float>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -3638,7 +3638,7 @@ var.array_float_1	array<float>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -3745,7 +3745,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_double_1	array<double>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -3833,18 +3833,18 @@ var.array_double_1	array<double>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -3938,7 +3938,7 @@ var.array_double_1	array<double>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -3997,7 +3997,7 @@ var.array_double_1	array<double>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -4130,7 +4130,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -4218,18 +4218,18 @@ var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -4323,7 +4323,7 @@ var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -4382,7 +4382,7 @@ var.array_decimal32_1	array<decimal(8,2)>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -4542,7 +4542,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -4630,18 +4630,18 @@ var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -4735,7 +4735,7 @@ var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -4794,7 +4794,7 @@ var.array_decimal64_1	array<decimal(16,9)>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -4982,7 +4982,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -5070,18 +5070,18 @@ var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -5175,7 +5175,7 @@ var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -5234,7 +5234,7 @@ var.array_decimal128_1	array<decimal(36,9)>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -5451,7 +5451,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -5539,18 +5539,18 @@ var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -5644,7 +5644,7 @@ var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -5703,7 +5703,7 @@ var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -5908,30 +5908,30 @@ var.array_decimal256_1	array<unknown type: UNSUPPORTED_TYPE>	Yes	false	\N	NONE
 {"array_decimal128_1":[28.120000000]}
 {"array_decimal128_1":[29.120000000]}
 {"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750]}
-{"array_decimal256_1":[2.119999999999999863811246957458439189347394629373059936550575]}
-{"array_decimal256_1":[3.119999999999999813035516858576557464252453903753761072872975]}
+{"array_decimal256_1":[2.120000000000000220623170133948409415233260764078710442688175]}
+{"array_decimal256_1":[3.120000000000000169847440035066527690138320038459411579010575]}
 {"array_decimal256_1":[4.119999999999999762260127042061596677620939659253746558303600]}
-{"array_decimal256_1":[5.119999999999999711484737225546635890989425414753732043734225]}
-{"array_decimal256_1":[6.119999999999999660709347409031675104357911170253717529164850]}
+{"array_decimal256_1":[5.120000000000000425108583578526576342761157684165033056009425]}
+{"array_decimal256_1":[6.120000000000000374333193762011615556129643439665018541440050]}
 {"array_decimal256_1":[7.120000000000000323557463663129733831034702714045719677762450]}
-{"array_decimal256_1":[8.119999999999998131910534787674951689087991661311802126367475]}
+{"array_decimal256_1":[8.119999999999999559158227493634832592631456200134404150917875]}
 {"array_decimal256_1":[9.119999999999998794758991324139931354228209686223088624073300]}
-{"array_decimal256_1":[10.119999999999998030359414872278109177361536691192488748120500]}
+{"array_decimal256_1":[10.119999999999999457607107578237990080905001230015090772670900]}
 {"array_decimal256_1":[11.119999999999998693207871408743088842501754716103775245826325]}
-{"array_decimal256_1":[12.119999999999997928808635239248187604098508202192459718981750]}
-{"array_decimal256_1":[13.119999999999997164409058787386365427231835207161859843028950]}
+{"array_decimal256_1":[12.119999999999999356056327945208068507641972741015061743532150]}
+{"array_decimal256_1":[13.120000000000000018904444199306127234318764284807063892129750]}
 {"array_decimal256_1":[14.119999999999999254505208029811225995915517770895748365285175]}
 {"array_decimal256_1":[15.119999999999998490105971860316324757512271256984432838440600]}
 {"array_decimal256_1":[16.120000000000000580201780820374264387732527339599037011588600]}
 {"array_decimal256_1":[17.119999999999999815802544650879363149329280825687721484744025]}
-{"array_decimal256_1":[18.119999999999999051403308481384461910926034311776405957899450]}
+{"array_decimal256_1":[18.120000000000001905898693893304223718012963389421610007000250]}
 {"array_decimal256_1":[19.120000000000001141499457723809322479609716875510294480155675]}
 {"array_decimal256_1":[20.120000000000000377099881271947500302743043880479694604202875]}
 {"array_decimal256_1":[21.119999999999999612700645102452599064339797366568379077358300]}
-{"array_decimal256_1":[22.119999999999998848301408932957697825936550852657063550513725]}
+{"array_decimal256_1":[22.120000000000001702796794344877459633023479930302267599614525]}
 {"array_decimal256_1":[23.120000000000000938397217893015637456156806935271667723661725]}
 {"array_decimal256_1":[24.120000000000000173997981723520736217753560421360352196817150]}
-{"array_decimal256_1":[25.119999999999999409598745554025834979350313907449036669972575]}
+{"array_decimal256_1":[25.120000000000002264094130965945596786437242985094240719073375]}
 {"array_decimal256_1":[26.120000000000001499694554514083774609570569990063640843120575]}
 {"array_decimal256_1":[27.120000000000000735295318344588873371167323476152325316276000]}
 {"array_decimal256_1":[28.119999999999999970896082175093972132764076962241009789431425]}
@@ -5950,7 +5950,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -6038,18 +6038,18 @@ var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -6143,7 +6143,7 @@ var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -6202,7 +6202,7 @@ var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -6407,30 +6407,30 @@ var.array_datetime_1	array<datetime>	Yes	false	\N	NONE
 {"array_decimal128_1":[28.120000000]}
 {"array_decimal128_1":[29.120000000]}
 {"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750]}
-{"array_decimal256_1":[2.119999999999999863811246957458439189347394629373059936550575]}
-{"array_decimal256_1":[3.119999999999999813035516858576557464252453903753761072872975]}
+{"array_decimal256_1":[2.120000000000000220623170133948409415233260764078710442688175]}
+{"array_decimal256_1":[3.120000000000000169847440035066527690138320038459411579010575]}
 {"array_decimal256_1":[4.119999999999999762260127042061596677620939659253746558303600]}
-{"array_decimal256_1":[5.119999999999999711484737225546635890989425414753732043734225]}
-{"array_decimal256_1":[6.119999999999999660709347409031675104357911170253717529164850]}
+{"array_decimal256_1":[5.120000000000000425108583578526576342761157684165033056009425]}
+{"array_decimal256_1":[6.120000000000000374333193762011615556129643439665018541440050]}
 {"array_decimal256_1":[7.120000000000000323557463663129733831034702714045719677762450]}
-{"array_decimal256_1":[8.119999999999998131910534787674951689087991661311802126367475]}
+{"array_decimal256_1":[8.119999999999999559158227493634832592631456200134404150917875]}
 {"array_decimal256_1":[9.119999999999998794758991324139931354228209686223088624073300]}
-{"array_decimal256_1":[10.119999999999998030359414872278109177361536691192488748120500]}
+{"array_decimal256_1":[10.119999999999999457607107578237990080905001230015090772670900]}
 {"array_decimal256_1":[11.119999999999998693207871408743088842501754716103775245826325]}
-{"array_decimal256_1":[12.119999999999997928808635239248187604098508202192459718981750]}
-{"array_decimal256_1":[13.119999999999997164409058787386365427231835207161859843028950]}
+{"array_decimal256_1":[12.119999999999999356056327945208068507641972741015061743532150]}
+{"array_decimal256_1":[13.120000000000000018904444199306127234318764284807063892129750]}
 {"array_decimal256_1":[14.119999999999999254505208029811225995915517770895748365285175]}
 {"array_decimal256_1":[15.119999999999998490105971860316324757512271256984432838440600]}
 {"array_decimal256_1":[16.120000000000000580201780820374264387732527339599037011588600]}
 {"array_decimal256_1":[17.119999999999999815802544650879363149329280825687721484744025]}
-{"array_decimal256_1":[18.119999999999999051403308481384461910926034311776405957899450]}
+{"array_decimal256_1":[18.120000000000001905898693893304223718012963389421610007000250]}
 {"array_decimal256_1":[19.120000000000001141499457723809322479609716875510294480155675]}
 {"array_decimal256_1":[20.120000000000000377099881271947500302743043880479694604202875]}
 {"array_decimal256_1":[21.119999999999999612700645102452599064339797366568379077358300]}
-{"array_decimal256_1":[22.119999999999998848301408932957697825936550852657063550513725]}
+{"array_decimal256_1":[22.120000000000001702796794344877459633023479930302267599614525]}
 {"array_decimal256_1":[23.120000000000000938397217893015637456156806935271667723661725]}
 {"array_decimal256_1":[24.120000000000000173997981723520736217753560421360352196817150]}
-{"array_decimal256_1":[25.119999999999999409598745554025834979350313907449036669972575]}
+{"array_decimal256_1":[25.120000000000002264094130965945596786437242985094240719073375]}
 {"array_decimal256_1":[26.120000000000001499694554514083774609570569990063640843120575]}
 {"array_decimal256_1":[27.120000000000000735295318344588873371167323476152325316276000]}
 {"array_decimal256_1":[28.119999999999999970896082175093972132764076962241009789431425]}
@@ -6480,7 +6480,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_date_1	array<date>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -6568,18 +6568,18 @@ var.array_date_1	array<date>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -6673,7 +6673,7 @@ var.array_date_1	array<date>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -6732,7 +6732,7 @@ var.array_date_1	array<date>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -6937,30 +6937,30 @@ var.array_date_1	array<date>	Yes	false	\N	NONE
 {"array_decimal128_1":[28.120000000]}
 {"array_decimal128_1":[29.120000000]}
 {"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750]}
-{"array_decimal256_1":[2.119999999999999863811246957458439189347394629373059936550575]}
-{"array_decimal256_1":[3.119999999999999813035516858576557464252453903753761072872975]}
+{"array_decimal256_1":[2.120000000000000220623170133948409415233260764078710442688175]}
+{"array_decimal256_1":[3.120000000000000169847440035066527690138320038459411579010575]}
 {"array_decimal256_1":[4.119999999999999762260127042061596677620939659253746558303600]}
-{"array_decimal256_1":[5.119999999999999711484737225546635890989425414753732043734225]}
-{"array_decimal256_1":[6.119999999999999660709347409031675104357911170253717529164850]}
+{"array_decimal256_1":[5.120000000000000425108583578526576342761157684165033056009425]}
+{"array_decimal256_1":[6.120000000000000374333193762011615556129643439665018541440050]}
 {"array_decimal256_1":[7.120000000000000323557463663129733831034702714045719677762450]}
-{"array_decimal256_1":[8.119999999999998131910534787674951689087991661311802126367475]}
+{"array_decimal256_1":[8.119999999999999559158227493634832592631456200134404150917875]}
 {"array_decimal256_1":[9.119999999999998794758991324139931354228209686223088624073300]}
-{"array_decimal256_1":[10.119999999999998030359414872278109177361536691192488748120500]}
+{"array_decimal256_1":[10.119999999999999457607107578237990080905001230015090772670900]}
 {"array_decimal256_1":[11.119999999999998693207871408743088842501754716103775245826325]}
-{"array_decimal256_1":[12.119999999999997928808635239248187604098508202192459718981750]}
-{"array_decimal256_1":[13.119999999999997164409058787386365427231835207161859843028950]}
+{"array_decimal256_1":[12.119999999999999356056327945208068507641972741015061743532150]}
+{"array_decimal256_1":[13.120000000000000018904444199306127234318764284807063892129750]}
 {"array_decimal256_1":[14.119999999999999254505208029811225995915517770895748365285175]}
 {"array_decimal256_1":[15.119999999999998490105971860316324757512271256984432838440600]}
 {"array_decimal256_1":[16.120000000000000580201780820374264387732527339599037011588600]}
 {"array_decimal256_1":[17.119999999999999815802544650879363149329280825687721484744025]}
-{"array_decimal256_1":[18.119999999999999051403308481384461910926034311776405957899450]}
+{"array_decimal256_1":[18.120000000000001905898693893304223718012963389421610007000250]}
 {"array_decimal256_1":[19.120000000000001141499457723809322479609716875510294480155675]}
 {"array_decimal256_1":[20.120000000000000377099881271947500302743043880479694604202875]}
 {"array_decimal256_1":[21.119999999999999612700645102452599064339797366568379077358300]}
-{"array_decimal256_1":[22.119999999999998848301408932957697825936550852657063550513725]}
+{"array_decimal256_1":[22.120000000000001702796794344877459633023479930302267599614525]}
 {"array_decimal256_1":[23.120000000000000938397217893015637456156806935271667723661725]}
 {"array_decimal256_1":[24.120000000000000173997981723520736217753560421360352196817150]}
-{"array_decimal256_1":[25.119999999999999409598745554025834979350313907449036669972575]}
+{"array_decimal256_1":[25.120000000000002264094130965945596786437242985094240719073375]}
 {"array_decimal256_1":[26.120000000000001499694554514083774609570569990063640843120575]}
 {"array_decimal256_1":[27.120000000000000735295318344588873371167323476152325316276000]}
 {"array_decimal256_1":[28.119999999999999970896082175093972132764076962241009789431425]}
@@ -7042,7 +7042,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -7130,18 +7130,18 @@ var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -7235,7 +7235,7 @@ var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -7294,7 +7294,7 @@ var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -7499,30 +7499,30 @@ var.array_ipv4_1	array<ipv4>	Yes	false	\N	NONE
 {"array_decimal128_1":[28.120000000]}
 {"array_decimal128_1":[29.120000000]}
 {"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750]}
-{"array_decimal256_1":[2.119999999999999863811246957458439189347394629373059936550575]}
-{"array_decimal256_1":[3.119999999999999813035516858576557464252453903753761072872975]}
+{"array_decimal256_1":[2.120000000000000220623170133948409415233260764078710442688175]}
+{"array_decimal256_1":[3.120000000000000169847440035066527690138320038459411579010575]}
 {"array_decimal256_1":[4.119999999999999762260127042061596677620939659253746558303600]}
-{"array_decimal256_1":[5.119999999999999711484737225546635890989425414753732043734225]}
-{"array_decimal256_1":[6.119999999999999660709347409031675104357911170253717529164850]}
+{"array_decimal256_1":[5.120000000000000425108583578526576342761157684165033056009425]}
+{"array_decimal256_1":[6.120000000000000374333193762011615556129643439665018541440050]}
 {"array_decimal256_1":[7.120000000000000323557463663129733831034702714045719677762450]}
-{"array_decimal256_1":[8.119999999999998131910534787674951689087991661311802126367475]}
+{"array_decimal256_1":[8.119999999999999559158227493634832592631456200134404150917875]}
 {"array_decimal256_1":[9.119999999999998794758991324139931354228209686223088624073300]}
-{"array_decimal256_1":[10.119999999999998030359414872278109177361536691192488748120500]}
+{"array_decimal256_1":[10.119999999999999457607107578237990080905001230015090772670900]}
 {"array_decimal256_1":[11.119999999999998693207871408743088842501754716103775245826325]}
-{"array_decimal256_1":[12.119999999999997928808635239248187604098508202192459718981750]}
-{"array_decimal256_1":[13.119999999999997164409058787386365427231835207161859843028950]}
+{"array_decimal256_1":[12.119999999999999356056327945208068507641972741015061743532150]}
+{"array_decimal256_1":[13.120000000000000018904444199306127234318764284807063892129750]}
 {"array_decimal256_1":[14.119999999999999254505208029811225995915517770895748365285175]}
 {"array_decimal256_1":[15.119999999999998490105971860316324757512271256984432838440600]}
 {"array_decimal256_1":[16.120000000000000580201780820374264387732527339599037011588600]}
 {"array_decimal256_1":[17.119999999999999815802544650879363149329280825687721484744025]}
-{"array_decimal256_1":[18.119999999999999051403308481384461910926034311776405957899450]}
+{"array_decimal256_1":[18.120000000000001905898693893304223718012963389421610007000250]}
 {"array_decimal256_1":[19.120000000000001141499457723809322479609716875510294480155675]}
 {"array_decimal256_1":[20.120000000000000377099881271947500302743043880479694604202875]}
 {"array_decimal256_1":[21.119999999999999612700645102452599064339797366568379077358300]}
-{"array_decimal256_1":[22.119999999999998848301408932957697825936550852657063550513725]}
+{"array_decimal256_1":[22.120000000000001702796794344877459633023479930302267599614525]}
 {"array_decimal256_1":[23.120000000000000938397217893015637456156806935271667723661725]}
 {"array_decimal256_1":[24.120000000000000173997981723520736217753560421360352196817150]}
-{"array_decimal256_1":[25.119999999999999409598745554025834979350313907449036669972575]}
+{"array_decimal256_1":[25.120000000000002264094130965945596786437242985094240719073375]}
 {"array_decimal256_1":[26.120000000000001499694554514083774609570569990063640843120575]}
 {"array_decimal256_1":[27.120000000000000735295318344588873371167323476152325316276000]}
 {"array_decimal256_1":[28.119999999999999970896082175093972132764076962241009789431425]}
@@ -7637,7 +7637,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -7725,18 +7725,18 @@ var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -7830,7 +7830,7 @@ var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -7889,7 +7889,7 @@ var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -8094,30 +8094,30 @@ var.array_ipv6_1	array<ipv6>	Yes	false	\N	NONE
 {"array_decimal128_1":[28.120000000]}
 {"array_decimal128_1":[29.120000000]}
 {"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750]}
-{"array_decimal256_1":[2.119999999999999863811246957458439189347394629373059936550575]}
-{"array_decimal256_1":[3.119999999999999813035516858576557464252453903753761072872975]}
+{"array_decimal256_1":[2.120000000000000220623170133948409415233260764078710442688175]}
+{"array_decimal256_1":[3.120000000000000169847440035066527690138320038459411579010575]}
 {"array_decimal256_1":[4.119999999999999762260127042061596677620939659253746558303600]}
-{"array_decimal256_1":[5.119999999999999711484737225546635890989425414753732043734225]}
-{"array_decimal256_1":[6.119999999999999660709347409031675104357911170253717529164850]}
+{"array_decimal256_1":[5.120000000000000425108583578526576342761157684165033056009425]}
+{"array_decimal256_1":[6.120000000000000374333193762011615556129643439665018541440050]}
 {"array_decimal256_1":[7.120000000000000323557463663129733831034702714045719677762450]}
-{"array_decimal256_1":[8.119999999999998131910534787674951689087991661311802126367475]}
+{"array_decimal256_1":[8.119999999999999559158227493634832592631456200134404150917875]}
 {"array_decimal256_1":[9.119999999999998794758991324139931354228209686223088624073300]}
-{"array_decimal256_1":[10.119999999999998030359414872278109177361536691192488748120500]}
+{"array_decimal256_1":[10.119999999999999457607107578237990080905001230015090772670900]}
 {"array_decimal256_1":[11.119999999999998693207871408743088842501754716103775245826325]}
-{"array_decimal256_1":[12.119999999999997928808635239248187604098508202192459718981750]}
-{"array_decimal256_1":[13.119999999999997164409058787386365427231835207161859843028950]}
+{"array_decimal256_1":[12.119999999999999356056327945208068507641972741015061743532150]}
+{"array_decimal256_1":[13.120000000000000018904444199306127234318764284807063892129750]}
 {"array_decimal256_1":[14.119999999999999254505208029811225995915517770895748365285175]}
 {"array_decimal256_1":[15.119999999999998490105971860316324757512271256984432838440600]}
 {"array_decimal256_1":[16.120000000000000580201780820374264387732527339599037011588600]}
 {"array_decimal256_1":[17.119999999999999815802544650879363149329280825687721484744025]}
-{"array_decimal256_1":[18.119999999999999051403308481384461910926034311776405957899450]}
+{"array_decimal256_1":[18.120000000000001905898693893304223718012963389421610007000250]}
 {"array_decimal256_1":[19.120000000000001141499457723809322479609716875510294480155675]}
 {"array_decimal256_1":[20.120000000000000377099881271947500302743043880479694604202875]}
 {"array_decimal256_1":[21.119999999999999612700645102452599064339797366568379077358300]}
-{"array_decimal256_1":[22.119999999999998848301408932957697825936550852657063550513725]}
+{"array_decimal256_1":[22.120000000000001702796794344877459633023479930302267599614525]}
 {"array_decimal256_1":[23.120000000000000938397217893015637456156806935271667723661725]}
 {"array_decimal256_1":[24.120000000000000173997981723520736217753560421360352196817150]}
-{"array_decimal256_1":[25.119999999999999409598745554025834979350313907449036669972575]}
+{"array_decimal256_1":[25.120000000000002264094130965945596786437242985094240719073375]}
 {"array_decimal256_1":[26.120000000000001499694554514083774609570569990063640843120575]}
 {"array_decimal256_1":[27.120000000000000735295318344588873371167323476152325316276000]}
 {"array_decimal256_1":[28.119999999999999970896082175093972132764076962241009789431425]}
@@ -8266,7 +8266,7 @@ var	variant<'boolean_*':boolean,'tinyint_*':tinyint,'smallint_*':smallint,'int_*
 var.other_1	text	Yes	false	\N	NONE
 
 -- !sql --
-{"array_bigint_1":[1],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1],"array_smallint_1":[1],"array_string_1":["1"],"array_tinyint_1":[1],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
+{"array_bigint_1":[1, null],"array_boolean_1":[1],"array_char_1":["1"],"array_date_1":["2021-01-01"],"array_datetime_1":["2021-01-01 00:00:00"],"array_decimal128_1":[1.120000000],"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750],"array_decimal32_1":[1.12],"array_decimal64_1":[1.120000000],"array_double_1":[1.12],"array_float_1":[1.12],"array_int_1":[1, null],"array_ipv4_1":["192.168.1.1"],"array_ipv6_1":["2001:db8:85a3::8a2e:370:7334"],"array_largeint_1":[1, null],"array_smallint_1":[1, null],"array_string_1":["1"],"array_tinyint_1":[1, null],"bigint_1":1,"boolean_1":1,"char_1":"1","date_1":"2021-01-01","datetime_1":"2021-01-01 00:00:00","decimal128_1":1.120000000,"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750,"decimal32_1":1.12,"decimal64_1":1.120000000,"double_1":1.12,"float_1":1.12,"int_1":1,"ipv4_1":"192.168.1.1","ipv6_1":"2001:db8:85a3::8a2e:370:7334","largeint_1":1,"other_1":"1","smallint_1":1,"string_1":"1","tinyint_1":1}
 {"other_1":"1"}
 {"tinyint_1":1}
 {"tinyint_1":2}
@@ -8354,18 +8354,18 @@ var.other_1	text	Yes	false	\N	NONE
 {"decimal128_1":11.120000000}
 {"decimal128_1":12.120000000}
 {"decimal256_1":1.120000000000000092992598362218385088921841941225899704188750}
-{"decimal256_1":2.119999999999999863811246957458439189347394629373059936550575}
-{"decimal256_1":3.119999999999999813035516858576557464252453903753761072872975}
+{"decimal256_1":2.120000000000000220623170133948409415233260764078710442688175}
+{"decimal256_1":3.120000000000000169847440035066527690138320038459411579010575}
 {"decimal256_1":4.119999999999999762260127042061596677620939659253746558303600}
-{"decimal256_1":5.119999999999999711484737225546635890989425414753732043734225}
-{"decimal256_1":6.119999999999999660709347409031675104357911170253717529164850}
+{"decimal256_1":5.120000000000000425108583578526576342761157684165033056009425}
+{"decimal256_1":6.120000000000000374333193762011615556129643439665018541440050}
 {"decimal256_1":7.120000000000000323557463663129733831034702714045719677762450}
-{"decimal256_1":8.119999999999998131910534787674951689087991661311802126367475}
+{"decimal256_1":8.119999999999999559158227493634832592631456200134404150917875}
 {"decimal256_1":9.119999999999998794758991324139931354228209686223088624073300}
-{"decimal256_1":10.119999999999998030359414872278109177361536691192488748120500}
+{"decimal256_1":10.119999999999999457607107578237990080905001230015090772670900}
 {"decimal256_1":11.119999999999998693207871408743088842501754716103775245826325}
-{"decimal256_1":12.119999999999997928808635239248187604098508202192459718981750}
-{"decimal256_1":13.119999999999997164409058787386365427231835207161859843028950}
+{"decimal256_1":12.119999999999999356056327945208068507641972741015061743532150}
+{"decimal256_1":13.120000000000000018904444199306127234318764284807063892129750}
 {"datetime_1":"2021-01-01 00:00:00"}
 {"datetime_1":"2021-01-01 00:00:01"}
 {"datetime_1":"2021-01-01 00:00:02"}
@@ -8459,7 +8459,7 @@ var.other_1	text	Yes	false	\N	NONE
 {"array_tinyint_1":[17]}
 {"array_tinyint_1":[18]}
 {"array_smallint_1":[1]}
-{"array_smallint_1":[2]}
+{"array_smallint_1":[2, null]}
 {"array_smallint_1":[3]}
 {"array_smallint_1":[4]}
 {"array_smallint_1":[5]}
@@ -8518,7 +8518,7 @@ var.other_1	text	Yes	false	\N	NONE
 {"array_bigint_1":[19]}
 {"array_bigint_1":[20]}
 {"array_bigint_1":[21]}
-{"array_largeint_1":[1]}
+{"array_largeint_1":[1, null]}
 {"array_largeint_1":[2]}
 {"array_largeint_1":[3]}
 {"array_largeint_1":[4]}
@@ -8723,30 +8723,30 @@ var.other_1	text	Yes	false	\N	NONE
 {"array_decimal128_1":[28.120000000]}
 {"array_decimal128_1":[29.120000000]}
 {"array_decimal256_1":[1.120000000000000092992598362218385088921841941225899704188750]}
-{"array_decimal256_1":[2.119999999999999863811246957458439189347394629373059936550575]}
-{"array_decimal256_1":[3.119999999999999813035516858576557464252453903753761072872975]}
+{"array_decimal256_1":[2.120000000000000220623170133948409415233260764078710442688175]}
+{"array_decimal256_1":[3.120000000000000169847440035066527690138320038459411579010575]}
 {"array_decimal256_1":[4.119999999999999762260127042061596677620939659253746558303600]}
-{"array_decimal256_1":[5.119999999999999711484737225546635890989425414753732043734225]}
-{"array_decimal256_1":[6.119999999999999660709347409031675104357911170253717529164850]}
+{"array_decimal256_1":[5.120000000000000425108583578526576342761157684165033056009425]}
+{"array_decimal256_1":[6.120000000000000374333193762011615556129643439665018541440050]}
 {"array_decimal256_1":[7.120000000000000323557463663129733831034702714045719677762450]}
-{"array_decimal256_1":[8.119999999999998131910534787674951689087991661311802126367475]}
+{"array_decimal256_1":[8.119999999999999559158227493634832592631456200134404150917875]}
 {"array_decimal256_1":[9.119999999999998794758991324139931354228209686223088624073300]}
-{"array_decimal256_1":[10.119999999999998030359414872278109177361536691192488748120500]}
+{"array_decimal256_1":[10.119999999999999457607107578237990080905001230015090772670900]}
 {"array_decimal256_1":[11.119999999999998693207871408743088842501754716103775245826325]}
-{"array_decimal256_1":[12.119999999999997928808635239248187604098508202192459718981750]}
-{"array_decimal256_1":[13.119999999999997164409058787386365427231835207161859843028950]}
+{"array_decimal256_1":[12.119999999999999356056327945208068507641972741015061743532150]}
+{"array_decimal256_1":[13.120000000000000018904444199306127234318764284807063892129750]}
 {"array_decimal256_1":[14.119999999999999254505208029811225995915517770895748365285175]}
 {"array_decimal256_1":[15.119999999999998490105971860316324757512271256984432838440600]}
 {"array_decimal256_1":[16.120000000000000580201780820374264387732527339599037011588600]}
 {"array_decimal256_1":[17.119999999999999815802544650879363149329280825687721484744025]}
-{"array_decimal256_1":[18.119999999999999051403308481384461910926034311776405957899450]}
+{"array_decimal256_1":[18.120000000000001905898693893304223718012963389421610007000250]}
 {"array_decimal256_1":[19.120000000000001141499457723809322479609716875510294480155675]}
 {"array_decimal256_1":[20.120000000000000377099881271947500302743043880479694604202875]}
 {"array_decimal256_1":[21.119999999999999612700645102452599064339797366568379077358300]}
-{"array_decimal256_1":[22.119999999999998848301408932957697825936550852657063550513725]}
+{"array_decimal256_1":[22.120000000000001702796794344877459633023479930302267599614525]}
 {"array_decimal256_1":[23.120000000000000938397217893015637456156806935271667723661725]}
 {"array_decimal256_1":[24.120000000000000173997981723520736217753560421360352196817150]}
-{"array_decimal256_1":[25.119999999999999409598745554025834979350313907449036669972575]}
+{"array_decimal256_1":[25.120000000000002264094130965945596786437242985094240719073375]}
 {"array_decimal256_1":[26.120000000000001499694554514083774609570569990063640843120575]}
 {"array_decimal256_1":[27.120000000000000735295318344588873371167323476152325316276000]}
 {"array_decimal256_1":[28.119999999999999970896082175093972132764076962241009789431425]}

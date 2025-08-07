@@ -425,6 +425,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AWS_SDK " ]]; then
                 bash ./prefetch_crt_dependency.sh
             fi
             patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119.patch"
+            patch -p1 <"${TP_PATCH_DIR}/aws-sdk-cpp-1.11.119-cmake.patch"
         else
             bash ./prefetch_crt_dependency.sh
         fi
@@ -436,7 +437,7 @@ fi
 
 # patch simdjson, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
 if [[ " ${TP_ARCHIVES[*]} " =~ " SIMDJSON " ]]; then
-    if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
+    if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.11.6" ]]; then
         cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
@@ -489,6 +490,58 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " BASE64 " ]]; then
     echo "Finished patching ${BASE64_SOURCE}"
 fi
 
+# patch libuuid
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUUID " ]]; then
+    if [[ "${LIBUUID_SOURCE}" = "libuuid-1.0.3" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libuuid-1.0.3.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBUUID_SOURCE}"
+fi
+
+# patch libdivide
+if [[ " ${TP_ARCHIVES[*]} " =~ " LIBDIVIDE " ]]; then
+    if [[ "${LIBDIVIDE_SOURCE}" = "libdivide-5.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${LIBDIVIDE_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/libdivide-5.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${LIBDIVIDE_SOURCE}"
+fi
+
+# patch grpc
+if [[ " ${TP_ARCHIVES[*]} " =~ " GRPC " ]]; then
+    if [[ "${GRPC_SOURCE}" = "grpc-1.54.3" ]]; then
+        cd "${TP_SOURCE_DIR}/${GRPC_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/grpc-1.54.3.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${GRPC_SOURCE}"
+fi
+
+# patch flatbuffer
+if [[ " ${TP_ARCHIVES[*]} " =~ " FLATBUFFERS " ]]; then
+    if [[ "${FLATBUFFERS_SOURCE}" = "flatbuffers-2.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${FLATBUFFERS_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/flatbuffers-2.0.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${FLATBUFFERS_SOURCE}"
+fi
+
 # patch krb
 if [[ " ${TP_ARCHIVES[*]} " =~ " KRB5 " ]]; then
     if [[ "${KRB5_SOURCE}" = "krb5-1.19" ]]; then
@@ -537,6 +590,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
     echo "Finished patching ${THRIFT_SOURCE}"
 fi
 
+# patch faiss cmake so that we can use openblas
+if [[ " ${TP_ARCHIVES[*]} " =~ " FAISS " ]]; then
+    if [[ "${FAISS_SOURCE}" = "faiss-1.10.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${FAISS_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p2 <"${TP_PATCH_DIR}/faiss-1.10.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${FAISS_SOURCE}"
+fi
+
 # patch re2
 if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
     if [[ "${RE2_SOURCE}" == 're2-2021-02-02' ]]; then
@@ -551,6 +617,17 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
         cd -
     fi
     echo "Finished patching ${RE2_SOURCE}"
+fi
+
+# patch azure
+if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
+    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/azure-sdk-for-cpp-azure-core_1.16.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${GRPC_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

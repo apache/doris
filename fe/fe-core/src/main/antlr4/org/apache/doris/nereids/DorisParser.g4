@@ -497,6 +497,8 @@ unsupportedAdminStatement
     | ADMIN DIAGNOSE TABLET tabletId=INTEGER_VALUE                                  #adminDiagnoseTablet
     | ADMIN SHOW TABLET STORAGE FORMAT VERBOSE?                                     #adminShowTabletStorageFormat
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET ENCRYPTION ROOT KEY PROPERTIES LEFT_PAREN propertyItemList 
+        RIGHT_PAREN                                                                 #adminSetEncryptionRootKey
     | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
     ;
 
@@ -1482,6 +1484,10 @@ namedExpressionSeq
 
 expression
     : booleanExpression
+    ;
+
+funcExpression
+    : expression
     | lambdaExpression
     ;
 
@@ -1581,7 +1587,7 @@ functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
                   (DISTINCT|ALL)?
-                  arguments+=expression (COMMA arguments+=expression)*
+                  arguments+=funcExpression (COMMA arguments+=funcExpression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
             (OVER windowSpec)?
@@ -1905,6 +1911,7 @@ nonReserved
     | DYNAMIC
     | E
     | ENABLE
+    | ENCRYPTION
     | ENCRYPTKEY
     | ENCRYPTKEYS
     | END
@@ -2066,6 +2073,7 @@ nonReserved
     | RLIKE
     | ROLLBACK
     | ROLLUP
+    | ROOT
     | ROUTINE
     | S3
     | SAMPLE

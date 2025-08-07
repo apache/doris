@@ -145,11 +145,14 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
-import org.apache.doris.encryption.KeyManager;
+import org.apache.doris.encryption.KeyManagerFactory;
+import org.apache.doris.encryption.KeyManagerInterface;
+import org.apache.doris.encryption.KeyManagerStore;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
@@ -189,6 +192,7 @@ import org.apache.doris.master.PartitionInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
@@ -587,7 +591,9 @@ public class Env {
 
     private TokenManager tokenManager;
 
-    private KeyManager keyManager;
+    private KeyManagerStore keyManagerStore;
+
+    private KeyManagerInterface keyManager;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -689,6 +695,13 @@ public class Env {
 
     public BinlogManager getBinlogManager() {
         return binlogManager;
+    }
+
+    public KeyManagerInterface getKeyManager() throws Exception {
+        if (keyManager == null) {
+            throw new Exception("The keyManager is null, possibly due to a missing implementation of KeyManager");
+        }
+        return keyManager;
     }
 
     private static class SingletonHolder {
@@ -838,7 +851,8 @@ public class Env {
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
-        this.keyManager = new KeyManager();
+        this.keyManagerStore = new KeyManagerStore();
+        this.keyManager = KeyManagerFactory.getKeyManager();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -986,6 +1000,10 @@ public class Env {
 
     public PlsqlManager getPlsqlManager() {
         return plsqlManager;
+    }
+
+    public KeyManagerStore getKeyManagerStore() {
+        return keyManagerStore;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1942,6 +1960,9 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        if (keyManager != null) {
+            keyManager.init();
+        }
     }
 
     // start threads that should run on all FE
@@ -2505,9 +2526,9 @@ public class Env {
         return checksum;
     }
 
-    public long loadKeyManager(DataInputStream in, long checksum) throws IOException {
-        this.keyManager = KeyManager.read(in);
-        LOG.info("finished replay KeyManager from image");
+    public long loadKeyManagerStore(DataInputStream in, long checksum) throws IOException {
+        this.keyManagerStore = KeyManagerStore.read(in);
+        LOG.info("finished replay KeyManagerStore from image");
         return checksum;
     }
 
@@ -2794,8 +2815,8 @@ public class Env {
         return checksum;
     }
 
-    public long saveKeyManager(CountingDataOutputStream out, long checksum) throws IOException {
-        this.keyManager.write(out);
+    public long saveKeyManagerStore(CountingDataOutputStream out, long checksum) throws IOException {
+        this.keyManagerStore.write(out);
         LOG.info("finished save KeyManager to image");
         return checksum;
     }
@@ -3565,7 +3586,7 @@ public class Env {
         }
     }
 
-    private static void addMTMVPartitionInfo(MTMV mtmv, StringBuilder sb) {
+    private static void addMTMVPartitionInfo(MTMV mtmv, StringBuilder sb) throws AnalysisException {
         MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return;
@@ -3574,7 +3595,7 @@ public class Env {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
             sb.append("`" + mvPartitionInfo.getPartitionCol() + "`");
         } else {
-            sb.append(mvPartitionInfo.getExpr().toSql());
+            sb.append(MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr()).toSql(mvPartitionInfo));
         }
         sb.append(")");
     }
@@ -3759,6 +3780,12 @@ public class Env {
         if (olapTable.storagePageSize() != PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE).append("\" = \"");
             sb.append(olapTable.storagePageSize()).append("\"");
+        }
+
+        // storage dict page size
+        if (olapTable.storageDictPageSize() != PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.storageDictPageSize()).append("\"");
         }
 
         // skip inverted index on load
@@ -4209,6 +4236,21 @@ public class Env {
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
             Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
+            while (iterator.hasNext()) {
+                Entry<String, String> prop = iterator.next();
+                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
+                if (iterator.hasNext()) {
+                    sb.append(",");
+                }
+            }
+            sb.append("\n)");
+        } else if (table.getType() == TableType.PAIMON_EXTERNAL_TABLE) {
+            addTableComment(table, sb);
+            PaimonExternalTable paimonExternalTable = (PaimonExternalTable) table;
+            Map<String, String> properties = paimonExternalTable.getTableProperties();
+            sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
+            sb.append("\nPROPERTIES (");
+            Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
             while (iterator.hasNext()) {
                 Entry<String, String> prop = iterator.next();
                 sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");

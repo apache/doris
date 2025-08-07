@@ -131,6 +131,13 @@ Status NewOlapScanner::init() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+
+    DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
+        LOG_WARNING("CloudTablet.capture_rs_readers.return e-230 init")
+                .tag("tablet_id", tablet->tablet_id());
+        return Status::Error<false>(-230, "injected error");
+    });
+
     for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
@@ -556,9 +563,18 @@ void NewOlapScanner::update_realtime_counters() {
     // In case of no cache, we still need to update the IO stats. uncompressed bytes read == local + remote
     if (stats.file_cache_stats.bytes_read_from_local == 0 &&
         stats.file_cache_stats.bytes_read_from_remote == 0) {
+        if (_query_statistics) {
+            _query_statistics->add_scan_bytes_from_local_storage(stats.compressed_bytes_read);
+        }
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.compressed_bytes_read);
     } else {
+        if (_query_statistics) {
+            _query_statistics->add_scan_bytes_from_local_storage(
+                    stats.file_cache_stats.bytes_read_from_local);
+            _query_statistics->add_scan_bytes_from_remote_storage(
+                    stats.file_cache_stats.bytes_read_from_remote);
+        }
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(

@@ -94,11 +94,11 @@ suite("test_all_prdefine_type_to_sparse", "p0"){
               "ipv4_1": "192.168.1.1",
               "ipv6_1": "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
               "array_boolean_1": [true],
-              "array_tinyint_1": [1],
-              "array_smallint_1": [1],
-              "array_int_1": [1],
-              "array_bigint_1": [1],
-              "array_largeint_1": [1],
+              "array_tinyint_1": [1, null],
+              "array_smallint_1": [1, null],
+              "array_int_1": [1, null],
+              "array_bigint_1": [1, null],
+              "array_largeint_1": [1, null],
               "array_char_1": ["1"],
               "array_string_1": ["1"],
               "array_float_1": [1.12],
@@ -240,7 +240,7 @@ suite("test_all_prdefine_type_to_sparse", "p0"){
 
     check_table();
     
-    sql """ insert into ${tableName}  values (192, '{"array_smallint_1": [1]}'),(193, '{"array_smallint_1": [2]}'),(194, '{"array_smallint_1": [3]}'),(195, '{"array_smallint_1": [4]}'),
+    sql """ insert into ${tableName}  values (192, '{"array_smallint_1": [1]}'),(193, '{"array_smallint_1": [2, null]}'),(194, '{"array_smallint_1": [3]}'),(195, '{"array_smallint_1": [4]}'),
     (196, '{"array_smallint_1": [5]}'),(197, '{"array_smallint_1": [6]}'),(198, '{"array_smallint_1": [7]}'),(199, '{"array_smallint_1": [8]}'),(200, '{"array_smallint_1": [9]}'),(201, '{"array_smallint_1": [10]}'),
     (202, '{"array_smallint_1": [11]}'),(203, '{"array_smallint_1": [12]}'),(204, '{"array_smallint_1": [13]}'),(205, '{"array_smallint_1": [14]}'),(206, '{"array_smallint_1": [15]}'),(207, '{"array_smallint_1": [16]}'),
     (208, '{"array_smallint_1": [17]}'),(209, '{"array_smallint_1": [18]}'),(210, '{"array_smallint_1": [19]}'); """
@@ -261,7 +261,7 @@ suite("test_all_prdefine_type_to_sparse", "p0"){
 
     check_table();
 
-    sql """ insert into ${tableName}  values (252, '{"array_largeint_1": [1]}'),(253, '{"array_largeint_1": [2]}'),(254, '{"array_largeint_1": [3]}'),(255, '{"array_largeint_1": [4]}'),
+    sql """ insert into ${tableName}  values (252, '{"array_largeint_1": [1, null]}'),(253, '{"array_largeint_1": [2]}'),(254, '{"array_largeint_1": [3]}'),(255, '{"array_largeint_1": [4]}'),
     (256, '{"array_largeint_1": [5]}'),(257, '{"array_largeint_1": [6]}'),(258, '{"array_largeint_1": [7]}'),(259, '{"array_largeint_1": [8]}'),(260, '{"array_largeint_1": [9]}'),(261, '{"array_largeint_1": [10]}'),
     (262, '{"array_largeint_1": [11]}'),(263, '{"array_largeint_1": [12]}'),(264, '{"array_largeint_1": [13]}'),(265, '{"array_largeint_1": [14]}'),(266, '{"array_largeint_1": [15]}'),(267, '{"array_largeint_1": [16]}'),
     (268, '{"array_largeint_1": [17]}'),(269, '{"array_largeint_1": [18]}'),(270, '{"array_largeint_1": [19]}'),(271, '{"array_largeint_1": [20]}'),(272, '{"array_largeint_1": [21]}'),(273, '{"array_largeint_1": [22]}'); """

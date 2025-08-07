@@ -470,6 +470,10 @@ public:
         }
         return 0;
     }
+    void set_storage_dict_page_size(long storage_dict_page_size) {
+        _storage_dict_page_size = storage_dict_page_size;
+    }
+    long storage_dict_page_size() const { return _storage_dict_page_size; }
 
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
@@ -683,6 +687,7 @@ private:
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     long _storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    long _storage_dict_page_size = segment_v2::STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 

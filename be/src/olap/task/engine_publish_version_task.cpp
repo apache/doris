@@ -220,17 +220,17 @@ Status EnginePublishVersionTask::execute() {
                         if (config::enable_auto_clone_on_mow_publish_missing_version) {
                             LOG_INFO("mow publish submit missing rowset clone task.")
                                     .tag("tablet_id", tablet->tablet_id())
-                                    .tag("version", version.first - 1)
+                                    .tag("version", version.second)
                                     .tag("replica_id", tablet->replica_id())
                                     .tag("partition_id", tablet->partition_id())
                                     .tag("table_id", tablet->table_id());
-                            Status st = _engine.submit_clone_task(tablet.get(), version.first - 1);
+                            Status st = _engine.submit_clone_task(tablet.get(), version.second);
                             if (!st) {
                                 LOG_WARNING(
                                         "mow publish failed to submit missing rowset clone task.")
                                         .tag("st", st.msg())
                                         .tag("tablet_id", tablet->tablet_id())
-                                        .tag("version", version.first - 1)
+                                        .tag("version", version.second)
                                         .tag("replica_id", tablet->replica_id())
                                         .tag("partition_id", tablet->partition_id())
                                         .tag("table_id", tablet->table_id());

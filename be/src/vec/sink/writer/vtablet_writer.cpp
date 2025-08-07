@@ -126,8 +126,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 if (incremental) {
                     _has_inc_node = true;
                 }
-                VLOG_CRITICAL << "init new node for instance " << _parent->_sender_id
-                              << ", incremantal:" << incremental;
+                LOG(INFO) << "init new node for instance " << _parent->_sender_id
+                          << ", node id:" << replica_node_id << ", incremantal:" << incremental;
             } else {
                 channel = it->second;
             }
@@ -343,6 +343,7 @@ Status IndexChannel::close_wait(
 
     // 2. wait for all node channel to complete as much as possible
     if (!unfinished_node_channel_ids.empty() && need_wait_after_quorum_success) {
+        int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(unfinished_node_channel_ids);
         while (true) {
             RETURN_IF_ERROR(check_each_node_channel_close(&unfinished_node_channel_ids,
@@ -351,7 +352,7 @@ Status IndexChannel::close_wait(
             if (unfinished_node_channel_ids.empty()) {
                 break;
             }
-            int64_t elapsed_ms = UnixMillis() - _start_time;
+            int64_t elapsed_ms = UnixMillis() - arrival_quorum_success_time;
             if (elapsed_ms > max_wait_time_ms ||
                 _parent->_load_channel_timeout_s - elapsed_ms / 1000 <
                         config::quorum_success_remaining_timeout_seconds) {
@@ -469,6 +470,7 @@ int64_t IndexChannel::_calc_max_wait_time_ms(
 
     // 3. calculate max wait time
     // introduce quorum_success_min_wait_seconds to avoid jitter of small load
+    max_wait_time_ms -= UnixMillis() - _start_time;
     max_wait_time_ms =
             std::max(static_cast<int64_t>(static_cast<double>(max_wait_time_ms) *
                                           (1.0 + config::quorum_success_max_wait_multiplier)),
@@ -1012,7 +1014,17 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
         if (!st.ok()) {
             _cancel_with_msg(st.to_string());
         } else if (ctx._is_last_rpc) {
+            bool skip_tablet_info = false;
+            DBUG_EXECUTE_IF("VNodeChannel.add_block_success_callback.incomplete_commit_info",
+                            { skip_tablet_info = true; });
             for (const auto& tablet : result.tablet_vec()) {
+                DBUG_EXECUTE_IF("VNodeChannel.add_block_success_callback.incomplete_commit_info", {
+                    if (skip_tablet_info) {
+                        LOG(INFO) << "skip tablet info: " << tablet.tablet_id();
+                        skip_tablet_info = false;
+                        continue;
+                    }
+                });
                 TTabletCommitInfo commit_info;
                 commit_info.tabletId = tablet.tablet_id();
                 commit_info.backendId = _node_id;
@@ -1242,7 +1254,8 @@ void VNodeChannel::mark_close(bool hang_wait) {
         DCHECK(_pending_blocks.back().second->eos());
         _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
-                  << " mark closed, left pending batch size: " << _pending_blocks.size();
+                  << " mark closed, left pending batch size: " << _pending_blocks.size()
+                  << " hang_wait: " << hang_wait;
     }
 
     _eos_is_produced = true;
@@ -1365,7 +1378,8 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
     if (_write_single_replica) {
-        _slave_location->add_locations(*new_locations);
+        auto* slave_locations = _pool->add(new std::vector<TTabletLocation>(result->slave_tablets));
+        _slave_location->add_locations(*slave_locations);
     }
 
     // update new node info
@@ -1393,6 +1407,7 @@ Status VTabletWriter::_init_row_distribution() {
                             .vec_output_expr_ctxs = &_vec_output_expr_ctxs,
                             .schema = _schema,
                             .caller = this,
+                            .write_single_replica = _write_single_replica,
                             .create_partition_callback = &vectorized::on_partitions_created});
 
     return _row_distribution.open(_output_row_desc);

@@ -58,7 +58,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
     });
 }
 
-Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr schema,
+                                     RowsetId rowset_id,
                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                      DeleteBitmapPtr delete_bitmap) {
     {
@@ -68,7 +69,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetId rowset_id,
     }
     return _thread_token->submit_func([=, this]() {
         SCOPED_ATTACH_TASK(_query_thread_context);
-        auto st = tablet->calc_delete_bitmap_between_segments(rowset_id, segments, delete_bitmap);
+        auto st = tablet->calc_delete_bitmap_between_segments(schema, rowset_id, segments,
+                                                              delete_bitmap);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc delete bitmap between segments, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << rowset_id

@@ -801,10 +801,8 @@ std::string ResourceManager::update_cluster(
     }
 
     std::vector<ClusterPB> clusters_in_instance;
-    std::set<std::string> cluster_names;
     // collect cluster in instance pb for check
     for (auto& i : instance.clusters()) {
-        cluster_names.emplace(i.cluster_name());
         clusters_in_instance.emplace_back(i);
     }
 
@@ -835,8 +833,11 @@ std::string ResourceManager::update_cluster(
 
     // check cluster_name is empty cluster, if empty and replace_if_existing_empty_target_cluster == true, drop it
     if (replace_if_existing_empty_target_cluster) {
-        auto it = cluster_names.find(cluster_name);
-        if (it != cluster_names.end()) {
+        auto it = std::find_if(clusters_in_instance.begin(), clusters_in_instance.end(),
+                               [&cluster_name](const auto& cluster) {
+                                   return cluster_name == cluster.cluster_name();
+                               });
+        if (it != clusters_in_instance.end()) {
             // found it, if it's an empty cluster, drop it from instance
             int idx = -1;
             for (auto& cluster : instance.clusters()) {
@@ -849,7 +850,7 @@ std::string ResourceManager::update_cluster(
                                 instance.clusters());
                         clusters.DeleteSubrange(idx, 1);
                         // Remove cluster name from set
-                        cluster_names.erase(cluster_name);
+                        clusters_in_instance.erase(it);
                         LOG(INFO) << "remove empty cluster due to it is the target of a "
                                      "rename_cluster, cluster_name="
                                   << cluster_name;

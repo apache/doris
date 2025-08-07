@@ -661,6 +661,20 @@ public class SchemaTable extends Table {
                             .column("IS_OVERLAP", ScalarType.createType(PrimitiveType.BOOLEAN))
                             .build())
             )
+            .put("encryption_keys",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "encryption_keys", TableType.SCHEMA,
+                        builder().column("ID", ScalarType.createStringType())
+                            .column("VERSION", ScalarType.createType(PrimitiveType.INT))
+                            .column("PARENT_ID", ScalarType.createStringType())
+                            .column("PARENT_VERSION", ScalarType.createType(PrimitiveType.INT))
+                            .column("TYPE", ScalarType.createStringType())
+                            .column("ALGORITHM", ScalarType.createStringType())
+                            .column("CIPHER", ScalarType.createStringType())
+                            .column("IV", ScalarType.createStringType())
+                            .column("CRC", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("CTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                            .column("MTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                            .build()))
             .build();
 
     private boolean fetchAllFe = false;

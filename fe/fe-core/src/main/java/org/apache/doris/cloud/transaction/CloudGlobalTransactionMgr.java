@@ -72,6 +72,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -405,7 +406,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (!checkTransactionStateBeforeCommit(dbId, transactionId)) {
                     return;
                 }
-                DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
+                DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext(transactionId);
                 getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext);
                 if (lockContext.getBackendToPartitionTablets().isEmpty()) {
                     throw new UserException(
@@ -687,6 +688,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC)
             throws UserException {
+        checkCommitInfo(commitTxnRequest);
+
         CommitTxnResponse commitTxnResponse = null;
         TransactionState txnState = null;
         int retryTime = 0;
@@ -746,6 +749,73 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         afterCommitTxnResp(commitTxnResponse);
         return txnState;
+    }
+
+    private void checkCommitInfo(CommitTxnRequest commitTxnRequest) throws UserException {
+        List<Long> commitTabletIds = Lists.newArrayList();
+        List<Long> commitIndexIds = Lists.newArrayList();
+        commitTabletIds.addAll(commitTxnRequest.getBaseTabletIdsList());
+        for (SubTxnInfo subTxnInfo : commitTxnRequest.getSubTxnInfosList()) {
+            commitTabletIds.addAll(subTxnInfo.getBaseTabletIdsList());
+        }
+        if (commitTabletIds.isEmpty()) {
+            return;
+        }
+
+        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
+        List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(commitTabletIds);
+        Map<OlapTable, Set<Long>> tableToPartition = Maps.newHashMap();
+        for (int i = 0; i < tabletMetaList.size(); i++) {
+            TabletMeta tabletMeta = tabletMetaList.get(i);
+            if (tabletMeta == null) {
+                continue;
+            }
+            long tableId = tabletMeta.getTableId();
+            long dbId = tabletMeta.getDbId();
+            Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                // this can happen when dbId == -1 (tablet being dropping) or db really not exist.
+                continue;
+            }
+            OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
+            if (tbl == null) {
+                // this can happen when tableId == -1 (tablet being dropping) or table really not exist.
+                continue;
+            }
+            // check relative partition restore here
+            long partitionId = tabletMeta.getPartitionId();
+            if (tbl.getPartition(partitionId) == null) {
+                // this can happen when partitionId == -1 (tablet being dropping) or partition really not exist.
+                continue;
+            }
+            tableToPartition.computeIfAbsent(tbl, k -> Sets.newHashSet()).add(partitionId);
+            commitIndexIds.add(tabletMeta.getIndexId());
+        }
+
+        for (OlapTable tbl : tableToPartition.keySet()) {
+            for (Partition partition : tbl.getAllPartitions()) {
+                if (!tableToPartition.get(tbl).contains(partition.getId())) {
+                    continue;
+                }
+                List<MaterializedIndex> allIndices
+                            = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                for (MaterializedIndex index : allIndices) {
+                    // Schema change during load will increase partition index number,
+                    // and we need to skip these indexes.
+                    // TODO: judge by transactionState.getLoadedTblIndexes() is better
+                    if (!commitIndexIds.contains(index.getId())) {
+                        continue;
+                    }
+                    for (Tablet tablet : index.getTablets()) {
+                        if (!commitTabletIds.contains(tablet.getId())) {
+                            throw new LoadException("Table [" + tbl.getName() + "], Index ["
+                                    + index.getId() + "], Partition [" + partition.getName()
+                                    + "], tablet " + tablet.getId() + " should be committed");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // return mow tables with contains tablet commit info
@@ -821,6 +891,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 throw new MetaNotFoundException("partition " + partitionId + " does not exist");
             }
             lockContext.getPartitions().putIfAbsent(partitionId, partition);
+        }
+        if (!tableList.isEmpty() && !tabletCommitInfos.isEmpty() && lockContext.getTableToTabletList().isEmpty()) {
+            String tableListDebugStr = tableList.stream().map(table -> String.valueOf(table.getId()))
+                    .collect(Collectors.joining(", "));
+            String tabletMetaDebugStr = tabletMetaList.stream().map(TabletMeta::toString)
+                    .collect(Collectors.joining("\n"));
+            LOG.warn(
+                    "getPartitionInfo for lock_id: {} failed, LockContext.TableToTabletList is empty,"
+                            + " this should never happen. tableList: {}, tabletIds: {}, tabletMetaList: {}",
+                    lockContext.getLockId(), tableListDebugStr, tabletIds.toString(), tabletMetaDebugStr);
         }
     }
 

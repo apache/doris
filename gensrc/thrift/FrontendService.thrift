@@ -1560,6 +1560,7 @@ struct TCreatePartitionRequest {
     4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    6: optional bool write_single_replica = false
 }
 
 struct TCreatePartitionResult {
@@ -1567,6 +1568,7 @@ struct TCreatePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
+    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 // these two for auto detect replacing partition
@@ -1577,6 +1579,7 @@ struct TReplacePartitionRequest {
     4: optional list<i64> partition_ids // partition to replace.
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    6: optional bool write_single_replica = false
 }
 
 struct TReplacePartitionResult {
@@ -1584,6 +1587,7 @@ struct TReplacePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
+    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 struct TGetMetaReplica {
@@ -1801,6 +1805,40 @@ struct TFetchRoutineLoadJobResult {
     1: optional list<TRoutineLoadJob> routineLoadJobs
 }
 
+enum TEncryptionAlgorithm {
+    AES256 = 0,
+    SM4 = 1
+}
+
+enum TEncryptionKeyType {
+    MASTER_KEY = 0,
+    DATA_KEY = 1,
+}
+
+struct TEncryptionKey {
+    1: optional string id
+    2: optional i32 version
+    3: optional string parent_id
+    4: optional i32 parent_version
+    5: optional TEncryptionKeyType type
+    6: optional TEncryptionAlgorithm algorithm
+    7: optional string ciphertext
+    8: optional binary plaintext
+    9: optional string iv
+    10: optional i64 crc
+    11: optional i64 ctime
+    12: optional i64 mtime
+}
+
+struct TGetEncryptionKeysRequest {
+    2: optional i32 version
+}
+
+struct TGetEncryptionKeysResult {
+    1: optional Status.TStatus status
+    2: optional list<TEncryptionKey> master_keys
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1902,4 +1940,6 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 }

@@ -73,6 +73,7 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         LOG_WARNING("try to access tablet file cache meta, but file cache not enabled");
         return;
     }
+    LOG(INFO) << "warm up get meta from this be, tablets num=" << request->tablet_ids().size();
     for (const auto& tablet_id : request->tablet_ids()) {
         auto res = _engine.tablet_mgr().get_tablet(tablet_id);
         if (!res.has_value()) {
@@ -105,6 +106,8 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
             }
         });
     }
+    VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
+               << ", response=" << response->DebugString();
 }
 
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_segment_num(

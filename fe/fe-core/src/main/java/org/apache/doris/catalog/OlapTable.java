@@ -512,17 +512,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return;
         }
         HashDistributionInfo distributionInfo = (HashDistributionInfo) defaultDistributionInfo;
-        Set<String> originalColumnsNames =
-                distributionInfo.getDistributionColumns()
-                        .stream()
-                        .map(Column::getName)
-                        .collect(Collectors.toSet());
-
-        List<Column> newDistributionColumns = getBaseSchema()
+        List<Column> newDistributionColumns = distributionInfo.getDistributionColumns()
                 .stream()
-                .filter(column -> originalColumnsNames.contains(column.getName()))
+                .map(Column::getName)
+                .map(this::getBaseColumn)
                 .map(Column::new)
                 .collect(Collectors.toList());
+
         distributionInfo.setDistributionColumns(newDistributionColumns);
 
         getPartitions()
@@ -2770,6 +2766,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return tableProperty.storagePageSize();
         }
         return PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    }
+
+    public void setStorageDictPageSize(long storageDictPageSize) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE,
+                Long.valueOf(storageDictPageSize).toString());
+        tableProperty.buildStorageDictPageSize();
+    }
+
+    public long storageDictPageSize() {
+        if (tableProperty != null) {
+            return tableProperty.storageDictPageSize();
+        }
+        return PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {

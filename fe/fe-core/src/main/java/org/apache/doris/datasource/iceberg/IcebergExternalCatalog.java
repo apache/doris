@@ -18,20 +18,19 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
-import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.catalog.Catalog;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -46,32 +45,49 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected String icebergCatalogType;
     protected Catalog catalog;
 
+    private AbstractIcebergProperties msProperties;
+
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
     }
 
     // Create catalog based on catalog type
-    protected abstract void initCatalog();
+    protected void initCatalog() {
+        try {
+            msProperties = (AbstractIcebergProperties) MetastoreProperties
+                    .create(getProperties());
+            this.catalog = msProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
+                    .getStoragePropertiesMap().values()));
+
+            this.icebergCatalogType = msProperties.getIcebergCatalogType();
+        } catch (UserException e) {
+            throw new RuntimeException("Failed to initialize Iceberg catalog: " + e.getMessage(), e);
+        } catch (ClassCastException e) {
+            throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);
+        } catch (Exception e) {
+            throw new RuntimeException("Unexpected error while initializing Iceberg catalog: " + e.getMessage(), e);
+        }
+    }
 
     @Override
     protected synchronized void initPreExecutionAuthenticator() {
-        if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
+        if (executionAuthenticator == null) {
+            executionAuthenticator = msProperties.getExecutionAuthenticator();
         }
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        initPreExecutionAuthenticator();
         initCatalog();
+        initPreExecutionAuthenticator();
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
-            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
-            Integer.MAX_VALUE,
-            String.format("iceberg_catalog_%s_executor_pool", name),
-            true,
-            preExecutionAuthenticator);
+                ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+                Integer.MAX_VALUE,
+                String.format("iceberg_catalog_%s_executor_pool", name),
+                true,
+                executionAuthenticator);
         metadataOps = ops;
     }
 
@@ -120,11 +136,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         if (null != catalog) {
             catalog = null;
         }
-    }
-
-    protected void initS3Param(Configuration conf) {
-        Map<String, String> properties = catalogProperty.getHadoopProperties();
-        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
     }
 
     @Override

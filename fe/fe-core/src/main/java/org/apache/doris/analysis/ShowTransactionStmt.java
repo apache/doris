@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TransProcDir;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -76,19 +77,18 @@ public class ShowTransactionStmt extends ShowStmt implements NotFallbackInParser
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PrivPredicate.ADMIN.getPrivs().toString());
-        }
-
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         }
-
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                    PrivPredicate.LOAD.getPrivs().toString(), dbName);
+        }
         if (whereClause == null) {
             throw new AnalysisException("Missing transaction id");
         }

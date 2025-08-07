@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
@@ -87,7 +87,8 @@ public class IcebergTransactionTest {
         hadoopCatalog.initialize("df", props);
         this.spyExternalCatalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(spyExternalCatalog.getCatalog()).thenReturn(hadoopCatalog);
-        Mockito.when(spyExternalCatalog.getPreExecutionAuthenticator()).thenReturn(new PreExecutionAuthenticator());
+        Mockito.when(spyExternalCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
         ops = new IcebergMetadataOps(spyExternalCatalog, hadoopCatalog);
     }
 
