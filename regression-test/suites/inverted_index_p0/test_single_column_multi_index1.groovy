@@ -148,13 +148,15 @@ suite("test_single_column_multi_index1", "p0") {
       loadTestData()
       runMatchQueries()
 
-      sql """ BUILD INDEX request_text_idx ON ${tableName}; """
+      
       if (!isCloudMode()) {
-          wait_for_build_index_on_partition_finish(tableName, timeout)
+        sql """ BUILD INDEX request_text_idx ON ${tableName}; """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
       }
-      sql """ BUILD INDEX request_keyword_idx ON ${tableName}; """
+
       if (!isCloudMode()) {
-          wait_for_build_index_on_partition_finish(tableName, timeout)
+        sql """ BUILD INDEX request_keyword_idx ON ${tableName}; """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
       }
 
       runMatchQueries()
