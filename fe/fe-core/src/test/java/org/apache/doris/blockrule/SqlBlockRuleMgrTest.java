@@ -25,8 +25,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.common.NereidsException;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.exceptions.DoNotFallbackException;
 import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -77,7 +77,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         String setPropertyStr = "set property for \"root\" \"sql_block_rules\" = \"test_rule\"";
         SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) parseAndAnalyzeStmt(setPropertyStr);
         Env.getCurrentEnv().getAuth().updateUserProperty(setUserPropertyStmt);
-        ExceptionChecker.expectThrowsWithMsg(NereidsException.class, "sql match hash sql block rule: test_rule",
+        ExceptionChecker.expectThrowsWithMsg(DoNotFallbackException.class, "sql match hash sql block rule: test_rule",
                 () -> Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(sql, sqlHash, "root"));
         dropSqlBlockRule(dropSqlRule);
     }
@@ -89,7 +89,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         String sqlRule = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sql\"=\"select \\\\* from test_table1\","
                 + " \"global\"=\"true\", \"enable\"=\"true\");";
         createSqlBlockRule(sqlRule);
-        ExceptionChecker.expectThrowsWithMsg(NereidsException.class, "sql match regex sql block rule: test_rule",
+        ExceptionChecker.expectThrowsWithMsg(DoNotFallbackException.class, "sql match regex sql block rule: test_rule",
                 () -> mgr.matchSql(sql, sqlHash, "test"));
         dropSqlBlockRule(dropSqlRule);
     }
@@ -101,7 +101,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         String sqlRule = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sql\"=\".* join .*\", \"global\"=\"true\","
                 + " \"enable\"=\"true\");";
         createSqlBlockRule(sqlRule);
-        ExceptionChecker.expectThrowsWithMsg(NereidsException.class, "sql match regex sql block rule: test_rule",
+        ExceptionChecker.expectThrowsWithMsg(DoNotFallbackException.class, "sql match regex sql block rule: test_rule",
                 () -> mgr.matchSql(sql, sqlHash, "root"));
         dropSqlBlockRule(dropSqlRule);
     }
@@ -113,7 +113,7 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
         String sqlRule = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sqlHash\"=\"" + sqlHash
                 + "\", \"global\"=\"true\", \"enable\"=\"true\");";
         createSqlBlockRule(sqlRule);
-        ExceptionChecker.expectThrowsWithMsg(NereidsException.class, "sql match hash sql block rule: test_rule",
+        ExceptionChecker.expectThrowsWithMsg(DoNotFallbackException.class, "sql match hash sql block rule: test_rule",
                 () -> mgr.matchSql(sql, sqlHash, "root"));
         dropSqlBlockRule(dropSqlRule);
     }
@@ -314,16 +314,16 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
                 + " \"global\"=\"true\", \"enable\"=\"true\");";
         createSqlBlockRule(sqlRule);
         Config.sql_block_rule_ignore_admin = false;
-        ExceptionChecker.expectThrowsWithMsg(NereidsException.class,
+        ExceptionChecker.expectThrowsWithMsg(DoNotFallbackException.class,
                 "sql match regex sql block rule: test_rule",
                 () -> mgr.matchSql(sql, sqlHash, "root"));
-        ExceptionChecker.expectThrowsWithMsg(NereidsException.class,
+        ExceptionChecker.expectThrowsWithMsg(DoNotFallbackException.class,
                 "sql match regex sql block rule: test_rule",
                 () -> mgr.matchSql(sql, sqlHash, "admin"));
         Config.sql_block_rule_ignore_admin = true;
         ExceptionChecker.expectThrowsNoException(() -> mgr.matchSql(sql, sqlHash, "root"));
         ExceptionChecker.expectThrowsNoException(() -> mgr.matchSql(sql, sqlHash, "admin"));
-        ExceptionChecker.expectThrowsWithMsg(NereidsException.class,
+        ExceptionChecker.expectThrowsWithMsg(DoNotFallbackException.class,
                 "sql match regex sql block rule: test_rule",
                 () -> mgr.matchSql(sql, sqlHash, "other_user"));
         Config.sql_block_rule_ignore_admin = false;

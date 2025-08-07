@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -258,13 +257,13 @@ public class SqlBlockRuleMgr implements Writable {
             if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
                     && rule.getSqlHash().equals(sqlHash)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new NereidsException(new DoNotFallbackException("sql match hash sql block rule: "
-                        + rule.getName()));
+                throw new DoNotFallbackException("sql match hash sql block rule: "
+                        + rule.getName());
             } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
                     && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new NereidsException(new DoNotFallbackException("sql match regex sql block rule: "
-                        + rule.getName()));
+                throw new DoNotFallbackException("sql match regex sql block rule: "
+                        + rule.getName());
             }
         }
     }
@@ -272,8 +271,7 @@ public class SqlBlockRuleMgr implements Writable {
     /**
      * Check number whether legal by user.
      **/
-    public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
-            throws AnalysisException {
+    public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user) {
         if (ConnectContext.get().getSessionVariable().internalSession) {
             return;
         }
@@ -297,8 +295,7 @@ public class SqlBlockRuleMgr implements Writable {
     /**
      * Check number whether legal by SqlBlockRule.
      **/
-    private void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality)
-            throws AnalysisException {
+    private void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality) {
         if (rule.getPartitionNum() == 0 && rule.getTabletNum() == 0 && rule.getCardinality() == 0) {
             return;
         } else if (rule.getEnable()) {
@@ -307,14 +304,14 @@ public class SqlBlockRuleMgr implements Writable {
                     && rule.getCardinality() < cardinality)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 if (rule.getPartitionNum() < partitionNum && rule.getPartitionNum() != 0) {
-                    throw new AnalysisException(
+                    throw new DoNotFallbackException(
                             "sql hits sql block rule: " + rule.getName() + ", reach partition_num : "
                                     + rule.getPartitionNum());
                 } else if (rule.getTabletNum() < tabletNum && rule.getTabletNum() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : "
+                    throw new DoNotFallbackException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : "
                             + rule.getTabletNum());
                 } else if (rule.getCardinality() < cardinality && rule.getCardinality() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : "
+                    throw new DoNotFallbackException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : "
                             + rule.getCardinality());
                 }
             }

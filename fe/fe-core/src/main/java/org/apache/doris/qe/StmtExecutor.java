@@ -629,12 +629,12 @@ public class StmtExecutor {
         }
     }
 
-    public void checkBlockRules() throws AnalysisException {
+    public void checkBlockRules() {
         checkBlockRulesByRegex(originStmt);
         checkBlockRulesByScan(planner);
     }
 
-    public void checkBlockRulesByRegex(OriginStatement originStmt) throws AnalysisException {
+    public void checkBlockRulesByRegex(OriginStatement originStmt) {
         if (originStmt == null) {
             return;
         }
@@ -642,7 +642,7 @@ public class StmtExecutor {
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
     }
 
-    public void checkBlockRulesByScan(Planner planner) throws AnalysisException {
+    public void checkBlockRulesByScan(Planner planner) {
         if (planner == null) {
             return;
         }

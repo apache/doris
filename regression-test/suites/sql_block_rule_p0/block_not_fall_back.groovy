@@ -14,10 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_sql_block_rule") {
-    // 设置block rule
-    // 然后执行sql, 被block了,但是没有fallback
+suite("block_not_fall_back") {
+    sql "SET enable_fallback_to_original_planner=true;"
+    sql "drop SQL_BLOCK_RULE if exists rule_001"
+    // legacy parser not support "==", if fall back legacy planner, will report sytax error
+    sql """CREATE SQL_BLOCK_RULE rule_001
+    PROPERTIES (
+            "sql"="select 1==1",
+            "global" = "true",
+            "enable" = "true"
+    );"""
 
-
-
+    test {
+        sql "select 1==1;"
+        exception "sql match regex sql block rule: rule_001"
+    }
+    sql "drop SQL_BLOCK_RULE if exists rule_001"
 }
