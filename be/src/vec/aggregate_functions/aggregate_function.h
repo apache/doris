@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include <utility>
 
 #include "common/exception.h"
@@ -663,6 +664,15 @@ private:
     const IAggregateFunction* _function;
     std::unique_ptr<AggregateData[]> _data;
 };
+
+//Hint information of AggregateFunction signature
+
+struct NullableAggregateFunction {};    // Function's return value can be nullable
+struct NotNullableAggregateFunction {}; // Function's return value cannot be nullable
+
+struct UnaryExpression {};   // Can only have one parameter
+struct MultiExpression {};   // Must have multiple parameters (more than 1)
+struct VarargsExpression {}; // Uncertain number of parameters
 
 } // namespace doris::vectorized
 

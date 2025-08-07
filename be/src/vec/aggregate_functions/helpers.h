@@ -95,6 +95,43 @@ struct creator_without_type {
     static AggregateFunctionPtr create(const DataTypes& argument_types_,
                                        const bool result_is_nullable,
                                        const AggregateFunctionAttr& attr, TArgs&&... args) {
+        // If there is a hit, it won't need to be determined at runtime, which can reduce some template instantiations.
+        if constexpr (std::is_base_of_v<UnaryExpression, AggregateFunctionTemplate>) {
+            if constexpr (std::is_base_of_v<NullableAggregateFunction, AggregateFunctionTemplate>) {
+                return create_unary_arguments<AggregateFunctionTemplate>(
+                        argument_types_, result_is_nullable, attr, std::forward<TArgs>(args)...);
+            } else {
+                return create_unary_arguments_return_not_nullable<AggregateFunctionTemplate>(
+                        argument_types_, result_is_nullable, attr, std::forward<TArgs>(args)...);
+            }
+        } else if constexpr (std::is_base_of_v<MultiExpression, AggregateFunctionTemplate>) {
+            if constexpr (std::is_base_of_v<NullableAggregateFunction, AggregateFunctionTemplate>) {
+                return create_multi_arguments<AggregateFunctionTemplate>(
+                        argument_types_, result_is_nullable, attr, std::forward<TArgs>(args)...);
+            } else {
+                return create_multi_arguments_return_not_nullable<AggregateFunctionTemplate>(
+                        argument_types_, result_is_nullable, attr, std::forward<TArgs>(args)...);
+            }
+        } else if constexpr (std::is_base_of_v<VarargsExpression, AggregateFunctionTemplate>) {
+            if constexpr (std::is_base_of_v<NullableAggregateFunction, AggregateFunctionTemplate>) {
+                return create_varargs<AggregateFunctionTemplate>(
+                        argument_types_, result_is_nullable, attr, std::forward<TArgs>(args)...);
+            } else {
+                return create_varargs_return_not_nullable<AggregateFunctionTemplate>(
+                        argument_types_, result_is_nullable, attr, std::forward<TArgs>(args)...);
+            }
+        } else {
+            return create_varargs<AggregateFunctionTemplate>(argument_types_, result_is_nullable,
+                                                             attr, std::forward<TArgs>(args)...);
+        }
+        return nullptr;
+    }
+
+    // dispatch
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_varargs(const DataTypes& argument_types_,
+                                               const bool result_is_nullable,
+                                               const AggregateFunctionAttr& attr, TArgs&&... args) {
         std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
@@ -113,10 +150,38 @@ struct creator_without_type {
     }
 
     template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_varargs_return_not_nullable(
+            const DataTypes& argument_types_, const bool result_is_nullable,
+            const AggregateFunctionAttr& attr, TArgs&&... args) {
+        if (result_is_nullable) {
+            throw doris::Exception(Status::InternalError(
+                    "create_varargs_return_not_nullable: result_is_nullable must be false"));
+        }
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            if (argument_types_.size() > 1) {
+                result.reset(new NullableT<true, false, AggregateFunctionTemplate>(
+                        result.release(), argument_types_, attr.is_window_function));
+            } else {
+                result.reset(new NullableT<false, false, AggregateFunctionTemplate>(
+                        result.release(), argument_types_, attr.is_window_function));
+            }
+        }
+
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
+    template <typename AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create_multi_arguments(const DataTypes& argument_types_,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr,
                                                        TArgs&&... args) {
+        if (!(argument_types_.size() > 1)) {
+            throw doris::Exception(Status::InternalError(
+                    "create_multi_arguments: argument_types_ size must be > 1"));
+        }
         std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
@@ -134,10 +199,38 @@ struct creator_without_type {
     }
 
     template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_multi_arguments_return_not_nullable(
+            const DataTypes& argument_types_, const bool result_is_nullable,
+            const AggregateFunctionAttr& attr, TArgs&&... args) {
+        if (!(argument_types_.size() > 1)) {
+            throw doris::Exception(
+                    Status::InternalError("create_multi_arguments_return_not_nullable: "
+                                          "argument_types_ size must be > 1"));
+        }
+        if (result_is_nullable) {
+            throw doris::Exception(
+                    Status::InternalError("create_multi_arguments_return_not_nullable: "
+                                          "result_is_nullable must be false"));
+        }
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            result.reset(new NullableT<true, false, AggregateFunctionTemplate>(
+                    result.release(), argument_types_, attr.is_window_function));
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
+    template <typename AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create_unary_arguments(const DataTypes& argument_types_,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr,
                                                        TArgs&&... args) {
+        if (!(argument_types_.size() == 1)) {
+            throw doris::Exception(Status::InternalError(
+                    "create_unary_arguments: argument_types_ size must be 1"));
+        }
         std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
                 std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
@@ -149,6 +242,29 @@ struct creator_without_type {
                                         attr.is_window_function));
                     },
                     make_bool_variant(result_is_nullable));
+        }
+        CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
+        return AggregateFunctionPtr(result.release());
+    }
+
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static AggregateFunctionPtr create_unary_arguments_return_not_nullable(
+            const DataTypes& argument_types_, const bool result_is_nullable,
+            const AggregateFunctionAttr& attr, TArgs&&... args) {
+        if (!(argument_types_.size() == 1)) {
+            throw doris::Exception(Status::InternalError(
+                    "create_unary_arguments_return_not_nullable: argument_types_ size must be 1"));
+        }
+        if (result_is_nullable) {
+            throw doris::Exception(
+                    Status::InternalError("create_unary_arguments_return_not_nullable: "
+                                          "result_is_nullable must be false"));
+        }
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
+            result.reset(new NullableT<false, false, AggregateFunctionTemplate>(
+                    result.release(), argument_types_, attr.is_window_function));
         }
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result.release());
