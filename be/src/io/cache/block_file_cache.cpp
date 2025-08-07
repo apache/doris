@@ -2275,6 +2275,7 @@ void BlockFileCache::run_background_lru_dump() {
             _lru_dumper->dump_queue("normal");
             _lru_dumper->dump_queue("index");
             _lru_dumper->dump_queue("ttl");
+            _lru_dumper->set_first_dump_done();
         }
     }
 }
