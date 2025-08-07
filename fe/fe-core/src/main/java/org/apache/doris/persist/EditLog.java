@@ -1393,7 +1393,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_OPERATE_KEY: {
-                    //KeyOperationInfo info = (KeyOperationInfo) journal.getData();
+                    KeyOperationInfo info = (KeyOperationInfo) journal.getData();
+                    env.getKeyManager().replayKeyOperation(info);
                     break;
                 }
                 default: {
@@ -2423,5 +2424,9 @@ public class EditLog {
 
     public void logBranchOrTag(TableBranchOrTagInfo info) {
         logEdit(OperationType.OP_BRANCH_OR_TAG, info);
+    }
+
+    public void logOperateKey(KeyOperationInfo info) {
+        logEdit(OperationType.OP_OPERATE_KEY, info);
     }
 }
