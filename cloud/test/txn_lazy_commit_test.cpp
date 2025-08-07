@@ -1575,9 +1575,8 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
         std::unique_lock<std::mutex> _lock(go_mutex);
         last_pending_txn_id_count++;
         if (last_pending_txn_id_count == 1) {
-            auto version_pb = *try_any_cast<VersionPB*>(args[0]);
-            ASSERT_EQ(version_pb.pending_txn_ids(0), eventually_txn_id);
-            ASSERT_GT(version_pb.pending_txn_ids(0), 0);
+            auto txn_id = *try_any_cast<int64_t*>(args[0]);
+            ASSERT_EQ(txn_id, eventually_txn_id);
         }
     });
 
