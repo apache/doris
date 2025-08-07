@@ -1,1 +1,0 @@
-SELECT * FROM tbl_scalar_types_dup ORDER BY c_bigint ASC, c_largeint ASC LIMIT 20;

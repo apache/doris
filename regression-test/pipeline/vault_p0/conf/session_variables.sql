@@ -1,1 +1,0 @@
--- set those session variables before run cloud p0 regression

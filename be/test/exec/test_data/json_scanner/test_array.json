@@ -1,4 +1,0 @@
-[
-    {"k1":"v1",   "kind":"server", "keyname":{"ip":"10.10.0.1", "value":"20"}},
-    {"k1":"v1-1", "kind":"server", "keyname":{"ip":"10.20.10.1", "value":"20"}}
-]

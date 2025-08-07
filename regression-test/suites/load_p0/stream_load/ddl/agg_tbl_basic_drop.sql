@@ -1,1 +1,0 @@
-DROP TABLE IF EXISTS stream_load_agg_tbl_basic;

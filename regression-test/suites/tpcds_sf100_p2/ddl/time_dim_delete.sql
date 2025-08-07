@@ -1,1 +1,0 @@
-truncate table time_dim;

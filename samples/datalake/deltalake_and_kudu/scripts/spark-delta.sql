@@ -1,1 +1,0 @@
-CREATE TABLE default.customer USING DELTA LOCATION 's3://data/customer/';

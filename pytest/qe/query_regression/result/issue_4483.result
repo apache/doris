@@ -1,2 +1,0 @@
-select @@sql_mode AS sql_mode;
-(['0'],)#IGNORE CHECK
