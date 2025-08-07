@@ -240,7 +240,7 @@ struct DecimalBinaryOperation {
     using NativeResultType = typename NativeType<ResultType>::Type;
     using NativeLeftType = typename NativeType<A>::Type;
     using NativeRightType = typename NativeType<B>::Type;
-    using Op = Operation<NativeResultType, NativeResultType>;
+    using Op = Operation<NativeLeftType, NativeRightType>;
 
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
     using ArrayC = typename ColumnDecimal<ResultType>::Container;
@@ -660,7 +660,7 @@ private:
                                                 UInt8& is_null,
                                                 const ResultType& max_result_number) {
         static_assert(OpTraits::is_division || OpTraits::is_mod);
-        if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
+        if constexpr (IsDecimalV2<B> && IsDecimalV2<A>) {
             DecimalV2Value l(a);
             DecimalV2Value r(b);
             auto ans = Op::template apply(l, r, is_null);
