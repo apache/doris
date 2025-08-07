@@ -153,7 +153,7 @@ struct creator_without_type {
     static AggregateFunctionPtr create_varargs_return_not_nullable(
             const DataTypes& argument_types_, const bool result_is_nullable,
             const AggregateFunctionAttr& attr, TArgs&&... args) {
-        if (result_is_nullable) {
+        if (!attr.is_foreach && result_is_nullable) {
             throw doris::Exception(Status::InternalError(
                     "create_varargs_return_not_nullable: result_is_nullable must be false"));
         }
@@ -207,7 +207,7 @@ struct creator_without_type {
                     Status::InternalError("create_multi_arguments_return_not_nullable: "
                                           "argument_types_ size must be > 1"));
         }
-        if (result_is_nullable) {
+        if (!attr.is_foreach && result_is_nullable) {
             throw doris::Exception(
                     Status::InternalError("create_multi_arguments_return_not_nullable: "
                                           "result_is_nullable must be false"));
@@ -255,7 +255,7 @@ struct creator_without_type {
             throw doris::Exception(Status::InternalError(
                     "create_unary_arguments_return_not_nullable: argument_types_ size must be 1"));
         }
-        if (result_is_nullable) {
+        if (!attr.is_foreach && result_is_nullable) {
             throw doris::Exception(
                     Status::InternalError("create_unary_arguments_return_not_nullable: "
                                           "result_is_nullable must be false"));
