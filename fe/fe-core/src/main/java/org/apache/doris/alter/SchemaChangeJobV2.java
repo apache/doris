@@ -599,7 +599,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     task.setFinished(true);
                     if (!FeConstants.runningUnitTest) {
                         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                        LOG.warn("schema change task failed, job: {}failedTimes: {}, maxFailedTimes: {}, err: {}",
+                        LOG.warn("schema change task failed, job: {}, failedTimes: {}, maxFailedTimes: {}, err: {}",
                                  jobId, task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
                         List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                         if (failedBackends == null) {
