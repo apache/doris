@@ -219,9 +219,7 @@ public class PartitionKeyTest {
         FakeEnv.setMetaVersion(FeConstants.meta_version);
 
         // 1. Write objects to file
-        Path dir = Paths.get("./keyRangePartition");
-        Files.deleteIfExists(dir);
-        Path path = Files.createFile(dir);
+        Path path = Files.createFile(Paths.get("./keyRangePartition"));
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         PartitionKey keyEmpty = new PartitionKey();
@@ -253,13 +251,6 @@ public class PartitionKeyTest {
         PartitionKey key = PartitionKey.createPartitionKey(keys, columns);
         key.write(dos);
 
-        keys.clear();
-        List<Type> types = new ArrayList<Type>();
-        types.add(ScalarType.createType(PrimitiveType.INT));
-        PartitionKey defaultKey = PartitionKey.createListPartitionKeyWithTypes(keys, types, false);
-        Assert.assertTrue(defaultKey.isDefaultListPartitionKey());
-        defaultKey.write(dos);
-
         dos.flush();
         dos.close();
 
@@ -272,10 +263,6 @@ public class PartitionKeyTest {
         Assert.assertEquals(key, rKey);
         Assert.assertEquals(key, key);
         Assert.assertNotEquals(key, this);
-
-        PartitionKey rDefaultKey = PartitionKey.read(dis);
-        Assert.assertEquals(defaultKey, rDefaultKey);
-        Assert.assertTrue(rDefaultKey.isDefaultListPartitionKey());
 
         // 3. delete files
         dis.close();

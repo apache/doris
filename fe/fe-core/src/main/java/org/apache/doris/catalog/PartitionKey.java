@@ -40,7 +40,6 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonDeserializer;
@@ -70,7 +69,6 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private List<String> originHiveKeys;
     @SerializedName("ts")
     private List<PrimitiveType> types;
-    // the isD not serialize before because of Gson using PartitionKeySerializer
     @SerializedName("isD")
     private boolean isDefaultListPartitionKey = false;
 
@@ -368,9 +366,6 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
     // return: ("100", "200", "300")
     public String toSql() {
-        if (isDefaultListPartitionKey) {
-            return "";
-        }
         StringBuilder sb = new StringBuilder("(");
         int i = 0;
         for (LiteralExpr expr : keys) {
@@ -599,13 +594,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 jsonArray.add(typeAndKey);
             }
 
-            // use extend as a json to record some information
-            JsonArray extend = new JsonArray();
-            extend.add(context.serialize(partitionKey.isDefaultListPartitionKey()));
-
-            // for compatibility in the future add item before unused
-            extend.add("unused");
-            jsonArray.add(new JsonPrimitive(GsonUtils.GSON.toJson(extend)));
+            // for compatibility in the future
+            jsonArray.add(new JsonPrimitive("unused"));
 
             return jsonArray;
         }
@@ -650,18 +640,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     partitionKey.types.add(type);
                     partitionKey.keys.add(key);
                 }
-                JsonPrimitive extend = jsonArray.get(jsonArray.size() - 1).getAsJsonPrimitive();
-                String extendStr = extend.getAsString();
-                // for compatibility, extend takes up the previous "unused" position
-                // so the last element needs to be checked here, if it is unused ignore it
-                if (!extendStr.equals("unused")) {
-                    // parse extend record
-                    Gson gson = new Gson();
-                    JsonArray pExtend = gson.fromJson(extendStr, JsonArray.class);
-                    partitionKey.setDefaultListPartition(pExtend.get(0).getAsBoolean());
-                    // ignore the last element
-                }
 
+                // ignore the last element
                 return partitionKey;
             }
         }

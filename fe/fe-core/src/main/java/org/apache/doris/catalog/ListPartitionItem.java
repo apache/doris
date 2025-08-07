@@ -188,9 +188,6 @@ public class ListPartitionItem extends PartitionItem {
     }
 
     public String toSql() {
-        if (isDefaultPartition) {
-            return "";
-        }
         StringBuilder sb = new StringBuilder();
         sb.append("(");
 
