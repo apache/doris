@@ -46,7 +46,7 @@ suite("test_publish_exception", "nonConcurrent") {
     def result = sql "SELECT * from ${tableName}"
     assert result.size() == 0
 
-    DebugPoint.clearDebugPointForAllFEs('PublishVersionDaemon.tryFinishTxnSync.fail')
+    DebugPoint.disableDebugPointForAllFEs('PublishVersionDaemon.tryFinishTxnSync.fail')
     // Wait until the result size is 1 or timeout (10s)
     int maxWaitMs = 10000
     int intervalMs = 200
