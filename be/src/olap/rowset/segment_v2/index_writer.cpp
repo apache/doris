@@ -73,7 +73,7 @@ Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumn
     }
 
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index",
-                    { type = FieldType::OLAP_FIELD_TYPE_FLOAT; })
+                    { type = FieldType::OLAP_FIELD_TYPE_JSONB; })
     switch (type) {
 #define M(TYPE)                                                                                 \
     case TYPE:                                                                                  \
