@@ -71,6 +71,8 @@ public:
 
     int recycle_update_tablet_log(const UpdateTabletLogPB& update_tablet_log);
 
+    int recycle_compaction_log(const CompactionLogPB& compaction_log);
+
     int commit();
 
 private:
@@ -235,6 +237,22 @@ int OperationLogRecycler::recycle_update_tablet_log(const UpdateTabletLogPB& upd
         keys_to_remove_.emplace_back(encode_versioned_key(tablet_meta_key, versionstamp));
     }
 
+    return 0;
+}
+
+int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compaction_log) {
+    for (const RecycleRowsetPB& recycle_rowset_pb : compaction_log.recycle_rowsets()) {
+        std::string recycle_rowset_value;
+        if (!recycle_rowset_pb.SerializeToString(&recycle_rowset_value)) {
+            LOG_WARNING("failed to serialize RecycleRowsetPB")
+                    .tag("recycle rowset pb", recycle_rowset_pb.ShortDebugString());
+            return -1;
+        }
+        std::string recycle_key =
+                recycle_rowset_key({instance_id_, compaction_log.tablet_id(),
+                                    recycle_rowset_pb.rowset_meta().rowset_id_v2()});
+        kvs_.emplace_back(recycle_key, recycle_rowset_value);
+    }
     return 0;
 }
 
@@ -443,6 +461,7 @@ int InstanceRecycler::recycle_operation_log(Versionstamp log_version,
     RECYCLE_OPERATION_LOG(commit_index, recycle_commit_index_log);
     RECYCLE_OPERATION_LOG(drop_index, recycle_drop_index_log);
     RECYCLE_OPERATION_LOG(update_tablet, recycle_update_tablet_log);
+    RECYCLE_OPERATION_LOG(compaction, recycle_compaction_log);
 #undef RECYCLE_OPERATION_LOG
 
     if (operation_log.has_commit_txn()) {
