@@ -82,8 +82,8 @@ public class PointQueryShouldNotMvRewriteTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         Group root = c1.getMemo().getRoot();
-        root.getStructInfoMap().refresh(root, c1, new HashSet<>());
-        Set<BitSet> tableMaps = root.getStructInfoMap().getTableMaps();
+        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
+        Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(1, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
     }
