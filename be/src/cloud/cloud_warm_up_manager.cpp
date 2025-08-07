@@ -582,7 +582,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
         brpc_stub->warm_up_rowset(&cntl, &request, &response, nullptr);
         if (cntl.Failed()) {
             LOG_WARNING("warm up rowset {} for tablet {} failed, rpc error: {}",
-                        rs_meta.rowset_id(), tablet_id, cntl.ErrorText());
+                        rs_meta.rowset_id().to_string(), tablet_id, cntl.ErrorText());
             return;
         }
         if (sync_wait_timeout_ms > 0) {
@@ -591,7 +591,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
             if (cost_us / 1000 > sync_wait_timeout_ms) {
                 LOG_WARNING(
                         "Warm up rowset {} for tabelt {} wait for compaction timeout, takes {} ms",
-                        rs_meta.rowset_id(), tablet_id, cost_us / 1000);
+                        rs_meta.rowset_id().to_string(), tablet_id, cost_us / 1000);
             }
             g_file_cache_warm_up_rowset_wait_for_compaction_latency << cost_us;
         }
