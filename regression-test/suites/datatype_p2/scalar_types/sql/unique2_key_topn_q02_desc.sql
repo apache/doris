@@ -1,1 +1,0 @@
-SELECT * FROM tbl_scalar_types_unique2 ORDER BY c_datetimev2 DESC, c_bigint DESC LIMIT 20;

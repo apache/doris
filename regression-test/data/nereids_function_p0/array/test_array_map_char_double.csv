@@ -1,9 +1,0 @@
-// this is data case file for array<map<char:double>> type, contains normal, corner, exceptional data cases
-[]
-[null]
-NULL
-// single element
-[{}]
-[{'': 0.0}, {'9': 1.7976931348623157E308}, {'1': 1.0}]
-// all data in array
-[{}, null, {'': 0.0}, {'9': 1.7976931348623157E308}, {'1': 1.0}]

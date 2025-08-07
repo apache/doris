@@ -1,1 +1,0 @@
-SET topn_opt_limit_threshold = 5000; SELECT * FROM tbl_scalar_types_dup ORDER BY c_bool ASC NULLS LAST, c_bigint ASC NULLS LAST LIMIT 2000, 512;

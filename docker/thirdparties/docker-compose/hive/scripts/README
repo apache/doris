@@ -1,9 +1,0 @@
-1. Download parquet file packages from:
-    https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tpch1.db.tar.gz
-
-2. Unzip and name it to "tpch1.db"
-
-3. Download paimon file from:
-    https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/paimon1.tar.gz
-
-4. Unzip and name it to "paimon1"

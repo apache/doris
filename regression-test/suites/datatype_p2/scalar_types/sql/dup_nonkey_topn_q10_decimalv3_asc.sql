@@ -1,1 +1,0 @@
-SELECT * FROM tbl_scalar_types_dup ORDER BY c_decimalv3, c_bigint LIMIT 20;

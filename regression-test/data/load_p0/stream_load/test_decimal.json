@@ -1,7 +1,0 @@
-[
-    {"id": 1, "decimal_col1": 1.1234, "decimal_col2": 12.123456, "decimal_col3": 123.123456789876, "decimal_col4": 12, "decimal_col5": 1234.123456789, "decimal_col6": 123},
-    {"id": 2, "decimal_col1": 1234.1234, "decimal_col2": 123456789123.123456, "decimal_col3": 12345678912345678912345678.123456789876, "decimal_col4": 123456789, "decimal_col5": 123456789123456789.123456780, "decimal_col6": 987654321},
-    {"id": 3, "decimal_col1": 1234.0000, "decimal_col2": 123456789123.000000, "decimal_col3": 12345678912345678912345678.000000000000, "decimal_col4": 123456789, "decimal_col5": 123456789123456789.000000000, "decimal_col6": 987654321},
-    {"id": 4, "decimal_col1": null, "decimal_col2": null, "decimal_col3": 123.123456789876, "decimal_col4": 12, "decimal_col5": null, "decimal_col6": 123},
-    {"id": 5, "decimal_col1": 1.1234, "decimal_col2": 12.123456, "decimal_col3": null, "decimal_col4": null, "decimal_col5": 1234.123456789, "decimal_col6": null}
-]
