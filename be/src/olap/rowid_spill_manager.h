@@ -34,22 +34,20 @@ namespace doris {
 
 class RowIdSpillManager {
 public:
-    // File layout:
-    // | FileHeader | SegmentInfo[N] | SegmentData[N] |
-    struct FileHeader {
-        uint32_t magic {0x52494443}; // "RIDC"
-        uint32_t version {1};
+    struct MetaInfo {
         uint32_t segment_count {0};
         uint64_t segment_info_offset {0};
         uint64_t data_offset {0};
-    } __attribute__((packed));
+    };
 
     struct SegmentInfo {
-        uint32_t segment_id;
-        uint32_t row_count;
-        uint64_t offset;
-        uint64_t size;
-    } __attribute__((packed));
+        uint32_t row_count; // src segment row count
+        uint64_t offset;    // current segment offset relate to data_offset
+        uint64_t size;      // actual element count spilled to file
+    };
+
+    static constexpr size_t ENTRY_BYTES =
+            sizeof(uint32_t) * 3; // src_row_id, dst_segment_id, dst_row_id
 
     explicit RowIdSpillManager(const std::string& path) : _path(path) {}
 
@@ -60,34 +58,27 @@ public:
         }
     }
 
-    // Initialize spill file with segment information
     Status init(const std::vector<uint32_t>& segment_row_counts);
 
     // Write segment data to spill file
-    Status spill_segment(
+    Status spill_segment_mapping(
             uint32_t segment_id,
             const std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>& mappings);
 
     // Read all mappings for a segment
-    Status read_segment(
+    Status read_segment_mapping(
             uint32_t segment_id,
-            std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>* mappings) const;
+            std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>* mappings);
+    Status read_segment_mapping_internal(
+            uint32_t segment_id, const std::function<void(uint32_t, uint32_t, uint32_t)>& callback);
 
 private:
-    static uint32_t _calc_checksum(const void* data, size_t len) {
-        uint32_t checksum = 0;
-        const uint8_t* p = reinterpret_cast<const uint8_t*>(data);
-        for (size_t i = 0; i < len; i++) {
-            checksum = ((checksum << 5) + checksum) + p[i];
-        }
-        return checksum;
-    }
-
     std::string _path;
     int _fd {-1};
     mutable std::mutex _mutex;
 
-    FileHeader _header;
+    MetaInfo _header;
+    // segment_id -> SegmentInfo
     std::vector<SegmentInfo> _segment_infos;
 };
 

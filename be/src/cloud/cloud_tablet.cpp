@@ -1120,7 +1120,7 @@ Versions CloudTablet::calc_missed_versions(int64_t spec_version, Versions existi
 
 Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
-        const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
+        RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
         int64_t filtered_rows, int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap,
         bool allow_delete_in_cumu_compaction, int64_t& get_delete_bitmap_lock_start_time) {
     output_rowset_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());

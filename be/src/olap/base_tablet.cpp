@@ -1665,7 +1665,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 }
 
 void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
-        const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
+        const std::vector<RowsetSharedPtr>& input_rowsets, RowIdConversion& rowid_conversion,
         uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
         const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
@@ -1706,6 +1706,7 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                                                      dst.row_id);
                 }
             }
+            rowid_conversion.prune_segment_mapping(src.rowset_id, seg_id);
         }
     }
 }
