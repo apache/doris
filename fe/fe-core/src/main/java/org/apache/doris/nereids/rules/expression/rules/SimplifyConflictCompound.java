@@ -71,26 +71,16 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
                     child = newChild;
                     changed = true;
                 }
-                Pair<Expression, Boolean> pair = normalComparisonAndNot(child);
-                Expression normalExpr = pair.first;
-                boolean isNot = pair.second;
-                Pair<Boolean, Boolean> mark = exprExistMarks.computeIfAbsent(normalExpr, k -> Pair.of(false, false));
-                if (isNot) {
-                    canSimplify |= mark.first;
-                    mark = Pair.of(mark.first, true);
-                } else {
-                    canSimplify |= mark.second;
-                    mark = Pair.of(true, mark.second);
-                }
-                exprExistMarks.put(normalExpr, mark);
             }
             Pair<Expression, Boolean> pair = normalComparisonAndNot(child);
             Expression normalExpr = pair.first;
             boolean isNot = pair.second;
             Pair<Boolean, Boolean> mark = exprExistMarks.computeIfAbsent(normalExpr, k -> Pair.of(false, false));
             if (isNot) {
+                canSimplify |= mark.first;
                 mark = Pair.of(mark.first, true);
             } else {
+                canSimplify |= mark.second;
                 mark = Pair.of(true, mark.second);
             }
             exprExistMarks.put(normalExpr, mark);

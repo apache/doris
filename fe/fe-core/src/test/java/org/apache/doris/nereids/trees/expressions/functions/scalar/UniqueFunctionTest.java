@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
@@ -49,6 +51,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -160,7 +163,6 @@ class UniqueFunctionTest extends SqlTestBase {
         Plan root = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                //.matchesFromRoot(logicalOlapScan())
                 .getPlan();
 
         Set<Expression> expressionSet = Sets.newHashSet();
@@ -605,7 +607,7 @@ class UniqueFunctionTest extends SqlTestBase {
                 .getPlan();
 
         Map<ExprId, Expression> exprIdToOriginExprMap = getExprIdToOriginExpressionMap(root);
-        DifferentValidator validator = new DifferentValidator(exprIdToOriginExprMap);
+        DifferentValidator differentValidator = new DifferentValidator(exprIdToOriginExprMap);
 
         LogicalProject<?> project = (LogicalProject<?>) root.child(0);
         Assertions.assertEquals(ImmutableList.of(
@@ -614,13 +616,13 @@ class UniqueFunctionTest extends SqlTestBase {
                         "sum(a + random()) over(partition by a + random())",
                         "sum(a + random()) over(partition by a + random())"),
                 toSqls(project.getProjects()));
-        project.getProjects().forEach(validator::addAndCheckDifferent);
+        project.getProjects().forEach(differentValidator::addAndCheckDifferent);
 
         LogicalSort<?> sort = (LogicalSort<?>) project.child();
         Assertions.assertEquals(ImmutableList.of("random()", "random()", "(a + random())", "(a + random())",
                         "sum((a + random()))", "sum((a + random())) OVER(PARTITION BY (a + random()))"),
                 toSqls(sort.getExpressions()));
-        sort.getExpressions().forEach(validator::addAndCheckDifferent);
+        sort.getExpressions().forEach(differentValidator::addAndCheckDifferent);
 
         LogicalWindow<?> window = (LogicalWindow<?>) sort.child().child(0);
 
@@ -629,7 +631,7 @@ class UniqueFunctionTest extends SqlTestBase {
                         "((a + random()) > 10.0)", "((a + random()) > 10.0)",
                         "(sum((a + random())) > 30.0)", "(sum((a + random())) > 30.0)"),
                 toSqls(having.getConjuncts()));
-        having.getConjuncts().forEach(validator::addAndCheckDifferent);
+        having.getConjuncts().forEach(differentValidator::addAndCheckDifferent);
 
         LogicalAggregate<?> aggregate = (LogicalAggregate<?>) having.child();
 
@@ -637,7 +639,348 @@ class UniqueFunctionTest extends SqlTestBase {
         assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.5)", "(random() > 0.5)",
                         "((a + random()) > 10.0)", "((a + random()) > 10.0)"),
                 toSqls(filter.getConjuncts()));
-        filter.getConjuncts().forEach(validator::addAndCheckDifferent);
+        filter.getConjuncts().forEach(differentValidator::addAndCheckDifferent);
+    }
+
+    @Test
+    void testAggregateWithGroupBy2() {
+        // all the random will be the same except the WHERE
+        String sql = "select random(), random(), "
+                + " sum(a + random()), sum(a + random()), "
+                + " sum(random()) over(partition by random()),  sum(random()) over(partition by random())"
+                + " from t"
+                + " where random() > 0.5 and random() > 0.5 and a + random() > 10 and a + random() > 10"
+                + " group by random()"
+                + " having random() > 0.5 and random() > 0.5 and random() > 10 and random() > 10 and sum(a + random()) > 30 and sum(a + random()) > 30"
+                // + " qualify sum(a + random()) over() > 20" // BUG: raise error "Unknown column 'a' in 'table list' in SORT clause"
+                + " order by random(), random(), sum(a + random()), sum(random()) over (partition by random())";
+
+        Plan root = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+
+        Map<ExprId, Expression> exprIdToOriginExprMap = getExprIdToOriginExpressionMap(root);
+        RandomEqualValidator equalValidator = new RandomEqualValidator(exprIdToOriginExprMap);
+
+        LogicalResultSink<?> sink = (LogicalResultSink<?>) root;
+        Assertions.assertEquals(ImmutableList.of("random()", "random()", "sum((a + random()))", "sum((a + random()))", "random()", "random()"),
+                toSqls(sink.getOutputExprs().stream().map(output -> getOriginExpression(output, exprIdToOriginExprMap)).collect(Collectors.toList())));
+        sink.getOutputExprs().forEach(equalValidator::checkRandomEqual);
+
+        LogicalSort<?> sort = (LogicalSort<?>) sink.child();
+        Assertions.assertEquals(ImmutableList.of("random()"), toSqls(sort.getExpressions()));
+        sort.getExpressions().forEach(equalValidator::checkRandomEqual);
+
+        LogicalFilter<?> having = (LogicalFilter<?>) sort.child().child(0);
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(sum((a + random())) > 30.0)"), toSqls(having.getConjuncts()));
+        having.getConjuncts().forEach(equalValidator::checkRandomEqual);
+
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) having.child();
+        aggregate.getGroupByExpressions().forEach(equalValidator::checkRandomEqual);
+        aggregate.getOutputExpressions().forEach(equalValidator::checkRandomEqual);
+
+        // having push down aggregate
+        LogicalFilter<?> pushDownHaving = (LogicalFilter<?>) aggregate.child();
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 10.0)"), toSqls(pushDownHaving.getConjuncts()));
+        pushDownHaving.getConjuncts().forEach(equalValidator::checkRandomEqual);
+
+        // group by expressions push down to a project
+        LogicalProject<?> project = (LogicalProject<?>) pushDownHaving.child();
+        Assertions.assertEquals(ImmutableList.of("random() AS `random()`", "a"), toSqls(project.getProjects()));
+        equalValidator.checkRandomEqual(project.getProjects().get(0));
+
+        Assertions.assertTrue(equalValidator.getRandom().isPresent());
+        DifferentValidator differentValidator = new DifferentValidator(exprIdToOriginExprMap);
+        differentValidator.addAndCheckDifferent(equalValidator.getRandom().get());
+
+        // WHERE
+        LogicalFilter<?> filter = (LogicalFilter<?>) project.child();
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.5)", "(random() > 0.5)",
+                        "((a + random()) > 10.0)", "((a + random()) > 10.0)"),
+                toSqls(filter.getConjuncts()));
+        filter.getConjuncts().forEach(differentValidator::addAndCheckDifferent);
+    }
+
+    @Test
+    void testAggregateWithGroupBy4() {
+        // all the 'a + random() will be equal', all the 'random()' will be different
+        String sql = "select random(), random(), "
+                + " a + random(), a + random(), "
+                + " sum(a + random()), sum(a + random()), "
+                + " sum(a + random()) over(partition by a + random()),  sum(a + random()) over(partition by a + random())"
+                + " from t"
+                + " where random() > 0.5 and random() > 0.5 and a + random() > 10 and a + random() > 10"
+                + " group by a, a + random()"
+                + " having random() > 0.5 and random() > 0.5 and a + random() > 10 and a + random() > 10 and sum(a + random()) > 30 and sum(a + random()) > 30"
+                // + " qualify sum(a + random()) over() > 20" // BUG: raise error "Unknown column 'a' in 'table list' in SORT clause"
+                + " order by random(), random(), a + random(), a + random(), sum(a + random()), sum(a + random()) over (partition by a + random())";
+
+        Plan root = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+
+        Map<ExprId, Expression> exprIdToOriginExprMap = getExprIdToOriginExpressionMap(root);
+        RandomEqualValidator aAddRandomEqualValidator = new RandomEqualValidator(exprIdToOriginExprMap);
+        DifferentValidator differentRandomValidator = new DifferentValidator(exprIdToOriginExprMap);
+
+        LogicalProject<?> project = (LogicalProject<?>) root.child(0);
+        Assertions.assertEquals(ImmutableList.of("random()", "random()", "a + random()", "a + random()",
+                        "sum(a + random())", "sum(a + random())",
+                        "sum(a + random()) over(partition by a + random())",
+                        "sum(a + random()) over(partition by a + random())"),
+                toSqls(project.getProjects()));
+        Lists.transform(ImmutableList.of(0, 1), project.getProjects()::get).forEach(differentRandomValidator::addAndCheckDifferent);
+        Lists.transform(ImmutableList.of(2, 3, 4, 5, 6, 7), project.getProjects()::get).forEach(aAddRandomEqualValidator::checkRandomEqual);
+
+        Assertions.assertTrue(aAddRandomEqualValidator.getRandom().isPresent());
+        differentRandomValidator.addAndCheckDifferent(aAddRandomEqualValidator.getRandom().get());
+
+        LogicalSort<?> sort = (LogicalSort<?>) project.child();
+        Assertions.assertEquals(ImmutableList.of("random()", "random()",
+                        "a + random()", "sum(a + random())",
+                        "sum(a + random()) over(partition by a + random())"),
+                toSqls(sort.getExpressions()));
+        Lists.transform(ImmutableList.of(0, 1), sort.getExpressions()::get).forEach(differentRandomValidator::addAndCheckDifferent);
+        Lists.transform(ImmutableList.of(2, 3, 4), sort.getExpressions()::get).forEach(aAddRandomEqualValidator::checkRandomEqual);
+
+        // BUG: having should below window
+        LogicalFilter<?> having1 = (LogicalFilter<?>) sort.child().child(0);
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(sum(a + random()) > 30.0)"), toSqls(having1.getConjuncts()));
+        having1.getConjuncts().forEach(aAddRandomEqualValidator::checkRandomEqual);
+
+        LogicalWindow<?> window = (LogicalWindow<?>) having1.child();
+        Assertions.assertEquals(ImmutableList.of(
+                        "sum(a + random()) OVER(PARTITION BY a + random() RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+                        + " AS `sum(a + random()) over(partition by a + random())`"),
+                toSqls(window.getExpressions()));
+        window.getExpressions().forEach(aAddRandomEqualValidator::checkRandomEqual);
+
+        LogicalFilter<?> having2 = (LogicalFilter<?>) window.child().child(0);
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.5)", "(random() > 0.5)"), toSqls(having2.getConjuncts()));
+        having2.getConjuncts().forEach(differentRandomValidator::addAndCheckDifferent);
+
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) having2.child();
+        Assertions.assertEquals(ImmutableList.of("a", "a + random()"), toSqls(aggregate.getGroupByExpressions()));
+        aAddRandomEqualValidator.checkRandomEqual(aggregate.getGroupByExpressions().get(1));
+        Assertions.assertEquals(ImmutableList.of("a", "a + random()", "sum(a + random()) AS `sum(a + random())`"),
+                toSqls(aggregate.getOutputExpressions()));
+        Lists.transform(ImmutableList.of(1, 2), aggregate.getOutputExpressions()::get).forEach(aAddRandomEqualValidator::checkRandomEqual);
+
+        // push down having
+        LogicalFilter<?> having3 = (LogicalFilter<?>) aggregate.child();
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(a + random() > 10.0)"), toSqls(having3.getConjuncts()));
+        having3.getConjuncts().forEach(aAddRandomEqualValidator::checkRandomEqual);
+
+        // where
+        LogicalFilter<?> filter = (LogicalFilter<?>) having3.child().child(0);
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.5)", "(random() > 0.5)", "((a + random()) > 10.0)", "((a + random()) > 10.0)"),
+                toSqls(filter.getConjuncts()));
+        filter.getConjuncts().forEach(differentRandomValidator::addAndCheckDifferent);
+    }
+
+    @Test
+    void testAggregateWithGroupBy5() {
+        // all the 'a + random()' equals,  all the 'a + random() + 1' equals
+        String sql = "select a + random(), a + random() + 1, a + random() + 2, "
+                + " sum(a + random()), sum(a + random() + 1), sum(a + random() + 2), "
+                + " sum(a + random()) over(), "
+                + " sum(a + random() + 1) over(), "
+                + " sum(a + random() + 2) over()"
+                + " from t"
+                + " where a + random() > 1 and a + random() + 1 > 1 and a + random() + 2 > 1"
+                + " group by a + random(), a + random() + 1"
+                + " having a + random() > 10 and a + random() + 1 > 20 and a + random() + 1 > 30"
+                + " qualify max(a + random()) over() > 10 and max(a + random() + 1) over() > 20";
+
+        Plan root = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+
+        Map<ExprId, Expression> exprIdToOriginExprMap = getExprIdToOriginExpressionMap(root);
+
+        // validate 'a + random()' equal
+        RandomEqualValidator random0EqualValidator = new RandomEqualValidator(exprIdToOriginExprMap);
+
+        // validate 'a + random() + 1' equals
+        RandomEqualValidator random1EqualValidator = new RandomEqualValidator(exprIdToOriginExprMap);
+
+        DifferentValidator differentValidator = new DifferentValidator(exprIdToOriginExprMap);
+
+        LogicalProject<?> project = (LogicalProject<?>) root.child(0);
+        Assertions.assertEquals(ImmutableList.of("a + random()", "a + random() + 1", "a + random() + 2",
+                        "sum(a + random())", "sum(a + random() + 1)", "sum(a + random() + 2)",
+                        "sum(a + random()) over()", "sum(a + random() + 1) over()", "sum(a + random() + 2) over()"),
+                toSqls(project.getProjects()));
+        Lists.transform(ImmutableList.of(0, 2, 3, 5, 6, 8), project.getProjects()::get).forEach(random0EqualValidator::checkRandomEqual);
+        Lists.transform(ImmutableList.of(1, 4, 7), project.getProjects()::get).forEach(random1EqualValidator::checkRandomEqual);
+
+        LogicalFilter<?> qualify = (LogicalFilter<?>) project.child();
+        Assertions.assertEquals(2, qualify.getConjuncts().size());
+        for (Expression expr : qualify.getConjuncts()) {
+            String exprSql = expr.toSql();
+            Expression originExpr = getOriginExpression(expr, exprIdToOriginExprMap);
+            if (exprSql.contains("20.0")) {
+                Assertions.assertEquals("(max(((a + random()) + cast(1 as DOUBLE))) OVER() > 20.0)", exprSql);
+                random1EqualValidator.checkRandomEqual(originExpr);
+            } else {
+                Assertions.assertEquals("(max((a + random())) OVER() > 10.0)", exprSql);
+                random0EqualValidator.checkRandomEqual(originExpr);
+            }
+        }
+
+        LogicalWindow<?> window = (LogicalWindow<?>) qualify.child();
+        Assertions.assertEquals(ImmutableList.of("sum(a + random()) over()", "sum(a + random() + 1) over()", "sum(a + random() + 2) over()",
+                        "max((a + random())) OVER()", "max(((a + random()) + cast(1 as DOUBLE))) OVER()"),
+                Lists.transform(window.getWindowExpressions(), NamedExpression::getName));
+        Lists.transform(ImmutableList.of(0, 2, 3), window.getWindowExpressions()::get).forEach(random0EqualValidator::checkRandomEqual);
+        Lists.transform(ImmutableList.of(1, 4), window.getWindowExpressions()::get).forEach(random1EqualValidator::checkRandomEqual);
+
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) window.child().child(0);
+        Assertions.assertEquals(ImmutableList.of("a + random()", "a + random() + 1"), toSqls(aggregate.getGroupByExpressions()));
+        random0EqualValidator.checkRandomEqual(aggregate.getGroupByExpressions().get(0));
+        random1EqualValidator.checkRandomEqual(aggregate.getGroupByExpressions().get(1));
+        Assertions.assertEquals(ImmutableList.of("a + random()", "a + random() + 1",
+                        "sum(a + random()) AS `sum(a + random())`",
+                        "sum(a + random() + 1) AS `sum(a + random() + 1)`",
+                        "sum((a + random() + 2.0)) AS `sum((a + random() + cast(2 as DOUBLE)))`"),
+                toSqls(aggregate.getOutputExpressions()));
+        Lists.transform(ImmutableList.of(0, 2, 4), aggregate.getOutputExpressions()::get).forEach(random0EqualValidator::checkRandomEqual);
+        Lists.transform(ImmutableList.of(1, 3), aggregate.getOutputExpressions()::get).forEach(random1EqualValidator::checkRandomEqual);
+
+        LogicalFilter<?> having = (LogicalFilter<?>) aggregate.child();
+        Assertions.assertEquals(2, having.getConjuncts().size());
+        for (Expression expr : having.getConjuncts()) {
+            String exprSql = expr.toSql();
+            Expression originExpr = getOriginExpression(expr, exprIdToOriginExprMap);
+            if (exprSql.contains("10.0")) {
+                Assertions.assertEquals("(a + random() > 10.0)", exprSql);
+                random0EqualValidator.checkRandomEqual(originExpr);
+            } else {
+                Assertions.assertEquals("(a + random() + 1 > 30.0)", exprSql);
+                random1EqualValidator.checkRandomEqual(originExpr);
+            }
+        }
+
+        // where
+        LogicalFilter<?> filter = (LogicalFilter<?>) having.child().child(0);
+        assertEqualsIgnoreElemOrder(ImmutableList.of("((a + random()) > 1.0)", "((a + random()) > 0.0)", "((a + random()) > -1.0)"), toSqls(filter.getConjuncts()));
+        filter.getConjuncts().forEach(differentValidator::addAndCheckDifferent);
+
+        Assertions.assertTrue(random0EqualValidator.getRandom().isPresent());
+        Assertions.assertTrue(random1EqualValidator.getRandom().isPresent());
+        differentValidator.addAndCheckDifferent(random0EqualValidator.getRandom().get());
+        differentValidator.addAndCheckDifferent(random1EqualValidator.getRandom().get());
+    }
+
+    @Test
+    void testAggregateWithGroupBy6() {
+        // the two group by will be equal, and all the random() will be equal
+        String sql = "select a + random(), sum(a + random() + 1.0), max(a + random() + 2.0)"
+                + " from t"
+                + " group by a + random(), a + random()"
+                + " having a + random() > 10";
+
+        Plan root = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+
+        Map<ExprId, Expression> exprIdToOriginExprMap = getExprIdToOriginExpressionMap(root);
+        RandomEqualValidator equalValidator = new RandomEqualValidator(exprIdToOriginExprMap);
+
+        LogicalProject<?> project = (LogicalProject<?>) root.child(0);
+        Assertions.assertEquals(ImmutableList.of("a + random()",
+                        "sum((a + random() + cast(1.0 as DOUBLE))) AS `sum(a + random() + 1.0)`",
+                        "max((a + random() + cast(2.0 as DOUBLE))) AS `max(a + random() + 2.0)`"),
+                toSqls(project.getProjects()));
+        project.getProjects().forEach(equalValidator::checkRandomEqual);
+
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) project.child();
+        // two group by equal, remove duplicate one
+        Assertions.assertEquals(ImmutableList.of("a + random()"), toSqls(aggregate.getGroupByExpressions()));
+        aggregate.getGroupByExpressions().forEach(equalValidator::checkRandomEqual);
+        Assertions.assertEquals(ImmutableList.of("a + random()",
+                        "sum((a + random() + 1.0)) AS `sum((a + random() + cast(1.0 as DOUBLE)))`",
+                        "max((a + random() + 2.0)) AS `max((a + random() + cast(2.0 as DOUBLE)))`"),
+                toSqls(aggregate.getOutputExpressions()));
+        aggregate.getOutputExpressions().forEach(equalValidator::checkRandomEqual);
+
+        // push down having
+        LogicalFilter<?> filter = (LogicalFilter<?>) aggregate.child();
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(a + random() > 10.0)"), toSqls(filter.getConjuncts()));
+        filter.getConjuncts().forEach(equalValidator::checkRandomEqual);
+
+        // push down group by expression to project
+        LogicalProject<?> groupByProject = (LogicalProject<?>) filter.child();
+        Assertions.assertEquals(ImmutableList.of("(a + random()) AS `a + random()`"),
+                toSqls(groupByProject.getProjects()));
+        groupByProject.getProjects().forEach(equalValidator::checkRandomEqual);
+    }
+
+    @Test
+    void testRepeat1() {
+        // all the 'random()' equal,  all the 'a + random()' equal
+        String sql = "select random(), a + random(), sum(random()), sum(a + random()), max(random()) over(), max(a + random()) over()"
+                + " from t"
+                + " group by grouping sets((), (random()), (random(), random()), (random(), a + random()))";
+
+        Plan root = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+
+        Map<ExprId, Expression> exprIdToOriginExprMap = getExprIdToOriginExpressionMap(root);
+        // validate 'random()' equal
+        RandomEqualValidator randomEqualValidator = new RandomEqualValidator(exprIdToOriginExprMap);
+        // validate 'random()' in 'a + random()' equal
+        RandomEqualValidator aAddRandomEqualValidator = new RandomEqualValidator(exprIdToOriginExprMap);
+
+        LogicalResultSink<?> sink = (LogicalResultSink<?>) root;
+        List<Expression> sinkOutputExprs = Lists.transform(sink.getOutputExprs(), output -> getOriginExpression(output, exprIdToOriginExprMap));
+        Assertions.assertEquals(ImmutableList.of("random()", "(a + random())",
+                        "sum(random())", "sum((a + random()))",
+                        "max(random()) OVER(RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)",
+                        "max((a + random())) OVER(RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"),
+                toSqls(sinkOutputExprs));
+        Lists.transform(ImmutableList.of(0, 2, 4), sinkOutputExprs::get).forEach(randomEqualValidator::checkRandomEqual);
+        Lists.transform(ImmutableList.of(1, 3, 5), sinkOutputExprs::get).forEach(aAddRandomEqualValidator::checkRandomEqual);
+
+        LogicalWindow<?> window = (LogicalWindow<?>) sink.child();
+        Assertions.assertEquals(ImmutableList.of(
+                    "max(random()) OVER(RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS `max(random()) over()`",
+                    "max(a + random()) OVER(RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS `max(a + random()) over()`"),
+                toSqls(window.getWindowExpressions()));
+        randomEqualValidator.checkRandomEqual(window.getWindowExpressions().get(0));
+        aAddRandomEqualValidator.checkRandomEqual(window.getWindowExpressions().get(1));
+
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) window.child().child(0);
+        Assertions.assertEquals(ImmutableList.of("random()", "a + random()", "GROUPING_ID"), toSqls(aggregate.getGroupByExpressions()));
+        Lists.transform(ImmutableList.of(0), aggregate.getGroupByExpressions()::get).forEach(randomEqualValidator::checkRandomEqual);
+        Lists.transform(ImmutableList.of(1), aggregate.getGroupByExpressions()::get).forEach(aAddRandomEqualValidator::checkRandomEqual);
+        Assertions.assertEquals(ImmutableList.of("random()", "a + random()", "GROUPING_ID",
+                        "sum(random()) AS `sum(random())`",
+                        "sum(a + random()) AS `sum(a + random())`"),
+                toSqls(aggregate.getOutputExpressions()));
+        Lists.transform(ImmutableList.of(0, 3), aggregate.getOutputExpressions()::get).forEach(randomEqualValidator::checkRandomEqual);
+        Lists.transform(ImmutableList.of(1, 4), aggregate.getOutputExpressions()::get).forEach(aAddRandomEqualValidator::checkRandomEqual);
+
+        LogicalRepeat<?> repeat = (LogicalRepeat<?>) aggregate.child();
+        Assertions.assertEquals(4, repeat.getGroupingSets().size());
+        Assertions.assertEquals(ImmutableList.of(), toSqls(repeat.getGroupingSets().get(0)));
+        Assertions.assertEquals(ImmutableList.of("random()"), toSqls(repeat.getGroupingSets().get(1)));
+        randomEqualValidator.checkRandomEqual(repeat.getGroupingSets().get(1).get(0));
+        Assertions.assertEquals(ImmutableList.of("random()"), toSqls(repeat.getGroupingSets().get(2)));
+        randomEqualValidator.checkRandomEqual(repeat.getGroupingSets().get(2).get(0));
+        Assertions.assertEquals(ImmutableList.of("random()", "a + random()"), toSqls(repeat.getGroupingSets().get(3)));
+        randomEqualValidator.checkRandomEqual(repeat.getGroupingSets().get(3).get(0));
+        aAddRandomEqualValidator.checkRandomEqual(repeat.getGroupingSets().get(3).get(1));
+
+        Assertions.assertTrue(randomEqualValidator.getRandom().isPresent());
+        Assertions.assertTrue(aAddRandomEqualValidator.getRandom().isPresent());
+        Assertions.assertNotEquals(randomEqualValidator.getRandom().get(), aAddRandomEqualValidator.getRandom().get());
     }
 
     // add its add expressions are different, and the randoms from them are different too
@@ -662,20 +1005,50 @@ class UniqueFunctionTest extends SqlTestBase {
         }
     }
 
+    private static class RandomEqualValidator {
+        private Map<ExprId, Expression> exprIdToOriginExprMap;
+        private Optional<Random> random;
+
+        public RandomEqualValidator(Map<ExprId, Expression> exprIdToOriginExprMap) {
+            this.exprIdToOriginExprMap = exprIdToOriginExprMap;
+            random = Optional.empty();
+        }
+
+        public void checkRandomEqual(Expression expression) {
+            Expression originExpression = getOriginExpression(expression, exprIdToOriginExprMap);
+            List<Expression> randoms = originExpression.collectToList(e -> e instanceof Random);
+            Assertions.assertFalse(randoms.isEmpty());
+            if (!random.isPresent()) {
+                random = Optional.of((Random) randoms.get(0));
+            }
+            for (Expression r : randoms) {
+                Assertions.assertEquals(random.get(), r);
+            }
+        }
+
+        public Optional<Random> getRandom() {
+            return random;
+        }
+    }
+
     private Map<ExprId, Expression> getExprIdToOriginExpressionMap(Plan root) {
         Map<ExprId, Expression> exprIdToExpressionMap = Maps.newHashMap();
         Set<Expression> uniqueExpressions = Sets.newHashSet();
         Set<Expression> uniqueOutputExpressions = Sets.newHashSet();
         root.foreachUp(p -> {
+            List<NamedExpression> outputs = ImmutableList.of();
             if (p instanceof OutputPrunable) {
-                for (NamedExpression output : ((OutputPrunable) p).getOutputs()) {
-                    if (output instanceof Alias) {
-                        Alias alias = (Alias) output;
-                        exprIdToExpressionMap.put(alias.getExprId(), alias.child());
-                        if (output.containsUniqueFunction()) {
-                            boolean notExists = uniqueOutputExpressions.add(alias.child());
-                            Assertions.assertTrue(notExists);
-                        }
+                outputs = ((OutputPrunable) p).getOutputs();
+            } else if (p instanceof LogicalWindow) {
+                outputs = ((LogicalWindow<?>) p).getWindowExpressions();
+            }
+            for (NamedExpression output : outputs) {
+                if (output instanceof Alias) {
+                    Alias alias = (Alias) output;
+                    exprIdToExpressionMap.put(alias.getExprId(), alias.child());
+                    if (output.containsUniqueFunction()) {
+                        boolean notExists = uniqueOutputExpressions.add(alias.child());
+                        Assertions.assertTrue(notExists);
                     }
                 }
             }
