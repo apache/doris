@@ -2283,6 +2283,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
+    public static final String ENABLE_EXPLAIN_NONE = "enable_explain_none";
+
     public static final String DETAIL_SHAPE_NODES = "detail_shape_nodes";
 
     public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
@@ -2304,6 +2306,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"'explain shape plan' 命令中显示详细信息的 PlanNode 类型",
                     "the plan node type show detail in 'explain shape plan' command"})
     public String detailShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_EXPLAIN_NONE, needForward = true, description = {
+            "执行explain命令，但不打印explain结果",
+            "execute explain command and return nothing"
+    })
+    public boolean enableExplainNone = false;
 
     private Set<String> detailShapePlanNodesSet = ImmutableSet.of();
 
