@@ -209,6 +209,15 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             return endpoint.contains("amazonaws.com");
         }
 
+        // guess from URI
+        Optional<String> uriValue = origProps.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        if (uriValue.isPresent()) {
+            return uriValue.get().contains("amazonaws.com");
+        }
+
         // guess from region
         String region = Stream.of(REGION_NAMES_FOR_GUESSING)
                 .map(origProps::get)
@@ -218,11 +227,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (!Strings.isNullOrEmpty(region)) {
             return true;
         }
-        Optional<String> uriValue = origProps.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
-                .map(Map.Entry::getValue)
-                .findFirst();
-        return uriValue.isPresent() && uriValue.get().contains("amazonaws.com");
+        return false;
     }
 
     @Override
