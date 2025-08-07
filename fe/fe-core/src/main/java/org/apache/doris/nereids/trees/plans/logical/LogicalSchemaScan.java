@@ -30,7 +30,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -48,8 +47,8 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
 
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier) {
         this(id, table, qualifier, false,
-                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(),
-                Optional.empty(), Optional.empty(), Collections.emptyList());
+                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), Optional.empty());
     }
 
     /**
@@ -63,15 +62,14 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
      * @param schemaDatabase Optional database name in the schema
      * @param schemaTable Optional table name in the schema
      * @param virtualColumns List of virtual columns to be included in the scan
+     * @param frontendConjuncts conjuncts needed by FrontendService
      * @param groupExpression Optional group expression for memo representation
      * @param logicalProperties Optional logical properties for this plan node
-     * @param frontendConjuncts conjuncts needed by FrontendService
      */
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier, boolean filterPushed,
             Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
-            List<NamedExpression> virtualColumns,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Expression> frontendConjuncts) {
+            List<NamedExpression> virtualColumns, List<Expression> frontendConjuncts,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
                 groupExpression, logicalProperties);
         this.filterPushed = filterPushed;
@@ -110,28 +108,28 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns,
-                groupExpression, Optional.of(getLogicalProperties()), frontendConjuncts);
+                frontendConjuncts, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, groupExpression, logicalProperties,
-                frontendConjuncts);
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, groupExpression,
+                logicalProperties);
     }
 
     @Override
     public LogicalSchemaScan withRelationId(RelationId relationId) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, Optional.empty(), Optional.empty(),
-                frontendConjuncts);
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, Optional.empty(),
+                Optional.empty());
     }
 
     public LogicalSchemaScan withFrontendConjuncts(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
             Optional<String> schemaTable, List<Expression> frontendConjuncts) {
         return new LogicalSchemaScan(relationId, table, qualifier, true, schemaCatalog, schemaDatabase, schemaTable,
-                virtualColumns, Optional.empty(), Optional.of(getLogicalProperties()), frontendConjuncts);
+                virtualColumns, frontendConjuncts, Optional.empty(), Optional.of(getLogicalProperties()));
     }
 
     @Override

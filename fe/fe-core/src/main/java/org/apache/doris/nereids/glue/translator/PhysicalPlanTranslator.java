@@ -1039,11 +1039,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 table.getName())) {
             scanNode = new BackendPartitionedSchemaScanNode(context.nextPlanNodeId(), table, tupleDescriptor,
                     schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
-                    schemaScan.getSchemaTable().orElse(null), translateToExprs(schemaScan.getFrontendConjuncts()));
+                    schemaScan.getSchemaTable().orElse(null),
+                    translateToExprs(schemaScan.getFrontendConjuncts(), context));
         } else {
             scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor,
                     schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
-                    schemaScan.getSchemaTable().orElse(null), translateToExprs(schemaScan.getFrontendConjuncts()));
+                    schemaScan.getSchemaTable().orElse(null), translateToExprs(schemaScan.getFrontendConjuncts(),
+                    context));
         }
         scanNode.setNereidsId(schemaScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(schemaScan.getId(), scanNode.getId());
@@ -1069,7 +1071,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return planFragment;
     }
 
-    private List<Expr> translateToExprs(List<Expression> expressions) {
+    private List<Expr> translateToExprs(List<Expression> expressions, PlanTranslatorContext context) {
         List<Expr> exprs = Lists.newArrayListWithCapacity(expressions.size());
         for (Expression expression : expressions) {
             exprs.add(ExpressionTranslator.translate(expression, context));

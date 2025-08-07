@@ -631,6 +631,9 @@ public class MetadataGenerator {
         if (params.isSetFrontendConjuncts()) {
             conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
         }
+        List<Expression> viewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_SCHEMA");
+        List<Expression> viewTypeConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_TYPE");
+        List<Expression> viewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_NAME");
         Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
@@ -638,17 +641,17 @@ public class MetadataGenerator {
         ctx.setEnv(Env.getCurrentEnv());
         for (DatabaseIf<? extends TableIf> db : allDbs) {
             String dbName = db.getFullName();
-            if (FrontendConjunctsUtils.isFiltered(conjuncts, "VIEW_SCHEMA", dbName)) {
+            if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
                 continue;
             }
             List<? extends TableIf> tables = db.getTables();
             for (TableIf table : tables) {
-                if (FrontendConjunctsUtils.isFiltered(conjuncts, "VIEW_TYPE", table.getType().name())) {
+                if (FrontendConjunctsUtils.isFiltered(viewTypeConjuncts, "VIEW_TYPE", table.getType().name())) {
                     continue;
                 }
                 if (table instanceof MTMV) {
                     String tableName = table.getName();
-                    if (FrontendConjunctsUtils.isFiltered(conjuncts, "VIEW_NAME", tableName)) {
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
                         continue;
                     }
                     MTMVRelation relation = ((MTMV) table).getRelation();
@@ -667,7 +670,7 @@ public class MetadataGenerator {
                     }
                 } else if (table instanceof View) {
                     String tableName = table.getName();
-                    if (FrontendConjunctsUtils.isFiltered(conjuncts, "VIEW_NAME", tableName)) {
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
                         continue;
                     }
                     String inlineViewDef = ((View) table).getInlineViewDef();

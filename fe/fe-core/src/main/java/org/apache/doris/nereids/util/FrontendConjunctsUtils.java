@@ -24,17 +24,17 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
+import com.google.common.collect.Lists;
 import com.google.gson.reflect.TypeToken;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -43,6 +43,7 @@ import java.util.stream.Collectors;
  */
 public class FrontendConjunctsUtils {
     private static final Logger LOG = LogManager.getLogger(FrontendConjunctsUtils.class);
+    private static List<String> nameParts;
 
     public static List<Expression> convertToExpression(String conjuncts) {
         List<Expr> exprs = GsonUtils.GSON.fromJson(conjuncts, new TypeToken<List<Expr>>() {
@@ -57,9 +58,39 @@ public class FrontendConjunctsUtils {
         return nereidsParser.parseExpression(expr.toSql());
     }
 
+    /**
+     * Filter out the conjuncts that contain the current slotName.
+     *
+     * @param expressions expressions
+     * @param slotName slotName
+     * @return filterBySlotName
+     */
+    public static List<Expression> filterBySlotName(List<Expression> expressions, String slotName) {
+        List<Expression> res = Lists.newArrayList();
+        for (Expression expression : expressions) {
+            if (containSlotName(expression, slotName)) {
+                res.add(expression);
+            }
+        }
+        return res;
+    }
+
+    private static boolean containSlotName(Expression expression, String slotName) {
+        return expression.anyMatch(c -> {
+            if (c instanceof UnboundSlot) {
+                List<String> nameParts = ((UnboundSlot) c).getNameParts();
+                if (!CollectionUtils.isEmpty(nameParts)) {
+                    String name = nameParts.get(nameParts.size() - 1).toLowerCase();
+                    return name.equalsIgnoreCase(slotName);
+                }
+            }
+            return false;
+        });
+    }
+
     public static boolean isFiltered(List<Expression> expressions, String columnName, Object value) {
-        HashMap<String, Object> values = Maps.newHashMapWithExpectedSize(1);
-        values.put(columnName.toLowerCase(), value);
+        TreeMap<String, Object> values = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        values.put(columnName, value);
         return isFiltered(expressions, values);
     }
 
@@ -67,10 +98,10 @@ public class FrontendConjunctsUtils {
      * isFiltered
      *
      * @param expressions expressions
-     * @param values values
+     * @param values case insensitive map
      * @return isFiltered
      */
-    public static boolean isFiltered(List<Expression> expressions, Map<String, Object> values) {
+    public static boolean isFiltered(List<Expression> expressions, TreeMap<String, Object> values) {
         for (Expression expression : expressions) {
             if (isFiltered(expression, values)) {
                 return true;
@@ -83,17 +114,17 @@ public class FrontendConjunctsUtils {
      * isFiltered
      *
      * @param expression expression
-     * @param values values
+     * @param values case insensitive map
      * @return isFiltered
      */
-    public static boolean isFiltered(Expression expression, Map<String, Object> values) {
+    public static boolean isFiltered(Expression expression, TreeMap<String, Object> values) {
         try {
             AtomicBoolean containsAllColumn = new AtomicBoolean(true);
             Expression rewrittenExpr = expression.rewriteUp(expr -> {
                 if (expr instanceof UnboundSlot) {
                     List<String> nameParts = ((UnboundSlot) expr).getNameParts();
-                    if (!CollectionUtils.isEmpty(nameParts) && nameParts.size() == 1) {
-                        String name = nameParts.get(0).toLowerCase();
+                    if (!CollectionUtils.isEmpty(nameParts)) {
+                        String name = nameParts.get(nameParts.size() - 1).toLowerCase();
                         if (values.containsKey(name)) {
                             return Literal.of(values.get(name));
                         } else {
@@ -111,6 +142,9 @@ public class FrontendConjunctsUtils {
             }
             Expression evaluate = FoldConstantRuleOnFE.evaluate(rewrittenExpr, null);
             if (evaluate instanceof BooleanLiteral && !((BooleanLiteral) evaluate).getValue()) {
+                return true;
+            }
+            if (evaluate instanceof NullLiteral) {
                 return true;
             }
             return false;

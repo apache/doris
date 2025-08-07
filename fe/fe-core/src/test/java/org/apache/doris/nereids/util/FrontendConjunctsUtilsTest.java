@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
@@ -36,13 +37,15 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 public class FrontendConjunctsUtilsTest {
     @Test
     public void testEqString() {
         EqualTo equalTo = generateEqualTo("c1", "v1");
-        Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(equalTo), "c1", "v1"));
+        Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(equalTo), "C1", "v1"));
         // Return true only when the columnName matches but the value differs.
         Assertions.assertTrue(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(equalTo), "c1", "v2"));
         Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(equalTo), "c2", "v2"));
@@ -67,13 +70,17 @@ public class FrontendConjunctsUtilsTest {
         Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or), "c3", "v3"));
         Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or), "c1", "v2"));
         Assertions.assertFalse(
-                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or), ImmutableMap.of("c1", "v1", "c2", "v2")));
+                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or),
+                        getTreeMap(ImmutableMap.of("c1", "v1", "c2", "v2"))));
         Assertions.assertFalse(
-                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or), ImmutableMap.of("c1", "v1", "c2", "v3")));
+                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or),
+                        getTreeMap(ImmutableMap.of("c1", "v1", "c2", "v3"))));
         Assertions.assertFalse(
-                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or), ImmutableMap.of("c1", "v3", "c2", "v2")));
+                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or),
+                        getTreeMap(ImmutableMap.of("c1", "v3", "c2", "v2"))));
         Assertions.assertTrue(
-                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or), ImmutableMap.of("c1", "v3", "c2", "v3")));
+                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or),
+                        getTreeMap(ImmutableMap.of("c1", "v3", "c2", "v3"))));
     }
 
     @Test
@@ -83,9 +90,11 @@ public class FrontendConjunctsUtilsTest {
         Assertions.assertTrue(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(c1, c2), "c1", 2));
         Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(c1, c2), "c1", 1));
         Assertions.assertFalse(
-                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(c1, c2), ImmutableMap.of("c1", 1, "c2", 2)));
+                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(c1, c2),
+                        getTreeMap(ImmutableMap.of("c1", 1, "c2", 2))));
         Assertions.assertTrue(
-                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(c1, c2), ImmutableMap.of("c1", 2, "c2", 2)));
+                FrontendConjunctsUtils.isFiltered(Lists.newArrayList(c1, c2),
+                        getTreeMap(ImmutableMap.of("c1", 2, "c2", 2))));
     }
 
     @Test
@@ -147,10 +156,39 @@ public class FrontendConjunctsUtilsTest {
         Assertions.assertTrue(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(greaterThanEqual), "c1", 1L));
     }
 
+    @Test
+    public void testNullSafeEqual() {
+        NullSafeEqual nullSafeEqual = generateNullSafeEqual("c1", 2L);
+        Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(nullSafeEqual), "c1", 2L));
+        Assertions.assertTrue(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(nullSafeEqual), "c1", 3L));
+    }
+
+    @Test
+    public void testFilterBySlotName() {
+        Assertions.assertFalse(
+                FrontendConjunctsUtils.filterBySlotName(Lists.newArrayList(generateEqualTo("c1", "v1")), "c1")
+                        .isEmpty());
+        Assertions.assertFalse(
+                FrontendConjunctsUtils.filterBySlotName(Lists.newArrayList(generateEqualTo("c1", "v1")), "C1")
+                        .isEmpty());
+        Assertions.assertTrue(
+                FrontendConjunctsUtils.filterBySlotName(Lists.newArrayList(generateEqualTo("c1", "v1")), "c2")
+                        .isEmpty());
+        Or or = new Or(generateEqualTo("c1", "v1"), generateEqualTo("c2", "v2"));
+        Assertions.assertFalse(FrontendConjunctsUtils.filterBySlotName(Lists.newArrayList(or), "c2").isEmpty());
+        Assertions.assertTrue(FrontendConjunctsUtils.filterBySlotName(Lists.newArrayList(or), "c3").isEmpty());
+    }
+
     private EqualTo generateEqualTo(String columnName, Object value) {
         UnboundSlot c1 = new UnboundSlot(columnName);
         Literal v1 = Literal.of(value);
         return new EqualTo(c1, v1);
+    }
+
+    private NullSafeEqual generateNullSafeEqual(String columnName, Object value) {
+        UnboundSlot c1 = new UnboundSlot(columnName);
+        Literal v1 = Literal.of(value);
+        return new NullSafeEqual(c1, v1);
     }
 
     private InPredicate generateIn(String columnName, List<Object> values) {
@@ -194,5 +232,11 @@ public class FrontendConjunctsUtilsTest {
         UnboundSlot c1 = new UnboundSlot(columnName);
         Literal v1 = Literal.of(value);
         return new GreaterThanEqual(c1, v1);
+    }
+
+    private TreeMap<String, Object> getTreeMap(Map<String, Object> map) {
+        TreeMap<String, Object> values = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        values.putAll(map);
+        return values;
     }
 }

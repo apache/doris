@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -117,6 +118,7 @@ public class PushDownFilterIntoSchemaScan extends OneRewriteRuleFactory {
                 || expression instanceof LessThanEqual
                 || expression instanceof GreaterThan
                 || expression instanceof GreaterThanEqual
+                || expression instanceof NullSafeEqual
                 || expression instanceof Not;
     }
 }
