@@ -72,7 +72,15 @@ public:
 
     Status set_event(int64_t job_id, TWarmUpEventType::type event, bool clear = false);
 
-    void warm_up_rowset(RowsetMeta& rs_meta);
+    // If `sync_wait_timeout_ms` <= 0, the function will send the warm-up RPC
+    // and return immediately without waiting for the warm-up to complete.
+    // If `sync_wait_timeout_ms` > 0, the function will wait for the warm-up
+    // to finish or until the specified timeout (in milliseconds) is reached.
+    //
+    // @param rs_meta Metadata of the rowset to be warmed up.
+    // @param sync_wait_timeout_ms Timeout in milliseconds to wait for the warm-up
+    //                              to complete. Non-positive value means no waiting.
+    void warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms = -1);
 
     void recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
 
