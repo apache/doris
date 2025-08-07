@@ -42,6 +42,7 @@
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris {
 class PColumnMeta;
@@ -225,6 +226,12 @@ public:
         to_protobuf(ptype, node, scalar_type);
     }
 #ifdef BE_TEST
+    // only used in beut
+    Status from_string(ReadBuffer& rb, IColumn* column) const {
+        StringRef str = {rb.position(), rb.count()};
+        return get_serde()->default_from_string(str, *column);
+    }
+
     TTypeDesc to_thrift() const {
         TTypeDesc thrift_type;
         to_thrift(thrift_type);
