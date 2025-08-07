@@ -85,3 +85,11 @@ PhysicalResultSink
 ----PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
 ------PhysicalOlapScan[t1]
 
+-- !push_down_filter_through_agg --
+PhysicalResultSink
+--filter(((cast(id as BIGINT) + random(1, 10)) > 6))
+----hashAgg[LOCAL]
+------PhysicalProject[t1.id]
+--------filter(((cast(id as BIGINT) + random(1, 10)) > 5))
+----------PhysicalOlapScan[t1]
+

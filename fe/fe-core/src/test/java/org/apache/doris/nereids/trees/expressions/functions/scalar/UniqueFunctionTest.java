@@ -587,7 +587,6 @@ class UniqueFunctionTest extends SqlTestBase {
 
     @Test
     void testAggregateWithGroupBy1() {
-        /*
         // all the random will be diff
         String sql = "select random(), random(), "
                 + " a + random(), a + random(), "
@@ -598,13 +597,69 @@ class UniqueFunctionTest extends SqlTestBase {
                 + " group by a"
                 + " having random() > 0.5 and random() > 0.5 and a + random() > 10 and a + random() > 10 and sum(a + random()) > 30 and sum(a + random()) > 30"
                 // + " qualify sum(a + random()) over() > 20" // BUG: raise error "Unknown column 'a' in 'table list' in SORT clause"
-                + " order by random(), random(), a + random(), a + random()";
+                + " order by random(), random(), a + random(), a + random(), sum(a + random()), sum(a + random()) over (partition by a + random())";
 
         Plan root = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .getPlan();
-        */
+
+        Map<ExprId, Expression> exprIdToOriginExprMap = getExprIdToOriginExpressionMap(root);
+        DifferentValidator validator = new DifferentValidator(exprIdToOriginExprMap);
+
+        LogicalProject<?> project = (LogicalProject<?>) root.child(0);
+        Assertions.assertEquals(ImmutableList.of(
+                        "random()", "random()", "a + random()", "a + random()",
+                        "sum(a + random())", "sum(a + random())",
+                        "sum(a + random()) over(partition by a + random())",
+                        "sum(a + random()) over(partition by a + random())"),
+                toSqls(project.getProjects()));
+        project.getProjects().forEach(validator::addAndCheckDifferent);
+
+        LogicalSort<?> sort = (LogicalSort<?>) project.child();
+        Assertions.assertEquals(ImmutableList.of("random()", "random()", "(a + random())", "(a + random())",
+                        "sum((a + random()))", "sum((a + random())) OVER(PARTITION BY (a + random()))"),
+                toSqls(sort.getExpressions()));
+        sort.getExpressions().forEach(validator::addAndCheckDifferent);
+
+        LogicalWindow<?> window = (LogicalWindow<?>) sort.child().child(0);
+
+        LogicalFilter<?> having = (LogicalFilter<?>) window.child().child(0);
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.5)", "(random() > 0.5)",
+                        "((a + random()) > 10.0)", "((a + random()) > 10.0)",
+                        "(sum((a + random())) > 30.0)", "(sum((a + random())) > 30.0)"),
+                toSqls(having.getConjuncts()));
+        having.getConjuncts().forEach(validator::addAndCheckDifferent);
+
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) having.child();
+
+        LogicalFilter<?> filter = (LogicalFilter<?>) aggregate.child().child(0);
+        assertEqualsIgnoreElemOrder(ImmutableList.of("(random() > 0.5)", "(random() > 0.5)",
+                        "((a + random()) > 10.0)", "((a + random()) > 10.0)"),
+                toSqls(filter.getConjuncts()));
+        filter.getConjuncts().forEach(validator::addAndCheckDifferent);
+    }
+
+    // add its add expressions are different, and the randoms from them are different too
+    private static class DifferentValidator {
+        private Map<ExprId, Expression> exprIdToOriginExprMap;
+        private Set<Expression> expressionSet;
+        private Set<Expression> randomSet;
+
+        public DifferentValidator(Map<ExprId, Expression> exprIdToOriginExprMap) {
+            this.exprIdToOriginExprMap = exprIdToOriginExprMap;
+            expressionSet = Sets.newHashSet();
+            randomSet = Sets.newHashSet();
+        }
+
+        public void addAndCheckDifferent(Expression expression) {
+            Expression originExpression = getOriginExpression(expression, exprIdToOriginExprMap);
+            Assertions.assertTrue(expressionSet.add(originExpression));
+            List<Expression> randoms = originExpression.collectToList(e -> e instanceof Random);
+            for (Expression random : randoms) {
+                Assertions.assertTrue(randomSet.add(random));
+            }
+        }
     }
 
     private Map<ExprId, Expression> getExprIdToOriginExpressionMap(Plan root) {
@@ -637,7 +692,7 @@ class UniqueFunctionTest extends SqlTestBase {
         return exprIdToExpressionMap;
     }
 
-    private Expression getOriginExpression(Expression expression, Map<ExprId, Expression> exprIdToOriginExpressionMap) {
+    private static Expression getOriginExpression(Expression expression, Map<ExprId, Expression> exprIdToOriginExpressionMap) {
         Expression afterExpression = expression;
         while (afterExpression.containsType(NamedExpression.class)) {
             if (afterExpression instanceof Alias) {
@@ -670,5 +725,10 @@ class UniqueFunctionTest extends SqlTestBase {
     private void assertExpressionInstanceAndSql(Expression expression, Class exprClass, String exprSql) {
         Assertions.assertInstanceOf(exprClass, expression);
         Assertions.assertEquals(exprSql, expression.toSql());
+    }
+
+    private void assertEqualsIgnoreElemOrder(List<?> list1, List<?> list2) {
+        Assertions.assertEquals(list1.stream().sorted().collect(Collectors.toList()),
+                list2.stream().sorted().collect(Collectors.toList()));
     }
 }

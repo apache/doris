@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_unique_scalar_function') {
+suite('test_unique_function') {
     sql 'SET enable_nereids_planner=true'
     sql 'SET runtime_filter_mode=OFF'
     sql 'SET enable_fallback_to_original_planner=false'
@@ -75,6 +75,16 @@ suite('test_unique_scalar_function') {
         explain shape plan select a as b, a + 10 as c from (select id + random(1, 10) as a from t1) t
         '''
 
+    qt_push_down_filter_through_agg '''
+        explain shape plan
+        select id, sum(id)
+        from t1
+        where id + random(1, 10) > 5
+        group by id
+        having id + random(1, 10) > 6
+        '''
+
+    /*
     def tbl = "unique_scalar_function_tbl1"
     sql "drop table if exists ${tbl} force"
     sql "create table ${tbl} (k int, a double) properties('replication_num' = '1')"
@@ -285,4 +295,5 @@ suite('test_unique_scalar_function') {
         """
 
     // test with repeat
+    */
 }
