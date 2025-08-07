@@ -43,7 +43,6 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
@@ -735,14 +734,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
         return TypeCoercionUtils.processInPredicate(newInPredicate);
-    }
-
-    @Override
-    public Expression visitBetween(Between between, ExpressionRewriteContext context) {
-        List<Expression> rewrittenChildren = between.children().stream()
-                .map(e -> e.accept(this, context)).collect(Collectors.toList());
-        Between newBetween = between.withChildren(rewrittenChildren);
-        return TypeCoercionUtils.processBetween(newBetween);
     }
 
     @Override

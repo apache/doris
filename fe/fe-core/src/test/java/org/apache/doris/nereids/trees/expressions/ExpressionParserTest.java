@@ -84,10 +84,9 @@ public class ExpressionParserTest extends ParserTestBase {
     public void testExprBetweenPredicate() {
         parseExpression("c BETWEEN a AND b")
                 .assertEquals(
-                        new Between(
-                                new UnboundSlot("c"),
-                                new UnboundSlot("a"),
-                                new UnboundSlot("b")
+                        new And(
+                                new GreaterThanEqual(new UnboundSlot("c"), new UnboundSlot("a")),
+                                new LessThanEqual(new UnboundSlot("c"), new UnboundSlot("b"))
                         )
                 );
     }

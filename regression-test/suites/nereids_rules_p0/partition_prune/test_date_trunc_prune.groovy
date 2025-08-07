@@ -124,9 +124,9 @@ suite("test_date_trunc_prune") {
     for (int i = 0; i < 2; i++) {
         if (i == 0) {
             // forbid rewrite not a>1 to a<=1
-            sql "set disable_nereids_expression_rules = 'SIMPLIFY_NOT_EXPR'"
+            sql "set disable_nereids_rules = 'REWRITE_FILTER_EXPRESSION'"
         } else {
-            sql "set disable_nereids_expression_rules = ''"
+            sql "set disable_nereids_rules = ''"
         }
         explain {
             sql """select * from mal_test_partition_range5 where not date_trunc(b,'day')<="2020-01-14" """
