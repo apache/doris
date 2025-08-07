@@ -80,7 +80,8 @@ void VariantStatsCaculator::_calculate_sparse_column_stats(const vectorized::ICo
     VariantStatisticsPB* stats = column_meta->mutable_variant_statistics();
 
     // Use the same logic as the original calculate_variant_stats function
-    vectorized::schema_util::calculate_variant_stats(column, stats, row_pos, num_rows);
+    vectorized::schema_util::VariantCompactionUtil::calculate_variant_stats(column, stats, row_pos,
+                                                                            num_rows);
 
     VLOG_DEBUG << "Sparse column stats updated, non-null size count: "
                << stats->sparse_column_non_null_size_size();

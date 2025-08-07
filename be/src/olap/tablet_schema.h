@@ -206,9 +206,21 @@ public:
         return Status::OK();
     }
 
+    void set_precision(int precision) {
+        _precision = precision;
+        _is_decimal = true;
+    }
+
+    void set_frac(int frac) { _frac = frac; }
+
     void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
         _variant_max_subcolumns_count = variant_max_subcolumns_count;
     }
+
+    void set_variant_enable_typed_paths_to_sparse(bool enable) {
+        _variant_enable_typed_paths_to_sparse = enable;
+    }
+
     int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
@@ -216,6 +228,8 @@ public:
     bool variant_enable_typed_paths_to_sparse() const {
         return _variant_enable_typed_paths_to_sparse;
     }
+
+    bool is_decimal() const { return _is_decimal; }
 
 private:
     int32_t _unique_id = -1;
