@@ -72,8 +72,6 @@ public:
 
     Status set_event(int64_t job_id, TWarmUpEventType::type event, bool clear = false);
 
-    // if `sync_wait_timeout_ms` <= 0,
-    // Sends a warm-up request for the given rowset to the BE.
     // If `sync_wait_timeout_ms` <= 0, the function will send the warm-up RPC
     // and return immediately without waiting for the warm-up to complete.
     // If `sync_wait_timeout_ms` > 0, the function will wait for the warm-up

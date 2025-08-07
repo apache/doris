@@ -581,8 +581,8 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
         watch.start();
         brpc_stub->warm_up_rowset(&cntl, &request, &response, nullptr);
         if (cntl.Failed()) {
-            LOG_WARNING("Warm up rowset {} for tablet {} failed, error: {}", rs_meta.rowset_id(),
-                        tablet_id, cntl.ErrorText());
+            LOG_WARNING("warm up rowset {} for tablet {} failed, rpc error: {}",
+                        rs_meta.rowset_id(), tablet_id, cntl.ErrorText());
             return;
         }
         if (sync_wait_timeout_ms > 0) {
