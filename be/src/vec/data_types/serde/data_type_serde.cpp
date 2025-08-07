@@ -54,7 +54,8 @@ Status DataTypeSerDe::default_from_string(StringRef& str, IColumn& column) const
     auto slice = str.to_slice();
     DataTypeSerDe::FormatOptions options;
     options.converted_from_string = true;
-    options.escape_char = '\\';
+    ///TODO: Think again, when do we need to consider escape characters?
+    // options.escape_char = '\\';
     // Deserialize the string into the column
     return deserialize_one_cell_from_json(column, slice, options);
 }
