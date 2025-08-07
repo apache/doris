@@ -50,7 +50,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 const static int MAX_MEMORY_PERCENT_DEFAULT_VALUE = 100;
-const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int MAX_CPU_PERCENT_DEFAULT_VALUE = 100;
 
 const static int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 80;
