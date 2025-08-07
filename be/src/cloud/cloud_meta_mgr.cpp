@@ -1085,6 +1085,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     }
 
     int64_t timeout_ms = -1;
+    // if the `job_id` is not empty, it means this rowset was produced by a compaction job.
     if (config::enable_compaction_delay_commit_for_warm_up && !job_id.empty()) {
         // 1. assume the download speed is 100MB/s
         // 2. we double the download time as timeout for safety
@@ -1096,10 +1097,10 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
                                               (speed_mbps * 1024 * 1024) * safety_factor * 1000),
                          config::warm_up_rowset_sync_wait_min_timeout_ms),
                 config::warm_up_rowset_sync_wait_max_timeout_ms);
+        LOG(INFO) << "warm up rowset: " << rs_meta.version() << ", job_id: " << job_id
+                  << ", with timeout: " << timeout_ms << " ms";
     }
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-    VLOG_DEBUG << "warm up rowset: " << rs_meta.version() << ", job_id: " << job_id
-               << ", timeout_ms: " << timeout_ms;
     manager.warm_up_rowset(rs_meta, timeout_ms);
     return st;
 }
