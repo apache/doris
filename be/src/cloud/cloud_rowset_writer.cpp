@@ -103,7 +103,12 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     // update rowset meta tablet schema if tablet schema updated
     auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
                                                                   : _context.tablet_schema;
-    _rowset_meta->set_tablet_schema(rowset_schema);
+    if (_context.strip_variant_extracted_columns_in_rowset_meta &&
+        rowset_schema->num_variant_columns() > 0) {
+        _rowset_meta->set_tablet_schema(rowset_schema->copy_without_variant_extracted_columns());
+    } else {
+        _rowset_meta->set_tablet_schema(rowset_schema);
+    }
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());

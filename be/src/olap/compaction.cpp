@@ -79,6 +79,7 @@
 #include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/trace.h"
+#include "vec/common/schema_util.h"
 
 using std::vector;
 
@@ -129,7 +130,9 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
                   MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
           _is_vertical(config::enable_vertical_compaction),
-          _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
+          _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction),
+          _enable_vertical_compact_variant_subcolumns(
+                  config::enable_vertical_compact_variant_subcolumns) {
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _rowid_conversion = std::make_unique<RowIdConversion>();
@@ -306,7 +309,7 @@ Tablet* CompactionMixin::tablet() {
 }
 
 Status CompactionMixin::do_compact_ordered_rowsets() {
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info(true));
     RowsetWriterContext ctx;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
@@ -337,11 +340,12 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
     rowset_meta->set_segments_key_bounds(segment_key_bounds);
+
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
     return Status::OK();
 }
 
-void CompactionMixin::build_basic_info() {
+Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     for (auto& rowset : _input_rowsets) {
         const auto& rowset_meta = rowset->rowset_meta();
         auto index_size = rowset_meta->index_disk_size();
@@ -369,7 +373,8 @@ void CompactionMixin::build_basic_info() {
     COUNTER_UPDATE(_input_row_num_counter, _input_row_num);
     COUNTER_UPDATE(_input_segments_num_counter, _input_num_segments);
 
-    TEST_SYNC_POINT_RETURN_WITH_VOID("compaction::CompactionMixin::build_basic_info");
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("compaction::CompactionMixin::build_basic_info",
+                                      Status::OK());
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
@@ -380,6 +385,16 @@ void CompactionMixin::build_basic_info() {
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+
+    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
+    // so get_extended_compaction_schema will extended the schema for variant columns
+    // for ordered compaction, we don't need to extend the schema for variant columns
+    if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
+        RETURN_IF_ERROR(
+                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                        _input_rowsets, _cur_tablet_schema));
+    }
+    return Status::OK();
 }
 
 bool CompactionMixin::handle_ordered_data_compaction() {
@@ -509,7 +524,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
         _state = CompactionState::SUCCESS;
         return Status::OK();
     }
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info());
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("compaction::CompactionMixin::execute_compact_impl",
                                       Status::OK());
@@ -1099,6 +1114,11 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
+    // If we extended variant subcolumns for vertical compaction, make sure rowset meta
+    // does not persist those extracted subcolumns.
+    ctx.strip_variant_extracted_columns_in_rowset_meta =
+            _enable_vertical_compact_variant_subcolumns &&
+            (_cur_tablet_schema->num_variant_columns() > 0);
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
@@ -1340,6 +1360,9 @@ Status Compaction::check_correctness() {
                 _tablet->tablet_id(), _input_row_num, _stats.merged_rows, _stats.filtered_rows,
                 _output_rowset->num_rows());
     }
+    // 2. check variant column path stats
+    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+            _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
 
@@ -1383,7 +1406,7 @@ void Compaction::_load_segment_to_cache() {
     }
 }
 
-void CloudCompactionMixin::build_basic_info() {
+Status CloudCompactionMixin::build_basic_info() {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
@@ -1393,6 +1416,14 @@ void CloudCompactionMixin::build_basic_info() {
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+    // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
+    // so get_extended_compaction_schema will extended the schema for variant columns
+    if (_enable_vertical_compact_variant_subcolumns) {
+        RETURN_IF_ERROR(
+                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+                        _input_rowsets, _cur_tablet_schema));
+    }
+    return Status::OK();
 }
 
 int64_t CloudCompactionMixin::get_compaction_permits() {
@@ -1415,7 +1446,7 @@ CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabl
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     OlapStopWatch watch;
 
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info());
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version << ", permits: " << permits;
@@ -1511,6 +1542,11 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
+    // If we extended variant subcolumns for vertical compaction, make sure rowset meta
+    // does not persist those extracted subcolumns.
+    ctx.strip_variant_extracted_columns_in_rowset_meta =
+            _enable_vertical_compact_variant_subcolumns &&
+            (_cur_tablet_schema->num_variant_columns() > 0);
 
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
