@@ -1632,6 +1632,9 @@ DECLARE_String(fuzzy_test_type);
 // The maximum number of threads supported when executing LLMFunction
 DECLARE_mInt32(llm_max_concurrent_requests);
 
+DECLARE_mBool(enable_rowid_conversion_spill);
+DECLARE_mInt64(rowid_conversion_max_mb);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
