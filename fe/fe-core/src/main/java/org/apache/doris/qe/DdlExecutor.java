@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AlterJobStatusStmt;
 import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
@@ -106,19 +105,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CreateJobStmt) {
             try {
                 env.getJobManager().registerJob(((CreateJobStmt) ddlStmt).getJobInstance());
-            } catch (Exception e) {
-                throw new DdlException(e.getMessage());
-            }
-        } else if (ddlStmt instanceof AlterJobStatusStmt) {
-            AlterJobStatusStmt stmt = (AlterJobStatusStmt) ddlStmt;
-            try {
-                // drop job
-                if (stmt.isDrop()) {
-                    env.getJobManager().unregisterJob(stmt.getJobName(), stmt.isIfExists());
-                    return;
-                }
-                // alter job status
-                env.getJobManager().alterJobStatus(stmt.getJobName(), stmt.getJobStatus());
             } catch (Exception e) {
                 throw new DdlException(e.getMessage());
             }

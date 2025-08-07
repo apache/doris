@@ -2405,26 +2405,7 @@ create_job_stmt ::=
      {:  
           RESULT = endTime;  
      :}
-     ;        
-pause_job_stmt ::=
-    KW_PAUSE KW_JOB opt_wild_where
-    {:
-       RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.PAUSED);
-    :}
-    ;
-
-stop_job_stmt ::=
-    KW_DROP KW_JOB opt_if_exists:ifExists opt_wild_where 
-    {:
-      RESULT = new AlterJobStatusStmt(parser.where,true,ifExists);
-    :}
-    ;    
-resume_job_stmt ::=
-    KW_RESUME KW_JOB  opt_wild_where
-    {:
-        RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.RUNNING);
-    :}
-    ;                          
+     ;
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
