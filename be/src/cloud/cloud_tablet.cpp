@@ -416,6 +416,7 @@ void CloudTablet::warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_o
                                     .expiration_time = expiration_time,
                                     .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                             },
+                     // TODO: consider index file for warm up state management
                     .download_done {[](Status st) {
                         if (!st) {
                             LOG_WARNING("add rowset warm up error ").error(st);
