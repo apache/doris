@@ -129,7 +129,7 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
         const auto* meta_ptr = reinterpret_cast<const size_t*>(buf);
         const char* data_ptr = buf + sizeof(size_t) * real_have_saved_num;
         for (size_t i = 0; i < real_have_saved_num; ++i) {
-            data[i].deserialize(data_ptr);
+            DCHECK(data[i].deserialize(data_ptr)) << "invalid bitmap";
             data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
         return data_ptr;
@@ -144,7 +144,7 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
         data.resize(meta_ptr[0]);
         const char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
-            data[i].deserialize(data_ptr);
+            DCHECK(data[i].deserialize(data_ptr)) << "invalid bitmap";
             data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
 
@@ -172,7 +172,7 @@ void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritab
 void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& buf) {
     StringRef ref;
     buf.read_binary(ref);
-    value.deserialize(ref.data);
+    DCHECK(value.deserialize(ref.data)) << "invalid bitmap";
 }
 
 void DataTypeBitMap::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
