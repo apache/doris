@@ -70,7 +70,6 @@ public class ShowGrantsCommand extends ShowCommand {
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        boolean isSelf = false;
         if (userIdent != null) {
             if (isAll) {
                 throw new AnalysisException("Can not specified keyword ALL when specified user");
@@ -80,9 +79,9 @@ public class ShowGrantsCommand extends ShowCommand {
             if (!isAll) {
                 // self
                 userIdent = ConnectContext.get().getCurrentUserIdentity();
-                isSelf = true;
             }
         }
+        boolean isSelf = userIdent!= null && ConnectContext.get().getCurrentUserIdentity().equals(userIdent);
         Preconditions.checkState(isAll || userIdent != null);
         // if show all grants, or show other user's grants, need global GRANT priv.
         if (isAll || !isSelf) {
