@@ -590,18 +590,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
                 int maxFailedTimes = 0;
-                if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
-                    if (task.getErrorCode() != null && task.getErrorCode()
-                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
-                        maxFailedTimes = Config.schema_change_max_retry_time;
-                    }
+                if (Config.enable_schema_change_retry && task.getErrorCode() != null
+                        && (task.getErrorCode().equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)
+                            || task.getErrorCode().equals(TStatusCode.NETWORK_ERROR))) {
+                    maxFailedTimes = Config.schema_change_max_retry_time;
                 }
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
                     if (!FeConstants.runningUnitTest) {
                         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                        LOG.warn("schema change task failed, failedTimes: {}, maxFailedTimes: {}, err: {}",
-                                task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
+                        LOG.warn("schema change task failed, job: {}failedTimes: {}, maxFailedTimes: {}, err: {}",
+                                 jobId, task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
                         List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                         if (failedBackends == null) {
                             failedBackends = Lists.newArrayList();

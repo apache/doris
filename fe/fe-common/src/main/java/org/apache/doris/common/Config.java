@@ -3451,7 +3451,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"存算分离模式下schema change失败是否重试",
             "Whether to enable retry when schema change failed in cloud model, default is true."})
-    public static boolean enable_schema_change_retry_in_cloud_mode = true;
+    public static boolean enable_schema_change_retry = true;
 
     @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
             "Max retry times when schema change failed in cloud model, default is 3."})
