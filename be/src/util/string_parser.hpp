@@ -114,6 +114,7 @@ bool range_suite(const char* s, const char* end) {
 }
 
 inline auto is_digit_range = range_suite<is_numeric_ascii>;
+inline auto is_space_range = range_suite<is_whitespace_ascii>;
 
 inline Status assert_within_bound(const char* s, const char* end, size_t offset) {
     if (s + offset >= end) [[unlikely]] {
