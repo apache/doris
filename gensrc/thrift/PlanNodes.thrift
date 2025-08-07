@@ -463,7 +463,7 @@ struct TFileScanRangeParams {
     // This is used to represent the latest id.
     25: optional i64 current_schema_id;
     // All schema information used in the current query process
-    26: optional list<ExternalTableSchema.TSchema> history_schema_info 
+    26: optional list<ExternalTableSchema.TSchema> history_schema_info
 }
 
 struct TFileRangeDesc {
@@ -493,6 +493,8 @@ struct TFileRangeDesc {
     12: optional string fs_name
     13: optional TFileFormatType format_type;
     14: optional i64 self_split_weight
+    // whether the value of columns_from_path is null
+    15: optional list<bool> columns_from_path_is_null;
 }
 
 struct TSplitSource {
