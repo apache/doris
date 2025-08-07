@@ -275,7 +275,6 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
         } catch (const std::filesystem::filesystem_error& e) {
             LOG(WARNING) << "failed to handle first dump case: " << e.what();
         }
-        _is_first_dump = false;
     }
 
     // Rename tmp to formal file

@@ -52,6 +52,7 @@ public:
     void restore_queue(LRUQueue& queue, const std::string& queue_name,
                        std::lock_guard<std::mutex>& cache_lock);
     void remove_lru_dump_files();
+    void set_first_dump_done() { _is_first_dump = false; }
 
 private:
     void do_dump_queue(LRUQueue& queue, const std::string& queue_name);
