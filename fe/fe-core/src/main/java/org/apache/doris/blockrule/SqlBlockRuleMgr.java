@@ -308,11 +308,11 @@ public class SqlBlockRuleMgr implements Writable {
                             "sql hits sql block rule: " + rule.getName() + ", reach partition_num : "
                                     + rule.getPartitionNum());
                 } else if (rule.getTabletNum() < tabletNum && rule.getTabletNum() != 0) {
-                    throw new DoNotFallbackException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : "
-                            + rule.getTabletNum());
+                    throw new DoNotFallbackException("sql hits sql block rule: " + rule.getName()
+                            + ", reach tablet_num : " + rule.getTabletNum());
                 } else if (rule.getCardinality() < cardinality && rule.getCardinality() != 0) {
-                    throw new DoNotFallbackException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : "
-                            + rule.getCardinality());
+                    throw new DoNotFallbackException("sql hits sql block rule: " + rule.getName()
+                            + ", reach cardinality : " + rule.getCardinality());
                 }
             }
         }
