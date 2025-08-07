@@ -32,7 +32,6 @@ import org.apache.doris.thrift.TWgSlotMemoryPolicy;
 import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
