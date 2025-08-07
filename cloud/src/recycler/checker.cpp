@@ -583,7 +583,7 @@ int InstanceChecker::do_check() {
 
         TabletIndexPB tablet_index;
         if (get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index) == -1) {
-            LOG(WARNING) << "failedt to get tablet index, tablet_id= " << rs_meta.tablet_id();
+            LOG(WARNING) << "failed to get tablet index, tablet_id= " << rs_meta.tablet_id();
             return;
         }
 
@@ -612,8 +612,8 @@ int InstanceChecker::do_check() {
                     InvertedIndexStorageFormatPB::V1) {
                     for (const auto& index_id : index_ids) {
                         LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
-                                  << " rowset_id=" << rs_meta.rowset_id_v2()
-                                  << " segment_index=" << i << " index_id=" << index_id.first
+                                  << " rowset_id=" << rs_meta.rowset_id_v2() << " segment_id=" << i
+                                  << " index_id=" << index_id.first
                                   << " index_suffix_name=" << index_id.second;
                         index_path_v.emplace_back(
                                 inverted_index_path_v1(rs_meta.tablet_id(), rs_meta.rowset_id_v2(),
@@ -626,14 +626,17 @@ int InstanceChecker::do_check() {
 
                 if (!index_path_v.empty()) {
                     if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
-                            return tablet_files_cache.files.contains(idx_file_path);
+                            if (!tablet_files_cache.files.contains(idx_file_path)) {
+                                LOG(INFO) << "loss index file: " << idx_file_path;
+                                return false;
+                            }
+                            return true;
                         })) {
                         continue;
                     }
                 }
                 index_file_loss = true;
                 data_loss = true;
-                LOG(WARNING) << "object not exist, key=" << hex(tablet_idx_key);
             }
         }
     };
@@ -742,6 +745,10 @@ int InstanceChecker::do_inverted_check() {
         butil::SplitString(obj_key, '/', &str);
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
         if (str.size() < 3) {
+            // clang-format off
+            LOG(WARNING) << "split obj_key error, str.size() should be less than 3,"
+                         << " value = " << str.size();
+            // clang-format on
             return -1;
         }
 
@@ -749,6 +756,11 @@ int InstanceChecker::do_inverted_check() {
         if (tablet_id <= 0) {
             LOG(WARNING) << "failed to parse tablet_id, key=" << obj_key;
             return -1;
+        }
+
+        if (!str[2].ends_with(".dat")) {
+            // skip check not segment file
+            return 0;
         }
 
         std::string rowset_id;
@@ -820,6 +832,10 @@ int InstanceChecker::do_inverted_check() {
         // format v1: data/{tablet_id}/{rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
         // format v2: data/{tablet_id}/{rowset_id}_{seg_num}.idx
         if (str.size() < 3) {
+            // clang-format off
+            LOG(WARNING) << "split obj_key error, str.size() should be less than 3,"
+                         << " value = " << str.size();
+            // clang-format on
             return -1;
         }
 
@@ -1327,8 +1343,11 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
 
             for (const auto& i : rs_meta.tablet_schema().index()) {
                 if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+                    LOG(INFO) << fmt::format(
+                            "record index info, index_id: {}, index_suffix_name: {}", i.index_id(),
+                            i.index_suffix_name());
                     rowset_index_cache_v1.index_ids.insert(
-                            fmt::format("{}{}", i.index_name(), i.index_suffix_name()));
+                            fmt::format("{}{}", i.index_id(), i.index_suffix_name()));
                 }
             }
 
@@ -1342,13 +1361,21 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
 
     if (!rowset_index_cache_v1.segment_ids.contains(segment_id)) {
         // Garbage data leak
-        LOG(WARNING) << "rowset should be recycled, key=" << file_path;
+        // clang-format off
+        LOG(WARNING) << "rowset_index_cache_v1.segment_ids don't contains segment_id, rowset should be recycled,"
+                     << " key = " << file_path 
+                     << " segment_id = " << segment_id;
+        // clang-format on
         return 1;
     }
 
     if (!rowset_index_cache_v1.index_ids.contains(index_id_with_suffix_name)) {
         // Garbage data leak
-        LOG(WARNING) << "rowset with inde meta should be recycled, key=" << file_path;
+        // clang-format off
+        LOG(WARNING) << "rowset_index_cache_v1.index_ids don't contains index_id_with_suffix_name,"
+                     << " rowset with inde meta should be recycled, key=" << file_path 
+                     << " index_id_with_suffix_name=" << index_id_with_suffix_name;
+        // clang-format on
         return 1;
     }
 
