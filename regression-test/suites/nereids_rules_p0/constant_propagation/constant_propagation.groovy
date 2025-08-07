@@ -224,39 +224,31 @@ suite('constant_propagation') {
         from t1 where t1.a not in (select t3.a from t3 where t3.b = 10);
     '''
 
-    /* // BUG start
-    // BUG: the result should  '[[null], [null]]', but be return '[[true], [true]]'
     explain_and_result  'join_12', '''
          select 1  in (select null from t2)
          from t1;
     '''
 
-    // BUG: the result should  '[[null], [null]]', but be return '[[false], [false]]'
     explain_and_result  'join_13', '''
         select 1 not in (select null from t2)
         from t1;
     '''
 
-    // OK
     explain_and_result 'join_14', '''
         select null  in (select c1 from s2) from s1
     '''
 
-    // BUG: the result expect multi rows with null, but be return multi rows with true
     explain_and_result 'join_15', '''
         select null  in (select 1 from s2) from s1
     '''
 
-    // BUG: the result expect multi rows with null, but be return multi rows with true
     explain_and_result 'join_16', '''
         select 1  in (select null from s2) from s1
     '''
 
-    // BUG: the result expect multi rows with null, but be return multi rows with false
     explain_and_result 'join_17', '''
         select 1 not in (select null from s2) from s1
     '''
-    */ // BUG end
 
     explain_and_result 'subquery_1', '''
        select a, x
