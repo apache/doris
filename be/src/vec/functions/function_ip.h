@@ -25,6 +25,7 @@
 #include <memory>
 
 #include "common/cast_set.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -656,7 +657,7 @@ public:
             return Status::OK();
         }
 
-        if (!iter->get_reader()->is_bkd_index()) {
+        if (!segment_v2::IndexReaderHelper::is_bkd_index(iter->get_reader())) {
             // Not support only bkd index
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, ip range reader can only support by bkd "
