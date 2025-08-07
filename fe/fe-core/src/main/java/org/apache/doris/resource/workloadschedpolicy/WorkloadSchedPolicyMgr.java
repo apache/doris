@@ -17,7 +17,6 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
-import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -243,16 +242,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         } finally {
             writeUnlock();
         }
-    }
-
-    public void createWorkloadSchedPolicy(CreateWorkloadSchedPolicyStmt createStmt) throws UserException {
-        String policyName = createStmt.getPolicyName();
-        List<WorkloadConditionMeta> originConditions = createStmt.getConditions();
-        List<WorkloadActionMeta> originActions = createStmt.getActions();
-        Map<String, String> propMap = createStmt.getProperties();
-        boolean isIfNotExists = createStmt.isIfNotExists();
-
-        createWorkloadSchedPolicy(policyName, isIfNotExists, originConditions, originActions, propMap);
     }
 
     private boolean checkPolicyCondition(List<WorkloadCondition> conditionList) throws UserException {

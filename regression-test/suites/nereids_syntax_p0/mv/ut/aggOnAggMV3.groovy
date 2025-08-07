@@ -44,7 +44,7 @@ suite ("aggOnAggMV3") {
 
 
 
-    createMV("create materialized view aggOnAggMV3_mv as select deptno, commission, sum(salary) from aggOnAggMV3 group by deptno, commission ;")
+    createMV("create materialized view aggOnAggMV3_mv as select deptno as a1, commission as a2, sum(salary) from aggOnAggMV3 group by deptno, commission ;")
 
     sleep(3000)
 

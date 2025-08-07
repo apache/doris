@@ -370,16 +370,14 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::new_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
+Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                         const TabletIndex* index_meta,
-                                        const StorageReadOptions& read_options,
                                         std::unique_ptr<IndexIterator>* iterator) {
-    RETURN_IF_ERROR(_ensure_index_loaded(std::move(index_file_reader), index_meta));
+    RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
         if (_index_reader) {
-            RETURN_IF_ERROR(_index_reader->new_iterator(read_options.io_ctx, read_options.stats,
-                                                        read_options.runtime_state, iterator));
+            RETURN_IF_ERROR(_index_reader->new_iterator(iterator));
         }
     }
     return Status::OK();
@@ -659,7 +657,7 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
     return Status::OK();
 }
 
-Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_reader,
+Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                  const TabletIndex* index_meta) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 

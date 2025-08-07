@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -123,6 +124,9 @@ public:
     std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+    std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+    CollectionStatisticsPtr collection_statistics;
 
     // Cache for sparse column data to avoid redundant reads
     // col_unique_id -> cached column_ptr

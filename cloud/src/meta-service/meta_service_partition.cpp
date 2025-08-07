@@ -61,18 +61,22 @@ using check_create_table_type = std::function<const std::tuple<
 
 // Return TXN_OK if exists, TXN_KEY_NOT_FOUND if not exists, otherwise error
 static TxnErrorCode index_exists(Transaction* txn, const std::string& instance_id,
-                                 const IndexRequest* req) {
-    auto tablet_key = meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), 0, 0});
-    auto tablet_key_end =
-            meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), INT64_MAX, 0});
-    std::unique_ptr<RangeGetIterator> it;
+                                 bool is_versioned_read, const IndexRequest* req) {
+    if (!is_versioned_read) {
+        auto tablet_key = meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), 0, 0});
+        auto tablet_key_end =
+                meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), INT64_MAX, 0});
+        std::unique_ptr<RangeGetIterator> it;
 
-    TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to get kv").tag("err", err);
-        return err;
+        TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get kv").tag("err", err);
+            return err;
+        }
+        return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
+    } else {
+        CHECK(false) << "versioned read is not supported yet";
     }
-    return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
 static TxnErrorCode check_recycle_key_exist(Transaction* txn, const std::string& key) {
@@ -106,7 +110,8 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         msg = "failed to create txn";
         return;
     }
-    err = index_exists(txn.get(), instance_id, request);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    err = index_exists(txn.get(), instance_id, is_versioned_read, request);
     // If index has existed, this might be a stale request
     if (err == TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::ALREADY_EXISTED;
@@ -195,12 +200,13 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     commit_index_log.set_db_id(request->db_id());
     commit_index_log.set_table_id(request->table_id());
 
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            err = index_exists(txn.get(), instance_id, request);
+            err = index_exists(txn.get(), instance_id, is_versioned_read, request);
             // If index has existed, this might be a duplicate request
             if (err == TxnErrorCode::TXN_OK) {
                 return; // Index committed, OK
@@ -407,19 +413,23 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
 
 // Return TXN_OK if exists, TXN_KEY_NOT_FOUND if not exists, otherwise error
 static TxnErrorCode partition_exists(Transaction* txn, const std::string& instance_id,
-                                     const PartitionRequest* req) {
-    auto tablet_key = meta_tablet_key(
-            {instance_id, req->table_id(), req->index_ids(0), req->partition_ids(0), 0});
-    auto tablet_key_end = meta_tablet_key(
-            {instance_id, req->table_id(), req->index_ids(0), req->partition_ids(0), INT64_MAX});
-    std::unique_ptr<RangeGetIterator> it;
+                                     bool is_versioned_read, const PartitionRequest* req) {
+    if (!is_versioned_read) {
+        auto tablet_key = meta_tablet_key(
+                {instance_id, req->table_id(), req->index_ids(0), req->partition_ids(0), 0});
+        auto tablet_key_end = meta_tablet_key({instance_id, req->table_id(), req->index_ids(0),
+                                               req->partition_ids(0), INT64_MAX});
+        std::unique_ptr<RangeGetIterator> it;
 
-    TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to get kv").tag("err", err);
-        return err;
+        TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get kv").tag("err", err);
+            return err;
+        }
+        return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
+    } else {
+        CHECK(false) << "versioned read is not supported yet";
     }
-    return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
 void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* controller,
@@ -459,7 +469,8 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         msg = "failed to create txn";
         return;
     }
-    err = partition_exists(txn.get(), instance_id, request);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    err = partition_exists(txn.get(), instance_id, is_versioned_read, request);
     // If index has existed, this might be a stale request
     if (err == TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::ALREADY_EXISTED;
@@ -577,6 +588,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     commit_partition_log.set_table_id(request->table_id());
     commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
 
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -584,7 +596,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             // Compatible with requests without `index_ids`
             if (!request->index_ids().empty()) {
-                err = partition_exists(txn.get(), instance_id, request);
+                err = partition_exists(txn.get(), instance_id, is_versioned_read, request);
                 // If partition has existed, this might be a duplicate request
                 if (err == TxnErrorCode::TXN_OK) {
                     return; // Partition committed, OK

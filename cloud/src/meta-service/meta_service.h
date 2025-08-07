@@ -429,6 +429,13 @@ private:
                                  MetaServiceCode& code, std::string& msg,
                                  const std::string& instance_id, KVStats& stats);
 
+    // Get the first pending transaction ID for a partition. If there no any pending transaction,
+    // `first_txn_id` will be set to -1.
+    void get_partition_pending_txn_id(std::string_view instance_id, int64_t db_id, int64_t table_id,
+                                      int64_t partition_id, int64_t tablet_id,
+                                      std::stringstream& ss, MetaServiceCode& code,
+                                      std::string& msg, int64_t& first_txn_id, Transaction* txn);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
