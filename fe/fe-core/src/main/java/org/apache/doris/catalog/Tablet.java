@@ -222,6 +222,7 @@ public abstract class Tablet {
         List<Replica> deadPathReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> mayMissingVersionReplica = Lists.newArrayListWithCapacity(replicaNum);
         List<Replica> notCatchupReplica = Lists.newArrayListWithCapacity(replicaNum);
+        List<Replica> userDropReplica = Lists.newArrayListWithCapacity(replicaNum);
 
         for (Replica replica : replicas) {
             if (replica.isBad()) {
@@ -229,6 +230,10 @@ public abstract class Tablet {
             }
             if (!replica.checkVersionCatchUp(visibleVersion, false)) {
                 notCatchupReplica.add(replica);
+                continue;
+            }
+            if (replica.isUserDrop()) {
+                userDropReplica.add(replica);
                 continue;
             }
             if (replica.getLastFailedVersion() > 0) {
@@ -254,6 +259,7 @@ public abstract class Tablet {
         if (allQueryableReplica.isEmpty()) {
             allQueryableReplica = auxiliaryReplica;
         }
+
         if (allQueryableReplica.isEmpty()) {
             allQueryableReplica = deadPathReplica;
         }
@@ -265,6 +271,10 @@ public abstract class Tablet {
 
         if (allQueryableReplica.isEmpty() && allowMissingVersion) {
             allQueryableReplica = notCatchupReplica;
+        }
+
+        if (allQueryableReplica.isEmpty()) {
+            allQueryableReplica = userDropReplica;
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
