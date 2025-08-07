@@ -45,7 +45,6 @@ import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
@@ -167,10 +166,6 @@ public class DdlExecutor {
             env.getIndexPolicyMgr().dropIndexPolicy((DropIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
             env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
-        } else if (ddlStmt instanceof RefreshCatalogStmt) {
-            RefreshCatalogStmt refreshCatalogStmt = (RefreshCatalogStmt) ddlStmt;
-            env.getRefreshManager()
-                    .handleRefreshCatalog(refreshCatalogStmt.getCatalogName(), refreshCatalogStmt.isInvalidCache());
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
