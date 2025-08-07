@@ -23,7 +23,6 @@ import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
@@ -165,8 +164,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof RefreshDbStmt) {
             RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
             env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
-        } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
-            env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateIndexPolicyStmt) {
             env.getIndexPolicyMgr().createIndexPolicy((CreateIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropIndexPolicyStmt) {

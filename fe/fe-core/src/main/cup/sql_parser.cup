@@ -1269,10 +1269,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
-    | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
-    {:
-        RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
-    :}
     | KW_ALTER KW_WORKLOAD KW_POLICY ident_or_text:policyName opt_properties:properties
     {:
         RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
