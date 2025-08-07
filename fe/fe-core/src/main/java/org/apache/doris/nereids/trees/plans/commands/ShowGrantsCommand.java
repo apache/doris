@@ -81,7 +81,7 @@ public class ShowGrantsCommand extends ShowCommand {
                 userIdent = ConnectContext.get().getCurrentUserIdentity();
             }
         }
-        boolean isSelf = userIdent!= null && ConnectContext.get().getCurrentUserIdentity().equals(userIdent);
+        boolean isSelf = userIdent != null && ConnectContext.get().getCurrentUserIdentity().equals(userIdent);
         Preconditions.checkState(isAll || userIdent != null);
         // if show all grants, or show other user's grants, need global GRANT priv.
         if (isAll || !isSelf) {
