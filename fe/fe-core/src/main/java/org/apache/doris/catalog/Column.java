@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
@@ -397,17 +396,9 @@ public class Column implements GsonPostProcessable {
         return removeNamePrefix(name);
     }
 
-    public String getNameWithoutMvPrefix() {
-        return CreateMaterializedViewStmt.mvColumnBreaker(name);
-    }
-
-    public static String getNameWithoutMvPrefix(String originalName) {
-        return CreateMaterializedViewStmt.mvColumnBreaker(originalName);
-    }
-
     public String getDisplayName() {
         if (defineExpr == null) {
-            return getNameWithoutMvPrefix();
+            return name;
         } else {
             return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
         }
@@ -1244,6 +1235,20 @@ public class Column implements GsonPostProcessable {
 
     public boolean isMaterializedViewColumn() {
         return defineExpr != null;
+    }
+
+    // this function is try to get base column name for distribution column, partition column, key column
+    // or delete condition column in load job. So these columns are all simple SlotRef not other complex expr like a +_b
+    // under the assumption, we just try to get base column when the defineExpr is a simple SlotRef with a Column in tbl
+    public String tryGetBaseColumnName() {
+        String colName = name;
+        if (defineExpr != null && defineExpr instanceof SlotRef) {
+            Column baseCol = ((SlotRef) defineExpr).getColumn();
+            if (baseCol != null) {
+                colName = baseCol.getName();
+            }
+        }
+        return colName;
     }
 
     public GeneratedColumnInfo getGeneratedColumnInfo() {

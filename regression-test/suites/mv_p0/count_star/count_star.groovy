@@ -38,7 +38,7 @@ suite ("count_star") {
     sql "insert into d_table select 3,-3,null,'c';"
     sql "insert into d_table values(1,1,1,'a'),(1,1,1,'a');"
 
-    createMV ("create materialized view kstar as select k1,k4,count(*) from d_table group by k1,k4;")
+    createMV ("create materialized view kstar as select k1 as a1,k4 as a2,count(*) from d_table group by k1,k4;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select 3,2,null,'c';"

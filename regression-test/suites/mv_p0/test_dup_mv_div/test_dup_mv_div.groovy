@@ -42,7 +42,7 @@ suite ("test_dup_mv_div") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    create_sync_mv (db, "d_table", "kdiv", "select k1,k2/1 from d_table;")
+    create_sync_mv (db, "d_table", "kdiv", "select k1 as x,k2/1 from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'4';"
 
