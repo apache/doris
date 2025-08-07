@@ -1209,6 +1209,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 } catch (Exception e) {
                     LOG.error("disable NereidsJoinReorderOnce failed", e);
                 }
+                return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
             }
             if (scan instanceof OlapScan) {
                 // ndv abnormal
