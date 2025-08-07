@@ -202,9 +202,7 @@ suite("part_partition_invalid", "p0,external,external_docker") {
     mv_rewrite_success(query_sql, mv_name)
     order_qt_after_add_data_and_refresh_catalog_and_mv """ ${query_sql}"""
 
-    sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""
-    sql """drop table if exists ${internal_catalog}.${olap_db}.${olap_table}"""
-    sql """drop database if exists ${hive_catalog_name}.${hive_database}"""
+    sql """drop database if exists ${hive_catalog_name}.${hive_database} force"""
     sql """drop materialized view if exists ${internal_catalog}.${olap_db}.${mv_name};"""
     sql """drop catalog if exists ${hive_catalog_name}"""
 }
