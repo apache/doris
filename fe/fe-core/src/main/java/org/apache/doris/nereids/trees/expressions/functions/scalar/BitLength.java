@@ -50,13 +50,18 @@ public class BitLength extends ScalarFunction
         super("bit_length", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitLength(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitLength withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitLength(children.get(0));
+        return new BitLength(getFunctionParams(children));
     }
 
     @Override

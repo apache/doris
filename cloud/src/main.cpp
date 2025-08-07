@@ -36,9 +36,10 @@
 #include "common/configbase.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
-#include "meta-service/mem_txn_kv.h"
+#include "common/network_util.h"
 #include "meta-service/meta_server.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
 #include "recycler/recycler.h"
 
 using namespace doris::cloud;
@@ -228,6 +229,10 @@ int main(int argc, char** argv) {
     LOG(INFO) << build_info();
     std::cout << build_info() << std::endl;
 
+    // Check the local ip before starting the meta service or recycler.
+    std::string ip = get_local_ip(config::priority_networks);
+    std::cout << "local ip: " << ip << std::endl;
+
     if (!args.get<bool>(ARG_META_SERVICE) && !args.get<bool>(ARG_RECYCLER)) {
         std::get<0>(args.args()[ARG_META_SERVICE]) = true;
         std::get<0>(args.args()[ARG_RECYCLER]) = true;
@@ -236,7 +241,8 @@ int main(int argc, char** argv) {
         std::cout << "try to start meta_service, recycler" << std::endl;
     }
 
-    google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number", "2000");
+    google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
+                                 config::bvar_max_dump_multi_dimension_metric_num.c_str());
 
     brpc::Server server;
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;

@@ -65,14 +65,13 @@ public:
     std::string to_string(const IPv4& value) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    Field get_field(const TExprNode& node) const override {
-        return Field::create_field<TYPE_IPV4>(node.ipv4_literal.value);
-    }
+    Field get_field(const TExprNode& node) const override;
 
     MutableColumnPtr create_column() const override;
 
+    using SerDeType = DataTypeIPv4SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeIPv4SerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 };
 

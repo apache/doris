@@ -30,6 +30,7 @@
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -175,6 +176,8 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& ch
 
 Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
+    DBUG_EXECUTE_IF("LoadChannel.add_batch.failed",
+                    { return Status::InternalError("fault injection"); });
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
     SCOPED_ATTACH_TASK(_resource_ctx);

@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
@@ -46,20 +47,30 @@ class IColumn;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-DataTypeVariant::DataTypeVariant(const String& schema_format_, bool is_nullable_)
-        : schema_format(to_lower(schema_format_)), is_nullable(is_nullable_) {}
+
+DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count)
+        : _max_subcolumns_count(max_subcolumns_count) {
+    name = fmt::format("Variant(max subcolumns count = {})", max_subcolumns_count);
+}
 bool DataTypeVariant::equals(const IDataType& rhs) const {
-    return typeid_cast<const DataTypeVariant*>(&rhs) != nullptr;
+    auto rhs_type = typeid_cast<const DataTypeVariant*>(&rhs);
+    if (rhs_type && _max_subcolumns_count != rhs_type->variant_max_subcolumns_count()) {
+        VLOG_DEBUG << "_max_subcolumns_count is" << _max_subcolumns_count
+                   << "rhs_type->variant_max_subcolumns_count()"
+                   << rhs_type->variant_max_subcolumns_count();
+        return false;
+    }
+    return rhs_type && _max_subcolumns_count == rhs_type->variant_max_subcolumns_count();
 }
 
 int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column,
                                                            int be_exec_version) const {
-    const auto& column_object = assert_cast<const ColumnVariant&>(column);
-    if (!column_object.is_finalized()) {
-        const_cast<ColumnVariant&>(column_object).finalize();
+    const auto& column_variant = assert_cast<const ColumnVariant&>(column);
+    if (!column_variant.is_finalized()) {
+        const_cast<ColumnVariant&>(column_variant).finalize();
     }
 
-    const auto& subcolumns = column_object.get_subcolumns();
+    const auto& subcolumns = column_variant.get_subcolumns();
     size_t size = 0;
 
     size += sizeof(uint32_t);
@@ -81,24 +92,27 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
                                                         be_exec_version);
     }
     // serialize num of rows, only take effect when subcolumns empty
-    if (be_exec_version >= VARIANT_SERDE) {
-        size += sizeof(uint32_t);
-    }
+    size += sizeof(uint32_t);
+
+    // sparse column
+    // TODO make compability with sparse column
+    size += ColumnVariant::get_sparse_column_type()->get_uncompressed_serialized_bytes(
+            *column_variant.get_sparse_column(), be_exec_version);
 
     return size;
 }
 
 char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    const auto& column_object = assert_cast<const ColumnVariant&>(column);
-    if (!column_object.is_finalized()) {
-        const_cast<ColumnVariant&>(column_object).finalize();
+    const auto& column_variant = assert_cast<const ColumnVariant&>(column);
+    if (!column_variant.is_finalized()) {
+        const_cast<ColumnVariant&>(column_variant).finalize();
     }
 #ifndef NDEBUG
     // DCHECK size
-    column_object.check_consistency();
+    column_variant.check_consistency();
 #endif
 
-    const auto& subcolumns = column_object.get_subcolumns();
+    const auto& subcolumns = column_variant.get_subcolumns();
 
     char* size_pos = buf;
     buf += sizeof(uint32_t);
@@ -119,7 +133,7 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
         std::string meta_binary;
         column_meta_pb.SerializeToString(&meta_binary);
         // Safe cast
-        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(meta_binary.size());
+        unaligned_store<uint32_t>(buf, static_cast<UInt32>(meta_binary.size()));
         buf += sizeof(uint32_t);
         memcpy(buf, meta_binary.data(), meta_binary.size());
         buf += meta_binary.size();
@@ -129,12 +143,15 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
     }
     // serialize num of subcolumns
     // Safe case
-    *reinterpret_cast<uint32_t*>(size_pos) = static_cast<UInt32>(num_of_columns);
+    unaligned_store<uint32_t>(size_pos, static_cast<UInt32>(num_of_columns));
     // serialize num of rows, only take effect when subcolumns empty
-    if (be_exec_version >= VARIANT_SERDE) {
-        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(column_object.rows());
-        buf += sizeof(uint32_t);
-    }
+    unaligned_store<uint32_t>(buf, static_cast<UInt32>(column_variant.rows()));
+    buf += sizeof(uint32_t);
+
+    // serialize sparse column
+    // TODO make compability with sparse column
+    buf = ColumnVariant::get_sparse_column_type()->serialize(*column_variant.get_sparse_column(),
+                                                             buf, be_exec_version);
 
     return buf;
 }
@@ -154,16 +171,15 @@ Field DataTypeVariant::get_field(const TExprNode& node) const {
 
 const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
-    auto column_object = assert_cast<ColumnVariant*>(column->get());
+    auto column_variant = assert_cast<ColumnVariant*>(column->get());
 
     // 1. deserialize num of subcolumns
-    uint32_t num_subcolumns = *reinterpret_cast<const uint32_t*>(buf);
+    uint32_t num_subcolumns = unaligned_load<uint32_t>(buf);
     buf += sizeof(uint32_t);
-
     // 2. deserialize each subcolumn in a loop
     for (uint32_t i = 0; i < num_subcolumns; i++) {
         // 2.1 deserialize subcolumn column path (str size + str data)
-        uint32_t size = *reinterpret_cast<const uint32_t*>(buf);
+        auto size = unaligned_load<uint32_t>(buf);
         buf += sizeof(uint32_t);
         std::string meta_binary {buf, size};
         buf += size;
@@ -183,21 +199,30 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
             // init from name for compatible
             key = PathInData {column_meta_pb.name()};
         }
-        // add subcolumn to column_object
-        column_object->add_sub_column(key, std::move(sub_column), type);
+        // add subcolumn to column_variant
+        column_variant->add_sub_column(key, std::move(sub_column), type);
     }
     size_t num_rows = 0;
     // serialize num of rows, only take effect when subcolumns empty
-    if (be_exec_version >= VARIANT_SERDE) {
-        num_rows = *reinterpret_cast<const uint32_t*>(buf);
-        column_object->set_num_rows(num_rows);
-        buf += sizeof(uint32_t);
+    num_rows = unaligned_load<uint32_t>(buf);
+    buf += sizeof(uint32_t);
+
+    // deserialize sparse column
+    MutableColumnPtr sparse_column = ColumnVariant::get_sparse_column_type()->create_column();
+    buf = ColumnVariant::get_sparse_column_type()->deserialize(buf, &sparse_column,
+                                                               be_exec_version);
+    column_variant->set_sparse_column(std::move(sparse_column));
+
+    if (column_variant->get_subcolumn({})) {
+        column_variant->get_subcolumn({})->resize(num_rows);
     }
 
-    column_object->finalize();
+    column_variant->set_num_rows(num_rows);
+
+    column_variant->finalize();
 #ifndef NDEBUG
     // DCHECK size
-    column_object->check_consistency();
+    column_variant->check_consistency();
 #endif
     return buf;
 }
@@ -205,13 +230,22 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
 std::string DataTypeVariant::to_string(const IColumn& column, size_t row_num) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     std::string res;
-    THROW_IF_ERROR(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), &res));
+    variant.serialize_one_row_to_string(cast_set<Int64>(row_num), &res);
     return res;
 }
 
 void DataTypeVariant::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
-    THROW_IF_ERROR(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), ostr));
+    variant.serialize_one_row_to_string(cast_set<Int64>(row_num), ostr);
+}
+
+void DataTypeVariant::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->set_variant_max_subcolumns_count(_max_subcolumns_count);
+}
+
+MutableColumnPtr DataTypeVariant::create_column() const {
+    return ColumnVariant::create(_max_subcolumns_count);
 }
 
 } // namespace doris::vectorized

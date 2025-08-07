@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -164,7 +163,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     protected Pair<List<Long>, Long> getSampleTablets() {
         long targetSampleRows = getSampleRows();
         OlapTable olapTable = (OlapTable) tbl;
-        boolean forPartitionColumn = tbl.isPartitionColumn(col.getName());
+        boolean forPartitionColumn = tbl.isPartitionColumn(col);
         long avgTargetRowsPerPartition = targetSampleRows / Math.max(olapTable.getPartitions().size(), 1);
         List<Long> sampleTabletIds = new ArrayList<>();
         long selectedRows = 0;
@@ -256,6 +255,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("rowCount", String.valueOf(tableRowCount));
         params.put("type", col.getType().toString());
         params.put("limit", "");
+        params.put("subStringColName", getStringTypeColName(col));
 
         // For agg table and mor unique table, set PREAGGOPEN preAggHint.
         if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS)
@@ -269,6 +269,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("scaleFactor", "1");
             params.put("sampleHints", "");
             params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             scanFullTable = true;
             return;
         }
@@ -299,6 +300,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         // Set algorithm related params.
         if (useLinearAnalyzeTemplate()) {
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
             // For single unique key, use count as ndv.
             if (isSingleUniqueKey()) {
                 params.put("ndvFunction", String.valueOf(tableRowCount));
@@ -308,7 +310,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         } else {
             params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
-            params.put("subStringColName", getStringTypeColName(col));
+            params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
         }
     }
 
@@ -493,7 +495,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return false;
         }
         // Partition column need to scan tablets from all partitions.
-        return !tbl.isPartitionColumn(col.getName());
+        return !tbl.isPartitionColumn(col);
     }
 
     /**
@@ -521,12 +523,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (isSingleUniqueKey()) {
             return true;
         }
-        String columnName = col.getName();
-        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
-            columnName = columnName.substring(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX.length());
-        }
         Set<String> distributionColumns = tbl.getDistributionColumnNames();
-        return distributionColumns.size() == 1 && distributionColumns.contains(columnName.toLowerCase());
+        return distributionColumns.size() == 1
+                && distributionColumns.contains(col.tryGetBaseColumnName().toLowerCase());
     }
 
     /**

@@ -22,6 +22,7 @@
 #include <memory>
 #include <random>
 
+#include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_writer.h"
@@ -37,6 +38,8 @@
 #include "vec/common/schema_util.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 RowsetMeta::~RowsetMeta() {
     if (_handle) {
@@ -112,16 +115,23 @@ Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
     }
 
     if (!_storage_resource.fs) {
-        // not initialized yet
-        auto storage_resource = get_storage_resource(resource_id());
-        if (storage_resource) {
+        if (auto storage_resource = get_storage_resource(resource_id())) {
             _storage_resource = std::move(storage_resource->first);
         } else {
+            if (config::is_cloud_mode()) {
+                // When creating a new cluster or creating a storage resource, BE may not sync storage resource,
+                // at the moment a query is coming, the BetaRowsetReader call loadSegment and use this method
+                // to get the storage resource, so we need to sync storage resource here.
+                ExecEnv::GetInstance()->storage_engine().to_cloud().sync_storage_vault();
+                if (auto retry_resource = get_storage_resource(resource_id())) {
+                    _storage_resource = std::move(retry_resource->first);
+                    return &_storage_resource;
+                }
+            }
             return ResultError(Status::InternalError("cannot find storage resource. resource_id={}",
                                                      resource_id()));
         }
     }
-
     return &_storage_resource;
 }
 
@@ -172,7 +182,7 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
 }
 
 bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
-    if (!_rowset_meta_pb.ParseFromArray(value.data(), value.size())) {
+    if (!_rowset_meta_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()))) {
         _rowset_meta_pb.Clear();
         return false;
     }
@@ -210,7 +220,7 @@ void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size
     }
 }
 
-int64_t RowsetMeta::segment_file_size(int seg_id) {
+int64_t RowsetMeta::segment_file_size(int seg_id) const {
     DCHECK(_rowset_meta_pb.segments_file_size().empty() ||
            _rowset_meta_pb.segments_file_size_size() > seg_id)
             << _rowset_meta_pb.segments_file_size_size() << ' ' << seg_id;
@@ -229,7 +239,7 @@ void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segment
 
     int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
     if (config::random_segments_key_bounds_truncation) {
-        static thread_local std::mt19937 generator(std::random_device {}());
+        std::mt19937 generator(std::random_device {}());
         std::uniform_int_distribution<int> distribution(-10, 40);
         truncation_threshold = distribution(generator);
     }
@@ -320,5 +330,7 @@ bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
         return false;
     return true;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

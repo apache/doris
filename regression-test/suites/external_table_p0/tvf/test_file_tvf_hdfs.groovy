@@ -333,9 +333,9 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             // test create view from tvf and alter view from tvf
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
             format = "csv"
-            sql """ DROP VIEW IF EXISTS test_hdfs_tvf_create_view;"""
+            sql """ DROP VIEW IF EXISTS test_file_tvf_hdfs_create_view;"""
             sql """
-                create view test_hdfs_tvf_create_view as
+                create view test_file_tvf_hdfs_create_view as
                 select * from FILE(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -343,10 +343,10 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
                         "format" = "${format}") order by c1;
                 """
 
-            order_qt_create_view """ select * from test_hdfs_tvf_create_view order by c1 limit 20; """
+            order_qt_create_view """ select * from test_file_tvf_hdfs_create_view order by c1 limit 20; """
 
             sql """
-                alter view test_hdfs_tvf_create_view as
+                alter view test_file_tvf_hdfs_create_view as
                 select c1 from FILE(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -354,7 +354,7 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
                         "format" = "${format}") order by c1;
                 """
 
-            order_qt_alter_view """ select * from test_hdfs_tvf_create_view order by c1 limit 20; """
+            order_qt_alter_view """ select * from test_file_tvf_hdfs_create_view order by c1 limit 20; """
         } finally {
         }
     }

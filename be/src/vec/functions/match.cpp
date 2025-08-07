@@ -25,10 +25,11 @@
 #include "util/debug_points.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 Status FunctionMatchBase::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-        std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+        std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
     DCHECK(arguments.size() == 1);
     DCHECK(data_type_with_names.size() == 1);
@@ -42,14 +43,11 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        if (iter->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
-            get_parser_phrase_support_string_from_properties(iter->get_index_properties()) ==
-                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        if (iter->get_reader()->is_fulltext_index() && !iter->get_reader()->is_support_phrase()) {
+            return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                     "phrase queries require setting support_phrase = true");
         }
     }
-    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     Field param_value;
     arguments[0].column->get(0, param_value);
     if (param_value.is_null()) {
@@ -58,19 +56,23 @@ Status FunctionMatchBase::evaluate_inverted_index(
     }
     auto param_type = arguments[0].type->get_primitive_type();
     if (!is_string_type(param_type)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "arguments for match must be string");
     }
     std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
     RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                        query_param));
+
+    InvertedIndexParam param;
+    param.column_name = data_type_with_name.first;
+    param.query_value = query_param->get_value();
+    param.query_type = get_query_type_from_fn_name();
+    param.num_rows = num_rows;
+    param.roaring = std::make_shared<roaring::Roaring>();
     if (is_string_type(param_type)) {
-        auto inverted_index_query_type = get_query_type_from_fn_name();
-        RETURN_IF_ERROR(
-                iter->read_from_inverted_index(data_type_with_name.first, query_param->get_value(),
-                                               inverted_index_query_type, num_rows, roaring));
+        RETURN_IF_ERROR(iter->read_from_index(&param));
     } else {
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
                 param_type);
     }
@@ -80,7 +82,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
         RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
         null_bitmap = null_bitmap_cache_handle.get_bitmap();
     }
-    segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+    segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
     bitmap_result = result;
     bitmap_result.mask_out_null();
 
@@ -95,11 +97,16 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     std::string column_name = block.get_by_position(arguments[0]).name;
     VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;
-    InvertedIndexCtx* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
+    auto* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     if (inverted_index_ctx == nullptr) {
         inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    }
+
+    if (!inverted_index_ctx->custom_analyzer.empty()) {
+        return Status::NotSupported(
+                "Custom analyzer is not supported for unindexed MATCH operations.");
     }
 
     const ColumnPtr source_col =
@@ -125,7 +132,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
             // array column element is always set Nullable for now.
             values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
         }
-    } else if (auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
+    } else if (const auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
         values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
     }
 
@@ -165,12 +172,12 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
     return doris::segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
 }
 
-std::vector<std::string> FunctionMatchBase::analyse_query_str_token(
+std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
         InvertedIndexCtx* inverted_index_ctx, const std::string& match_query_str,
         const std::string& column_name) const {
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
-    std::vector<std::string> query_tokens;
+    std::vector<TermInfo> query_tokens;
     if (inverted_index_ctx == nullptr) {
         return query_tokens;
     }
@@ -180,18 +187,17 @@ std::vector<std::string> FunctionMatchBase::analyse_query_str_token(
     }
     auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
             inverted_index_ctx->char_filter_map);
-    reader->init(match_query_str.data(), match_query_str.size(), true);
+    reader->init(match_query_str.data(), (int)match_query_str.size(), true);
     query_tokens = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            reader.get(), inverted_index_ctx->analyzer, column_name, get_query_type_from_fn_name());
+            reader.get(), inverted_index_ctx->analyzer);
     return query_tokens;
 }
 
-inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
+inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         const std::string& column_name, InvertedIndexCtx* inverted_index_ctx,
         const ColumnString* string_col, int32_t current_block_row_idx,
         const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) const {
-    std::vector<std::string> data_tokens;
-    auto query_type = get_query_type_from_fn_name();
+    std::vector<TermInfo> data_tokens;
     if (array_offsets) {
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
@@ -202,13 +208,11 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
             }
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
                     inverted_index_ctx->char_filter_map);
-            reader->init(str_ref.data, str_ref.size, true);
+            reader->init(str_ref.data, (int)str_ref.size, true);
 
-            std::vector<std::string> element_tokens =
+            data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader.get(), inverted_index_ctx->analyzer, column_name, query_type,
-                            false);
-            data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
+                            reader.get(), inverted_index_ctx->analyzer);
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
@@ -217,11 +221,10 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
                     inverted_index_ctx->char_filter_map);
-            reader->init(str_ref.data, str_ref.size, true);
+            reader->init(str_ref.data, (int)str_ref.size, true);
             data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader.get(), inverted_index_ctx->analyzer, column_name, query_type,
-                            false);
+                            reader.get(), inverted_index_ctx->analyzer);
         }
     }
     return data_tokens;
@@ -249,8 +252,7 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens =
-            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -262,13 +264,15 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        std::vector<std::string> data_tokens =
-                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
-                                   current_src_array_offset);
+        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                              array_offsets, current_src_array_offset);
 
         // TODO: more efficient impl
-        for (auto& token : query_tokens) {
-            auto it = std::find(data_tokens.begin(), data_tokens.end(), token);
+        for (auto& term_info : query_tokens) {
+            auto it =
+                    std::find_if(data_tokens.begin(), data_tokens.end(), [&](const TermInfo& info) {
+                        return info.get_single_term() == term_info.get_single_term();
+                    });
             if (it != data_tokens.end()) {
                 result[i] = true;
                 break;
@@ -287,8 +291,7 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens =
-            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -300,14 +303,16 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        std::vector<std::string> data_tokens =
-                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
-                                   current_src_array_offset);
+        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                              array_offsets, current_src_array_offset);
 
         // TODO: more efficient impl
         auto find_count = 0;
-        for (auto& token : query_tokens) {
-            auto it = std::find(data_tokens.begin(), data_tokens.end(), token);
+        for (auto& term_info : query_tokens) {
+            auto it =
+                    std::find_if(data_tokens.begin(), data_tokens.end(), [&](const TermInfo& info) {
+                        return info.get_single_term() == term_info.get_single_term();
+                    });
             if (it != data_tokens.end()) {
                 ++find_count;
             } else {
@@ -331,8 +336,7 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens =
-            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -344,23 +348,25 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        std::vector<std::string> data_tokens =
-                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
-                                   current_src_array_offset);
+        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                              array_offsets, current_src_array_offset);
 
         // TODO: more efficient impl
         bool matched = false;
         auto data_it = data_tokens.begin();
         while (data_it != data_tokens.end()) {
             // find position of first token
-            data_it = std::find(data_it, data_tokens.end(), query_tokens[0]);
+            data_it = std::find_if(data_it, data_tokens.end(), [&](const TermInfo& info) {
+                return info.get_single_term() == query_tokens[0].get_single_term();
+            });
             if (data_it != data_tokens.end()) {
                 matched = true;
                 auto data_it_next = ++data_it;
                 auto query_it = query_tokens.begin() + 1;
                 // compare query_tokens after the first to data_tokens one by one
                 while (query_it != query_tokens.end()) {
-                    if (data_it_next == data_tokens.end() || *data_it_next != *query_it) {
+                    if (data_it_next == data_tokens.end() ||
+                        data_it_next->get_single_term() != query_it->get_single_term()) {
                         matched = false;
                         break;
                     }
@@ -390,8 +396,7 @@ Status FunctionMatchPhrasePrefix::execute_match(
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens =
-            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -402,21 +407,22 @@ Status FunctionMatchPhrasePrefix::execute_match(
     }
 
     int32_t current_src_array_offset = 0;
-    for (size_t i = 0; i < input_rows_count; i++) {
+    for (int i = 0; i < input_rows_count; i++) {
         auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
-        int32_t dis_count = data_tokens.size() - query_tokens.size();
+        int64_t dis_count = data_tokens.size() - query_tokens.size();
         if (dis_count < 0) {
             continue;
         }
 
         for (size_t j = 0; j < dis_count + 1; j++) {
-            if (data_tokens[j] == query_tokens[0] || query_tokens.size() == 1) {
+            if (data_tokens[j].get_single_term() == query_tokens[0].get_single_term() ||
+                query_tokens.size() == 1) {
                 bool match = true;
                 for (size_t k = 0; k < query_tokens.size(); k++) {
-                    const std::string& data_token = data_tokens[j + k];
-                    const std::string& query_token = query_tokens[k];
+                    const std::string& data_token = data_tokens[j + k].get_single_term();
+                    const std::string& query_token = query_tokens[k].get_single_term();
                     if (k == query_tokens.size() - 1) {
                         if (data_token.compare(0, query_token.size(), query_token) != 0) {
                             match = false;
@@ -463,13 +469,13 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
         err_message.append(compile_err->message);
         LOG(ERROR) << err_message;
         hs_free_compile_error(compile_err);
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(err_message);
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(err_message);
     }
 
     if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
         LOG(ERROR) << "hyperscan could not allocate scratch space.";
         hs_free_database(database);
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "hyperscan could not allocate scratch space.");
     }
 
@@ -482,15 +488,15 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
     try {
         auto current_src_array_offset = 0;
         for (int i = 0; i < input_rows_count; i++) {
-            std::vector<std::string> data_tokens =
-                    analyse_data_token(column_name, inverted_index_ctx, string_col, i,
-                                       array_offsets, current_src_array_offset);
+            auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                                  array_offsets, current_src_array_offset);
 
             for (auto& input : data_tokens) {
                 bool is_match = false;
-                if (hs_scan(database, input.data(), input.size(), 0, scratch, on_match,
-                            (void*)&is_match) != HS_SUCCESS) {
-                    LOG(ERROR) << "hyperscan match failed: " << input;
+                const auto& input_str = input.get_single_term();
+                if (hs_scan(database, input_str.data(), (uint32_t)input_str.size(), 0, scratch,
+                            on_match, (void*)&is_match) != HS_SUCCESS) {
+                    LOG(ERROR) << "hyperscan match failed: " << input_str;
                     break;
                 }
 
@@ -516,8 +522,7 @@ Status FunctionMatchPhraseEdge::execute_match(
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    std::vector<std::string> query_tokens =
-            analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
+    auto query_tokens = analyse_query_str_token(inverted_index_ctx, match_query_str, column_name);
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
                 "token parser result is empty for query, "
@@ -528,11 +533,11 @@ Status FunctionMatchPhraseEdge::execute_match(
     }
 
     int32_t current_src_array_offset = 0;
-    for (size_t i = 0; i < input_rows_count; i++) {
+    for (int i = 0; i < input_rows_count; i++) {
         auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
-        int32_t dis_count = data_tokens.size() - query_tokens.size();
+        int64_t dis_count = data_tokens.size() - query_tokens.size();
         if (dis_count < 0) {
             continue;
         }
@@ -540,13 +545,14 @@ Status FunctionMatchPhraseEdge::execute_match(
         for (size_t j = 0; j < dis_count + 1; j++) {
             bool match = true;
             if (query_tokens.size() == 1) {
-                if (data_tokens[j].find(query_tokens[0]) == std::string::npos) {
+                if (data_tokens[j].get_single_term().find(query_tokens[0].get_single_term()) ==
+                    std::string::npos) {
                     match = false;
                 }
             } else {
                 for (size_t k = 0; k < query_tokens.size(); k++) {
-                    const std::string& data_token = data_tokens[j + k];
-                    const std::string& query_token = query_tokens[k];
+                    const std::string& data_token = data_tokens[j + k].get_single_term();
+                    const std::string& query_token = query_tokens[k].get_single_term();
                     if (k == 0) {
                         if (!data_token.ends_with(query_token)) {
                             match = false;
@@ -583,5 +589,5 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchRegexp>();
     factory.register_function<FunctionMatchPhraseEdge>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

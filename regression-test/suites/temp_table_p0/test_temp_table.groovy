@@ -123,6 +123,7 @@ suite('test_temp_table', 'p0') {
     assertFalse(hasTempTable)
 
     // will create a normal olap table, not temporary table, even if source table is temporary
+    sql "drop table if exists t_test_table3_0"
     sql "create table t_test_table3_0 like t_test_temp_table3"
     show_tables = sql "show tables"
     def hasTable = false
@@ -210,17 +211,23 @@ suite('test_temp_table', 'p0') {
         """
         throw new IllegalStateException("Should throw error")
     } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("is a temporary table, do not support backup"), ex.getMessage())
+        if (isCloudMode()) {
+            assertTrue(ex.getMessage().equals("denied"))
+        } else {
+            assertTrue(ex.getMessage().contains("is a temporary table, do not support backup"), ex.getMessage())
+        }
     }
 
-    //a job backup multiple tables will submit successfully, and temp table will be filtered
-    snapshotName = "snst_" + UUID.randomUUID().toString().replace("-", "")
-    sql """
-        BACKUP SNAPSHOT regression_test_temp_table_p0.${snapshotName}
-        to ${repoName}
-    """
-    select_result3 = sql "show backup where SnapshotName = '${snapshotName}'"
-    assertFalse(select_result3[0][4].contains("t_test_temp_table2"))
+    if (!isCloudMode()) {
+        //a job backup multiple tables will submit successfully, and temp table will be filtered
+        snapshotName = "snst_" + UUID.randomUUID().toString().replace("-", "")
+        sql """
+            BACKUP SNAPSHOT regression_test_temp_table_p0.${snapshotName}
+            to ${repoName}
+        """
+        select_result3 = sql "show backup where SnapshotName = '${snapshotName}'"
+        assertFalse(select_result3[0][4].contains("t_test_temp_table2"))
+    }
 
     def show_data = sql "show data"
     def containTempTable = false

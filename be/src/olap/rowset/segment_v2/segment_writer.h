@@ -33,7 +33,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -65,6 +65,8 @@ namespace segment_v2 {
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
+class VariantStatsCaculator;
+
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     uint32_t max_rows_per_segment = UINT32_MAX;
@@ -82,8 +84,7 @@ class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
-                           const SegmentWriterOptions& opts,
-                           InvertedIndexFileWriter* inverted_file_writer);
+                           const SegmentWriterOptions& opts, IndexFileWriter* inverted_file_writer);
     ~SegmentWriter();
 
     Status init();
@@ -107,7 +108,6 @@ public:
     Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
-    Status append_block_with_variant_subcolumns(vectorized::Block& data);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
@@ -146,12 +146,12 @@ public:
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
         // no inverted index
-        if (_inverted_index_file_writer == nullptr) {
+        if (_index_file_writer == nullptr) {
             *inverted_index_file_size = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        *inverted_index_file_size = _inverted_index_file_writer->get_index_file_total_size();
+        RETURN_IF_ERROR(_index_file_writer->close());
+        *inverted_index_file_size = _index_file_writer->get_index_file_total_size();
         return Status::OK();
     }
 
@@ -213,7 +213,7 @@ private:
     // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
     // Not owned. owned by RowsetWriter or SegmentFlusher
-    InvertedIndexFileWriter* _inverted_index_file_writer = nullptr;
+    IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
@@ -264,6 +264,8 @@ private:
     TabletSchemaSPtr _flush_schema = nullptr;
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
+    // variant statistics calculator for efficient stats collection
+    std::unique_ptr<VariantStatsCaculator> _variant_stats_calculator;
 };
 
 } // namespace segment_v2

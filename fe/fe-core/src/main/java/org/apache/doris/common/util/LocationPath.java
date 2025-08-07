@@ -17,21 +17,14 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.catalog.HdfsResource;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.property.constants.CosProperties;
-import org.apache.doris.datasource.property.constants.ObsProperties;
-import org.apache.doris.datasource.property.constants.OssProperties;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemType;
+import org.apache.doris.fs.SchemaTypeMapper;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
@@ -39,279 +32,66 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * LocationPath is a utility class for parsing, validating, and normalizing storage location URIs.
+ * It supports various storage backends such as HDFS, S3, OSS, and local file systems.
+ * <p>
+ * Core responsibilities include:
+ * - Extracting the schema (e.g., "s3", "hdfs", "file") from a location string.
+ * - Normalizing the location path using the corresponding {@link StorageProperties} for the schema.
+ * - Deriving the file system identifier (e.g., "s3://bucket") to uniquely identify a storage endpoint.
+ * - Mapping the schema to corresponding {@link TFileType} and {@link FileSystemType} for backend access.
+ * <p>
+ * Special handling:
+ * - Supports both standard ("scheme://") and nonstandard ("scheme:/") URI formats.
+ * - If the schema is missing (e.g., for local paths), it gracefully falls back to treating the path as local/HDFS.
+ * - Includes fallback compatibility logic for legacy schema mappings (e.g., S3 vs COS vs MinIO).
+ * <p>
+ * This class is often used by Frontend to pass normalized locations and storage metadata to Backend (BE).
+ */
 public class LocationPath {
     private static final Logger LOG = LogManager.getLogger(LocationPath.class);
     private static final String SCHEME_DELIM = "://";
     private static final String NONSTANDARD_SCHEME_DELIM = ":/";
-    private static final String STANDARD_HDFS_PREFIX = "hdfs://";
-    private static final String EMPTY_HDFS_PREFIX = "hdfs:///";
-    private static final String BROKEN_HDFS_PREFIX = "hdfs:/";
-    private final Scheme scheme;
-    private final String location;
-    private final boolean isBindBroker;
-
-    public enum Scheme {
-        HDFS,
-        LOCAL, // Local File
-        BOS, // Baidu
-        GCS, // Google,
-        OBS, // Huawei,
-        COS, // Tencent
-        COSN, // Tencent
-        OFS, // Tencent CHDFS
-        GFS, // Tencent GooseFs,
-        LAKEFS, // used by Tencent DLC
-        OSS, // Alibaba,
-        OSS_HDFS, // JindoFS on OSS
-        JFS, // JuiceFS,
-        S3,
-        S3A,
-        S3N,
-        VIEWFS,
-        UNKNOWN,
-        NOSCHEME // no scheme info
-    }
-
-    @VisibleForTesting
-    public LocationPath(String location) {
-        this(location, Maps.newHashMap(), true);
-    }
-
-    public LocationPath(String location, Map<String, String> props) {
-        this(location, props, true);
-    }
-
-    public LocationPath(String originLocation, Map<String, String> props, boolean convertPath) {
-        isBindBroker = props.containsKey(HMSExternalCatalog.BIND_BROKER_NAME);
-        String tmpLocation = originLocation;
-        if (!(originLocation.contains(SCHEME_DELIM) || originLocation.contains(NONSTANDARD_SCHEME_DELIM))) {
-            // Sometimes the file path does not contain scheme, need to add default fs
-            // eg, /path/to/file.parquet -> hdfs://nn/path/to/file.parquet
-            // the default fs is from the catalog properties
-            String defaultFS = props.getOrDefault(HdfsResource.HADOOP_FS_NAME, "");
-            tmpLocation = defaultFS + originLocation;
-        }
-        String scheme = parseScheme(tmpLocation).toLowerCase();
-        switch (scheme) {
-            case "":
-                this.scheme = Scheme.NOSCHEME;
-                break;
-            case FeConstants.FS_PREFIX_HDFS:
-                this.scheme = Scheme.HDFS;
-                // Need add hdfs host to location
-                String host = props.get(HdfsResource.DSF_NAMESERVICES);
-                boolean enableOssRootPolicy = props.getOrDefault(ExternalCatalog.OOS_ROOT_POLICY, "false")
-                        .equals("true");
-                tmpLocation = convertPath ? normalizedHdfsPath(tmpLocation, host, enableOssRootPolicy) : tmpLocation;
-                break;
-            case FeConstants.FS_PREFIX_S3:
-                this.scheme = Scheme.S3;
-                break;
-            case FeConstants.FS_PREFIX_S3A:
-                this.scheme = Scheme.S3A;
-                tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
-                break;
-            case FeConstants.FS_PREFIX_S3N:
-                // include the check for multi locations and in a table, such as both s3 and hdfs are in a table.
-                this.scheme = Scheme.S3N;
-                tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
-                break;
-            case FeConstants.FS_PREFIX_BOS:
-                this.scheme = Scheme.BOS;
-                // use s3 client to access
-                tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
-                break;
-            case FeConstants.FS_PREFIX_GCS:
-                this.scheme = Scheme.GCS;
-                // use s3 client to access
-                tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
-                break;
-            case FeConstants.FS_PREFIX_OSS:
-                String endpoint = "";
-                if (props.containsKey(OssProperties.ENDPOINT)) {
-                    endpoint = props.get(OssProperties.ENDPOINT);
-                    if (endpoint.startsWith(OssProperties.OSS_PREFIX)) {
-                        // may use oss.oss-cn-beijing.aliyuncs.com
-                        endpoint = endpoint.replace(OssProperties.OSS_PREFIX, "");
-                    }
-                } else if (props.containsKey(S3Properties.ENDPOINT)) {
-                    endpoint = props.get(S3Properties.ENDPOINT);
-                } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
-                    endpoint = props.get(S3Properties.Env.ENDPOINT);
-                }
-                if (isHdfsOnOssEndpoint(endpoint)) {
-                    this.scheme = Scheme.OSS_HDFS;
-                } else {
-                    if (useS3EndPoint(props)) {
-                        tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
-                    }
-                    this.scheme = Scheme.OSS;
-                }
-                break;
-            case FeConstants.FS_PREFIX_COS:
-                if (useS3EndPoint(props)) {
-                    tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
-                }
-                this.scheme = Scheme.COS;
-                break;
-            case FeConstants.FS_PREFIX_OBS:
-                if (useS3EndPoint(props)) {
-                    tmpLocation = convertPath ? convertToS3(tmpLocation) : tmpLocation;
-                }
-                this.scheme = Scheme.OBS;
-                break;
-            case FeConstants.FS_PREFIX_OFS:
-                this.scheme = Scheme.OFS;
-                break;
-            case FeConstants.FS_PREFIX_JFS:
-                this.scheme = Scheme.JFS;
-                break;
-            case FeConstants.FS_PREFIX_GFS:
-                this.scheme = Scheme.GFS;
-                break;
-            case FeConstants.FS_PREFIX_COSN:
-                // if treat cosn(tencent hadoop-cos) as a s3 file system, may bring incompatible issues
-                this.scheme = Scheme.COSN;
-                break;
-            case FeConstants.FS_PREFIX_LAKEFS:
-                this.scheme = Scheme.COSN;
-                tmpLocation = normalizedLakefsPath(tmpLocation);
-                break;
-            case FeConstants.FS_PREFIX_VIEWFS:
-                this.scheme = Scheme.VIEWFS;
-                break;
-            case FeConstants.FS_PREFIX_FILE:
-                this.scheme = Scheme.LOCAL;
-                break;
-            default:
-                this.scheme = Scheme.UNKNOWN;
-                break;
-        }
-        this.location = tmpLocation;
-    }
-
-    // Return true if this location is with oss-hdfs
-    public static boolean isHdfsOnOssEndpoint(String location) {
-        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
-        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
-        return location.contains("oss-dls.aliyuncs");
-    }
-
-    // Return the file system type and the file system identity.
-    // The file system identity is the scheme and authority of the URI, eg. "hdfs://host:port" or "s3://bucket".
-    public static Pair<FileSystemType, String> getFSIdentity(String location,
-            Map<String, String> properties, String bindBrokerName) {
-        LocationPath locationPath = new LocationPath(location, properties, true);
-        FileSystemType fsType = (bindBrokerName != null) ? FileSystemType.BROKER : locationPath.getFileSystemType();
-        URI uri = locationPath.getPath().toUri();
-        String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
-        return Pair.of(fsType, fsIdent);
-    }
 
     /**
-     * provide file type for BE.
-     *
-     * @param location the location is from fs.listFile
-     * @return on BE, we will use TFileType to get the suitable client to access storage.
+     * URI schema, e.g., "s3", "hdfs", "file"
      */
-    public static TFileType getTFileTypeForBE(String location) {
-        if (location == null || location.isEmpty()) {
-            return null;
-        }
-        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), false);
-        return locationPath.getTFileTypeForBE();
-    }
-
-    public static String getTempWritePath(String loc, String prefix) {
-        Path tempRoot = new Path(loc, prefix);
-        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
-        return tempPath.toString();
-    }
-
-    public TFileType getTFileTypeForBE() {
-        switch (scheme) {
-            case S3:
-            case S3A:
-            case S3N:
-            case COS:
-            case OSS:
-            case OBS:
-            case BOS:
-            case GCS:
-                // ATTN, for COSN, on FE side, use HadoopFS to access, but on BE, use S3 client to access.
-            case COSN:
-            case LAKEFS:
-                // now we only support S3 client for object storage on BE
-                return TFileType.FILE_S3;
-            case HDFS:
-            case OSS_HDFS: // if hdfs service is enabled on oss, use hdfs lib to access oss.
-            case VIEWFS:
-                return TFileType.FILE_HDFS;
-            case GFS:
-            case JFS:
-            case OFS:
-                return TFileType.FILE_BROKER;
-            case LOCAL:
-                return TFileType.FILE_LOCAL;
-            default:
-                return null;
-        }
-    }
+    private final String schema;
 
     /**
-     * The converted path is used for BE
-     *
-     * @return BE scan range path
+     * Normalized and validated location URI
      */
-    public Path toStorageLocation() {
-        switch (scheme) {
-            case S3:
-            case S3A:
-            case S3N:
-            case COS:
-            case OSS:
-            case OBS:
-            case BOS:
-            case GCS:
-            case COSN:
-                // All storage will use s3 client to access on BE, so need convert to s3
-                return new Path(convertToS3(location));
-            case HDFS:
-            case OSS_HDFS:
-            case VIEWFS:
-            case GFS:
-            case JFS:
-            case OFS:
-            case LOCAL:
-            default:
-                return getPath();
-        }
-    }
+    private final String normalizedLocation;
 
-    public Scheme getScheme() {
-        return scheme;
-    }
+    /**
+     * Unique filesystem identifier, typically "scheme://authority"
+     */
+    private final String fsIdentifier;
 
-    public String get() {
-        return location;
-    }
+    /**
+     * Storage properties associated with this schema
+     */
+    private final StorageProperties storageProperties;
 
-    public Path getPath() {
-        return new Path(location);
-    }
-
-    public boolean isBindBroker() {
-        return isBindBroker;
+    /**
+     * Private constructor to enforce creation through the factory method.
+     */
+    private LocationPath(String schema,
+                         String normalizedLocation,
+                         String fsIdentifier,
+                         StorageProperties storageProperties) {
+        this.schema = schema;
+        this.normalizedLocation = normalizedLocation;
+        this.fsIdentifier = fsIdentifier;
+        this.storageProperties = storageProperties;
     }
 
     private static String parseScheme(String finalLocation) {
@@ -338,137 +118,216 @@ public class LocationPath {
         return scheme;
     }
 
-    private boolean useS3EndPoint(Map<String, String> props) {
-        if (props.containsKey(ObsProperties.ENDPOINT)
-                || props.containsKey(OssProperties.ENDPOINT)
-                || props.containsKey(CosProperties.ENDPOINT)) {
-            return false;
+    /**
+     * Static factory method to create a LocationPath instance.
+     *
+     * @param location             the input URI location string
+     * @param storagePropertiesMap map of schema type to corresponding storage properties
+     * @return a new LocationPath instance
+     * @throws UserException if validation fails or required data is missing
+     */
+    public static LocationPath of(String location,
+                                  Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
+                                  boolean normalize) throws UserException {
+        String schema = extractScheme(location);
+        String normalizedLocation = location;
+        StorageProperties storageProperties = null;
+        StorageProperties.Type type = fromSchemaWithContext(location, schema);
+        if (StorageProperties.Type.LOCAL.equals(type)) {
+            normalize = false;
         }
-        // wide check range for the compatibility of s3 properties
-        return (props.containsKey(S3Properties.ENDPOINT) || props.containsKey(S3Properties.Env.ENDPOINT));
+        if (normalize) {
+            storageProperties = findStorageProperties(type, schema, storagePropertiesMap);
+
+            if (storageProperties == null) {
+                throw new UserException("No storage properties found for schema: " + schema);
+            }
+            normalizedLocation = storageProperties.validateAndNormalizeUri(location);
+            if (StringUtils.isBlank(normalizedLocation)) {
+                throw new IllegalArgumentException("Invalid location: " + location + ", normalized location is null");
+            }
+        }
+        String encodedLocation = encodedLocation(normalizedLocation);
+        URI uri = URI.create(encodedLocation);
+        String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
+
+        return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+    }
+
+    public static StorageProperties.Type fromSchemaWithContext(String location, String schema) {
+        if (isHdfsOnOssEndpoint(location)) {
+            return StorageProperties.Type.OSS_HDFS;
+        }
+        return SchemaTypeMapper.fromSchema(schema); // fallback to default
+    }
+
+    public static LocationPath of(String location) {
+        String schema = extractScheme(location);
+        String encodedLocation = encodedLocation(location);
+        URI uri = URI.create(encodedLocation);
+        String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
+        return new LocationPath(schema, location, fsIdentifier, null);
     }
 
     /**
-     * The converted path is used for FE to get metadata.
-     * Change http://xxxx to s3://xxxx
+     * Static factory method to create a LocationPath instance.
      *
-     * @param location origin location
-     * @return metadata location path. just convert when storage is compatible with s3 client.
+     * @param location             the input URI location string
+     * @param storagePropertiesMap map of schema type to corresponding storage properties
+     * @return a new LocationPath instance
      */
-    private static String convertToS3(String location) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("try convert location to s3 prefix: " + location);
-        }
-        int pos = findDomainPos(location);
-        return "s3" + location.substring(pos);
-    }
-
-    private static int findDomainPos(String rangeLocation) {
-        int pos = rangeLocation.indexOf("://");
-        if (pos == -1) {
-            throw new RuntimeException("No '://' found in location: " + rangeLocation);
-        }
-        return pos;
-    }
-
-    @VisibleForTesting
-    public static String normalizedHdfsPath(String location, String host, boolean enableOssRootPolicy) {
+    public static LocationPath of(String location,
+                                  Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
         try {
-            // Hive partition may contain special characters such as ' ', '<', '>' and so on.
-            // Need to encode these characters before creating URI.
-            // But doesn't encode '/' and ':' so that we can get the correct uri host.
-            String newLocation = URLEncoder.encode(location, StandardCharsets.UTF_8.name()).replace("%2F", "/")
-                    .replace("%3A", ":");
-            URI normalizedUri = new URI(newLocation).normalize();
-            // compatible with 'hdfs:///' or 'hdfs:/'
-            if (StringUtils.isEmpty(normalizedUri.getHost())) {
-                newLocation = URLDecoder.decode(newLocation, StandardCharsets.UTF_8.name());
-                if (newLocation.startsWith(BROKEN_HDFS_PREFIX) && !newLocation.startsWith(STANDARD_HDFS_PREFIX)) {
-                    newLocation = newLocation.replace(BROKEN_HDFS_PREFIX, STANDARD_HDFS_PREFIX);
-                }
-                if (StringUtils.isNotEmpty(host)) {
-                    // Replace 'hdfs://key/' to 'hdfs://name_service/key/'
-                    // Or hdfs:///abc to hdfs://name_service/abc
-                    if (newLocation.startsWith(EMPTY_HDFS_PREFIX)) {
-                        return newLocation.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host);
-                    } else {
-                        return newLocation.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host + "/");
-                    }
-                } else {
-                    // 'hdfs://null/' equals the 'hdfs:///'
-                    if (newLocation.startsWith(EMPTY_HDFS_PREFIX)) {
-                        // Do not support hdfs:///location
-                        throw new RuntimeException("Invalid location with empty host: " + newLocation);
-                    } else {
-                        if (enableOssRootPolicy) {
-                            // if oss root policy is enabled, the path should be like:
-                            // hdfs://customized_host/path/to/file
-                            // Should remain unchanged.
-                            return newLocation;
-                        } else {
-                            // Replace 'hdfs://key/' to '/key/', try access local NameNode on BE.
-                            return newLocation.replace(STANDARD_HDFS_PREFIX, "/");
-                        }
-                    }
-                }
-            }
-            return URLDecoder.decode(newLocation, StandardCharsets.UTF_8.name());
-        } catch (URISyntaxException | UnsupportedEncodingException e) {
-            throw new RuntimeException(e.getMessage(), e);
+            return LocationPath.of(location, storagePropertiesMap, true);
+        } catch (UserException e) {
+            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
         }
     }
 
-    private static String normalizedLakefsPath(String location) {
-        int atIndex = location.indexOf("@dlc");
-        if (atIndex != -1) {
-            return "lakefs://" + location.substring(atIndex + 1);
-        } else {
-            return location;
+    /**
+     * Extracts the URI scheme (e.g., "s3", "hdfs") from the location string.
+     *
+     * @param location the input URI string
+     * @return the extracted scheme
+     * @throws IllegalArgumentException if the scheme is missing or URI is malformed
+     */
+    private static String extractScheme(String location) {
+        if (Strings.isNullOrEmpty(location)) {
+            return null;
+        }
+        return parseScheme(location);
+    }
+
+    /**
+     * Finds the appropriate {@link StorageProperties} configuration for a given storage type and schema.
+     * <p>
+     * This method attempts to locate the storage properties using the following logic:
+     * <p>
+     * 1. Direct match by type: Attempts to retrieve the properties from the map using the given {@code type}.
+     * 2. S3-Minio fallback: If the requested type is S3 and no properties are found, try to fall back to MinIO
+     * configuration,
+     * assuming it is compatible with S3.
+     * 3. Compatibility fallback based on schema:
+     * In older configurations, the schema name might not strictly match the actual storage type.
+     * For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
+     * To handle such legacy inconsistencies, we try to find any storage configuration with the name "s3"
+     * if the schema maps to a file type of FILE_S3.
+     *
+     * @param type                 the storage type to search for
+     * @param schema               the schema string used in the original request (e.g., "s3://bucket/file")
+     * @param storagePropertiesMap a map of available storage types to their configuration
+     * @return a matching {@link StorageProperties} if found; otherwise, {@code null}
+     */
+    private static StorageProperties findStorageProperties(StorageProperties.Type type, String schema,
+                                                           Map<StorageProperties.Type, StorageProperties>
+                                                                   storagePropertiesMap) {
+        // Step 1: Try direct match by type
+        StorageProperties props = storagePropertiesMap.get(type);
+        if (props != null) {
+            return props;
+        }
+
+        // Step 2: Fallback - if type is S3 and MinIO is configured, assume it's compatible
+        if (type == StorageProperties.Type.S3
+                && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
+            return storagePropertiesMap.get(StorageProperties.Type.MINIO);
+        }
+
+        // Step 3: Compatibility fallback based on schema
+        // In previous configurations, the schema name may not strictly match the actual storage type.
+        // For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
+        // To handle such legacy inconsistencies, we try to find a storage configuration whose name is "s3".
+        if (TFileType.FILE_S3.equals(SchemaTypeMapper.fromSchemaToFileType(schema))) {
+            return storagePropertiesMap.values().stream()
+                    .filter(p -> "s3".equalsIgnoreCase(p.getStorageName()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        // Not found
+        return null;
+    }
+
+
+    private static String encodedLocation(String location) {
+        try {
+            return URLEncoder.encode(location, StandardCharsets.UTF_8.name())
+                    .replace("%2F", "/")
+                    .replace("%3A", ":");
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException("Failed to encode location: " + location, e);
         }
     }
+
+
+    // Return true if this location is with oss-hdfs
+    public static boolean isHdfsOnOssEndpoint(String location) {
+        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
+        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
+        return location.contains("oss-dls.aliyuncs");
+    }
+
+    /**
+     * provide file type for BE.
+     *
+     * @param location the location is from fs.listFile
+     * @return on BE, we will use TFileType to get the suitable client to access storage.
+     */
+    public static TFileType getTFileTypeForBE(String location) {
+        if (StringUtils.isBlank(location)) {
+            return null;
+        }
+        if (isHdfsOnOssEndpoint(location)) {
+            return TFileType.FILE_HDFS;
+        }
+        LocationPath locationPath = LocationPath.of(location);
+        return locationPath.getTFileTypeForBE();
+    }
+
+    public static String getTempWritePath(String loc, String prefix) {
+        Path tempRoot = new Path(loc, prefix);
+        Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
+        return tempPath.toString();
+    }
+
+    public TFileType getTFileTypeForBE() {
+        return SchemaTypeMapper.fromSchemaToFileType(schema);
+    }
+
+    /**
+     * The converted path is used for BE
+     *
+     * @return BE scan range path
+     */
+    public Path toStorageLocation() {
+        return new Path(normalizedLocation);
+    }
+
 
     public FileSystemType getFileSystemType() {
-        FileSystemType fsType;
-        switch (scheme) {
-            case S3:
-            case S3A:
-            case S3N:
-            case COS:
-            case OSS:
-            case OBS:
-            case BOS:
-            case GCS:
-                // All storage will use s3 client to access on BE, so need convert to s3
-                fsType = FileSystemType.S3;
-                break;
-            case COSN:
-                // COSN use s3 client on FE side, because it need to complete multi-part uploading files on FE side.
-                fsType = FileSystemType.S3;
-                break;
-            case OFS:
-                // ofs:// use the underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
-                fsType = FileSystemType.OFS;
-                break;
-            case HDFS:
-            case OSS_HDFS: // if hdfs service is enabled on oss, use hdfs lib to access oss.
-            case VIEWFS:
-            case GFS:
-                fsType = FileSystemType.HDFS;
-                break;
-            case JFS:
-                fsType = FileSystemType.JFS;
-                break;
-            case LOCAL:
-                fsType = FileSystemType.FILE;
-                break;
-            default:
-                throw new UnsupportedOperationException("Unknown file system for location: " + location);
-        }
-        return fsType;
+        return SchemaTypeMapper.fromSchemaToFileSystemType(schema);
     }
 
-    @Override
-    public String toString() {
-        return get();
+
+    // Getters (optional, if needed externally)
+    public String getSchema() {
+        return schema;
+    }
+
+    public String getNormalizedLocation() {
+        return normalizedLocation;
+    }
+
+    public String getFsIdentifier() {
+        return fsIdentifier;
+    }
+
+    public StorageProperties getStorageProperties() {
+        return storageProperties;
+    }
+
+    public Path getPath() {
+        return new Path(normalizedLocation);
     }
 }

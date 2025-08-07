@@ -25,6 +25,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -162,7 +163,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.
             if (!allocateTaskToBe(routineLoadTaskInfo)) {
                 // allocate failed, push it back to the queue to wait next scheduling
-                needScheduleTasksQueue.addFirst(routineLoadTaskInfo);
+                needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                 return;
             }
         } catch (UserException e) {
@@ -243,21 +244,30 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 }
             }
         } catch (LoadException e) {
-            // submit task failed (such as TOO_MANY_TASKS error), but txn has already begun.
-            // Here we will still set the ExecuteStartTime of this task, which means
-            // we "assume" that this task has been successfully submitted.
-            // And this task will then be aborted because of a timeout.
-            // In this way, we can prevent the entire job from being paused due to submit errors,
-            // and we can also relieve the pressure on BE by waiting for the timeout period.
-            LOG.warn("failed to submit routine load task {} to BE: {}, error: {}",
-                    DebugUtil.printId(routineLoadTaskInfo.getId()),
-                    routineLoadTaskInfo.getBeId(), e.getMessage());
-            routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).setOtherMsg(e.getMessage());
-            // fall through to set ExecuteStartTime
+            handleSubmitTaskFailure(routineLoadTaskInfo, e.getMessage());
+            return;
         }
 
         // set the executeStartTimeMs of task
         routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
+    }
+
+    private void handleSubmitTaskFailure(RoutineLoadTaskInfo routineLoadTaskInfo, String errorMsg) {
+        LOG.warn("failed to submit routine load task {} to BE: {}, error: {}",
+                DebugUtil.printId(routineLoadTaskInfo.getId()),
+                routineLoadTaskInfo.getBeId(), errorMsg);
+        routineLoadTaskInfo.setBeId(-1);
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+        routineLoadJob.setOtherMsg(errorMsg);
+
+        // Check if this is a resource pressure error that should not be immediately rescheduled
+        if (errorMsg.contains("TOO_MANY_TASKS") || errorMsg.contains("MEM_LIMIT_EXCEEDED")) {
+            return;
+        }
+
+        // for other errors (network issues, BE restart, etc.), reschedule immediately
+        RoutineLoadTaskInfo newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo);
+        addTaskInQueue(newTask);
     }
 
     private void updateBackendSlotIfNecessary() {
@@ -302,6 +312,11 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             TStatus tStatus = client.submitRoutineLoadTask(Lists.newArrayList(tTask));
             ok = true;
 
+            if (DebugPointUtil.isEnable("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED")) {
+                LOG.warn("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED, routine load task submit failed");
+                throw new LoadException("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED");
+            }
+
             if (tStatus.getStatusCode() != TStatusCode.OK) {
                 throw new LoadException("failed to submit task. error code: " + tStatus.getStatusCode()
                         + ", msg: " + (tStatus.getErrorMsgsSize() > 0 ? tStatus.getErrorMsgs().get(0) : "NaN"));
@@ -326,7 +341,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     // 2. If not, try to find a better one with most idle slots.
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.
-    private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
+    private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws UserException {
         long beId = routineLoadManager.getAvailableBeForTask(routineLoadTaskInfo.getJobId(),
                 routineLoadTaskInfo.getPreviousBeId());
         if (beId == -1L) {

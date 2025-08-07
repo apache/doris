@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.statistics.Statistics;
@@ -127,13 +126,12 @@ public class MTMVCache {
             originPlan = planner.getCascadesContext().getRewritePlan();
             // Eliminate result sink because sink operator is useless in query rewrite by materialized view
             // and the top sort can also be removed
-            mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
-                @Override
-                public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink,
-                        Object context) {
-                    return logicalResultSink.child().accept(this, context);
+            mvPlan = originPlan.rewriteDownShortCircuit(p -> {
+                if (p instanceof LogicalResultSink) {
+                    return p.child(0);
                 }
-            }, null);
+                return p;
+            });
             // Optimize by rules to remove top sort
             CascadesContext parentCascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
                     PhysicalProperties.ANY);

@@ -143,6 +143,16 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    void sanity_check() const override {
+        if (nested_column->size() != get_null_map_data().size()) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Size of nested column {} with size {} is not equal to size of null map {}",
+                    nested_column->get_name(), nested_column->size(), get_null_map_data().size());
+        }
+        nested_column->sanity_check();
+    }
+
     void shrink_padding_chars() override;
 
     bool is_variable_length() const override { return nested_column->is_variable_length(); }
@@ -180,7 +190,7 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
 
     void deserialize_vec(StringRef* keys, size_t num_rows) override;
 
@@ -281,8 +291,8 @@ public:
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                          int direction, std::vector<uint8>& cmp_res,
-                          uint8* __restrict filter) const override;
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
     void get_permutation(bool reverse, size_t limit, int null_direction_hint,
                          Permutation& res) const override;
     void reserve(size_t n) override;
@@ -290,7 +300,6 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
-    ColumnPtr replicate(const Offsets& replicate_offsets) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
@@ -440,6 +449,13 @@ public:
     void erase(size_t start, size_t length) override {
         get_nested_column().erase(start, length);
         get_null_map_column().erase(start, length);
+    }
+
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override {
+        return sizeof(NullMap::value_type) +
+               (is_null_at(row) ? 0 : nested_column->serialize_size_at(row));
     }
 
 private:

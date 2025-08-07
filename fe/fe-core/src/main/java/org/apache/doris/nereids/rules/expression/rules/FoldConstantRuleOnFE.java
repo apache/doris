@@ -26,6 +26,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionListenerMatcher;
@@ -85,20 +86,18 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -404,15 +403,20 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
         List<Expression> nonTrueLiteral = Lists.newArrayList();
         int nullCount = 0;
+        boolean changed = false;
         for (Expression e : and.children()) {
-            e = deepRewrite ? e.accept(this, context) : e;
-            if (BooleanLiteral.FALSE.equals(e)) {
+            Expression newExpr = deepRewrite ? e.accept(this, context) : e;
+            if (BooleanLiteral.FALSE.equals(newExpr)) {
                 return BooleanLiteral.FALSE;
-            } else if (e instanceof NullLiteral) {
+            } else if (newExpr instanceof NullLiteral) {
                 nullCount++;
-                nonTrueLiteral.add(e);
-            } else if (!BooleanLiteral.TRUE.equals(e)) {
-                nonTrueLiteral.add(e);
+                changed = true;
+                nonTrueLiteral.add(newExpr);
+            } else if (!BooleanLiteral.TRUE.equals(newExpr)) {
+                changed |= !e.equals(newExpr);
+                nonTrueLiteral.add(newExpr);
+            } else {
+                changed = true;
             }
         }
 
@@ -426,7 +430,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     return nonTrueLiteral.get(0);
                 default:
                     // x and y
-                    return and.withChildren(nonTrueLiteral);
+                    return changed ? and.withChildren(nonTrueLiteral) : and;
             }
         } else if (nullCount < and.children().size()) {
             if (nonTrueLiteral.size() == 1) {
@@ -445,15 +449,20 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitOr(Or or, ExpressionRewriteContext context) {
         List<Expression> nonFalseLiteral = Lists.newArrayList();
         int nullCount = 0;
+        boolean changed = false;
         for (Expression e : or.children()) {
-            e = deepRewrite ? e.accept(this, context) : e;
-            if (BooleanLiteral.TRUE.equals(e)) {
+            Expression newExpr = deepRewrite ? e.accept(this, context) : e;
+            if (BooleanLiteral.TRUE.equals(newExpr)) {
                 return BooleanLiteral.TRUE;
-            } else if (e instanceof NullLiteral) {
+            } else if (newExpr instanceof NullLiteral) {
                 nullCount++;
-                nonFalseLiteral.add(e);
-            } else if (!BooleanLiteral.FALSE.equals(e)) {
-                nonFalseLiteral.add(e);
+                changed = true;
+                nonFalseLiteral.add(newExpr);
+            } else if (!BooleanLiteral.FALSE.equals(newExpr)) {
+                changed |= !e.equals(newExpr);
+                nonFalseLiteral.add(newExpr);
+            } else {
+                changed = true;
             }
         }
 
@@ -467,7 +476,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     return nonFalseLiteral.get(0);
                 default:
                     // x or y
-                    return or.withChildren(nonFalseLiteral);
+                    return changed ? or.withChildren(nonFalseLiteral) : or;
             }
         } else if (nullCount < nonFalseLiteral.size()) {
             if (nonFalseLiteral.size() == 1) {
@@ -491,51 +500,37 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
-        if (!safeToCast(cast)) {
-            return cast;
-        }
         // todo: process other null case
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
-        } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
-            String dateStr = ((StringLikeLiteral) child).getStringValue();
-            if (!DateTimeChecker.isValidDateTime(dateStr)) {
-                return cast;
-            }
-            try {
-                return ((DateLikeType) dataType).fromString(dateStr);
-            } catch (Exception t) {
-                return cast;
-            }
         }
+        //TODO : use DateTimeChecker to Improve performance.
+        // if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
+        //     String dateStr = ((StringLikeLiteral) child).getStringValue();
+        //     if (!DateTimeChecker.isValidDateTime(dateStr)) {
+        //         return cast;
+        //     }
+        //     try {
+        //         return ((DateLikeType) dataType).fromString(dateStr);
+        //     } catch (Exception t) {
+        //         return cast;
+        //     }
+        // }
         try {
             Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
             return castResult;
+        } catch (CastException c) {
+            if (SessionVariable.enableStrictCast()) {
+                throw c;
+            } else {
+                return new NullLiteral(dataType);
+            }
         } catch (Throwable t) {
             return cast;
         }
-    }
-
-    // Check if the given literal value is safe to cast to the targetType.
-    // We need to guarantee FE cast result is identical with BE cast result.
-    // Otherwise, it's not safe.
-    protected boolean safeToCast(Cast cast) {
-        if (cast == null || cast.child() == null || cast.getDataType() == null) {
-            return true;
-        }
-        // Check double type.
-        if (cast.child() instanceof DoubleLiteral && cast.getDataType().isStringLikeType()) {
-            Double value = ((DoubleLiteral) cast.child()).getValue();
-            if (value.isInfinite() || value.isNaN()) {
-                return true;
-            }
-            return -1E16 < value && value < 1E16;
-        }
-        // Check other types if needed.
-        return true;
     }
 
     @Override

@@ -28,7 +28,7 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.ExistsApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.InApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.PullUpCorrelatedFilterUnderApplyAggregateProject;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.ScalarApplyToJoin;
@@ -184,7 +184,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql2)
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
@@ -194,7 +194,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                 logicalAggregate().when(FieldChecker.check("outputExpressions", ImmutableList.of(
                                                 new Alias(new ExprId(7), (new Sum(
                                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("test", "t7")))).withAlwaysNullable(true),
+                                                                ImmutableList.of("test", "t7")))),
                                                         "sum(t7.k3)"),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("test", "t7"))
@@ -222,7 +222,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql2)
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
@@ -379,7 +379,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         // select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )
         PlanChecker.from(connectContext)
                 .analyze(sql10)
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .matchesFromRoot(
                     logicalResultSink(
                         logicalProject(
@@ -429,7 +429,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql10)
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .matchesNotCheck(
@@ -462,7 +462,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql10)
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new PullUpCorrelatedFilterUnderApplyAggregateProject())
                 .applyBottomUp(new UnCorrelatedApplyAggregateFilter())
@@ -473,7 +473,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                         logicalProject()
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
                                         new Alias(new ExprId(8), (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)"),
+                                                ImmutableList.of("t2")))), "max(aa)"),
                                         new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("test", "t7")))))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of(

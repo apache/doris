@@ -27,6 +27,7 @@
 #include <future>
 #include <string>
 
+#include "common/defer.h"
 #include "common/simple_thread_pool.h"
 
 namespace doris::cloud {
@@ -50,7 +51,9 @@ public:
         return *this;
     }
     std::vector<T> when_all(bool* finished) {
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) { _reset(); });
+        DORIS_CLOUD_DEFER {
+            _reset();
+        };
         timespec current_time;
         auto current_time_second = time(nullptr);
         current_time.tv_sec = current_time_second + 300;
@@ -103,8 +106,9 @@ private:
                   _count(count),
                   _fut(_pro.get_future()) {}
         void operator()(std::atomic_bool& stop_token) {
-            std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
-                                                                  [&](int*) { _count.signal(); });
+            DORIS_CLOUD_DEFER {
+                _count.signal();
+            };
             if (stop_token) {
                 _valid = false;
                 return;

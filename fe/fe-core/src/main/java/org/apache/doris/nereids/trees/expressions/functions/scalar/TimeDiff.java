@@ -41,8 +41,6 @@ public class TimeDiff extends ScalarFunction
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TimeV2Type.INSTANCE)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
 
     /**
@@ -52,13 +50,18 @@ public class TimeDiff extends ScalarFunction
         super("timediff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TimeDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public TimeDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new TimeDiff(children.get(0), children.get(1));
+        return new TimeDiff(getFunctionParams(children));
     }
 
     @Override

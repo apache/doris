@@ -4,9 +4,6 @@
 [submodule ".github/actions/get-workflow-origin"]
 	path = .github/actions/get-workflow-origin
 	url = https://github.com/potiuk/get-workflow-origin.git
-[submodule ".github/actions/setup-maven"]
-	path = .github/actions/setup-maven
-	url = https://github.com/stCarolas/setup-maven.git
 [submodule ".github/actions/paths-filter"]
 	path = .github/actions/paths-filter
 	url = https://github.com/dorny/paths-filter
@@ -16,11 +13,11 @@
 [submodule ".github/actions/ccache-action"]
 	path = .github/actions/ccache-action
 	url = https://github.com/hendrikmuhs/ccache-action
-[submodule "be/src/apache-orc"]
-	path = be/src/apache-orc
-	url = https://github.com/apache/doris-thirdparty.git
-	branch = orc
-[submodule "be/src/clucene"]
-	path = be/src/clucene
+[submodule "contrib/clucene"]
+	path = contrib/clucene
 	url = https://github.com/apache/doris-thirdparty.git
 	branch = clucene
+[submodule "contrib/apache-orc"]
+	path = contrib/apache-orc
+	url = https://github.com/apache/doris-thirdparty.git
+	branch = orc

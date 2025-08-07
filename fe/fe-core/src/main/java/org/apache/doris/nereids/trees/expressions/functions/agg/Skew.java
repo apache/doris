@@ -59,13 +59,18 @@ public class Skew extends AggregateFunction
         super("skew", distinct, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Skew(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public Skew withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Skew(distinct, children.get(0));
+        return new Skew(getFunctionParams(distinct, children));
     }
 
     @Override

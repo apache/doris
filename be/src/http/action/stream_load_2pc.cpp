@@ -39,8 +39,6 @@
 
 namespace doris {
 
-const static std::string HEADER_JSON = "application/json";
-
 StreamLoad2PCAction::StreamLoad2PCAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
 void StreamLoad2PCAction::handle(HttpRequest* req) {

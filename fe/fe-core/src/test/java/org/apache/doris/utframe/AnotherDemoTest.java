@@ -17,14 +17,16 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -100,13 +102,21 @@ public class AnotherDemoTest {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         // 2. create database db1
         String createDbStmtStr = "create database db1;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(ctx, stmtExecutor);
+        }
         System.out.println(Env.getCurrentInternalCatalog().getDbNames());
         // 3. create table tbl1
         String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(createTblStmtStr);
+        stmtExecutor = new StmtExecutor(ctx, createTblStmtStr);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(ctx, stmtExecutor);
+        }
         // 4. get and test the created db and table
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
@@ -123,7 +133,7 @@ public class AnotherDemoTest {
         // TODO: we can not process real query for now. So it has to be a explain query
         String queryStr = "explain select /*+ SET_VAR(disable_nereids_rules=PRUNE_EMPTY_PARTITION, "
                 + "enable_parallel_result_sink=true) */ * from db1.tbl1";
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();

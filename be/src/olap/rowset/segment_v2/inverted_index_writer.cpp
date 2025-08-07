@@ -29,6 +29,8 @@
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
+#include "common/exception.h"
 #include "io/fs/local_file_system.h"
 
 #ifdef __clang__
@@ -48,11 +50,11 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
@@ -64,6 +66,8 @@
 #include "util/string_util.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
+
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
@@ -97,14 +101,14 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     explicit InvertedIndexColumnWriterImpl(const std::string& field_name,
-                                           InvertedIndexFileWriter* index_file_writer,
+                                           IndexFileWriter* index_file_writer,
                                            const TabletIndex* index_meta,
                                            const bool single_field = true)
             : _single_field(single_field),
               _index_meta(index_meta),
               _index_file_writer(index_file_writer) {
-        _parser_type = get_inverted_index_parser_type_from_string(
-                get_parser_string_from_properties(_index_meta->properties()));
+        _should_analyzer =
+                inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta->properties());
         _value_key_coder = get_key_coder(field_type);
         _field_name = StringUtil::string_to_wstring(field_name);
     }
@@ -198,7 +202,8 @@ public:
                         { index_writer->setMaxBufferedDocs(1); })
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setMergeFactor_error",
                         { index_writer->setMergeFactor(1); })
-        index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
+        index_writer->setRAMBufferSizeMB(
+                static_cast<float>(config::inverted_index_ram_buffer_size));
         index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
@@ -211,9 +216,8 @@ public:
     Status create_field(lucene::document::Field** field) {
         int field_config = int(lucene::document::Field::STORE_NO) |
                            int(lucene::document::Field::INDEX_NONORMS);
-        field_config |= (_parser_type == InvertedIndexParserType::PARSER_NONE)
-                                ? int(lucene::document::Field::INDEX_UNTOKENIZED)
-                                : int(lucene::document::Field::INDEX_TOKENIZED);
+        field_config |= _should_analyzer ? int32_t(lucene::document::Field::INDEX_TOKENIZED)
+                                         : int32_t(lucene::document::Field::INDEX_UNTOKENIZED);
         *field = new lucene::document::Field(_field_name.c_str(), field_config);
         (*field)->setOmitTermFreqAndPositions(
                 !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
@@ -243,11 +247,14 @@ public:
         return Status::OK();
     }
 
-    Result<std::unique_ptr<lucene::analysis::Analyzer>> create_analyzer(
+    Result<std::shared_ptr<lucene::analysis::Analyzer>> create_analyzer(
             std::shared_ptr<InvertedIndexCtx>& inverted_index_ctx) {
         try {
             return inverted_index::InvertedIndexAnalyzer::create_analyzer(inverted_index_ctx.get());
         } catch (CLuceneError& e) {
+            return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "inverted index create analyzer failed: {}", e.what()));
+        } catch (Exception& e) {
             return ResultError(Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "inverted index create analyzer failed: {}", e.what()));
         }
@@ -255,9 +262,11 @@ public:
 
     Status init_fulltext_index() {
         _inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
+                get_custom_analyzer_string_from_properties(_index_meta->properties()),
                 get_inverted_index_parser_type_from_string(
                         get_parser_string_from_properties(_index_meta->properties())),
                 get_parser_mode_string_from_properties(_index_meta->properties()),
+                get_parser_phrase_support_string_from_properties(_index_meta->properties()),
                 get_parser_char_filter_map_from_properties(_index_meta->properties()),
                 get_parser_lowercase_from_properties<true>(_index_meta->properties()),
                 get_parser_stopwords_from_properties(_index_meta->properties()));
@@ -341,7 +350,7 @@ public:
         // so we need to subtract num_rows to get the row id in segment
         for (size_t i = 0; i < num_rows; i++) {
             if (null_map[i] == 1) {
-                null_indices.push_back(_rid - num_rows + static_cast<uint32_t>(i));
+                null_indices.push_back(cast_set<uint32_t>(_rid - num_rows + i));
             }
         }
 
@@ -354,8 +363,7 @@ public:
 
     Status new_inverted_index_field(const char* field_value_data, size_t field_value_size) {
         try {
-            if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
-                _parser_type != InvertedIndexParserType::PARSER_NONE) {
+            if (_should_analyzer) {
                 new_char_token_stream(field_value_data, field_value_size, _field);
             } else {
                 new_field_char_value(field_value_data, field_value_size, _field);
@@ -368,7 +376,7 @@ public:
     }
 
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field) {
-        _char_string_reader->init(s, len, false);
+        _char_string_reader->init(s, cast_set<int32_t>(len), false);
         DBUG_EXECUTE_IF(
                 "InvertedIndexColumnWriterImpl::new_char_token_stream__char_string_reader_init_"
                 "error",
@@ -402,12 +410,11 @@ public:
                 return Status::InternalError(
                         "field or index writer is null in inverted index writer");
             }
-            auto* v = (Slice*)values;
-            for (int i = 0; i < count; ++i) {
+            const auto* v = (Slice*)values;
+            for (size_t i = 0; i < count; ++i) {
                 // only ignore_above UNTOKENIZED strings and empty strings not tokenized
-                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                     v->get_size() > _ignore_above) ||
-                    (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                if ((!_should_analyzer && v->get_size() > _ignore_above) ||
+                    (_should_analyzer && v->empty())) {
                     RETURN_IF_ERROR(add_null_document());
                 } else {
                     RETURN_IF_ERROR(new_inverted_index_field(v->get_data(), v->get_size()));
@@ -425,8 +432,6 @@ public:
     Status add_array_values(size_t field_size, const void* value_ptr,
                             const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
                             size_t count) override {
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_count_is_zero",
-                        { count = 0; })
         if (count == 0) {
             // no values to add inverted index
             return Status::OK();
@@ -441,27 +446,28 @@ public:
                 return Status::InternalError("index writer is null in inverted index writer");
             }
             size_t start_off = 0;
-            for (int i = 0; i < count; ++i) {
+            for (size_t i = 0; i < count; ++i) {
                 // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
                 // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
                 auto array_elem_size = offsets[i + 1] - offsets[i];
                 // TODO(Amory).later we use object pool to avoid field creation
-                lucene::document::Field* new_field = nullptr;
+                std::unique_ptr<lucene::document::Field> new_field;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
                 for (auto j = start_off; j < start_off + array_elem_size; ++j) {
                     if (nested_null_map && nested_null_map[j] == 1) {
                         continue;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-                    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                         v->get_size() > _ignore_above) ||
-                        (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                    if ((!_should_analyzer && v->get_size() > _ignore_above) ||
+                        (_should_analyzer && v->empty())) {
                         // is here a null value?
                         // TODO. Maybe here has performance problem for large size string.
                         continue;
                     } else {
                         // now we temp create field . later make a pool
-                        Status st = create_field(&new_field);
+                        lucene::document::Field* tmp_field = nullptr;
+                        Status st = create_field(&tmp_field);
+                        new_field.reset(tmp_field);
                         DBUG_EXECUTE_IF(
                                 "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
                                 "error",
@@ -475,8 +481,7 @@ public:
                                        << " error:" << st;
                             return st;
                         }
-                        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
-                            _parser_type != InvertedIndexParserType::PARSER_NONE) {
+                        if (_should_analyzer) {
                             // in this case stream need to delete after add_document, because the
                             // stream can not reuse for different field
                             bool own_token_stream = true;
@@ -484,15 +489,17 @@ public:
                             std::unique_ptr<lucene::util::Reader> char_string_reader =
                                     DORIS_TRY(create_char_string_reader(
                                             _inverted_index_ctx->char_filter_map));
-                            char_string_reader->init(v->get_data(), v->get_size(), false);
+                            char_string_reader->init(v->get_data(),
+                                                     cast_set<int32_t>(v->get_size()), false);
                             _analyzer->set_ownReader(own_reader);
                             ts = _analyzer->tokenStream(new_field->name(),
                                                         char_string_reader.release());
                             new_field->setValue(ts, own_token_stream);
                         } else {
-                            new_field_char_value(v->get_data(), v->get_size(), new_field);
+                            new_field_char_value(v->get_data(), v->get_size(), new_field.get());
                         }
-                        _doc->add(*new_field);
+                        // NOTE: new_field is managed by doc now, so we need to use release() to get the pointer
+                        _doc->add(*new_field.release());
                     }
                 }
                 start_off += array_elem_size;
@@ -521,7 +528,9 @@ public:
                     // avoid to add doc which without any field which may make threadState init skip
                     // init fieldDataArray, then will make error with next doc with fields in
                     // resetCurrentFieldData
-                    Status st = create_field(&new_field);
+                    lucene::document::Field* tmp_field = nullptr;
+                    Status st = create_field(&tmp_field);
+                    new_field.reset(tmp_field);
                     DBUG_EXECUTE_IF(
                             "InvertedIndexColumnWriterImpl::add_array_values_create_field_error_2",
                             {
@@ -534,7 +543,7 @@ public:
                                    << " error:" << st;
                         return st;
                     }
-                    _doc->add(*new_field);
+                    _doc->add(*new_field.release());
                     RETURN_IF_ERROR(add_null_document());
                     _doc->clear();
                 }
@@ -626,7 +635,7 @@ public:
     Status add_value(const CppType& value) {
         try {
             std::string new_value;
-            size_t value_length = sizeof(CppType);
+            uint32_t value_length = sizeof(CppType);
 
             DBUG_EXECUTE_IF(
                     "InvertedIndexColumnWriterImpl::add_value_bkd_writer_add_throw_"
@@ -655,7 +664,7 @@ public:
             faststring buf;
             buf.resize(size);
             _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
-            null_bitmap_out->writeBytes(buf.data(), size);
+            null_bitmap_out->writeBytes(buf.data(), cast_set<int32_t>(size));
         }
     }
 
@@ -748,21 +757,21 @@ private:
     // _dir must destruct after _index_writer, so _dir must be defined before _index_writer.
     std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
-    std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
+    std::shared_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
-    InvertedIndexParserType _parser_type;
     std::wstring _field_name;
-    InvertedIndexFileWriter* _index_file_writer;
+    IndexFileWriter* _index_file_writer;
     uint32_t _ignore_above;
+    bool _should_analyzer = false;
 };
 
 Status InvertedIndexColumnWriter::create(const Field* field,
                                          std::unique_ptr<InvertedIndexColumnWriter>* res,
-                                         InvertedIndexFileWriter* index_file_writer,
+                                         IndexFileWriter* index_file_writer,
                                          const TabletIndex* index_meta) {
     const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();
@@ -838,3 +847,4 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     return Status::OK();
 }
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

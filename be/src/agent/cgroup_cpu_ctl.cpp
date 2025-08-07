@@ -28,6 +28,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 bool CgroupCpuCtl::is_a_valid_cgroup_path(std::string cg_path) {
     if (!cg_path.empty()) {
         if (cg_path.back() != '/') {
@@ -182,6 +184,9 @@ void CgroupCpuCtl::update_cpu_hard_limit(int cpu_hard_limit) {
         Status ret = modify_cg_cpu_hard_limit_no_lock(cpu_hard_limit);
         if (ret.ok()) {
             _cpu_hard_limit = cpu_hard_limit;
+        } else {
+            LOG(WARNING) << "update cpu hard limit failed, cpu hard limit: " << cpu_hard_limit
+                         << ", error: " << ret;
         }
     }
 }
@@ -214,7 +219,7 @@ Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, std::string value,
     }};
 
     auto str = fmt::format("{}\n", value);
-    int ret = write(fd, str.c_str(), str.size());
+    ssize_t ret = write(fd, str.c_str(), str.size());
     if (ret == -1) {
         LOG(ERROR) << msg << " write sys file failed";
         return Status::InternalError<false>("{} write sys file failed", msg);
@@ -250,7 +255,7 @@ Status CgroupCpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) 
         struct stat st;
         // == 0 means exists
         if (stat(dir_name.c_str(), &st) == 0 && (st.st_mode & S_IFDIR)) {
-            int pos = dir_name.rfind("/");
+            auto pos = dir_name.rfind("/");
             std::string wg_dir_name = dir_name.substr(pos + 1, dir_name.length());
             if (wg_dir_name.empty()) {
                 return Status::InternalError<false>("find an empty workload group path, path={}",
@@ -335,8 +340,10 @@ Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
 }
 
 Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
-    int val = cpu_hard_limit > 0 ? (_cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100)
-                                 : CGROUP_CPU_HARD_LIMIT_DEFAULT_VALUE;
+    if (cpu_hard_limit <= 0) {
+        return Status::InternalError<false>("cpu hard limit must be greater than 0");
+    }
+    uint64_t val = _cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100;
     std::string str_val = std::to_string(val);
     std::string msg = "modify cpu quota value to " + str_val;
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_quota_file, str_val, msg, false);
@@ -397,13 +404,12 @@ Status CgroupV2CpuCtl::init() {
 }
 
 Status CgroupV2CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
-    std::string value = "";
-    if (cpu_hard_limit > 0) {
-        uint64_t int_val = _cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100;
-        value = std::to_string(int_val) + " 100000";
-    } else {
-        value = CGROUP_V2_CPU_HARD_LIMIT_DEFAULT_VALUE;
+    if (cpu_hard_limit <= 0) {
+        return Status::InternalError<false>("cpu hard limit must be greater than 0");
     }
+    std::string value = "";
+    uint64_t int_val = _cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100;
+    value = std::to_string(int_val) + " 100000";
     std::string msg = "modify cpu.max to [" + value + "]";
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v2_query_wg_cpu_max_file, value, msg, false);
 }
@@ -418,5 +424,7 @@ Status CgroupV2CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_weight) {
 Status CgroupV2CpuCtl::add_thread_to_cgroup() {
     return CgroupCpuCtl::add_thread_to_cgroup(_cgroup_v2_query_wg_thread_file);
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

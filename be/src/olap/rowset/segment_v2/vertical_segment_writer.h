@@ -31,8 +31,9 @@
 
 #include "common/status.h" // Status
 #include "olap/olap_define.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/column_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -56,9 +57,8 @@ namespace io {
 class FileWriter;
 class FileSystem;
 } // namespace io
-
 namespace segment_v2 {
-class InvertedIndexFileWriter;
+class IndexFileWriter;
 
 struct VerticalSegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
@@ -81,7 +81,7 @@ public:
     explicit VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                                    TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                    DataDir* data_dir, const VerticalSegmentWriterOptions& opts,
-                                   InvertedIndexFileWriter* inverted_file_writer);
+                                   IndexFileWriter* index_file_writer);
     ~VerticalSegmentWriter();
 
     VerticalSegmentWriter(const VerticalSegmentWriter&) = delete;
@@ -123,12 +123,12 @@ public:
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
         // no inverted index
-        if (_inverted_index_file_writer == nullptr) {
+        if (_index_file_writer == nullptr) {
             *inverted_index_file_size = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        *inverted_index_file_size = _inverted_index_file_writer->get_index_file_total_size();
+        RETURN_IF_ERROR(_index_file_writer->close());
+        *inverted_index_file_size = _index_file_writer->get_index_file_total_size();
         return Status::OK();
     }
 
@@ -185,19 +185,11 @@ private:
             bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
             std::vector<BitmapValue>* skip_bitmaps,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
-            const signed char* delete_sign_column_data,
+            vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
             PartialUpdateStats& stats);
-    Status _merge_rows_for_sequence_column(
-            RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
-    Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _generate_key_index(
             RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
             vectorized::IOlapColumnDataAccessor* seq_column,
@@ -212,6 +204,7 @@ private:
     bool _is_mow_with_cluster_key();
 
 private:
+    friend class ::doris::BlockAggregator;
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
@@ -221,7 +214,7 @@ private:
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
     // Not owned. owned by RowsetWriter or SegmentFlusher
-    InvertedIndexFileWriter* _inverted_index_file_writer = nullptr;
+    IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
@@ -271,6 +264,8 @@ private:
 
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+
+    BlockAggregator _block_aggregator;
 };
 
 } // namespace segment_v2

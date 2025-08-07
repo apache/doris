@@ -155,13 +155,11 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs()
     get_be_param("tablet_rowset_stale_sweep_time_sec")
     get_be_param("compaction_promotion_version_count")
-    get_be_param("enable_delete_bitmap_merge_on_compaction")
     get_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap")
 
     try {
         set_be_param("tablet_rowset_stale_sweep_time_sec", "0")
         set_be_param("compaction_promotion_version_count", "5")
-        set_be_param("enable_delete_bitmap_merge_on_compaction", "false") // solution 1
         set_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap", "true") // solution 2
 
         def testTable = "test_mow_compaction"
@@ -248,10 +246,79 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
         assertEquals(5, local_dm["cardinality"])
 
         order_qt_sql4 "select * from ${testTable}"
+
+        // ============= test sequence column =============
+        testTable = "test_mow_compaction_seq"
+        sql """ DROP TABLE IF EXISTS ${testTable} """
+        sql """
+            create table ${testTable} (`k` int NOT NULL, `v` int NOT NULL)
+            UNIQUE KEY(`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES (
+                "enable_unique_key_merge_on_write" = "true",
+                "replication_allocation" = "tag.location.default: 1",
+                "function_column.sequence_col" = "v",
+                "disable_auto_compaction" = "true"
+            );
+            """
+
+        tablets = sql_return_maparray """ show tablets from ${testTable}; """
+        logger.info("tablets: " + tablets)
+        assertEquals(1, tablets.size())
+        tablet = tablets[0]
+
+        // 1. write some data
+        sql """ INSERT INTO ${testTable} VALUES (1, 9); """
+        sql """ INSERT INTO ${testTable} VALUES (2, 9); """
+        sql """ INSERT INTO ${testTable} VALUES (3, 9); """
+        sql """ INSERT INTO ${testTable} VALUES (4, 9); """
+        sql """ INSERT INTO ${testTable} VALUES (5, 9); """
+        sql "sync"
+        order_qt_sql1 """ select * from ${testTable}; """
+
+        // 2. trigger compaction to generate base rowset
+        getTabletStatus(tablet)
+        assertTrue(triggerCompaction(tablet).contains("Success"))
+        waitForCompaction(tablet)
+        getTabletStatus(tablet)
+        local_dm = getLocalDeleteBitmapStatus(tablet)
+        logger.info("local_dm 2.0: " + local_dm)
+        order_qt_sql2 "select * from ${testTable}"
+
+        // 3. write some data
+        sql """ INSERT INTO ${testTable} VALUES (1, 10), (2, 8); """
+        sql """ INSERT INTO ${testTable} VALUES (3, 5), (4, 5); """
+        sql """ INSERT INTO ${testTable} VALUES (3, 4), (4, 6); """
+        sql """ INSERT INTO ${testTable} VALUES (5, 10); """
+        sql """ INSERT INTO ${testTable} VALUES (5, 5); """
+        sql """ sync """
+        order_qt_sql3 "select * from ${testTable}"
+        getTabletStatus(tablet)
+        local_dm = getLocalDeleteBitmapStatus(tablet)
+        logger.info("local_dm 2.1: " + local_dm)
+
+        GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+                [tablet_id: "${tablet.TabletId}", start_version: 7, end_version: 11]);
+        assertTrue(triggerCompaction(tablet).contains("Success"))
+        waitForCompaction(tablet)
+
+        // wait for no stale rowsets
+        for (int i = 0; i < 20; i++) {
+            tablet_status = getTabletStatus(tablet)
+            if (tablet_status["stale_rowsets"].size() == 0 && tablet_status["rowsets"].size() == 3) {
+                break
+            }
+            sleep(1000)
+        }
+        logger.info("wait for no stale rowsets")
+        tablet_status = getTabletStatus(tablet)
+        assertEquals(0, tablet_status["stale_rowsets"].size())
+        assertEquals(3, tablet_status["rowsets"].size())
+        local_dm = getLocalDeleteBitmapStatus(tablet)
+        logger.info("local_dm 2.2: " + local_dm)
     } finally {
         reset_be_param("tablet_rowset_stale_sweep_time_sec")
         reset_be_param("compaction_promotion_version_count")
-        reset_be_param("enable_delete_bitmap_merge_on_compaction")
         reset_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap")
         GetDebugPoint().clearDebugPointsForAllBEs()
     }

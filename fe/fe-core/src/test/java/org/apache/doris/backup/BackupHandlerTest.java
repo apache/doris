@@ -17,16 +17,7 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.AbstractBackupTableRefClause;
-import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CancelBackupStmt;
-import org.apache.doris.analysis.CreateRepositoryStmt;
-import org.apache.doris.analysis.DropRepositoryStmt;
-import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -42,6 +33,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -224,7 +222,7 @@ public class BackupHandlerTest {
 
                 BackupJobInfo info = BackupJobInfo.fromCatalog(System.currentTimeMillis(),
                         "ss2", CatalogMocker.TEST_DB_NAME,
-                        CatalogMocker.TEST_DB_ID, BackupStmt.BackupContent.ALL,
+                        CatalogMocker.TEST_DB_ID, BackupCommand.BackupContent.ALL,
                         backupMeta, snapshotInfos, null);
                 infos.add(info);
                 return Status.OK;
@@ -243,17 +241,19 @@ public class BackupHandlerTest {
         handler = new BackupHandler(env);
         StorageBackend storageBackend = new StorageBackend("broker", "bos://location",
                 StorageBackend.StorageType.BROKER, Maps.newHashMap());
-        CreateRepositoryStmt stmt = new CreateRepositoryStmt(false, "repo", storageBackend);
-        handler.createRepository(stmt);
+
+        CreateRepositoryCommand command = new CreateRepositoryCommand(false, "repo", storageBackend);
+        handler.createRepository(command);
 
         // process backup
-        List<TableRef> tblRefs = Lists.newArrayList();
-        tblRefs.add(new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
-                CatalogMocker.TEST_TBL_NAME), null));
-        AbstractBackupTableRefClause tableRefClause = new AbstractBackupTableRefClause(false, tblRefs);
-        BackupStmt backupStmt = new BackupStmt(new LabelName(CatalogMocker.TEST_DB_NAME, "label1"), "repo",
-                tableRefClause, null);
-        handler.process(backupStmt);
+        List<TableRefInfo> tableRefInfos = Lists.newArrayList();
+        tableRefInfos.add(new TableRefInfo(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
+                CatalogMocker.TEST_TBL_NAME), null, null, null, null, null, null, null));
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("backup_timestamp", "2018-08-08-08-08-08");
+        boolean isExclude = false;
+        BackupCommand backupCommand = new BackupCommand(new LabelNameInfo(CatalogMocker.TEST_DB_NAME, "label1"), "repo", tableRefInfos, properties, isExclude);
+        handler.process(backupCommand);
 
         // handleFinishedSnapshotTask
         BackupJob backupJob = (BackupJob) handler.getJob(CatalogMocker.TEST_DB_ID);
@@ -277,20 +277,18 @@ public class BackupHandlerTest {
         handler.handleFinishedSnapshotUploadTask(uploadTask, request);
 
         // cancel backup
-        handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, false));
+        handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, false));
 
         // process restore
-        List<TableRef> tblRefs2 = Lists.newArrayList();
-        tblRefs2.add(new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
-                CatalogMocker.TEST_TBL_NAME), null));
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put("backup_timestamp", "2018-08-08-08-08-08");
-        AbstractBackupTableRefClause abstractBackupTableRefClause = new AbstractBackupTableRefClause(false, tblRefs2);
-        RestoreStmt restoreStmt = new RestoreStmt(new LabelName(CatalogMocker.TEST_DB_NAME, "ss2"), "repo",
-                abstractBackupTableRefClause, properties);
-
-        restoreStmt.analyzeProperties();
-        handler.process(restoreStmt);
+        List<TableRefInfo> tableRefInfos2 = Lists.newArrayList();
+        tableRefInfos2.add(new TableRefInfo(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, CatalogMocker.TEST_DB_NAME,
+                CatalogMocker.TEST_TBL_NAME), null, null, null, null, null, null, null));
+        Map<String, String> properties02 = Maps.newHashMap();
+        properties02.put("backup_timestamp", "2018-08-08-08-08-08");
+        boolean isExclude02 = false;
+        RestoreCommand restoreCommand = new RestoreCommand(new LabelNameInfo(CatalogMocker.TEST_DB_NAME, "ss2"), "repo", tableRefInfos2, properties02, isExclude02);
+        restoreCommand.analyzeProperties();
+        handler.process(restoreCommand);
 
         // handleFinishedSnapshotTask
         RestoreJob restoreJob = (RestoreJob) handler.getJob(CatalogMocker.TEST_DB_ID);
@@ -303,7 +301,7 @@ public class BackupHandlerTest {
 
         // handleDownloadSnapshotTask
         DownloadTask downloadTask = new DownloadTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                srcToDestPath, null, null, StorageBackend.StorageType.BROKER, "");
+                srcToDestPath, null, null, StorageBackend.StorageType.BROKER, "", "");
         request = new TFinishTaskRequest();
         List<Long> downloadedTabletIds = Lists.newArrayList();
         request.setDownloadedTabletIds(downloadedTabletIds);
@@ -318,9 +316,9 @@ public class BackupHandlerTest {
         handler.handleDirMoveTask(dirMoveTask, request);
 
         // cancel restore
-        handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, true));
+        handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, true));
 
         // drop repo
-        handler.dropRepository(new DropRepositoryStmt("repo"));
+        handler.dropRepository("repo");
     }
 }

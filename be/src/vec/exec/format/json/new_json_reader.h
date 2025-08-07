@@ -83,6 +83,7 @@ public:
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+    Status init_schema_reader() override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
@@ -100,38 +101,6 @@ private:
     Status _read_json_column(RuntimeState* state, Block& block,
                              const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                              bool* eof);
-
-    Status _vhandle_simple_json(RuntimeState* /*state*/, Block& block,
-                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-                                bool* eof);
-
-    Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
-                                            const std::vector<SlotDescriptor*>& slot_descs,
-                                            bool* is_empty_row, bool* eof);
-
-    Status _vhandle_nested_complex_json(RuntimeState* /*state*/, Block& block,
-                                        const std::vector<SlotDescriptor*>& slot_descs,
-                                        bool* is_empty_row, bool* eof);
-
-    Status _parse_json(bool* is_empty_row, bool* eof);
-    Status _parse_json_doc(size_t* size, bool* eof);
-
-    Status _set_column_value(rapidjson::Value& objectValue, Block& block,
-                             const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
-
-    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 const DataTypePtr& type_desc, vectorized::IColumn* column_ptr,
-                                 const std::string& column_name, DataTypeSerDeSPtr serde,
-                                 bool* valid);
-
-    Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
-                                      const std::vector<SlotDescriptor*>& slot_descs, Block& block,
-                                      bool* valid);
-
-    Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
-                             std::string col_name, bool* valid);
-
-    static std::string _print_json_value(const rapidjson::Value& value);
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
@@ -204,8 +173,8 @@ private:
     // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
     bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
     void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
-    void _process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
-                                   size_t cur_row_count, bool* valid);
+    void _set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
+                               size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
@@ -258,9 +227,7 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
 
-    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
     RuntimeProfile::Counter* _read_timer = nullptr;
-    RuntimeProfile::Counter* _file_read_timer = nullptr;
 
     // ======SIMD JSON======
     // name mapping

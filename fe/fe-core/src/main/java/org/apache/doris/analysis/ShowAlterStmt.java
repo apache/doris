@@ -18,15 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
-import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.util.OrderByPair;
@@ -146,22 +142,16 @@ public class ShowAlterStmt extends ShowStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze() throws AnalysisException, UserException {
         //first analyze
-        analyzeSyntax(analyzer);
+        analyzeSyntax();
 
         // check auth when get job info
-        handleShowAlterTable(analyzer);
+        handleShowAlterTable();
     }
 
-    public void analyzeSyntax(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        }
+    public void analyzeSyntax() throws AnalysisException, UserException {
+        super.analyze();
 
         Preconditions.checkNotNull(type);
 
@@ -185,34 +175,11 @@ public class ShowAlterStmt extends ShowStmt implements NotFallbackInParser {
         }
 
         if (limitElement != null) {
-            limitElement.analyze(analyzer);
+            limitElement.analyze();
         }
     }
 
-    public void handleShowAlterTable(Analyzer analyzer) throws UserException {
-        DatabaseIf db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-
-        // build proc path
-        StringBuilder sb = new StringBuilder();
-        sb.append("/jobs/");
-        sb.append(db.getId());
-        if (type == AlterType.COLUMN) {
-            sb.append("/schema_change");
-        } else if (type == AlterType.ROLLUP) {
-            sb.append("/rollup");
-        } else {
-            throw new UserException("SHOW " + type.name() + " does not implement yet");
-        }
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("process SHOW PROC '{}';", sb.toString());
-        }
-        // create show proc stmt
-        // '/jobs/db_name/rollup|schema_change/
-        node = ProcService.getInstance().open(sb.toString());
-        if (node == null) {
-            throw new AnalysisException("Failed to show alter table");
-        }
+    public void handleShowAlterTable() throws UserException {
     }
 
     @Override

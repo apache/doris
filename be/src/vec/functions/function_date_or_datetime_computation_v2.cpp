@@ -81,26 +81,23 @@ using FunctionDatetimeV2SubQuarters =
 using FunctionDatetimeV2SubYears =
         FunctionDateOrDateTimeComputation<SubtractYearsImpl<TYPE_DATETIMEV2>>;
 
-#define FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, TYPE1, TYPE2) \
-    using NAME##_##TYPE1##_##TYPE2 = FunctionDateOrDateTimeComputation<IMPL<TYPE1, TYPE2>>;
+#define FUNCTION_TIME_DIFF_V2(NAME, IMPL, TYPE) using NAME##_##TYPE = FunctionTimeDiff<IMPL<TYPE>>;
 
-#define ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL)                           \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, TYPE_DATETIMEV2, TYPE_DATETIMEV2) \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, TYPE_DATETIMEV2, TYPE_DATEV2)     \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, TYPE_DATEV2, TYPE_DATETIMEV2)     \
-    FUNCTION_DATEV2_WITH_TWO_ARGS(NAME, IMPL, TYPE_DATEV2, TYPE_DATEV2)
+#define ALL_FUNCTION_TIME_DIFF_V2(NAME, IMPL)          \
+    FUNCTION_TIME_DIFF_V2(NAME, IMPL, TYPE_DATETIMEV2) \
+    FUNCTION_TIME_DIFF_V2(NAME, IMPL, TYPE_DATEV2)
 // these diff functions accept all v2 types. but for v1 only datetime.
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff, DateDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2TimeDiff, TimeDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2YearsDiff, YearsDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MonthsDiff, MonthsDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2WeeksDiff, WeeksDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2HoursDiff, HoursDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MinutesDiff, MintuesDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2SecondsDiff, SecondsDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2DaysDiff, DaysDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MilliSecondsDiff, MilliSecondsDiffImpl)
-ALL_FUNCTION_DATEV2_WITH_TWO_ARGS(FunctionDatetimeV2MicroSecondsDiff, MicroSecondsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2DateDiff, DateDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2TimeDiff, TimeDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2YearsDiff, YearsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2MonthsDiff, MonthsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2WeeksDiff, WeeksDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2HoursDiff, HoursDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2MinutesDiff, MintuesDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2SecondsDiff, SecondsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2DaysDiff, DaysDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2MilliSecondsDiff, MilliSecondsDiffImpl)
+ALL_FUNCTION_TIME_DIFF_V2(FunctionDatetimeV2MicroSecondsDiff, MicroSecondsDiffImpl)
 
 using FunctionDatetimeV2ToYearWeekTwoArgs =
         FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<TYPE_DATETIMEV2>>;
@@ -148,26 +145,23 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionDatetimeV2SubQuarters>();
     factory.register_function<FunctionDatetimeV2SubWeeks>();
 
-#define REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, TYPE1, TYPE2) \
-    factory.register_function<NAME##_##TYPE1##_##TYPE2>();
+#define REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE) factory.register_function<NAME##_##TYPE>();
 
-#define REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME)                           \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, TYPE_DATETIMEV2, TYPE_DATETIMEV2) \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, TYPE_DATETIMEV2, TYPE_DATEV2)     \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, TYPE_DATEV2, TYPE_DATETIMEV2)     \
-    REGISTER_DATEV2_FUNCTIONS_WITH_TWO_ARGS(NAME, TYPE_DATEV2, TYPE_DATEV2)
+#define REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(NAME)          \
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATETIMEV2) \
+    REGISTER_DATEV2_FUNCTIONS_DIFF(NAME, TYPE_DATEV2)
 
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2DateDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2TimeDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2YearsDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MonthsDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2WeeksDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2HoursDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MinutesDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2SecondsDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2DaysDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MilliSecondsDiff)
-    REGISTER_ALL_DATEV2_FUNCTIONS_WITH_TWO_ARGS(FunctionDatetimeV2MicroSecondsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2DateDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2TimeDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2YearsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2MonthsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2WeeksDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2HoursDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2MinutesDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2SecondsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2DaysDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2MilliSecondsDiff)
+    REGISTER_ALL_DATEV2_FUNCTIONS_DIFF(FunctionDatetimeV2MicroSecondsDiff)
 
     factory.register_function<FunctionToYearWeekTwoArgsV2>();
     factory.register_function<FunctionToWeekTwoArgsV2>();

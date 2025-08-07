@@ -26,6 +26,7 @@
 #include <typeinfo>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
@@ -252,6 +253,13 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
 MutableColumnPtr DataTypeMap::create_column() const {
     return ColumnMap::create(key_type->create_column(), value_type->create_column(),
                              ColumnArray::ColumnOffsets::create());
+}
+
+Status DataTypeMap::check_column(const IColumn& column) const {
+    const auto* column_map = DORIS_TRY(check_column_nested_type<ColumnMap>(column));
+    RETURN_IF_ERROR(key_type->check_column(column_map->get_keys()));
+    RETURN_IF_ERROR(value_type->check_column(column_map->get_values()));
+    return Status::OK();
 }
 
 void DataTypeMap::to_pb_column_meta(PColumnMeta* col_meta) const {

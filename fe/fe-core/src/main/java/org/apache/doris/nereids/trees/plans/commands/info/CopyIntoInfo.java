@@ -54,6 +54,7 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
@@ -204,11 +205,15 @@ public class CopyIntoInfo {
         List<String> nameParts = Lists.newArrayList();
         nameParts.add(db);
         nameParts.add(tableName.getTbl());
-        Plan unboundRelation = new UnboundRelation(null, StatementScopeIdGenerator.newRelationId(), nameParts);
+        Plan unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
         CascadesContext cascadesContext = CascadesContext.initContext(ConnectContext.get().getStatementContext(),
                 unboundRelation, PhysicalProperties.ANY);
-        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-            ImmutableList.of(Rewriter.bottomUp(new BindRelation()))).execute();
+        Analyzer.buildCustomAnalyzer(
+                cascadesContext, ImmutableList.of(Analyzer.bottomUp(new BindRelation()))
+        ).execute();
+        Rewriter.getWholeTreeRewriterWithCustomJobs(
+                cascadesContext, ImmutableList.of()
+        ).execute();
         Plan boundRelation = cascadesContext.getRewritePlan();
         // table could have delete sign in LogicalFilter above
         if (cascadesContext.getRewritePlan() instanceof LogicalFilter) {

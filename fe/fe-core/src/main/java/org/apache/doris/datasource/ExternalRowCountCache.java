@@ -43,8 +43,8 @@ public class ExternalRowCountCache {
         // 1. set expireAfterWrite to 1 day, avoid too many entries
         // 2. set refreshAfterWrite to 10min(default), so that the cache will be refreshed after 10min
         CacheFactory rowCountCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
-                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_table_row_count_cache_num,
                 false,
                 null);
@@ -87,9 +87,15 @@ public class ExternalRowCountCache {
                 TableIf table = StatisticsUtil.findTable(rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
                 return Optional.of(table.fetchRowCount());
             } catch (Exception e) {
-                LOG.warn("Failed to get table row count with catalogId {}, dbId {}, tableId {}. Reason {}",
+                String message = String.format("Failed to get table row count with catalogId %s, dbId %s, tableId %s. "
+                                + "Reason %s",
                         rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
-                LOG.debug(e);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(message, e);
+                } else {
+                    LOG.warn(message);
+                }
+
                 // Return Optional.empty() will cache this empty value in memory,
                 // so we can't try to load the row count until the cache expire.
                 // Throw an exception here will cause too much stack log in fe.out.

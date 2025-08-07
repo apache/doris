@@ -35,7 +35,7 @@ import java.util.Map;
 public class GlueCatalogTest {
 
     private GlueCatalog glueCatalog;
-    private AWSGlueProperties glueProperties;
+    private AWSGlueMetaStoreProperties glueProperties;
     private static final Namespace queryNameSpace = Namespace.of("test"); // Replace with your namespace
     private static final String AWS_ACCESS_KEY_ID = "YOUR_ACCESS_KEY_ID"; // Replace with actual access key
     private static final String AWS_SECRET_ACCESS_KEY = "YOUR_SECRET_ACCESS_KEY"; // Replace with actual secret key
@@ -57,7 +57,7 @@ public class GlueCatalogTest {
 
 
         // Initialize AWSGlueProperties
-        glueProperties = (AWSGlueProperties) AWSGlueProperties.create(props);
+        glueProperties = (AWSGlueMetaStoreProperties) AWSGlueMetaStoreProperties.create(props);
 
         // Convert to catalog properties
         Map<String, String> catalogProps = new HashMap<>();

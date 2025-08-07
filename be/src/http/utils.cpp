@@ -209,7 +209,13 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req, bool is_acqu
         return;
     }
 
-    VLOG_DEBUG << "list dir: " << dir_path << ", file count: " << files.size();
+    VLOG_DEBUG << "list dir: " << dir_path << ", exists: " << exists
+               << ", file count: " << files.size();
+
+    if (!exists) {
+        HttpChannel::send_error(req, HttpStatus::NOT_FOUND);
+        return;
+    }
 
     const std::string FILE_DELIMITER_IN_DIR_RESPONSE = "\n";
 

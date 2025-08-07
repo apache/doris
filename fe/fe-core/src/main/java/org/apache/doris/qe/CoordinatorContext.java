@@ -403,7 +403,7 @@ public class CoordinatorContext {
             List<AssignedJob> instanceJobs = pipelinePlan.getInstanceJobs();
             for (AssignedJob instanceJob : instanceJobs) {
                 DistributedPlanWorker worker = instanceJob.getAssignedWorker();
-                backends.put(new TNetworkAddress(worker.address(), worker.port()), worker.id());
+                backends.put(new TNetworkAddress(worker.host(), worker.port()), worker.id());
             }
         }
         return backends;

@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -206,7 +207,7 @@ public class DebugUtil {
 
         // Build the table header
         for (int i = 0; i < headers.length; i++) {
-            output.append(String.format("%-" + columnWidths[i] + "s", headers[i]));
+            output.append(format(columnWidths[i], headers[i]));
             if (i < headers.length - 1) {
                 output.append(" | ");  // Separator between columns
             }
@@ -215,7 +216,7 @@ public class DebugUtil {
 
         // Add a separator line for better readability (optional)
         for (int i = 0; i < headers.length; i++) {
-            output.append(String.format("%-" + columnWidths[i] + "s", Strings.repeat("-", columnWidths[i])));
+            output.append(format(columnWidths[i], Strings.repeat("-", columnWidths[i])));
             if (i < headers.length - 1) {
                 output.append("-|-");  // Separator between columns
             }
@@ -227,7 +228,7 @@ public class DebugUtil {
             for (int i = 0; i < row.size(); i++) {
                 String element = row.get(i);
                 // Pad with spaces if the element is shorter than the column width
-                output.append(String.format("%-" + columnWidths[i] + "s", element));
+                output.append(format(columnWidths[i], element));
                 if (i < row.size() - 1) {
                     output.append(" | ");  // Separator between columns
                 }
@@ -268,5 +269,9 @@ public class DebugUtil {
             ));
         }
         return result.toString();
+    }
+
+    private static String format(int width, String name) {
+        return name + StringUtils.repeat(" ", Math.max(0, name.length() - width));
     }
 }

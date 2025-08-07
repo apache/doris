@@ -39,31 +39,26 @@ public class PartitionNamesInfo {
     private final long count;
 
     public PartitionNamesInfo(boolean isTemp, List<String> partitionNames) {
-        this.partitionNames = partitionNames;
-        this.isTemp = isTemp;
-        this.isStar = false;
-        this.count = 0;
+        this(isTemp, false, partitionNames, 0);
     }
 
     public PartitionNamesInfo(PartitionNamesInfo other) {
-        this.partitionNames = Lists.newArrayList(other.partitionNames);
-        this.isTemp = other.isTemp;
-        this.isStar = other.isStar;
-        this.count = 0;
+        this(other.isTemp, other.isStar, Lists.newArrayList(other.partitionNames), 0);
     }
 
     public PartitionNamesInfo(boolean isStar) {
-        this.partitionNames = null;
-        this.isTemp = false;
-        this.isStar = isStar;
-        this.count = 0;
+        this(false, isStar, null, 0);
     }
 
     public PartitionNamesInfo(long partitionCount) {
-        this.partitionNames = null;
-        this.isTemp = false;
-        this.isStar = false;
-        this.count = partitionCount;
+        this(false, false, null, partitionCount);
+    }
+
+    public PartitionNamesInfo(boolean isTemp, boolean isStar, List<String> partitionNames, long count) {
+        this.partitionNames = partitionNames;
+        this.isTemp = isTemp;
+        this.isStar = isStar;
+        this.count = count;
     }
 
     public List<String> getPartitionNames() {

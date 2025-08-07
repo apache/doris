@@ -168,7 +168,7 @@ static void _report_query_profiles_function(
 
 TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_params(
         const TUniqueId& query_id,
-        std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+        std::unordered_map<int32_t, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
                 fragment_id_to_profile,
         std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles, bool is_done) {
     // This function will clear the data of fragment_id_to_profile and load_channel_profiles.
@@ -509,6 +509,19 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
         SchemaScannerHelper::insert_int64_value(13, tqs.spill_write_bytes_to_local_storage, block);
         SchemaScannerHelper::insert_int64_value(14, tqs.spill_read_bytes_from_local_storage, block);
     }
+}
+
+Status RuntimeQueryStatisticsMgr::get_query_statistics(const std::string& query_id,
+                                                       TQueryStatistics* query_stats) {
+    std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
+
+    auto resource_ctx = _resource_contexts_map.find(query_id);
+    if (resource_ctx == _resource_contexts_map.end()) {
+        return Status::InternalError("failed to find query with id {}", query_id);
+    }
+
+    resource_ctx->second->to_thrift_query_statistics(query_stats);
+    return Status::OK();
 }
 
 void RuntimeQueryStatisticsMgr::get_tasks_resource_context(

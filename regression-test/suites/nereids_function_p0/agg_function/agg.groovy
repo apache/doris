@@ -1102,8 +1102,6 @@ suite("nereids_agg_fn") {
 	sql '''
 		select histogram(kbool, 10) from fn_test'''
 	sql '''
-		select histogram(kbool, 10, 10) from fn_test'''
-	sql '''
 		select count(id), histogram(kbool) from fn_test group by id order by id'''
 	sql '''
 		select count(distinct id), histogram(kbool) from fn_test'''

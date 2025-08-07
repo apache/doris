@@ -160,7 +160,7 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
             auto encode_size = streamvbyte_encode(
                     reinterpret_cast<const uint32_t*>(col.get_null_map_data().data()),
                     cast_set<UInt32>(upper_int32(mem_size)), (uint8_t*)(buf + sizeof(size_t)));
-            *reinterpret_cast<size_t*>(buf) = encode_size;
+            unaligned_store<size_t>(buf, encode_size);
             buf += (sizeof(size_t) + encode_size);
         }
         // data values
@@ -171,7 +171,7 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf, int be_exec_
 
         // row num
         auto mem_size = col.size() * sizeof(bool);
-        *reinterpret_cast<uint32_t*>(buf) = static_cast<UInt32>(mem_size);
+        unaligned_store<uint32_t>(buf, static_cast<UInt32>(mem_size));
         buf += sizeof(uint32_t);
         // null flags
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -205,7 +205,7 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
             memcpy(col->get_null_map_data().data(), buf, mem_size);
             buf += mem_size;
         } else {
-            size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+            size_t encode_size = unaligned_load<size_t>(buf);
             buf += sizeof(size_t);
             // Throw exception if mem_size is large than UINT32_MAX
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(col->get_null_map_data().data()),
@@ -219,7 +219,7 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
     } else {
         auto* col = assert_cast<ColumnNullable*>(column->get());
         // row num
-        uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
+        uint32_t mem_size = unaligned_load<uint32_t>(buf);
         buf += sizeof(uint32_t);
         // null flags
         col->get_null_map_data().resize(mem_size / sizeof(bool));
@@ -249,6 +249,11 @@ MutableColumnPtr DataTypeNullable::create_column() const {
     return ColumnNullable::create(nested_data_type->create_column(), ColumnUInt8::create());
 }
 
+Status DataTypeNullable::check_column(const IColumn& column) const {
+    const auto* column_nullable = DORIS_TRY(check_column_nested_type<ColumnNullable>(column));
+    return nested_data_type->check_column(column_nullable->get_nested_column());
+}
+
 Field DataTypeNullable::get_default() const {
     return Field();
 }
@@ -256,6 +261,16 @@ Field DataTypeNullable::get_default() const {
 bool DataTypeNullable::equals(const IDataType& rhs) const {
     return rhs.is_nullable() &&
            nested_data_type->equals(*static_cast<const DataTypeNullable&>(rhs).nested_data_type);
+}
+
+FieldWithDataType DataTypeNullable::get_field_with_data_type(const IColumn& column,
+                                                             size_t row_num) const {
+    const auto& nullable_column =
+            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    if (nullable_column.is_null_at(row_num)) {
+        return FieldWithDataType {.field = Field()};
+    }
+    return nested_data_type->get_field_with_data_type(nullable_column.get_nested_column(), row_num);
 }
 
 DataTypePtr make_nullable(const DataTypePtr& type) {

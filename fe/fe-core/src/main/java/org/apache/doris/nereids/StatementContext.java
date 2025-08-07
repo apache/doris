@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -33,11 +34,11 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -146,6 +147,9 @@ public class StatementContext implements Closeable {
 
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
+
+    private final Map<CTEId, Statistics> cteIdToProducerStats = new HashMap<>();
+
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
@@ -191,6 +195,7 @@ public class StatementContext implements Closeable {
     // if query is: select * from t2 join t5
     // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
@@ -266,10 +271,10 @@ public class StatementContext implements Closeable {
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
-                && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
             this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity(), connectContext.queryId());
+                    connectContext.getCurrentUserIdentity());
             if (originStatement != null) {
                 this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
@@ -321,6 +326,10 @@ public class StatementContext implements Closeable {
         return mtmvRelatedTables;
     }
 
+    public Set<MTMV> getCandidateMTMVs() {
+        return candidateMTMVs;
+    }
+
     public Map<List<String>, TableIf> getTables() {
         return tables;
     }
@@ -335,7 +344,8 @@ public class StatementContext implements Closeable {
     }
 
     /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom, Optional<Location> location) {
+    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom,
+            Optional<UnboundRelation> unboundRelation) {
         Map<List<String>, TableIf> tables;
         switch (tableFrom) {
             case QUERY:
@@ -350,7 +360,8 @@ public class StatementContext implements Closeable {
             default:
                 throw new AnalysisException("Unknown table from " + tableFrom);
         }
-        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), location));
+        return tables.computeIfAbsent(
+                tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), unboundRelation));
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -442,6 +453,10 @@ public class StatementContext implements Closeable {
 
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
+    }
+
+    public IdGenerator<ExprId> getExprIdGenerator() {
+        return exprIdGenerator;
     }
 
     public CTEId getNextCTEId() {
@@ -865,5 +880,13 @@ public class StatementContext implements Closeable {
 
     public boolean isPrepareStage() {
         return prepareStage;
+    }
+
+    public Statistics getProducerStatsByCteId(CTEId id) {
+        return cteIdToProducerStats.get(id);
+    }
+
+    public void setProducerStats(CTEId id, Statistics stats) {
+        cteIdToProducerStats.put(id, stats);
     }
 }

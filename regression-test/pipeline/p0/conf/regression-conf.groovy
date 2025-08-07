@@ -146,7 +146,7 @@ extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
-max_failure_num=50
+max_failure_num=-1
 
 externalEnvIp="127.0.0.1"
 

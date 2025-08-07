@@ -36,7 +36,7 @@ public:
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
 
-    int32_t _term_size = 0;
+    size_t _term_size = 0;
     int32_t _max_expansions = 50;
     PhraseQuery _phrase_query;
     PrefixQuery _prefix_query;

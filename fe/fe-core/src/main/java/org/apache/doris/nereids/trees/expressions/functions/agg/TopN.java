@@ -82,6 +82,11 @@ public class TopN extends NullableAggregateFunction
         super("topn", distinct, alwaysNullable, arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TopN(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant() || !getArgumentType(1).isIntegerLikeType()) {
@@ -101,22 +106,13 @@ public class TopN extends NullableAggregateFunction
      */
     @Override
     public TopN withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2
-                || children.size() == 3);
-        if (children.size() == 2) {
-            return new TopN(distinct, alwaysNullable, children.get(0), children.get(1));
-        } else {
-            return new TopN(distinct, alwaysNullable, children.get(0), children.get(1), children.get(2));
-        }
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
+        return new TopN(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        if (children.size() == 2) {
-            return new TopN(distinct, alwaysNullable, children.get(0), children.get(1));
-        } else {
-            return new TopN(distinct, alwaysNullable, children.get(0), children.get(1), children.get(2));
-        }
+        return new TopN(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

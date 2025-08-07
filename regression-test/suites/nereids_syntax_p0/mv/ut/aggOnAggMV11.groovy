@@ -41,7 +41,7 @@ suite ("aggOnAggMV11") {
     sql """insert into aggOnAggMV11 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV11 values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view aggOnAggMV11_mv as select deptno, count(salary) from aggOnAggMV11 group by deptno;")
+    createMV("create materialized view aggOnAggMV11_mv as select deptno as a1, count(salary) from aggOnAggMV11 group by deptno;")
 
     sleep(3000)
 

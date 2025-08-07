@@ -24,6 +24,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/ipv6_value.h"
@@ -37,8 +38,7 @@ size_t DataTypeIPv6::number_length() const {
     return 40;
 }
 void DataTypeIPv6::push_number(ColumnString::Chars& chars, const IPv6& num) const {
-    auto value = IPv6Value(num);
-    auto ipv6_str = value.to_string();
+    auto ipv6_str = CastToString::from_ip(num);
     chars.insert(ipv6_str.begin(), ipv6_str.end());
 }
 std::string DataTypeIPv6::to_string(const IColumn& column, size_t row_num) const {

@@ -52,7 +52,7 @@ public:
         return _do_execute(context, block, result_column_id, arguments);
     }
 
-    Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
+    Status execute_runtime_filter(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
                                   ColumnNumbers& args) override {
         return _do_execute(context, block, result_column_id, args);

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -34,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ColumnStatistic {
@@ -46,6 +48,8 @@ public class ColumnStatistic {
     public static final StatsType NUM_NULLS = StatsType.NUM_NULLS;
     public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
     public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
+    // TODO: remove this when hotValues.second becomes ratio
+    public static final float ONE_HUNDRED = 100.0f;
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
@@ -54,10 +58,9 @@ public class ColumnStatistic {
             .setIsUnknown(true).setUpdatedTime("")
             .build();
 
-    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(
-            Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT, Type.MAP, Type.QUANTILE_STATE, Type.JSONB,
-            Type.VARIANT, Type.TIME, Type.TIMEV2, Type.LAMBDA_FUNCTION
-    );
+    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT,
+            Type.MAP, Type.QUANTILE_STATE, Type.JSONB, Type.VARIANT, Type.TIMEV2, Type.LAMBDA_FUNCTION);
+
 
     // ATTENTION: Stats deriving WILL NOT use 'count' field any longer.
     // Use 'rowCount' field in Statistics if needed.
@@ -94,10 +97,18 @@ public class ColumnStatistic {
     @SerializedName("updatedTime")
     public final String updatedTime;
 
+    /**
+     * hotValues == null means no hot values.
+     * hotValues.isEmpty() means there are hotValues, but the values are unknown. for example, Column A has hot values,
+     * func(A) has hot values, but the values are unknown.
+     */
+    @SerializedName("hotValues")
+    public final Map<Literal, Float> hotValues;
+
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
-            String updatedTime) {
+            String updatedTime, Map<Literal, Float> hotValues) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -110,6 +121,7 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.updatedTime = updatedTime;
+        this.hotValues = hotValues;
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
@@ -187,6 +199,7 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
         }
         columnStatisticBuilder.setUpdatedTime(row.get(13));
+        columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType()));
         return columnStatisticBuilder.build();
     }
 
@@ -257,8 +270,9 @@ public class ColumnStatistic {
     @Override
     public String toString() {
         return isUnKnown ? "unknown(" + count + ")"
-                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, avgSizeByte=%f",
-                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte);
+                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, "
+                                + "avgSizeByte=%f, hotValues=(%s)",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte, getStringHotValues());
     }
 
     public JSONObject toJson() {
@@ -298,7 +312,7 @@ public class ColumnStatistic {
     // Histogram is got by other place
     public static ColumnStatistic fromJson(String statJson) throws AnalysisException {
         JSONObject stat = new JSONObject(statJson);
-        Double minValue;
+        double minValue;
         switch (stat.getString("MinValueType")) {
             case "Infinite":
                 minValue = Double.NEGATIVE_INFINITY;
@@ -312,7 +326,7 @@ public class ColumnStatistic {
             default:
                 throw new RuntimeException(String.format("Min value does not get anytype"));
         }
-        Double maxValue;
+        double maxValue;
         switch (stat.getString("MaxValueType")) {
             case "Infinite":
                 maxValue = Double.POSITIVE_INFINITY;
@@ -330,7 +344,6 @@ public class ColumnStatistic {
         try {
             lastUpdatedTime = stat.getString("LastUpdatedTime");
         } catch (Exception e) {
-            LOG.warn("lastUpdateTimeIsEmpty", e.getMessage());
             if (LOG.isDebugEnabled()) {
                 LOG.debug(e);
             }
@@ -349,7 +362,8 @@ public class ColumnStatistic {
             LiteralExpr.create(stat.getString("MaxExprValue"),
                     GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
             stat.getBoolean("IsUnKnown"),
-            lastUpdatedTime
+            lastUpdatedTime,
+            null
         );
     }
 
@@ -362,6 +376,10 @@ public class ColumnStatistic {
             return original.ndv;
         }
         return ndv;
+    }
+
+    public ColumnStatistic getOriginal() {
+        return original;
     }
 
     public boolean isUnKnown() {
@@ -394,5 +412,29 @@ public class ColumnStatistic {
                     .setUpdatedTime("")
                     .build();
         }
+    }
+
+    public String getStringHotValues() {
+        if (hotValues == null || hotValues.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        hotValues.forEach((k, v) -> {
+            sb.append(k.toString());
+            sb.append(":");
+            sb.append(v);
+            sb.append(";");
+        });
+        if (sb.length() > 0) {
+            sb.setLength(sb.length() - 1);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * return null if there is no hot value
+     */
+    public Map<Literal, Float> getHotValues() {
+        return hotValues;
     }
 }

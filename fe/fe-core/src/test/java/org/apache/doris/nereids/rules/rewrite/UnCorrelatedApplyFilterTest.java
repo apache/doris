@@ -48,8 +48,7 @@ class UnCorrelatedApplyFilterTest extends TestWithFeService implements Generated
                 .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new UnCorrelatedApplyFilter())
                 .matches(logicalApply()
-                        .when(e ->
-                                e.left() instanceof LogicalOlapScan && e.right() instanceof LogicalOlapScan));
+                        .when(e -> e.left() instanceof LogicalOlapScan && e.right() instanceof LogicalOlapScan));
     }
 
     @Test
@@ -62,8 +61,7 @@ class UnCorrelatedApplyFilterTest extends TestWithFeService implements Generated
                 .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new UnCorrelatedApplyFilter())
                 .matches(logicalApply(any(), logicalFilter())
-                        .when(e ->
-                                    e.right().getPredicate().toSql().equals("(col1 > 0)")));
+                        .when(e -> e.right().getPredicate().toSql().equals("(col1 > 0)")));
     }
 
     @Override

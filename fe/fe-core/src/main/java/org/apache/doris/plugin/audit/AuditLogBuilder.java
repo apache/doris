@@ -121,6 +121,12 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                 }
             }
 
+            // replace new line characters with escaped characters to make sure the stmt in one line
+            if (af.value().equals("Stmt")) {
+                fieldValue = ((String) fieldValue).replace("\n", "\\n")
+                        .replace("\r", "\\r");
+            }
+
             sb.append("|").append(af.value()).append("=").append(fieldValue);
         }
 

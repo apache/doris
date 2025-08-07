@@ -41,7 +41,7 @@ import java.util.Optional;
  * select * from tbl limit 0
  */
 public class LogicalEmptyRelation extends LogicalRelation
-        implements EmptyRelation, OutputPrunable, BlockFuncDepsPropagation {
+        implements EmptyRelation, OutputPrunable, BlockFuncDepsPropagation, ProjectMergeable {
 
     private final List<NamedExpression> projects;
 
@@ -52,12 +52,17 @@ public class LogicalEmptyRelation extends LogicalRelation
     public LogicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(relationId, PlanType.LOGICAL_EMPTY_RELATION, groupExpression, logicalProperties);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this.projects = Utils.fastToImmutableList(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalEmptyRelation(this, context);
+    }
+
+    @Override
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return true;
     }
 
     @Override

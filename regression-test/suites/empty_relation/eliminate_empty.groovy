@@ -26,6 +26,8 @@ suite("eliminate_empty") {
         set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
         set forbid_unknown_col_stats=false;
         set enable_parallel_result_sink=false;
+        set runtime_filter_type=2;
+        set enable_runtime_filter_prune=false;
     """
     qt_onerow_union """
         select * from (select 1, 2 union select 3, 4) T order by 1, 2
@@ -234,13 +236,13 @@ suite("eliminate_empty") {
     """
 
     sql """
-    drop table if exists eliminate_partition_prune;
+    drop table if exists eliminate_partition_prune force;
     """
     sql """
     CREATE TABLE `eliminate_partition_prune` (
     `k1` int(11) NULL COMMENT "",
     `k2` int(11) NULL COMMENT "",
-    `k3` int(11) NULL COMMENT ""
+    `k3` int(11) NOT NULL COMMENT ""
     ) 
     PARTITION BY RANGE(`k1`, `k2`)
     (PARTITION p1 VALUES LESS THAN ("3", "1"),
@@ -250,6 +252,23 @@ suite("eliminate_empty") {
     PROPERTIES ('replication_num' = '1');
     """
 
+    qt_union_to_onerow_1 """
+        select k1, k2 from eliminate_partition_prune where k3 > 10 and k3 < 5 union select 1, 2;
+    """
+
+    qt_union_to_onerow_1_shape """explain shape plan
+        select k1, k2 from eliminate_partition_prune where k3 > 10 and k3 < 5 union select 1, 2;
+    """
+
+    qt_union_to_onerow_2 """
+        select /*+ SET_VAR(disable_nereids_rules = '') */
+        k1, k2 from eliminate_partition_prune union select 1, 2;
+    """
+
+    qt_union_to_onerow_2_shape """explain shape plan
+        select /*+ SET_VAR(disable_nereids_rules = '') */
+        k1, k2 from eliminate_partition_prune union select 1, 2;
+    """
     
     qt_prune_partition1 """
         explain shape plan

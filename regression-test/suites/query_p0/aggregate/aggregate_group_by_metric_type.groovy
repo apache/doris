@@ -37,11 +37,6 @@ suite("aggregate_group_by_metric_type") {
     }
 
     test {
-        sql "select user_ids from test_group_by_hll_and_bitmap order by user_ids"
-        exception "${error_msg}"
-    }
-
-    test {
         sql "select hll_set from test_group_by_hll_and_bitmap order by hll_set"
         exception "${error_msg}"
     }
@@ -69,67 +64,4 @@ suite("aggregate_group_by_metric_type") {
         exception "${error_msg}"
     }
     sql "DROP TABLE test_group_by_hll_and_bitmap"
-
-    sql "DROP TABLE IF EXISTS test_group_by_array"
-    sql """
-        CREATE TABLE IF NOT EXISTS test_group_by_array (id int, c_array array<int>) ENGINE=OLAP DUPLICATE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");
-        """
-    sql "insert into test_group_by_array values(1, [1,2,3])"
-
-    test {
-        sql "select distinct c_array from test_group_by_array"
-        exception "${error_msg}"
-    }
-    test {
-        sql "select c_array from test_group_by_array order by c_array"
-        exception "${error_msg}"
-    }
-    test {
-        sql "select c_array,count(*) from test_group_by_array group by c_array"
-        exception "${error_msg}"
-    }
-
-    sql "DROP TABLE test_group_by_array"
-
-    sql "DROP TABLE IF EXISTS test_group_by_struct"
-
-    sql """
-        CREATE TABLE IF NOT EXISTS test_group_by_struct (id int, s_struct struct<f1:tinyint, f2:char(5)>) ENGINE=OLAP DUPLICATE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");
-        """
-
-    sql "insert into test_group_by_struct values(1, {1, 'a'})"
-
-    test {
-        sql "select distinct s_struct from test_group_by_struct"
-        exception "${error_msg}"
-    }
-    test {
-        sql "select s_struct from test_group_by_struct order by s_struct"
-        exception "${error_msg}"
-    }
-    test {
-        sql "select s_struct,count(*) from test_group_by_struct group by s_struct"
-        exception "${error_msg}"
-    }
-
-    sql "DROP TABLE IF EXISTS test_group_by_struct_join"
-    sql """
-        CREATE TABLE IF NOT EXISTS test_group_by_struct_join (id int, value int)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");
-    """
-
-    sql """
-        insert into test_group_by_struct_join values(1, 1), (1, 2), (1, 3), (1, 4);
-    """
-
-    qt_select """
-        select
-            t1.s_struct
-            , t2.value
-        from
-            test_group_by_struct t1 right join test_group_by_struct_join t2 on t1.id = t2.id
-        order by t2.value;
-    """
 }

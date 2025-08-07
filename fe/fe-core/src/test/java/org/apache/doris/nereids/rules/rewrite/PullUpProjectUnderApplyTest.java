@@ -56,6 +56,8 @@ class PullUpProjectUnderApplyTest extends TestWithFeService implements MemoPatte
 
     @Test
     void testPullUpProjectUnderApply() {
+        connectContext.getSessionVariable().feDebug = false;
+
         List<String> testSql = ImmutableList.of(
                 "select * from T as T1 where id = (select max(id) from T as T2 where T1.score = T2.score)",
                 "select * from T as T1 where id = (select max(id) + 1 from T as T2 where T1.score = T2.score)"

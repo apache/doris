@@ -21,8 +21,6 @@ import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
@@ -626,57 +624,6 @@ public class SystemHandler extends AlterHandler {
                 if (backend == null) {
                     throw new DdlException("Backend does not exist["
                         + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
-                }
-
-                if (!backend.isDecommissioned()) {
-                    // it's ok. just log
-                    LOG.info("backend is not decommissioned[{}]", backend.getId());
-                    continue;
-                }
-
-                if (backend.setDecommissioned(false)) {
-                    Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
-                } else {
-                    LOG.info("backend is not decommissioned[{}]", backend.getHost());
-                }
-            }
-        }
-    }
-
-    @Override
-    public synchronized void cancel(CancelStmt stmt) throws DdlException {
-        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) stmt;
-        SystemInfoService infoService = Env.getCurrentSystemInfo();
-        // check if backends is under decommission
-        List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
-        if (hostInfos.isEmpty()) {
-            List<String> ids = cancelAlterSystemStmt.getIds();
-            for (String id : ids) {
-                Backend backend = infoService.getBackend(Long.parseLong(id));
-                if (backend == null) {
-                    throw new DdlException("Backend does not exist["
-                            + id + "]");
-                }
-                if (!backend.isDecommissioned()) {
-                    // it's ok. just log
-                    LOG.info("backend is not decommissioned[{}]", backend.getId());
-                    continue;
-                }
-                if (backend.setDecommissioned(false)) {
-                    Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
-                } else {
-                    LOG.info("backend is not decommissioned[{}]", backend.getHost());
-                }
-            }
-
-        } else {
-            for (HostInfo hostInfo : hostInfos) {
-                // check if exist
-                Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(),
-                        hostInfo.getPort());
-                if (backend == null) {
-                    throw new DdlException("Backend does not exist["
-                            + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
                 }
 
                 if (!backend.isDecommissioned()) {

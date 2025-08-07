@@ -21,12 +21,9 @@
 #ifndef JSONB_JSONBUTIL_H
 #define JSONB_JSONBUTIL_H
 
-#include <sstream>
-
-#include "common/exception.h"
+#include "common/status.h"
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
-#include "jsonb_writer.h"
 
 namespace doris {
 
@@ -40,16 +37,13 @@ public:
     JsonbToJson() : os_(buffer_, OUT_BUF_SIZE) {}
 
     // get json string
-    const std::string to_json_string(const char* data, size_t size) {
-        JsonbDocument* pdoc = doris::JsonbDocument::checkAndCreateDocument(data, size);
-        if (!pdoc) {
-            throw Exception(Status::FatalError("invalid json binary value: {}",
-                                               std::string_view(data, size)));
-        }
+    std::string to_json_string(const char* data, size_t size) {
+        JsonbDocument* pdoc;
+        THROW_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
         return to_json_string(pdoc->getValue());
     }
 
-    const std::string to_json_string(const JsonbValue* val) {
+    std::string to_json_string(const JsonbValue* val) {
         os_.clear();
         os_.seekp(0);
 
@@ -63,7 +57,7 @@ public:
         return json_string;
     }
 
-    static const std::string jsonb_to_json_string(const char* data, size_t size) {
+    static std::string jsonb_to_json_string(const char* data, size_t size) {
         JsonbToJson jsonb_to_json;
         return jsonb_to_json.to_json_string(data, size);
     }
@@ -71,7 +65,7 @@ public:
 private:
     // recursively convert JsonbValue
     void intern_json(const JsonbValue* val) {
-        switch (val->type()) {
+        switch (val->type) {
         case JsonbType::T_Null: {
             os_.write("null", 4);
             break;
@@ -85,49 +79,75 @@ private:
             break;
         }
         case JsonbType::T_Int8: {
-            os_.write(((JsonbInt8Val*)val)->val());
+            os_.write(val->unpack<JsonbInt8Val>()->val());
             break;
         }
         case JsonbType::T_Int16: {
-            os_.write(((JsonbInt16Val*)val)->val());
+            os_.write(val->unpack<JsonbInt16Val>()->val());
             break;
         }
         case JsonbType::T_Int32: {
-            os_.write(((JsonbInt32Val*)val)->val());
+            os_.write(val->unpack<JsonbInt32Val>()->val());
             break;
         }
         case JsonbType::T_Int64: {
-            os_.write(((JsonbInt64Val*)val)->val());
+            os_.write(val->unpack<JsonbInt64Val>()->val());
             break;
         }
         case JsonbType::T_Double: {
-            os_.write(((JsonbDoubleVal*)val)->val());
+            os_.write(val->unpack<JsonbDoubleVal>()->val());
             break;
         }
         case JsonbType::T_Float: {
-            os_.write(((JsonbFloatVal*)val)->val());
+            os_.write(val->unpack<JsonbFloatVal>()->val());
             break;
         }
         case JsonbType::T_Int128: {
-            os_.write(((JsonbInt128Val*)val)->val());
+            os_.write(val->unpack<JsonbInt128Val>()->val());
             break;
         }
         case JsonbType::T_String: {
-            string_to_json(((JsonbStringVal*)val)->getBlob(), ((JsonbStringVal*)val)->length());
+            string_to_json(val->unpack<JsonbStringVal>()->getBlob(),
+                           val->unpack<JsonbStringVal>()->length());
             break;
         }
         case JsonbType::T_Binary: {
             os_.write("\"<BINARY>", 9);
-            os_.write(((JsonbBinaryVal*)val)->getBlob(), ((JsonbBinaryVal*)val)->getBlobLen());
+            os_.write(val->unpack<JsonbBinaryVal>()->getBlob(),
+                      val->unpack<JsonbBinaryVal>()->getBlobLen());
             os_.write("<BINARY>\"", 9);
             break;
         }
         case JsonbType::T_Object: {
-            object_to_json((ObjectVal*)val);
+            object_to_json(val->unpack<ObjectVal>());
             break;
         }
         case JsonbType::T_Array: {
-            array_to_json((ArrayVal*)val);
+            array_to_json(val->unpack<ArrayVal>());
+            break;
+        }
+        case JsonbType::T_Decimal32: {
+            const auto* decimal_val = val->unpack<JsonbDecimal32>();
+            decimal_to_json(vectorized::Decimal32 {decimal_val->val()}, decimal_val->precision,
+                            decimal_val->scale);
+            break;
+        }
+        case JsonbType::T_Decimal64: {
+            const auto* decimal_val = val->unpack<JsonbDecimal64>();
+            decimal_to_json(vectorized::Decimal64 {decimal_val->val()}, decimal_val->precision,
+                            decimal_val->scale);
+            break;
+        }
+        case JsonbType::T_Decimal128: {
+            const auto* decimal_val = val->unpack<JsonbDecimal128>();
+            decimal_to_json(vectorized::Decimal128V3 {decimal_val->val()}, decimal_val->precision,
+                            decimal_val->scale);
+            break;
+        }
+        case JsonbType::T_Decimal256: {
+            const auto* decimal_val = val->unpack<JsonbDecimal256>();
+            decimal_to_json(vectorized::Decimal256 {decimal_val->val()}, decimal_val->precision,
+                            decimal_val->scale);
             break;
         }
         default:
@@ -143,9 +163,9 @@ private:
         }
         char char_buffer[16];
         for (const char* ptr = str; ptr != str + len && *ptr; ++ptr) {
-            if ((unsigned char)*ptr > 31 && *ptr != '\"' && *ptr != '\\')
+            if ((unsigned char)*ptr > 31 && *ptr != '\"' && *ptr != '\\') {
                 os_.put(*ptr);
-            else {
+            } else {
                 os_.put('\\');
                 unsigned char token;
                 switch (token = *ptr) {
@@ -237,66 +257,13 @@ private:
         os_.put(']');
     }
 
-private:
+    template <JsonbDecimalType T>
+    void decimal_to_json(const T& value, const uint32_t precision, const uint32_t scale);
+
     JsonbOutStream os_;
     char buffer_[OUT_BUF_SIZE];
 };
 
-// This class is a utility to create a JsonbValue.
-template <class OS_TYPE>
-class JsonbValueCreaterT {
-public:
-    JsonbValue* operator()(int32_t val) { return operator()((int64_t)val); }
-
-    JsonbValue* operator()(int64_t val) {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeInt(val);
-        writer_.writeEndArray();
-        return extractValue();
-    }
-    JsonbValue* operator()(double val) {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeDouble(val);
-        writer_.writeEndArray();
-        return extractValue();
-    }
-    JsonbValue* operator()(const char* str) { return operator()(str, (unsigned int)strlen(str)); }
-    JsonbValue* operator()(const char* str, unsigned int str_len) {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeStartString();
-        writer_.writeString(str, str_len);
-        writer_.writeEndString();
-        writer_.writeEndArray();
-        return extractValue();
-    }
-    JsonbValue* operator()(bool val) {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeBool(val);
-        writer_.writeEndArray();
-        return extractValue();
-    }
-    JsonbValue* operator()() {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeNull();
-        writer_.writeEndArray();
-        return extractValue();
-    }
-
-private:
-    JsonbValue* extractValue() {
-        return static_cast<ArrayVal*>(
-                       JsonbDocument::createValue(writer_.getOutput()->getBuffer(),
-                                                  (int)writer_.getOutput()->getSize()))
-                ->get(0);
-    }
-    JsonbWriterT<OS_TYPE> writer_;
-};
-typedef JsonbValueCreaterT<JsonbOutStream> JsonbValueCreater;
 } // namespace doris
 
 #endif // JSONB_JSONBUTIL_H

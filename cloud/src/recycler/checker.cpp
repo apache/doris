@@ -26,10 +26,12 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <sstream>
 #include <string_view>
 #include <unordered_set>
@@ -37,13 +39,14 @@
 
 #include "common/bvars.h"
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/storage_vault_accessor.h"
@@ -187,14 +190,8 @@ int Checker::start() {
                 }
             }
 
-            if (config::enable_delete_bitmap_storage_optimize_check) {
-                if (int ret = checker->do_delete_bitmap_storage_optimize_check(); ret != 0) {
-                    success = false;
-                }
-            }
-
-            if (config::enable_mow_compaction_key_check) {
-                if (int ret = checker->do_mow_compaction_key_check(); ret != 0) {
+            if (config::enable_mow_job_key_check) {
+                if (int ret = checker->do_mow_job_key_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -423,7 +420,7 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
         return 0;
     }
 
-    FullRangeGetIteratorOptions opts(txn_kv_);
+    FullRangeGetOptions opts(txn_kv_);
     opts.prefetch = true;
     auto it = txn_kv_->full_range_get(storage_vault_key({instance_id_, ""}),
                                       storage_vault_key({instance_id_, "\xff"}), std::move(opts));
@@ -435,7 +432,8 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
         }
-
+        TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
+                                 &accessor_map_, &vault);
         if (vault.has_hdfs_info()) {
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
             int ret = accessor->init();
@@ -486,7 +484,7 @@ int InstanceChecker::do_check() {
     long instance_volume = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "check instance objects finished, cost=" << cost
                   << "s. instance_id=" << instance_id_ << " num_scanned=" << num_scanned
@@ -499,7 +497,7 @@ int InstanceChecker::do_check() {
         g_bvar_checker_check_cost_s.put(instance_id_, static_cast<long>(cost));
         // FIXME(plat1ko): What if some list operation failed?
         g_bvar_checker_instance_volume.put(instance_id_, instance_volume);
-    });
+    };
 
     struct TabletFiles {
         int64_t tablet_id {0};
@@ -507,11 +505,23 @@ int InstanceChecker::do_check() {
     };
     TabletFiles tablet_files_cache;
 
-    auto check_rowset_objects = [&, this](const doris::RowsetMetaCloudPB& rs_meta,
-                                          std::string_view key) {
+    auto check_rowset_objects = [&, this](doris::RowsetMetaCloudPB& rs_meta, std::string_view key) {
         if (rs_meta.num_segments() == 0) {
             return;
         }
+
+        bool data_loss = false;
+        bool segment_file_loss = false;
+        bool index_file_loss = false;
+
+        DORIS_CLOUD_DEFER {
+            if (data_loss) {
+                LOG(INFO) << "segment file is" << (segment_file_loss ? "" : " not") << " loss, "
+                          << "index file is" << (index_file_loss ? "" : " not") << " loss, "
+                          << "rowset.tablet_id = " << rs_meta.tablet_id();
+                num_rowset_loss++;
+            }
+        };
 
         ++num_scanned_with_segment;
         if (tablet_files_cache.tablet_id != rs_meta.tablet_id()) {
@@ -546,9 +556,9 @@ int InstanceChecker::do_check() {
             instance_volume += tablet_volume;
         }
 
-        bool data_loss = false;
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
             auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
+
             if (tablet_files_cache.files.contains(path)) {
                 continue;
             }
@@ -558,12 +568,73 @@ int InstanceChecker::do_check() {
                 break;
             }
             data_loss = true;
+            segment_file_loss = true;
             TEST_SYNC_POINT_CALLBACK("InstanceChecker.do_check1", &path);
-            LOG(WARNING) << "object not exist, path=" << path << " key=" << hex(key);
+            LOG(WARNING) << "object not exist, path=" << path
+                         << ", rs_meta=" << rs_meta.ShortDebugString() << " key=" << hex(key);
         }
 
-        if (data_loss) {
-            ++num_rowset_loss;
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to init txn, err=" << err;
+            return;
+        }
+
+        TabletIndexPB tablet_index;
+        if (get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index) == -1) {
+            LOG(WARNING) << "failedt to get tablet index, tablet_id= " << rs_meta.tablet_id();
+            return;
+        }
+
+        auto tablet_schema_key =
+                meta_schema_key({instance_id_, tablet_index.index_id(), rs_meta.schema_version()});
+        std::string tablet_schema_val;
+        err = txn->get(tablet_schema_key, &tablet_schema_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            // rowset don't have tablet schema key means no index
+            return;
+        }
+        auto* schema = rs_meta.mutable_tablet_schema();
+        schema->ParseFromString(tablet_schema_val);
+
+        std::vector<std::pair<int64_t, std::string>> index_ids;
+        for (const auto& i : rs_meta.tablet_schema().index()) {
+            if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+                index_ids.emplace_back(i.index_id(), i.index_suffix_name());
+            }
+        }
+        std::string tablet_idx_key = meta_tablet_idx_key({instance_id_, rs_meta.tablet_id()});
+        if (!key_exist(txn_kv_.get(), tablet_idx_key)) {
+            for (int i = 0; i < rs_meta.num_segments(); ++i) {
+                std::vector<std::string> index_path_v;
+                if (rs_meta.tablet_schema().inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    for (const auto& index_id : index_ids) {
+                        LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
+                                  << " rowset_id=" << rs_meta.rowset_id_v2()
+                                  << " segment_index=" << i << " index_id=" << index_id.first
+                                  << " index_suffix_name=" << index_id.second;
+                        index_path_v.emplace_back(
+                                inverted_index_path_v1(rs_meta.tablet_id(), rs_meta.rowset_id_v2(),
+                                                       i, index_id.first, index_id.second));
+                    }
+                } else {
+                    index_path_v.emplace_back(
+                            inverted_index_path_v2(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i));
+                }
+
+                if (!index_path_v.empty()) {
+                    if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
+                            return tablet_files_cache.files.contains(idx_file_path);
+                        })) {
+                        continue;
+                    }
+                }
+                index_file_loss = true;
+                data_loss = true;
+                LOG(WARNING) << "object not exist, key=" << hex(tablet_idx_key);
+            }
         }
     };
 
@@ -589,7 +660,9 @@ int InstanceChecker::do_check() {
 
         while (it->has_next() && !stopped()) {
             auto [k, v] = it->next();
-            if (!it->has_next()) start_key = k;
+            if (!it->has_next()) {
+                start_key = k;
+            }
 
             doris::RowsetMetaCloudPB rs_meta;
             if (!rs_meta.ParseFromArray(v.data(), v.size())) {
@@ -645,20 +718,23 @@ int InstanceChecker::do_inverted_check() {
     long num_file_leak = 0;
     using namespace std::chrono;
     auto start_time = steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         g_bvar_inverted_checker_num_scanned.put(instance_id_, num_scanned);
         g_bvar_inverted_checker_num_check_failed.put(instance_id_, num_file_leak);
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "inverted check instance objects finished, cost=" << cost
                   << "s. instance_id=" << instance_id_ << " num_scanned=" << num_scanned
                   << " num_file_leak=" << num_file_leak;
-    });
+    };
 
     struct TabletRowsets {
         int64_t tablet_id {0};
         std::unordered_set<std::string> rowset_ids;
     };
     TabletRowsets tablet_rowsets_cache;
+
+    RowsetIndexesFormatV1 rowset_index_cache_v1;
+    RowsetIndexesFormatV2 rowset_index_cache_v2;
 
     // Return 0 if check success, return 1 if file is garbage data, negative if error occurred
     auto check_segment_file = [&](const std::string& obj_key) {
@@ -738,7 +814,47 @@ int InstanceChecker::do_inverted_check() {
         return 0;
     };
 
-    // TODO(Xiaocc): Currently we haven't implemented one generator-like s3 accessor list function
+    auto check_inverted_index_file = [&](const std::string& obj_key) {
+        std::vector<std::string> str;
+        butil::SplitString(obj_key, '/', &str);
+        // format v1: data/{tablet_id}/{rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
+        // format v2: data/{tablet_id}/{rowset_id}_{seg_num}.idx
+        if (str.size() < 3) {
+            return -1;
+        }
+
+        int64_t tablet_id = atol(str[1].c_str());
+        if (tablet_id <= 0) {
+            LOG(WARNING) << "failed to parse tablet_id, key=" << obj_key;
+            return -1;
+        }
+
+        // v1: {rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
+        // v2: {rowset_id}_{seg_num}.idx
+        std::string rowset_info = str.back();
+
+        if (!rowset_info.ends_with(".idx")) {
+            return 0; // Not an index file
+        }
+
+        InvertedIndexStorageFormatPB inverted_index_storage_format =
+                std::count(rowset_info.begin(), rowset_info.end(), '_') > 1
+                        ? InvertedIndexStorageFormatPB::V1
+                        : InvertedIndexStorageFormatPB::V2;
+
+        size_t pos = rowset_info.find_last_of('_');
+        if (pos == std::string::npos || pos + 1 >= str.back().size() - 4) {
+            LOG(WARNING) << "Invalid index_id format, key=" << obj_key;
+            return -1;
+        }
+        if (inverted_index_storage_format == InvertedIndexStorageFormatPB::V1) {
+            return check_inverted_index_file_storage_format_v1(tablet_id, obj_key, rowset_info,
+                                                               rowset_index_cache_v1);
+        } else {
+            return check_inverted_index_file_storage_format_v2(tablet_id, obj_key, rowset_info,
+                                                               rowset_index_cache_v2);
+        }
+    };
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
@@ -761,6 +877,16 @@ int InstanceChecker::do_inverted_check() {
                     check_ret = -1;
                 }
             }
+            ret = check_inverted_index_file(file->path);
+            if (ret != 0) {
+                LOG(WARNING) << "failed to check index file, uri=" << accessor->uri()
+                             << " path=" << file->path;
+                if (ret == 1) {
+                    ++num_file_leak;
+                } else {
+                    check_ret = -1;
+                }
+            }
         }
 
         if (!list_iter->is_valid()) {
@@ -771,7 +897,7 @@ int InstanceChecker::do_inverted_check() {
     return num_file_leak > 0 ? 1 : check_ret;
 }
 
-int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& check_func) {
+int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t, bool)>& check_func) {
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_rowset_key({instance_id_, 0, 0});
     auto end = meta_rowset_key({instance_id_, std::numeric_limits<int64_t>::max(), 0});
@@ -817,7 +943,9 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
 
             if (tablet_meta.enable_unique_key_merge_on_write()) {
                 // only check merge-on-write table
-                int ret = check_func(tablet_id);
+                bool has_sequence_col = tablet_meta.schema().has_sequence_col_idx() &&
+                                        tablet_meta.schema().sequence_col_idx() != -1;
+                int ret = check_func(tablet_id, has_sequence_col);
                 if (ret < 0) {
                     // return immediately when encounter unexpected error,
                     // otherwise, we continue to check the next tablet
@@ -939,7 +1067,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
     int64_t leaked_delete_bitmaps {0};
 
     auto start_time = std::chrono::steady_clock::now();
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         g_bvar_inverted_checker_leaked_delete_bitmaps.put(instance_id_, leaked_delete_bitmaps);
         g_bvar_inverted_checker_abnormal_delete_bitmaps.put(instance_id_, abnormal_delete_bitmaps);
         g_bvar_inverted_checker_delete_bitmaps_scanned.put(instance_id_, total_delete_bitmap_keys);
@@ -960,7 +1088,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                     "passed. cost={} ms, total_delete_bitmap_keys={}",
                     instance_id_, cost, total_delete_bitmap_keys);
         }
-    });
+    };
 
     struct TabletsRowsetsCache {
         int64_t tablet_id {-1};
@@ -1080,113 +1208,6 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
     return (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) ? 1 : 0;
 }
 
-int InstanceChecker::check_delete_bitmap_storage_optimize(int64_t tablet_id) {
-    using Version = std::pair<int64_t, int64_t>;
-    struct RowsetDigest {
-        std::string rowset_id;
-        Version version;
-        doris::SegmentsOverlapPB segments_overlap;
-
-        bool operator<(const RowsetDigest& other) const {
-            return version.first < other.version.first;
-        }
-
-        bool produced_by_compaction() const {
-            return (version.first < version.second) ||
-                   ((version.first == version.second) && segments_overlap == NONOVERLAPPING);
-        }
-    };
-
-    // number of rowsets which may have problems
-    int64_t abnormal_rowsets_num {0};
-
-    std::vector<RowsetDigest> tablet_rowsets {};
-    // Get all visible rowsets of this tablet
-    auto collect_cb = [&tablet_rowsets](const doris::RowsetMetaCloudPB& rowset) {
-        if (rowset.start_version() == 0 && rowset.end_version() == 1) {
-            // ignore dummy rowset [0-1]
-            return;
-        }
-        tablet_rowsets.emplace_back(
-                rowset.rowset_id_v2(),
-                std::make_pair<int64_t, int64_t>(rowset.start_version(), rowset.end_version()),
-                rowset.segments_overlap_pb());
-    };
-    if (int ret = collect_tablet_rowsets(tablet_id, collect_cb); ret != 0) {
-        return ret;
-    }
-
-    std::sort(tablet_rowsets.begin(), tablet_rowsets.end());
-
-    // find right-most rowset which is produced by compaction
-    auto it = std::find_if(
-            tablet_rowsets.crbegin(), tablet_rowsets.crend(),
-            [](const RowsetDigest& rowset) { return rowset.produced_by_compaction(); });
-    if (it == tablet_rowsets.crend()) {
-        LOG(INFO) << fmt::format(
-                "[delete bitmap checker] skip to check delete bitmap storage optimize for "
-                "tablet_id={} because it doesn't have compacted rowsets.",
-                tablet_id);
-        return 0;
-    }
-
-    int64_t start_version = it->version.first;
-    int64_t pre_min_version = it->version.second;
-
-    // after BE sweeping stale rowsets, all rowsets in this tablet before
-    // should not have delete bitmaps with versions lower than `pre_min_version`
-    if (config::delete_bitmap_storage_optimize_check_version_gap > 0) {
-        pre_min_version -= config::delete_bitmap_storage_optimize_check_version_gap;
-        if (pre_min_version <= 1) {
-            LOG(INFO) << fmt::format(
-                    "[delete bitmap checker] skip to check delete bitmap storage optimize for "
-                    "tablet_id={} because pre_min_version is too small.",
-                    tablet_id);
-            return 0;
-        }
-    }
-
-    auto check_func = [pre_min_version, instance_id = instance_id_](
-                              int64_t tablet_id, std::string_view rowset_id, int64_t version,
-                              int64_t segment_id) -> int {
-        if (version < pre_min_version) {
-            LOG(WARNING) << fmt::format(
-                    "[delete bitmap check fails] delete bitmap storage optimize check fail for "
-                    "instance_id={}, tablet_id={}, rowset_id={}, found delete bitmap with "
-                    "version={} < pre_min_version={}",
-                    instance_id, tablet_id, rowset_id, version, pre_min_version);
-            return 1;
-        }
-        return 0;
-    };
-
-    for (const auto& rowset : tablet_rowsets) {
-        // check for all rowsets before the max compacted rowset
-        if (rowset.version.second < start_version) {
-            auto rowset_id = rowset.rowset_id;
-            int ret = traverse_rowset_delete_bitmaps(tablet_id, rowset_id, check_func);
-            if (ret < 0) {
-                return ret;
-            }
-
-            if (ret != 0) {
-                ++abnormal_rowsets_num;
-                TEST_SYNC_POINT_CALLBACK(
-                        "InstanceChecker::check_delete_bitmap_storage_optimize.get_abnormal_rowset",
-                        &tablet_id, &rowset_id);
-            }
-        }
-    }
-
-    LOG(INFO) << fmt::format(
-            "[delete bitmap checker] finish check delete bitmap storage optimize for "
-            "instance_id={}, tablet_id={}, rowsets_num={}, abnormal_rowsets_num={}, "
-            "pre_min_version={}",
-            instance_id_, tablet_id, tablet_rowsets.size(), abnormal_rowsets_num, pre_min_version);
-
-    return (abnormal_rowsets_num > 1 ? 1 : 0);
-}
-
 int InstanceChecker::get_pending_delete_bitmap_keys(
         int64_t tablet_id, std::unordered_set<std::string>& pending_delete_bitmaps) {
     std::unique_ptr<Transaction> txn;
@@ -1215,8 +1236,205 @@ int InstanceChecker::get_pending_delete_bitmap_keys(
     return 0;
 }
 
+int InstanceChecker::check_inverted_index_file_storage_format_v1(
+        int64_t tablet_id, const std::string& file_path, const std::string& rowset_info,
+        RowsetIndexesFormatV1& rowset_index_cache_v1) {
+    // format v1: data/{tablet_id}/{rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
+    std::string rowset_id;
+    int64_t segment_id;
+    std::string index_id_with_suffix_name;
+    // {rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
+    std::vector<std::string> str;
+    butil::SplitString(rowset_info.substr(0, rowset_info.size() - 4), '_', &str);
+    if (str.size() < 3) {
+        LOG(WARNING) << "Split rowset info with '_' error, str size < 3, rowset_info = "
+                     << rowset_info;
+        return -1;
+    }
+    rowset_id = str[0];
+    segment_id = std::atoll(str[1].c_str());
+    index_id_with_suffix_name = str[2];
+
+    if (rowset_index_cache_v1.rowset_id == rowset_id) {
+        if (rowset_index_cache_v1.segment_ids.contains(segment_id)) {
+            if (auto it = rowset_index_cache_v1.index_ids.find(index_id_with_suffix_name);
+                it == rowset_index_cache_v1.index_ids.end()) {
+                // clang-format off
+                LOG(WARNING) << fmt::format("index_id with suffix name not found, rowset_info = {}, obj_key = {}", rowset_info, file_path);
+                // clang-format on
+                return -1;
+            }
+        } else {
+            // clang-format off
+            LOG(WARNING) << fmt::format("segment id not found, rowset_info = {}, obj_key = {}", rowset_info, file_path);
+            // clang-format on
+            return -1;
+        }
+    }
+
+    rowset_index_cache_v1.rowset_id = rowset_id;
+    rowset_index_cache_v1.segment_ids.clear();
+    rowset_index_cache_v1.index_ids.clear();
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
+    auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
+    do {
+        TxnErrorCode err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get rowset kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next()) {
+            // recycle corresponding resources
+            auto [k, v] = it->next();
+            doris::RowsetMetaCloudPB rs_meta;
+            if (!rs_meta.ParseFromArray(v.data(), v.size())) {
+                LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
+                return -1;
+            }
+
+            for (size_t i = 0; i < rs_meta.num_segments(); i++) {
+                rowset_index_cache_v1.segment_ids.insert(i);
+            }
+
+            TabletIndexPB tablet_index;
+            if (get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index) ==
+                -1) {
+                LOG(WARNING) << "failedt to get tablet index, tablet_id= " << rs_meta.tablet_id();
+                return -1;
+            }
+
+            auto tablet_schema_key = meta_schema_key(
+                    {instance_id_, tablet_index.index_id(), rs_meta.schema_version()});
+            std::string tablet_schema_val;
+            err = txn->get(tablet_schema_key, &tablet_schema_val);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                // rowset don't have tablet schema key means no index
+                return 0;
+            }
+            auto* schema = rs_meta.mutable_tablet_schema();
+            schema->ParseFromString(tablet_schema_val);
+
+            for (const auto& i : rs_meta.tablet_schema().index()) {
+                if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+                    rowset_index_cache_v1.index_ids.insert(
+                            fmt::format("{}{}", i.index_name(), i.index_suffix_name()));
+                }
+            }
+
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+                break;
+            }
+        }
+    } while (it->more() && !stopped());
+
+    if (!rowset_index_cache_v1.segment_ids.contains(segment_id)) {
+        // Garbage data leak
+        LOG(WARNING) << "rowset should be recycled, key=" << file_path;
+        return 1;
+    }
+
+    if (!rowset_index_cache_v1.index_ids.contains(index_id_with_suffix_name)) {
+        // Garbage data leak
+        LOG(WARNING) << "rowset with inde meta should be recycled, key=" << file_path;
+        return 1;
+    }
+
+    return 0;
+}
+
+int InstanceChecker::check_inverted_index_file_storage_format_v2(
+        int64_t tablet_id, const std::string& file_path, const std::string& rowset_info,
+        RowsetIndexesFormatV2& rowset_index_cache_v2) {
+    std::string rowset_id;
+    int64_t segment_id;
+    // {rowset_id}_{seg_num}.idx
+    std::vector<std::string> str;
+    butil::SplitString(rowset_info.substr(0, rowset_info.size() - 4), '_', &str);
+    if (str.size() < 2) {
+        // clang-format off
+        LOG(WARNING) << "Split rowset info with '_' error, str size < 2, rowset_info = " << rowset_info;
+        // clang-format on
+        return -1;
+    }
+    rowset_id = str[0];
+    segment_id = std::atoll(str[1].c_str());
+
+    if (rowset_index_cache_v2.rowset_id == rowset_id) {
+        if (!rowset_index_cache_v2.segment_ids.contains(segment_id)) {
+            // clang-format off
+            LOG(WARNING) << fmt::format("index file not found, rowset_info = {}, obj_key = {}", rowset_info, file_path);
+            // clang-format on
+            return -1;
+        }
+    }
+
+    rowset_index_cache_v2.rowset_id = rowset_id;
+    rowset_index_cache_v2.segment_ids.clear();
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
+    auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
+    do {
+        TxnErrorCode err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get rowset kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next()) {
+            // recycle corresponding resources
+            auto [k, v] = it->next();
+            doris::RowsetMetaCloudPB rs_meta;
+            if (!rs_meta.ParseFromArray(v.data(), v.size())) {
+                LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
+                return -1;
+            }
+
+            for (size_t i = 0; i < rs_meta.num_segments(); i++) {
+                rowset_index_cache_v2.segment_ids.insert(i);
+            }
+
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+                break;
+            }
+        }
+    } while (it->more() && !stopped());
+
+    if (!rowset_index_cache_v2.segment_ids.contains(segment_id)) {
+        // Garbage data leak
+        LOG(WARNING) << "rowset with index meta should be recycled, key=" << file_path;
+        return 1;
+    }
+
+    return 0;
+}
+
 int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
-        int64_t tablet_id, int64_t& rowsets_with_useless_delete_bitmap_version) {
+        int64_t tablet_id, bool has_sequence_col,
+        int64_t& rowsets_with_useless_delete_bitmap_version) {
     // end_version: create_time
     std::map<int64_t, int64_t> tablet_rowsets_map {};
     // rowset_id: {start_version, end_version}
@@ -1339,11 +1557,16 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
             if (tablet_rowsets_map.find(version) != tablet_rowsets_map.end()) {
                 continue;
             }
-            if (rowset_version_map.find(rowset_id) == rowset_version_map.end()) {
+            auto version_it = rowset_version_map.find(rowset_id);
+            if (version_it == rowset_version_map.end()) {
                 // checked in do_delete_bitmap_inverted_check
                 continue;
             }
             if (pending_delete_bitmaps.contains(std::string(k))) {
+                continue;
+            }
+            if (has_sequence_col && version >= version_it->second.first &&
+                version <= version_it->second.second) {
                 continue;
             }
             // there may be an interval in this situation:
@@ -1379,6 +1602,9 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
 }
 
 int InstanceChecker::do_delete_bitmap_storage_optimize_check(int version) {
+    if (version != 2) {
+        return -1;
+    }
     int64_t total_tablets_num {0};
     int64_t failed_tablets_num {0};
 
@@ -1387,23 +1613,16 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check(int version) {
     int64_t tablet_id_with_max_rowsets_with_useless_delete_bitmap_version = 0;
 
     // check that for every visible rowset, there exists at least delete one bitmap in MS
-    int ret = traverse_mow_tablet([&](int64_t tablet_id) {
+    int ret = traverse_mow_tablet([&](int64_t tablet_id, bool has_sequence_col) {
         ++total_tablets_num;
         int64_t rowsets_with_useless_delete_bitmap_version = 0;
-        int res = 0;
-        if (version == 1) {
-            res = check_delete_bitmap_storage_optimize(tablet_id);
-        } else if (version == 2) {
-            res = check_delete_bitmap_storage_optimize_v2(
-                    tablet_id, rowsets_with_useless_delete_bitmap_version);
-            if (rowsets_with_useless_delete_bitmap_version >
-                max_rowsets_with_useless_delete_bitmap_version) {
-                max_rowsets_with_useless_delete_bitmap_version =
-                        rowsets_with_useless_delete_bitmap_version;
-                tablet_id_with_max_rowsets_with_useless_delete_bitmap_version = tablet_id;
-            }
-        } else {
-            return -1;
+        int res = check_delete_bitmap_storage_optimize_v2(
+                tablet_id, has_sequence_col, rowsets_with_useless_delete_bitmap_version);
+        if (rowsets_with_useless_delete_bitmap_version >
+            max_rowsets_with_useless_delete_bitmap_version) {
+            max_rowsets_with_useless_delete_bitmap_version =
+                    rowsets_with_useless_delete_bitmap_version;
+            tablet_id_with_max_rowsets_with_useless_delete_bitmap_version = tablet_id;
         }
         failed_tablets_num += (res != 0);
         return res;
@@ -1413,30 +1632,26 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check(int version) {
         return ret;
     }
 
-    if (version == 2) {
-        g_bvar_max_rowsets_with_useless_delete_bitmap_version.put(
-                instance_id_, max_rowsets_with_useless_delete_bitmap_version);
-    }
+    g_bvar_max_rowsets_with_useless_delete_bitmap_version.put(
+            instance_id_, max_rowsets_with_useless_delete_bitmap_version);
 
     std::stringstream ss;
     ss << "[delete bitmap checker] check delete bitmap storage optimize v" << version
        << " for instance_id=" << instance_id_ << ", total_tablets_num=" << total_tablets_num
-       << ", failed_tablets_num=" << failed_tablets_num;
-    if (version == 2) {
-        ss << ". max_rowsets_with_useless_delete_bitmap_version="
-           << max_rowsets_with_useless_delete_bitmap_version
-           << ", tablet_id=" << tablet_id_with_max_rowsets_with_useless_delete_bitmap_version;
-    }
+       << ", failed_tablets_num=" << failed_tablets_num
+       << ". max_rowsets_with_useless_delete_bitmap_version="
+       << max_rowsets_with_useless_delete_bitmap_version
+       << ", tablet_id=" << tablet_id_with_max_rowsets_with_useless_delete_bitmap_version;
     LOG(INFO) << ss.str();
 
     return (failed_tablets_num > 0) ? 1 : 0;
 }
 
-int InstanceChecker::do_mow_compaction_key_check() {
+int InstanceChecker::do_mow_job_key_check() {
     std::unique_ptr<RangeGetIterator> it;
-    std::string begin = mow_tablet_compaction_key({instance_id_, 0, 0});
-    std::string end = mow_tablet_compaction_key({instance_id_, INT64_MAX, 0});
-    MowTabletCompactionPB mow_tablet_compaction;
+    std::string begin = mow_tablet_job_key({instance_id_, 0, 0});
+    std::string end = mow_tablet_job_key({instance_id_, INT64_MAX, 0});
+    MowTabletJobPB mow_tablet_job;
     do {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -1446,7 +1661,7 @@ int InstanceChecker::do_mow_compaction_key_check() {
         }
         err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get mow tablet compaction key, err=" << err;
+            LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
             return -1;
         }
         int64_t now = duration_cast<std::chrono::seconds>(
@@ -1458,18 +1673,18 @@ int InstanceChecker::do_mow_compaction_key_check() {
             k1.remove_prefix(1);
             std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
             decode_key(&k1, &out);
-            // 0x01 "meta" ${instance_id} "mow_tablet_comp" ${table_id} ${initiator}
+            // 0x01 "meta" ${instance_id} "mow_tablet_job" ${table_id} ${initiator}
             auto table_id = std::get<int64_t>(std::get<0>(out[3]));
             auto initiator = std::get<int64_t>(std::get<0>(out[4]));
-            if (!mow_tablet_compaction.ParseFromArray(v.data(), v.size())) [[unlikely]] {
-                LOG(WARNING) << "failed to parse MowTabletCompactionPB";
+            if (!mow_tablet_job.ParseFromArray(v.data(), v.size())) [[unlikely]] {
+                LOG(WARNING) << "failed to parse MowTabletJobPB";
                 return -1;
             }
-            int64_t expiration = mow_tablet_compaction.expiration();
-            //check compaction key failed should meet both following two condition:
-            //1.compaction key is expired
-            //2.table lock key is not found or key is not expired
-            if (expiration < now - config::compaction_key_check_expiration_diff_seconds) {
+            int64_t expiration = mow_tablet_job.expiration();
+            // check job key failed should meet both following two condition:
+            // 1. job key is expired
+            // 2. table lock key is not found or key is not expired
+            if (expiration < now - config::mow_job_key_check_expiration_diff_seconds) {
                 std::string lock_key =
                         meta_delete_bitmap_update_lock_key({instance_id_, table_id, -1});
                 std::string lock_val;
@@ -1491,7 +1706,7 @@ int InstanceChecker::do_mow_compaction_key_check() {
                 }
                 if (reason != "") {
                     LOG(WARNING) << fmt::format(
-                            "[compaction key check fails] compaction key check fail for "
+                            "[compaction key check fails] mow job key check fail for "
                             "instance_id={}, table_id={}, initiator={}, expiration={}, now={}, "
                             "reason={}",
                             instance_id_, table_id, initiator, expiration, now, reason);

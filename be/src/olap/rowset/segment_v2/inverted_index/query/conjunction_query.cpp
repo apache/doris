@@ -18,6 +18,7 @@
 #include "conjunction_query.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 ConjunctionQuery::ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                                    const TQueryOptions& query_options, const io::IOContext* io_ctx)
@@ -27,19 +28,23 @@ ConjunctionQuery::ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSe
           _io_ctx(io_ctx) {}
 
 void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.empty()) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "ConjunctionQuery::add: terms empty");
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
-    std::vector<TermIterator> iterators;
-    for (const auto& term : query_info.terms) {
-        auto* term_doc = TermIterator::ensure_term_doc(_io_ctx, _searcher->getReader(),
-                                                       query_info.field_name, term);
-        iterators.emplace_back(term_doc);
+    std::vector<TermIterPtr> iterators;
+    for (const auto& term_info : query_info.term_infos) {
+        if (term_info.is_multi_terms()) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
+        }
+
+        auto iter = TermIterator::create(_io_ctx, _searcher->getReader(), query_info.field_name,
+                                         term_info.get_single_term());
+        iterators.emplace_back(std::move(iter));
     }
 
-    std::sort(iterators.begin(), iterators.end(), [](const TermIterator& a, const TermIterator& b) {
-        return a.doc_freq() < b.doc_freq();
+    std::sort(iterators.begin(), iterators.end(), [](const TermIterPtr& a, const TermIterPtr& b) {
+        return a->doc_freq() < b->doc_freq();
     });
 
     if (iterators.size() == 1) {
@@ -53,8 +58,8 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 
     if (_index_version == IndexVersion::kV1 && iterators.size() >= 2) {
-        int32_t little = iterators[0].doc_freq();
-        int32_t big = iterators[iterators.size() - 1].doc_freq();
+        int32_t little = iterators[0]->doc_freq();
+        int32_t big = iterators[iterators.size() - 1]->doc_freq();
         if (little == 0 || (big / little) > _conjunction_ratio) {
             _use_skip = true;
         }
@@ -62,7 +67,7 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
 }
 
 void ConjunctionQuery::search(roaring::Roaring& roaring) {
-    if (_lead1.is_empty()) {
+    if (_lead1 == nullptr) {
         return;
     }
 
@@ -76,10 +81,10 @@ void ConjunctionQuery::search(roaring::Roaring& roaring) {
 
 void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
     // can get a term of all doc_id
-    auto func = [&roaring](const TermIterator& term_docs, bool first) {
+    auto func = [&roaring](const TermIterPtr& term_docs, bool first) {
         roaring::Roaring result;
         DocRange doc_range;
-        while (term_docs.read_range(&doc_range)) {
+        while (term_docs->read_range(&doc_range)) {
             if (doc_range.type_ == DocRangeType::kMany) {
                 result.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
             } else {
@@ -97,7 +102,7 @@ void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
     func(_lead1, true);
 
     // the second inverted list may be empty
-    if (!_lead2.is_empty()) {
+    if (_lead2 != nullptr) {
         func(_lead2, false);
     }
 
@@ -109,19 +114,19 @@ void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
 
 void ConjunctionQuery::search_by_skiplist(roaring::Roaring& roaring) {
     int32_t doc = 0;
-    while ((doc = do_next(_lead1.next_doc())) != INT32_MAX) {
+    while ((doc = do_next(_lead1->next_doc())) != INT32_MAX) {
         roaring.add(doc);
     }
 }
 
 int32_t ConjunctionQuery::do_next(int32_t doc) {
     while (true) {
-        assert(doc == _lead1.doc_id());
+        assert(doc == _lead1->doc_id());
 
         // the skip list is used to find the two smallest inverted lists
-        int32_t next2 = _lead2.advance(doc);
+        int32_t next2 = _lead2->advance(doc);
         if (next2 != doc) {
-            doc = _lead1.advance(next2);
+            doc = _lead1->advance(next2);
             if (next2 != doc) {
                 continue;
             }
@@ -130,14 +135,14 @@ int32_t ConjunctionQuery::do_next(int32_t doc) {
         // if both lead1 and lead2 exist, use skip list to lookup other inverted indexes
         bool advance_head = false;
         for (auto& other : _others) {
-            if (other.is_empty()) {
+            if (other == nullptr) {
                 continue;
             }
 
-            if (other.doc_id() < doc) {
-                int32_t next = other.advance(doc);
+            if (other->doc_id() < doc) {
+                int32_t next = other->advance(doc);
                 if (next > doc) {
-                    doc = _lead1.advance(next);
+                    doc = _lead1->advance(next);
                     advance_head = true;
                     break;
                 }
@@ -151,4 +156,5 @@ int32_t ConjunctionQuery::do_next(int32_t doc) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -18,7 +18,6 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
-import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -33,7 +32,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
-import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -42,7 +40,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUserIdentity;
 import org.apache.doris.thrift.TopicInfo;
 
@@ -59,14 +56,13 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPostProcessable {
+public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
 
@@ -97,51 +93,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
 
     public static final String EMPTY_COMPUTE_GROUP = "";
 
-    @Override
-    protected void runAfterCatalogReady() {
-        try {
-            resetQueryQueueProp();
-        } catch (Throwable e) {
-            LOG.warn("reset query queue failed, ", e);
-        }
-    }
-
-    public void resetQueryQueueProp() {
-        List<QueryQueue> newPropList = new ArrayList<>();
-        Map<Long, QueryQueue> currentQueueCopyMap = new HashMap<>();
-        readLock();
-        try {
-            for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
-                WorkloadGroup wg = entry.getValue();
-                QueryQueue tmpQ = new QueryQueue(wg.getId(), wg.getMaxConcurrency(),
-                        wg.getMaxQueueSize(), wg.getQueueTimeout(), wg.getVersion());
-                newPropList.add(tmpQ);
-            }
-            for (Map.Entry<Long, QueryQueue> entry : idToQueryQueue.entrySet()) {
-                currentQueueCopyMap.put(entry.getKey(), entry.getValue());
-            }
-        } finally {
-            readUnlock();
-        }
-
-        for (QueryQueue newPropQq : newPropList) {
-            QueryQueue currentQueryQueue = currentQueueCopyMap.get(newPropQq.getWgId());
-            if (currentQueryQueue == null) {
-                continue;
-            }
-            if (newPropQq.getPropVersion() > currentQueryQueue.getPropVersion()) {
-                currentQueryQueue.resetQueueProperty(newPropQq.getMaxConcurrency(), newPropQq.getMaxQueueSize(),
-                        newPropQq.getQueueTimeout(), newPropQq.getPropVersion());
-            }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(currentQueryQueue.debugString()); // for test debug
-            }
-        }
-    }
-
-    public WorkloadGroupMgr() {
-        super("workload-group-thread", Config.query_queue_update_interval_ms);
-    }
+    public WorkloadGroupMgr() {}
 
     public static WorkloadGroupMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
@@ -180,22 +132,16 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         return keyToWorkloadGroup.get(wgKey);
     }
 
-    public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
+    // the workload group name in AllBackendComputeGroup will associate with multiple workload groups
+    public List<WorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
         String wgName = getWorkloadGroupNameAndCheckPriv(context);
         ComputeGroup cg = context.getComputeGroup();
-
-        List<TPipelineWorkloadGroup> workloadGroups = Lists.newArrayList();
         readLock();
         try {
-            List<WorkloadGroup> wgList = cg.getWorkloadGroup(wgName, this);
-            for (WorkloadGroup wg : wgList) {
-                workloadGroups.add(wg.toThrift());
-            }
-            context.setWorkloadGroupName(wgName);
+            return cg.getWorkloadGroup(wgName, this);
         } finally {
             readUnlock();
         }
-        return workloadGroups;
     }
 
     public List<TopicInfo> getPublishTopicInfo() {
@@ -211,59 +157,16 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         return workloadGroups;
     }
 
-    public QueryQueue getWorkloadGroupQueryQueue(Set<Long> wgIdSet) throws UserException {
-        writeLock();
-        try {
-            QueryQueue queryQueue = null;
-            for (long wgId : wgIdSet) {
-                WorkloadGroup wg = idToWorkloadGroup.get(wgId);
-                if (wg == null) {
-                    continue;
-                }
-                QueryQueue tmpQueue = idToQueryQueue.get(wg.getId());
-                if (tmpQueue == null) {
-                    tmpQueue = new QueryQueue(wg.getId(), wg.getMaxConcurrency(), wg.getMaxQueueSize(),
-                            wg.getQueueTimeout(), wg.getVersion());
-                    idToQueryQueue.put(wg.getId(), tmpQueue);
-                    queryQueue = tmpQueue;
-                    break;
-                }
-                if (queryQueue == null) {
-                    queryQueue = tmpQueue;
-                } else {
-                    Pair<Integer, Integer> detail1 = queryQueue.getQueryQueueDetail();
-                    Pair<Integer, Integer> detail2 = tmpQueue.getQueryQueueDetail();
-                    if (detail2.first < detail1.first) {
-                        queryQueue = tmpQueue;
-                    }
-                }
-            }
-            if (queryQueue == null) {
-                throw new DdlException("Can not find query queue for workload group: " + wgIdSet);
-            }
-            return queryQueue;
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public Map<String, List<String>> getWorkloadGroupQueryDetail() {
         Map<String, List<String>> ret = Maps.newHashMap();
         readLock();
         try {
             for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
-                Long wgId = entry.getKey();
                 WorkloadGroup wg = entry.getValue();
-                QueryQueue qq = idToQueryQueue.get(wgId);
                 List<String> valueList = new ArrayList<>(2);
-                if (qq == null) {
-                    valueList.add("0");
-                    valueList.add("0");
-                } else {
-                    Pair<Integer, Integer> qdtail = qq.getQueryQueueDetail();
-                    valueList.add(String.valueOf(qdtail.first));
-                    valueList.add(String.valueOf(qdtail.second));
-                }
+                Pair<Integer, Integer> qdtail = wg.getQueryQueue().getQueryQueueDetail();
+                valueList.add(String.valueOf(qdtail.first));
+                valueList.add(String.valueOf(qdtail.second));
                 ret.put(wg.getWorkloadGroupKey().toString(), valueList);
             }
         } finally {
@@ -319,7 +222,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     private void checkGlobalUnlock(WorkloadGroup newWg, WorkloadGroup oldWg) throws DdlException {
         String newWgCg = newWg.getComputeGroup();
 
-        double sumOfAllMemLimit = 0;
         int wgNumOfCurrentCg = 0;
         boolean isAlterStmt = oldWg != null;
         boolean isCreateStmt = !isAlterStmt;
@@ -340,21 +242,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             if (!newWgCg.equals(curWgCg)) {
                 continue;
             }
-
-            if (wg.getMemoryLimitPercentWhenCalSum() > 0) {
-                sumOfAllMemLimit += wg.getMemoryLimitPercentWhenCalSum();
-            }
-        }
-
-        // 2 sum current wg value
-        sumOfAllMemLimit += newWg.getMemoryLimitPercentWhenCalSum();
-
-        // 3 check total sum
-        if (sumOfAllMemLimit > 100.0 + 1e-6) {
-            throw new DdlException(
-                    "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " within compute group " + (
-                            newWgCg)
-                            + " can not be greater than 100.0%. current sum val:" + sumOfAllMemLimit);
         }
 
         // 4 check wg num
@@ -375,9 +262,8 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             throw new DdlException("Alter workload group should contain at least one property");
         }
 
-        String cgName = cg.getName();
         WorkloadGroup newWorkloadGroup;
-        WorkloadGroupKey wgKey = WorkloadGroupKey.get(cgName, workloadGroupName);
+        WorkloadGroupKey wgKey = WorkloadGroupKey.get(cg.getId(), workloadGroupName);
         writeLock();
         try {
             // get 0 idx here because there can only be one wg in cg with specify wg name.
@@ -386,7 +272,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                 throw new RuntimeException(
                         "Unexpected error: find " + ret.size() + " workload group " + workloadGroupName
                                 + " in compute group "
-                                + cgName);
+                                + cg.getName());
             }
             WorkloadGroup currentWorkloadGroup = ret.get(0);
             newWorkloadGroup = WorkloadGroup.copyAndUpdate(currentWorkloadGroup, properties);
@@ -397,11 +283,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         } finally {
             writeUnlock();
         }
-        LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, cgName);
-    }
-
-    public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        throw new DdlException("Unsupported drop statement.");
+        LOG.info("Alter workload group {} for compute group {} success: {}", newWorkloadGroup, cg.getName());
     }
 
     public void dropWorkloadGroup(String computeGroup, String workloadGroupName, boolean ifExists)
@@ -456,7 +338,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             WorkloadGroup workloadGroup = keyToWorkloadGroup.get(wgKey);
             keyToWorkloadGroup.remove(wgKey);
             idToWorkloadGroup.remove(workloadGroup.getId());
-            idToQueryQueue.remove(workloadGroup.getId());
             Env.getCurrentEnv().getEditLog()
                     .logDropWorkloadGroup(new DropWorkloadGroupOperationLog(workloadGroup.getId()));
         } finally {
@@ -556,11 +437,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         return idToWorkloadGroup;
     }
 
-    // for ut
-    public Map<Long, QueryQueue> getIdToQueryQueue() {
-        return idToQueryQueue;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
@@ -589,7 +465,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                             workloadGroup.getName(), PrivPredicate.SHOW_WORKLOAD_GROUP)) {
                         continue;
                     }
-                    workloadGroup.getProcNodeData(result, idToQueryQueue.get(workloadGroup.getId()));
+                    workloadGroup.getProcNodeData(result);
                 }
             } finally {
                 readUnlock();
@@ -691,7 +567,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                 for (WorkloadGroup wg : tombstoneWgList) {
                     keyToWorkloadGroup.remove(wg.getWorkloadGroupKey());
                     idToWorkloadGroup.remove(wg.getId());
-                    idToQueryQueue.remove(wg.getId());
                     Env.getCurrentEnv().getEditLog()
                             .logDropWorkloadGroup(new DropWorkloadGroupOperationLog(wg.getId()));
                     LOG.info("Drop tombstone normal workload group {} success.", wg);
@@ -736,7 +611,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             // drop old workload group
             keyToWorkloadGroup.remove(oldKey);
             idToWorkloadGroup.remove(oldWg.getId());
-            idToQueryQueue.remove(oldWg.getId());
             Env.getCurrentEnv().getEditLog().logDropWorkloadGroup(new DropWorkloadGroupOperationLog(oldWg.getId()));
             LOG.info("[init_wg]Drop old workload group {} success.", oldWg);
         } catch (Throwable t) {

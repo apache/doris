@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.systable.SupportedSysTables;
@@ -48,9 +49,13 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.view.SQLViewRepresentation;
+import org.apache.iceberg.view.View;
+import org.apache.iceberg.view.ViewVersion;
 
 import java.util.HashMap;
 import java.util.List;
@@ -64,6 +69,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     private Table table;
     private boolean isValidRelatedTableCached = false;
     private boolean isValidRelatedTable = false;
+    private boolean isView;
+    private static final String ENGINE_PROP_NAME = "engine-name";
 
     public IcebergExternalTable(long id, String name, String remoteName, IcebergExternalCatalog catalog,
             IcebergExternalDatabase db) {
@@ -78,6 +85,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
+            isView = catalog.viewExists(getRemoteDbName(), getRemoteName());
         }
     }
 
@@ -88,22 +96,23 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return IcebergUtils.loadSchemaCacheValue(catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId());
+        boolean isView = isView();
+        return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
     }
 
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         if (getIcebergCatalogType().equals("hms")) {
-            THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
+            THiveTable tHiveTable = new THiveTable(getDbName(), getName(), new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
-                    getName(), dbName);
+                    getName(), getDbName());
             tTableDescriptor.setHiveTable(tHiveTable);
             return tTableDescriptor;
         } else {
-            TIcebergTable icebergTable = new TIcebergTable(dbName, name, new HashMap<>());
+            TIcebergTable icebergTable = new TIcebergTable(getDbName(), getName(), new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ICEBERG_TABLE,
-                    schema.size(), 0, getName(), dbName);
+                    schema.size(), 0, getName(), getDbName());
             tTableDescriptor.setIcebergTable(icebergTable);
             return tTableDescriptor;
         }
@@ -118,12 +127,12 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public long fetchRowCount() {
         makeSureInitialized();
-        long rowCount = IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
+        long rowCount = IcebergUtils.getIcebergRowCount(this);
         return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
     }
 
     public Table getIcebergTable() {
-        return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName());
+        return IcebergUtils.getIcebergTable(this);
     }
 
     @Override
@@ -133,13 +142,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
         return Maps.newHashMap(
-            IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName())
+                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this)
                 .getPartitionInfo().getNameToPartitionItem());
     }
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName())
+        return IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this)
             .getPartitionInfo().getNameToPartitionItem();
     }
 
@@ -156,9 +165,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName());
+                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this);
         IcebergSchemaCacheValue schemaValue = IcebergUtils.getSchemaCacheValue(
-                catalog, getDbName(), getName(), snapshotValue.getSnapshot().getSchemaId());
+                this, snapshotValue.getSnapshot().getSchemaId());
         return schemaValue.getPartitionColumns();
     }
 
@@ -166,7 +175,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
                                                Optional<MvccSnapshot> snapshot) throws AnalysisException {
         IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName());
+                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this);
         long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
         if (latestSnapshotId <= 0) {
             throw new AnalysisException("can not find partition: " + partitionName);
@@ -183,14 +192,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         makeSureInitialized();
-        IcebergSnapshotCacheValue snapshotValue =
-                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName());
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, this);
         return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
     @Override
     public long getNewestUpdateVersionOrTime() {
-        return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), getCatalog(), getDbName(), getName(), null)
+        return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), this, Optional.empty())
                 .getPartitionInfo().getNameToIcebergPartition().values().stream()
                 .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
     }
@@ -242,13 +250,17 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        return new IcebergMvccSnapshot(IcebergUtils.getIcebergSnapshotCacheValue(
-                tableSnapshot, getCatalog(), getDbName(), getName(), scanParams));
+        if (isView()) {
+            return new EmptyMvccSnapshot();
+        } else {
+            return new IcebergMvccSnapshot(IcebergUtils.getIcebergSnapshotCacheValue(
+                    tableSnapshot, this, scanParams));
+        }
     }
 
     @Override
     public List<Column> getFullSchema() {
-        return IcebergUtils.getIcebergSchema(this, getCatalog(), getDbName(), getName());
+        return IcebergUtils.getIcebergSchema(this);
     }
 
     @Override
@@ -275,4 +287,93 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         makeSureInitialized();
         return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
     }
+
+    @Override
+    public boolean isView() {
+        makeSureInitialized();
+        return isView;
+    }
+
+    public String getViewText() {
+        try {
+            return catalog.getExecutionAuthenticator().execute(() -> {
+                View icebergView = IcebergUtils.getIcebergView(this);
+                ViewVersion viewVersion = icebergView.currentVersion();
+                if (viewVersion == null) {
+                    throw new RuntimeException(String.format("Cannot get view version for view '%s'", icebergView));
+                }
+                Map<String, String> summary = viewVersion.summary();
+                if (summary == null) {
+                    throw new RuntimeException(String.format("Cannot get summary for view '%s'", icebergView));
+                }
+                String engineName = summary.get(ENGINE_PROP_NAME);
+                if (StringUtils.isEmpty(engineName)) {
+                    throw new RuntimeException(String.format("Cannot get engine-name for view '%s'", icebergView));
+                }
+                SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor(engineName.toLowerCase());
+                if (sqlViewRepresentation == null) {
+                    throw new UnsupportedOperationException("Cannot get view text from iceberg view");
+                }
+                return sqlViewRepresentation.sql();
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public String getSqlDialect() {
+        try {
+            return catalog.getExecutionAuthenticator().execute(() -> {
+                View icebergView = IcebergUtils.getIcebergView(this);
+                ViewVersion viewVersion = icebergView.currentVersion();
+                if (viewVersion == null) {
+                    throw new RuntimeException(String.format("Cannot get view version for view '%s'", icebergView));
+                }
+                Map<String, String> summary = viewVersion.summary();
+                if (summary == null) {
+                    throw new RuntimeException(String.format("Cannot get summary for view '%s'", icebergView));
+                }
+                String engineName = summary.get(ENGINE_PROP_NAME);
+                if (StringUtils.isEmpty(engineName)) {
+                    throw new RuntimeException(String.format("Cannot get engine-name for view '%s'", icebergView));
+                }
+                return engineName.toLowerCase();
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public View getIcebergView() {
+        return IcebergUtils.getIcebergView(this);
+    }
+
+    /**
+     * get location of an iceberg table or view
+     * @return
+     */
+    public String location() {
+        if (isView()) {
+            View icebergView = getIcebergView();
+            return icebergView.location();
+        } else {
+            Table icebergTable = getIcebergTable();
+            return icebergTable.location();
+        }
+    }
+
+    /**
+     * get properties of an iceberg table or view
+     * @return
+     */
+    public Map<String, String> properties() {
+        if (isView()) {
+            View icebergView = getIcebergView();
+            return icebergView.properties();
+        } else {
+            Table icebergTable = getIcebergTable();
+            return icebergTable.properties();
+        }
+    }
+
 }

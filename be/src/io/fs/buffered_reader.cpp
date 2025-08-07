@@ -25,6 +25,7 @@
 #include <chrono>
 #include <memory>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -34,8 +35,10 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
-
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
 namespace io {
 struct IOContext;
 
@@ -80,7 +83,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         }
     } else if (!cached_data.empty()) {
         // the data in range may be skipped or ignored
-        for (int16 box_index : cached_data.ref_box) {
+        for (int16_t box_index : cached_data.ref_box) {
             _dec_box_ref(box_index);
         }
         cached_data.reset();
@@ -162,7 +165,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         if (slice.second) {
             content_size += slice.first;
             if (slice.first > 0) {
-                ratio_and_size.emplace_back((double)hollow_size / content_size,
+                ratio_and_size.emplace_back((double)hollow_size / (double)content_size,
                                             content_size + hollow_size);
             }
         } else {
@@ -217,7 +220,7 @@ int MergeRangeFileReader::_search_read_range(size_t start_offset, size_t end_off
     if (_random_access_ranges.empty()) {
         return -1;
     }
-    int left = 0, right = _random_access_ranges.size() - 1;
+    int left = 0, right = cast_set<int>(_random_access_ranges.size()) - 1;
     do {
         int mid = left + (right - left) / 2;
         const PrefetchRange& range = _random_access_ranges[mid];
@@ -240,7 +243,7 @@ void MergeRangeFileReader::_clean_cached_data(RangeCachedData& cached_data) {
     if (!cached_data.empty()) {
         for (int i = 0; i < cached_data.ref_box.size(); ++i) {
             DCHECK_GT(cached_data.box_end_offset[i], cached_data.box_start_offset[i]);
-            int16 box_index = cached_data.ref_box[i];
+            int16_t box_index = cached_data.ref_box[i];
             DCHECK_GT(_box_ref[box_index], 0);
             _box_ref[box_index]--;
         }
@@ -248,7 +251,7 @@ void MergeRangeFileReader::_clean_cached_data(RangeCachedData& cached_data) {
     cached_data.reset();
 }
 
-void MergeRangeFileReader::_dec_box_ref(int16 box_index) {
+void MergeRangeFileReader::_dec_box_ref(int16_t box_index) {
     if (--_box_ref[box_index] == 0) {
         _remaining += BOX_SIZE;
     }
@@ -265,7 +268,7 @@ void MergeRangeFileReader::_read_in_box(RangeCachedData& cached_data, size_t off
         size_t to_handle = remaining;
         int cleaned_box = 0;
         for (int i = 0; i < cached_data.ref_box.size() && remaining > 0; ++i) {
-            int16 box_index = cached_data.ref_box[i];
+            int16_t box_index = cached_data.ref_box[i];
             size_t box_to_handle = std::min(remaining, (size_t)(cached_data.box_end_offset[i] -
                                                                 cached_data.box_start_offset[i]));
             if (copy_out != nullptr) {
@@ -327,16 +330,16 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
     const size_t copy_end = start_offset + *bytes_read;
     // copy data into small boxes
     // tuple(box_index, box_start_offset, file_start_offset, file_end_offset)
-    std::vector<std::tuple<int16, uint32, size_t, size_t>> filled_boxes;
+    std::vector<std::tuple<int16_t, uint32_t, size_t, size_t>> filled_boxes;
 
-    auto fill_box = [&](int16 fill_box_ref, uint32 box_usage, size_t box_copy_end) {
+    auto fill_box = [&](int16_t fill_box_ref, uint32_t box_usage, size_t box_copy_end) {
         size_t copy_size = std::min(box_copy_end - copy_start, BOX_SIZE - box_usage);
         memcpy(_boxes[fill_box_ref].data() + box_usage,
                _read_slice->data() + copy_start - start_offset, copy_size);
         filled_boxes.emplace_back(fill_box_ref, box_usage, copy_start, copy_start + copy_size);
         copy_start += copy_size;
         _last_box_ref = fill_box_ref;
-        _last_box_usage = box_usage + copy_size;
+        _last_box_usage = box_usage + cast_set<int>(copy_size);
         _box_ref[fill_box_ref]++;
         if (box_usage == 0) {
             _remaining -= BOX_SIZE;
@@ -363,7 +366,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
             fill_box(_last_box_ref, _last_box_usage, range_copy_end);
         }
         // reuse the former released box
-        for (int16 i = 0; i < _boxes.size() && copy_start < range_copy_end; ++i) {
+        for (int16_t i = 0; i < _boxes.size() && copy_start < range_copy_end; ++i) {
             if (_box_ref[i] == 0) {
                 fill_box(i, 0, range_copy_end);
             }
@@ -372,7 +375,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         while (copy_start < range_copy_end && _boxes.size() < NUM_BOX) {
             _boxes.emplace_back(BOX_SIZE);
             _box_ref.emplace_back(0);
-            fill_box(_boxes.size() - 1, 0, range_copy_end);
+            fill_box(cast_set<int16_t>(_boxes.size()) - 1, 0, range_copy_end);
         }
         DCHECK_EQ(copy_start, range_copy_end);
 
@@ -495,7 +498,7 @@ int PrefetchBuffer::search_read_range(size_t off) const {
         return -1;
     }
     const std::vector<PrefetchRange>& random_access_ranges = *_random_access_ranges;
-    int left = 0, right = random_access_ranges.size() - 1;
+    int left = 0, right = cast_set<int>(random_access_ranges.size()) - 1;
     do {
         int mid = left + (right - left) / 2;
         const PrefetchRange& range = random_access_ranges[mid];
@@ -518,7 +521,7 @@ size_t PrefetchBuffer::merge_small_ranges(size_t off, int range_index) const {
     if (_random_access_ranges == nullptr || _random_access_ranges->empty()) {
         return _size;
     }
-    int64 remaining = _size;
+    int64_t remaining = _size;
     const std::vector<PrefetchRange>& random_access_ranges = *_random_access_ranges;
     while (remaining > 0 && range_index < random_access_ranges.size()) {
         const PrefetchRange& range = random_access_ranges[range_index];
@@ -639,7 +642,9 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     _size = _reader->size();
     _whole_pre_buffer_size = buffer_size;
     _file_range.end_offset = std::min(_file_range.end_offset, _size);
-    int buffer_num = buffer_size > s_max_pre_buffer_size ? buffer_size / s_max_pre_buffer_size : 1;
+    int buffer_num = buffer_size > s_max_pre_buffer_size
+                             ? cast_set<int>(buffer_size) / cast_set<int>(s_max_pre_buffer_size)
+                             : 1;
     std::function<void(PrefetchBuffer&)> sync_buffer = nullptr;
     if (profile != nullptr) {
         const char* prefetch_buffered_reader = "PrefetchBufferedReader";
@@ -972,4 +977,7 @@ void RangeCacheFileReader::_collect_profile_before_close() {
 }
 
 } // namespace io
+
+#include "common/compile_check_end.h"
+
 } // namespace doris

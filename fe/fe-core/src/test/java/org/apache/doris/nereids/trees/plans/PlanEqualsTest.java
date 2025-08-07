@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -60,7 +62,14 @@ import java.util.Optional;
 class PlanEqualsTest {
     /* *************************** Logical *************************** */
     @Test
-    void testLogicalAggregate(@Mocked Plan child) {
+    void testLogicalAggregate() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                    new RelationId(1),
+                    ImmutableList.of(
+                            new Alias(Literal.of(1L), "a"),
+                            new Alias(Literal.of(2L), "b")
+                    )
+        );
         LogicalAggregate<Plan> actual = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
                 child);
@@ -92,7 +101,14 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testLogicalFilter(@Mocked Plan child) {
+    void testLogicalFilter() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalFilter<Plan> actual = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
 
         LogicalFilter<Plan> expected = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
@@ -103,7 +119,19 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testLogicalJoin(@Mocked Plan left, @Mocked Plan right) {
+    void testLogicalJoin() {
+        LogicalOneRowRelation left = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a")
+                )
+        );
+        LogicalOneRowRelation right = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalJoin<Plan, Plan> actual = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
@@ -123,7 +151,14 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testLogicalProject(@Mocked Plan child) {
+    void testLogicalProject() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalProject<Plan> actual = new LogicalProject<>(
                 ImmutableList.of(
                         new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
@@ -149,7 +184,14 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testLogicalSort(@Mocked Plan child) {
+    void testLogicalSort() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalSort<Plan> actual = new LogicalSort<>(
                 ImmutableList.of(new OrderKey(
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
@@ -172,7 +214,14 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testLogicalResultSink(@Mocked Plan child) {
+    void testLogicalResultSink() {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         LogicalResultSink<Plan> actual = new LogicalResultSink<>(
                 ImmutableList.of(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
                 child);
@@ -190,7 +239,14 @@ class PlanEqualsTest {
 
     /* *************************** Physical *************************** */
     @Test
-    void testPhysicalAggregate(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
+    void testPhysicalAggregate(@Mocked LogicalProperties logicalProperties) {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         List<NamedExpression> outputExpressionList = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> actual = new PhysicalHashAggregate<>(Lists.newArrayList(), outputExpressionList,
@@ -215,7 +271,14 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testPhysicalFilter(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
+    void testPhysicalFilter(@Mocked LogicalProperties logicalProperties) {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         PhysicalFilter<Plan> actual = new PhysicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(2))),
                 logicalProperties, child);
 
@@ -229,7 +292,19 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testPhysicalJoin(@Mocked Plan left, @Mocked Plan right, @Mocked LogicalProperties logicalProperties) {
+    void testPhysicalJoin(@Mocked LogicalProperties logicalProperties) {
+        LogicalOneRowRelation left = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a")
+                )
+        );
+        LogicalOneRowRelation right = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         PhysicalHashJoin<Plan, Plan> actual = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
@@ -268,25 +343,32 @@ class PlanEqualsTest {
                 1L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
                 Optional.empty(),
-                ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of());
 
         PhysicalOlapScan expected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
                 1L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
                 Optional.empty(),
-                ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of());
         Assertions.assertEquals(expected, actual);
 
         PhysicalOlapScan unexpected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("b"),
                 12345L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties,
                 Optional.empty(),
-                ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of());
         Assertions.assertNotEquals(unexpected, actual);
     }
 
     @Test
-    void testPhysicalProject(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
+    void testPhysicalProject(@Mocked LogicalProperties logicalProperties) {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
         PhysicalProject<Plan> actual = new PhysicalProject<>(
                 ImmutableList.of(
                         new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())),
@@ -316,7 +398,14 @@ class PlanEqualsTest {
     }
 
     @Test
-    void testPhysicalSort(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
+    void testPhysicalSort(@Mocked LogicalProperties logicalProperties) {
+        LogicalOneRowRelation child = new LogicalOneRowRelation(
+                new RelationId(1),
+                ImmutableList.of(
+                        new Alias(Literal.of(1L), "a"),
+                        new Alias(Literal.of(2L), "b")
+                )
+        );
 
         PhysicalQuickSort<Plan> actual = new PhysicalQuickSort<>(
                 ImmutableList.of(new OrderKey(

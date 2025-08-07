@@ -42,7 +42,7 @@ suite ("testAggQueryOnAggMV3") {
     sql """insert into emps values("2020-01-04",4,"d",21,4,4);"""
 
 
-    createMV("create materialized view emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission;")
+    createMV("create materialized view emps_mv as select deptno as a1, commission as a2, sum(salary) from emps group by deptno, commission;")
 
     sql "analyze table emps with sync;"
     sql """alter table emps modify column time_col set stats ('row_count'='8');"""

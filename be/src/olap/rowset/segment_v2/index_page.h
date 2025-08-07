@@ -33,6 +33,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 // IndexPage is the building block for IndexedColumn's ordinal index and value index.
 // It is used to guide searching for a particular key to the data page containing it.
@@ -145,9 +146,11 @@ public:
     // Return true when has next page.
     bool has_next() { return (_pos + 1) < _reader->count(); }
 
-    const Slice& current_key() const { return _reader->get_key(_pos); }
+    const Slice& current_key() const { return _reader->get_key(cast_set<int>(_pos)); }
 
-    const PagePointer& current_page_pointer() const { return _reader->get_value(_pos); }
+    const PagePointer& current_page_pointer() const {
+        return _reader->get_value(cast_set<int>(_pos));
+    }
 
 private:
     const IndexPageReader* _reader = nullptr;
@@ -155,5 +158,6 @@ private:
     size_t _pos;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

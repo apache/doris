@@ -39,7 +39,9 @@ suite("test_paimon_rewrite_mtmv", "p0,external,mtmv,external_docker,external_doc
             "s3.access_key" = "admin",
             "s3.secret_key" = "password",
             "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
-            "s3.region" = "us-east-1"
+            "s3.region" = "us-east-1",
+             "fs.oss.connection.timeout" = "1000",
+             "fs.oss.connection.establish.timeout" = "1000"
         );"""
 
     sql """analyze table ${catalogName}.`test_paimon_spark`.test_tb_mix_format with sync"""

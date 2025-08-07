@@ -24,10 +24,14 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
+
+#include "common/compile_check_begin.h"
+
 bool DataTypeIPv4::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
@@ -37,8 +41,7 @@ size_t DataTypeIPv4::number_length() const {
     return 16;
 }
 void DataTypeIPv4::push_number(ColumnString::Chars& chars, const IPv4& num) const {
-    auto value = IPv4Value(num);
-    auto ipv4_str = value.to_string();
+    auto ipv4_str = CastToString::from_ip(num);
     chars.insert(ipv4_str.begin(), ipv4_str.end());
 }
 
@@ -75,5 +78,11 @@ Status DataTypeIPv4::from_string(ReadBuffer& rb, IColumn* column) const {
 MutableColumnPtr DataTypeIPv4::create_column() const {
     return ColumnIPv4::create();
 }
+
+Field DataTypeIPv4::get_field(const TExprNode& node) const {
+    return Field::create_field<TYPE_IPV4>(cast_set<const unsigned int>(node.ipv4_literal.value));
+}
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

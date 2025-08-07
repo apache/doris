@@ -78,7 +78,7 @@ suite("test_partial_update_upsert", "p0") {
                         `last_access_time` datetime NULL 
                     ) ENGINE = OLAP UNIQUE KEY(`id`) 
                     COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
-                    BUCKETS AUTO PROPERTIES ( 
+                    BUCKETS 1 PROPERTIES ( 
                         "replication_allocation" = "tag.location.default: 1", 
                         "storage_format" = "V2", 
                         "enable_unique_key_merge_on_write" = "true", 
@@ -95,7 +95,7 @@ suite("test_partial_update_upsert", "p0") {
                 set 'format', 'csv'
                 set 'partial_columns', 'true'
                 set 'columns', 'id,balance,last_access_time'
-                set 'strict_mode', 'true'
+                set 'partial_update_new_key_behavior', 'ERROR'
 
                 file 'upsert.csv'
                 time 10000 // limit inflight 10s
@@ -104,6 +104,7 @@ suite("test_partial_update_upsert", "p0") {
                     assertTrue(exception == null)
                     def json = parseJson(result)
                     assertEquals("fail", json.Status.toLowerCase())
+                    assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR"))
                 }
             }
             sql "sync"

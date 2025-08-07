@@ -86,7 +86,9 @@ private:
     friend class COWHelper<IColumn, Self>;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using value_type =
+            typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
+    using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
     using Container = DecimalPaddedPODArray<value_type>;
 
 private:
@@ -160,15 +162,9 @@ public:
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
-
-    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                     const uint8_t* null_map) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
 
     void deserialize_vec(StringRef* keys, const size_t num_rows) override;
-
-    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
@@ -197,7 +193,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    bool get_bool(size_t n) const override { return bool(data[n]); }
     Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }
@@ -207,10 +202,6 @@ public:
     size_t filter(const IColumn::Filter& filter) override;
 
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
-
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     bool structure_equals(const IColumn& rhs) const override {
         if (auto rhs_concrete = typeid_cast<const ColumnDecimal<T>*>(&rhs))
@@ -235,14 +226,13 @@ public:
                      EqualRange& range, bool last_column) const override;
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                          int direction, std::vector<uint8>& cmp_res,
-                          uint8* __restrict filter) const override;
+                          int direction, std::vector<uint8_t>& cmp_res,
+                          uint8_t* __restrict filter) const override;
 
     UInt32 get_scale() const { return scale; }
 
-    value_type get_scale_multiplier() const;
-    value_type get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
-    value_type get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
+    CppNativeType get_intergral_part(size_t n) const;
+    CppNativeType get_fractional_part(size_t n) const;
 
     void erase(size_t start, size_t length) override {
         if (start >= data.size() || length == 0) {
@@ -254,11 +244,13 @@ public:
                 elements_to_move * sizeof(value_type));
         data.resize(data.size() - length);
     }
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 protected:
     Container data;
     UInt32 scale;
-
     template <typename U>
     void permutation(bool reverse, size_t limit, PaddedPODArray<U>& res) const {
         size_t s = data.size();

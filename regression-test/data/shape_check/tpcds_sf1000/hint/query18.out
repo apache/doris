@@ -42,6 +42,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(catalog_sales cd1 { cd2 { customer customer_address } } date_dim item )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

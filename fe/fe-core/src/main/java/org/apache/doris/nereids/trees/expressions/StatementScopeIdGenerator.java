@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -34,43 +35,28 @@ public class StatementScopeIdGenerator {
     // table is already created, and hence column.exprId may be recreated during applying rules.
     private static StatementContext statementContext = new StatementContext(10000);
 
+    public static IdGenerator<ExprId> getExprIdGenerator() {
+        return getStatementContext().getExprIdGenerator();
+    }
+
     public static ExprId newExprId() {
-        // this branch is for test only
-        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
-            return statementContext.getNextExprId();
-        }
-        return ConnectContext.get().getStatementContext().getNextExprId();
+        return getStatementContext().getNextExprId();
     }
 
     public static ObjectId newObjectId() {
-        // this branch is for test only
-        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
-            return statementContext.getNextObjectId();
-        }
-        return ConnectContext.get().getStatementContext().getNextObjectId();
+        return getStatementContext().getNextObjectId();
     }
 
     public static RelationId newRelationId() {
-        // this branch is for test only
-        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
-            return statementContext.getNextRelationId();
-        }
-        return ConnectContext.get().getStatementContext().getNextRelationId();
+        return getStatementContext().getNextRelationId();
     }
 
     public static CTEId newCTEId() {
-        // this branch is for test only
-        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
-            return statementContext.getNextCTEId();
-        }
-        return ConnectContext.get().getStatementContext().getNextCTEId();
+        return getStatementContext().getNextCTEId();
     }
 
     public static TableId newTableId() {
-        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
-            return statementContext.getNextTableId();
-        }
-        return ConnectContext.get().getStatementContext().getNextTableId();
+        return getStatementContext().getNextTableId();
     }
 
     /**
@@ -81,6 +67,15 @@ public class StatementScopeIdGenerator {
         if (ConnectContext.get() != null) {
             ConnectContext.get().setStatementContext(new StatementContext());
         }
-        statementContext = new StatementContext();
+        statementContext = new StatementContext(10000);
+    }
+
+    /** getStatementContext */
+    public static StatementContext getStatementContext() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || connectContext.getStatementContext() == null) {
+            return statementContext;
+        }
+        return connectContext.getStatementContext();
     }
 }

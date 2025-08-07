@@ -22,11 +22,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -95,23 +93,6 @@ public class OrderByElement {
 
         for (OrderByElement element : src) {
             result.add(element.getExpr());
-        }
-
-        return result;
-    }
-
-    /**
-     * Returns a new list of order-by elements with the order by exprs of src substituted
-     * according to smap. Preserves the other sort params from src.
-     * @throws AnalysisException
-     */
-    public static ArrayList<OrderByElement> substitute(List<OrderByElement> src,
-            ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
-        ArrayList<OrderByElement> result = Lists.newArrayListWithCapacity(src.size());
-
-        for (OrderByElement element : src) {
-            result.add(new OrderByElement(element.getExpr().substitute(smap, analyzer, false),
-                    element.isAsc, element.nullsFirstParam));
         }
 
         return result;

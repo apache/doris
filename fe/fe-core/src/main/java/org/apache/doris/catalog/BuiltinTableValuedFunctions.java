@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
@@ -55,6 +56,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Local.class, "local"),
             tableValued(HudiMeta.class, "hudi_meta"),
             tableValued(IcebergMeta.class, "iceberg_meta"),
+            tableValued(PaimonMeta.class, "paimon_meta"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),

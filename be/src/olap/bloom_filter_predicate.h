@@ -43,6 +43,8 @@ public:
 
     PredicateType type() const override { return PredicateType::BF; }
 
+    using ColumnPredicate::evaluate;
+
     Status evaluate(BitmapIndexIterator* iterators, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         return Status::OK();

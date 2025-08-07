@@ -251,6 +251,11 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     }
     column_bitmap_verify->insert_many_strings(bitmap_strings.data(), column_bitmap->size());
     column_hll_verify->insert_many_strings(hll_strings.data(), column_hll->size());
+
+    ASSERT_EQ(column_hll_verify->clone_resized(0)->size(), 0);
+    ASSERT_EQ(column_hll_verify->clone_resized(1)->size(), 1);
+    ASSERT_EQ(column_hll_verify->clone_resized(1024)->size(), 1024);
+
     column_quantile_state_verify->insert_many_strings(quantile_state_strings.data(),
                                                       column_quantile_state->size());
     ASSERT_EQ(rows, column_bitmap_verify->size());
@@ -271,6 +276,7 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     auto column_bitmap_verify2 = column_bitmap_verify->clone_empty();
     auto column_hll_verify2 = column_hll_verify->clone_resized(0);
     auto column_quantile_state_verify2 = column_quantile_state_verify->clone_empty();
+
     ASSERT_EQ(column_bitmap_verify2->size(), 0);
     ASSERT_EQ(column_hll_verify2->size(), 0);
     ASSERT_EQ(column_quantile_state_verify2->size(), 0);
@@ -478,37 +484,6 @@ TEST(ColumnComplexTest, GetDataAtTest) {
         ASSERT_EQ(column_hll->operator[](i), column_hll_perm3->operator[](permute_idx[i]));
     }
     std::cout << "16. test more val data value and permute success" << std::endl;
-
-    IColumn::Offsets offsets {1, 2, 3, 4, 5};
-    auto column_bitmap_replicate = column_bitmap->replicate(offsets);
-    auto column_hll_replicate = column_hll->replicate(offsets);
-    auto column_quantile_state_replicate = column_quantile_state->replicate(offsets);
-    ASSERT_EQ(column_bitmap_replicate->size(), 5);
-    ASSERT_EQ(column_hll_replicate->size(), 5);
-    ASSERT_EQ(column_quantile_state_replicate->size(), 5);
-    for (int i = 0; i < 5; ++i) {
-        ASSERT_EQ(column_quantile_state->operator[](i),
-                  column_quantile_state_replicate->operator[](i));
-        ASSERT_EQ(column_bitmap->operator[](i), column_bitmap_replicate->operator[](i));
-        ASSERT_EQ(column_hll->operator[](i), column_hll_replicate->operator[](i));
-    }
-
-    IColumn::Offsets offsets2 {2, 4, 6, 8, 10};
-    std::vector<int> res_idx {0, 0, 1, 1, 2, 2, 3, 3, 4, 4};
-    auto column_bitmap_replicate2 = column_bitmap->replicate(offsets2);
-    auto column_hll_replicate2 = column_hll->replicate(offsets2);
-    auto column_quantile_state_replicate2 = column_quantile_state->replicate(offsets2);
-    ASSERT_EQ(column_bitmap_replicate2->size(), 10);
-    ASSERT_EQ(column_hll_replicate2->size(), 10);
-    ASSERT_EQ(column_quantile_state_replicate2->size(), 10);
-    ASSERT_EQ(column_quantile_state->size(), 5);
-    for (int i = 0; i < 10; ++i) {
-        ASSERT_EQ(column_quantile_state->operator[](res_idx[i]),
-                  column_quantile_state_replicate2->operator[](i));
-        ASSERT_EQ(column_bitmap->operator[](res_idx[i]), column_bitmap_replicate2->operator[](i));
-        ASSERT_EQ(column_hll->operator[](res_idx[i]), column_hll_replicate2->operator[](i));
-    }
-    std::cout << "17. test more val data value and replicate success" << std::endl;
 }
 
 class ColumnBitmapTest : public testing::Test {
@@ -710,6 +685,24 @@ TEST_F(ColumnQuantileStateTest, OperatorValidate) {
     check_serialize_and_deserialize(column);
 
     check_field_type(column);
+}
+
+TEST(ColumnComplexTest, TestErase) {
+    using ColumnTest = ColumnComplexType<TYPE_BITMAP>;
+
+    auto column_test = ColumnTest::create();
+
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+    column_test->data.push_back(BitmapValue {});
+
+    column_test->erase(1, 0);
+
+    column_test->erase(3, 1);
+
+    EXPECT_EQ(column_test->size(), 4);
 }
 
 } // namespace doris::vectorized

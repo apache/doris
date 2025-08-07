@@ -60,8 +60,18 @@ public class Count extends NotNullableAggregateFunction
     }
 
     public Count(boolean distinct, Expression arg0, Expression... varArgs) {
-        super("count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs));
+        this(distinct, false, arg0, varArgs);
+    }
+
+    public Count(boolean distinct, boolean isSkew, Expression arg0, Expression... varArgs) {
+        super("count", distinct, isSkew, ExpressionUtils.mergeArguments(arg0, varArgs));
         this.isStar = false;
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Count(boolean isStar, AggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.isStar = isStar;
     }
 
     public boolean isCountStar() {
@@ -105,17 +115,21 @@ public class Count extends NotNullableAggregateFunction
 
     @Override
     public Count withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        if (children.size() == 0) {
+        return withAttribute(distinct, isSkew, children);
+    }
+
+    @Override
+    public Expression withIsSkew(boolean isSkew) {
+        return withAttribute(distinct, isSkew, children);
+    }
+
+    private Count withAttribute(boolean distinct, boolean isSkew, List<Expression> children) {
+        if (children.isEmpty()) {
             if (distinct) {
                 throw new AnalysisException("Can not count distinct empty arguments");
             }
-            return new Count();
-        } else if (children.size() == 1) {
-            return new Count(distinct, children.get(0));
-        } else {
-            return new Count(distinct, children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
         }
+        return new Count(isStar, getFunctionParams(distinct, isSkew, children));
     }
 
     @Override

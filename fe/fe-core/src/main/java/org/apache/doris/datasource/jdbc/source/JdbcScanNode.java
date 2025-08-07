@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.jdbc.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
@@ -33,11 +32,9 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalScanNode;
@@ -46,7 +43,6 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
-import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -56,8 +52,6 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -65,7 +59,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class JdbcScanNode extends ExternalScanNode {
-    private static final Logger LOG = LogManager.getLogger(JdbcScanNode.class);
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
@@ -99,10 +92,6 @@ public class JdbcScanNode extends ExternalScanNode {
         tableName = tbl.getExternalTableName();
     }
 
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-    }
 
     /**
      * Used for Nereids. Should NOT use this function in anywhere else.
@@ -252,14 +241,6 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        // Convert predicates to Jdbc columns and filters.
-        createJdbcColumns();
-        createJdbcFilters();
-        createScanRangeLocations();
-    }
-
-    @Override
     public void finalizeForNereids() throws UserException {
         createJdbcColumns();
         createJdbcFilters();
@@ -269,16 +250,6 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
-    }
-
-    @Override
-    public void computeStats(Analyzer analyzer) throws UserException {
-        super.computeStats(analyzer);
-        // even if current node scan has no data,at least on backend will be assigned when the fragment actually execute
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-
-        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -293,6 +264,7 @@ public class JdbcScanNode extends ExternalScanNode {
             msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
         }
         msg.jdbc_scan_node.setTableType(jdbcType);
+        msg.jdbc_scan_node.setIsTvf(isTableValuedFunction);
         super.toThrift(msg);
     }
 
@@ -305,13 +277,6 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     public int getNumInstances() {
         return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-    }
-
-    @Override
-    public StatsDelta genStatsDelta() throws AnalysisException {
-        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
-                tbl.getId(), -1L);
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {

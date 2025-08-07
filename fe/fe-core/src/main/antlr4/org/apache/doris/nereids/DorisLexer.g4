@@ -20,10 +20,7 @@
 lexer grammar DorisLexer;
 
 @members {
-  /**
-   * When true, parser should throw ParseExcetion for unclosed bracketed comment.
-   */
-  public boolean has_unclosed_bracketed_comment = false;
+  public boolean isNoBackslashEscapes = false;
 
   /**
    * Verify whether current token is a valid decimal token (which contains dot).
@@ -45,16 +42,6 @@ lexer grammar DorisLexer;
     } else {
       return true;
     }
-  }
-
-  /**
-   * This method will be called when the character stream ends and try to find out the
-   * unclosed bracketed comment.
-   * If the method be called, it means the end of the entire character stream match,
-   * and we set the flag and fail later.
-   */
-  public void markUnclosedComment() {
-    has_unclosed_bracketed_comment = true;
   }
 }
 
@@ -89,6 +76,7 @@ ALL: 'ALL';
 ALTER: 'ALTER';
 ANALYZE: 'ANALYZE';
 ANALYZED: 'ANALYZED';
+ANALYZER: 'ANALYZER';
 AND: 'AND';
 ANTI: 'ANTI';
 APPEND: 'APPEND';
@@ -118,6 +106,8 @@ BITOR: 'BITOR';
 BITXOR: 'BITXOR';
 BLOB: 'BLOB';
 BOOLEAN: 'BOOLEAN';
+BOTH: 'BOTH';
+BRANCH: 'BRANCH';
 BRIEF: 'BRIEF';
 BROKER: 'BROKER';
 BUCKETS: 'BUCKETS';
@@ -185,6 +175,7 @@ DATEV2: 'DATEV2';
 DATETIMEV1: 'DATETIMEV1';
 DATEV1: 'DATEV1';
 DAY: 'DAY';
+DAYS: 'DAYS';
 DECIMAL: 'DECIMAL';
 DECIMALV2: 'DECIMALV2';
 DECIMALV3: 'DECIMALV3';
@@ -218,6 +209,7 @@ DYNAMIC: 'DYNAMIC';
 E:'E';
 ELSE: 'ELSE';
 ENABLE: 'ENABLE';
+ENCRYPTION: 'ENCRYPTION';
 ENCRYPTKEY: 'ENCRYPTKEY';
 ENCRYPTKEYS: 'ENCRYPTKEYS';
 END: 'END';
@@ -226,6 +218,7 @@ ENGINE: 'ENGINE';
 ENGINES: 'ENGINES';
 ENTER: 'ENTER';
 ERRORS: 'ERRORS';
+ESCAPE: 'ESCAPE';
 EVENTS: 'EVENTS';
 EVERY: 'EVERY';
 EXCEPT: 'EXCEPT';
@@ -269,6 +262,7 @@ GRAPH: 'GRAPH';
 GROUP: 'GROUP';
 GROUPING: 'GROUPING';
 GROUPS: 'GROUPS';
+GROUP_CONCAT: 'GROUP_CONCAT';
 HASH: 'HASH';
 HASH_MAP: 'HASH_MAP';
 HAVING: 'HAVING';
@@ -280,6 +274,7 @@ HLL_UNION: 'HLL_UNION';
 HOSTNAME: 'HOSTNAME';
 HOTSPOT: 'HOTSPOT';
 HOUR: 'HOUR';
+HOURS:  'HOURS';
 HUB: 'HUB';
 IDENTIFIED: 'IDENTIFIED';
 IF: 'IF';
@@ -323,6 +318,7 @@ LAST: 'LAST';
 LATERAL: 'LATERAL';
 LDAP: 'LDAP';
 LDAP_ADMIN_PASSWORD: 'LDAP_ADMIN_PASSWORD';
+LEADING: 'LEADING';
 LEFT: 'LEFT';
 LESS: 'LESS';
 LEVEL: 'LEVEL';
@@ -344,6 +340,8 @@ MAP: 'MAP';
 MATCH: 'MATCH';
 MATCH_ALL: 'MATCH_ALL';
 MATCH_ANY: 'MATCH_ANY';
+MATCH_NAME: 'MATCH_NAME';
+MATCH_NAME_GLOB: 'MATCH_NAME_GLOB';
 MATCH_PHRASE: 'MATCH_PHRASE';
 MATCH_PHRASE_EDGE: 'MATCH_PHRASE_EDGE';
 MATCH_PHRASE_PREFIX: 'MATCH_PHRASE_PREFIX';
@@ -358,6 +356,7 @@ MIGRATIONS: 'MIGRATIONS';
 MIN: 'MIN';
 MINUS: 'MINUS';
 MINUTE: 'MINUTE';
+MINUTES: 'MINUTES';
 MODIFY: 'MODIFY';
 MONTH: 'MONTH';
 MTMV: 'MTMV';
@@ -453,6 +452,8 @@ RESOURCES: 'RESOURCES';
 RESTORE: 'RESTORE';
 RESTRICTIVE: 'RESTRICTIVE';
 RESUME: 'RESUME';
+RETAIN: 'RETAIN';
+RETENTION: 'RETENTION';
 RETURNS: 'RETURNS';
 REVOKE: 'REVOKE';
 REWRITTEN: 'REWRITTEN';
@@ -462,6 +463,7 @@ ROLE: 'ROLE';
 ROLES: 'ROLES';
 ROLLBACK: 'ROLLBACK';
 ROLLUP: 'ROLLUP';
+ROOT: 'ROOT';
 ROUTINE: 'ROUTINE';
 ROW: 'ROW';
 ROWS: 'ROWS';
@@ -474,6 +476,7 @@ SCHEMAS: 'SCHEMAS';
 SECOND: 'SECOND';
 SELECT: 'SELECT';
 SEMI: 'SEMI';
+SEPARATOR: 'SEPARATOR';
 SERIALIZABLE: 'SERIALIZABLE';
 SESSION: 'SESSION';
 SESSION_USER: 'SESSION_USER';
@@ -486,6 +489,7 @@ SIGNED: 'SIGNED';
 SKEW: 'SKEW';
 SMALLINT: 'SMALLINT';
 SNAPSHOT: 'SNAPSHOT';
+SNAPSHOTS: 'SNAPSHOTS';
 SONAME: 'SONAME';
 SPLIT: 'SPLIT';
 SQL: 'SQL';
@@ -512,6 +516,7 @@ TABLES: 'TABLES';
 TABLESAMPLE: 'TABLESAMPLE';
 TABLET: 'TABLET';
 TABLETS: 'TABLETS';
+TAG: 'TAG';
 TASK: 'TASK';
 TASKS: 'TASKS';
 TEMPORARY: 'TEMPORARY';
@@ -523,6 +528,9 @@ TIME: 'TIME';
 TIMESTAMP: 'TIMESTAMP';
 TINYINT: 'TINYINT';
 TO: 'TO';
+TOKENIZER: 'TOKENIZER';
+TOKEN_FILTER: 'TOKEN_FILTER';
+TRAILING: 'TRAILING';
 TRANSACTION: 'TRANSACTION';
 TRASH: 'TRASH';
 TREE: 'TREE';
@@ -605,10 +613,8 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    : '\'' ('\\'. | '\'\'' | ~('\'' | '\\'))* '\''
-    | '"' ( '\\'. | '""' | ~('"'| '\\') )* '"'
-    | 'R\'' (~'\'')* '\''
-    | 'R"'(~'"')* '"'
+    :  '\'' ( {!isNoBackslashEscapes}? '\\'. | '\'\'' | {!isNoBackslashEscapes}? ~('\'' | '\\') | {isNoBackslashEscapes}? ~('\''))* '\''
+    | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
     ;
 
 LEADING_STRING
@@ -680,7 +686,7 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : COMMENT_START ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(2)
+    : COMMENT_START ( BRACKETED_COMMENT | . )*? '*/' -> channel(2)
     ;
 
 

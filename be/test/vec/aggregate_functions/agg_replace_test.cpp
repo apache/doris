@@ -147,7 +147,7 @@ public:
         add_elements<DataType, nullable>(input_col, input_nums);
         const IColumn* column[1] = {input_col.get()};
         for (int i = 0; i < input_col->size(); i++) {
-            agg_function->add(place, column, i, &_agg_arena_pool);
+            agg_function->add(place, column, i, _agg_arena_pool);
         }
     }
 
@@ -185,7 +185,7 @@ public:
         array_add_elements<DataType, nullable>(input_col, input_nums);
         const IColumn* column[1] = {input_col.get()};
         for (size_t i = 0; i < input_col->size(); ++i) {
-            agg_function->add(place, column, i, &_agg_arena_pool);
+            agg_function->add(place, column, i, _agg_arena_pool);
         }
     }
 

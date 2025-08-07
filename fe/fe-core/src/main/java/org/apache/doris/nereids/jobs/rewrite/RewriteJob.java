@@ -17,7 +17,12 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.errors.QueryPlanningErrors;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.qe.SessionVariable;
+
+import java.util.concurrent.TimeUnit;
 
 /** RewriteJob */
 public interface RewriteJob {
@@ -25,4 +30,15 @@ public interface RewriteJob {
     void execute(JobContext jobContext);
 
     boolean isOnce();
+
+    /** checkTimeout */
+    default void checkTimeout(JobContext jobContext) {
+        CascadesContext context = jobContext.getCascadesContext();
+        SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
+        long elapsedS = context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) / 1000;
+        if (sessionVariable.enableNereidsTimeout && elapsedS > sessionVariable.nereidsTimeoutSecond) {
+            throw QueryPlanningErrors.planTimeoutError(elapsedS, sessionVariable.nereidsTimeoutSecond,
+                    context.getConnectContext().getExecutor().getSummaryProfile());
+        }
+    }
 }

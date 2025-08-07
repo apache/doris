@@ -150,9 +150,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    static_cast<void>(p_reader->open());
-    static_cast<void>(p_reader->init_reader(column_names, missing_column_names, nullptr, {},
-                                            nullptr, nullptr, nullptr, nullptr, nullptr));
+    static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr,
+                                            nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -199,6 +198,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     scan_range.start_offset = 0;
     scan_range.format_type = TFileFormatType::FORMAT_PARQUET;
     scan_range.__isset.format_type = true;
+    scan_range.table_format_params.table_format_type = "hive";
+    scan_range.__isset.table_format_params = true;
     std::unordered_map<std::string, int> colname_to_slot_id;
     for (auto slot : tuple_desc->slots()) {
         TFileScanSlotInfo slot_info;
@@ -213,15 +214,15 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
 
     auto vf = FileScanner::create_unique(&runtime_state, runtime_profile.get(), &scan_params,
                                          &colname_to_slot_id, tuple_desc);
-    EXPECT_TRUE(vf->prepare_for_read_one_line(scan_range).ok());
+    EXPECT_TRUE(vf->prepare_for_read_lines(scan_range).ok());
     ExternalFileMappingInfo external_info(0, scan_range, false);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
 
     auto read_lines_tmp2 = read_lines;
     while (!read_lines_tmp2.empty()) {
-        auto st = vf->read_one_line_from_range(scan_range, read_lines_tmp2.front(), block.get(),
-                                               external_info, &init_reader_ms, &get_block_ms);
+        auto st = vf->read_lines_from_range(scan_range, {read_lines_tmp2.front()}, block.get(),
+                                            external_info, &init_reader_ms, &get_block_ms);
         std::cout << st.to_string() << "\n";
         EXPECT_TRUE(st.ok());
 

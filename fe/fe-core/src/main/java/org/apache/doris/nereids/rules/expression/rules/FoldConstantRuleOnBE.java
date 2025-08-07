@@ -39,7 +39,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -222,7 +225,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     private static boolean shouldSkipFold(Expression expr) {
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
-                || expr.getDataType().isVariantType() || expr.getDataType().isTimeLikeType()
+                || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
                 || expr.getDataType().isIPv6Type()) {
             return true;
         }
@@ -232,8 +235,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
-        // Skip from_base64 function to avoid incorrect binary data processing during constant folding
-        if (expr instanceof FromBase64) {
+        // Skip those function to avoid incorrect binary data processing during constant folding
+        if (expr instanceof FromBase64 || expr instanceof Ipv6StringToNumOrNull
+                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof LLMFunction) {
             return true;
         }
 

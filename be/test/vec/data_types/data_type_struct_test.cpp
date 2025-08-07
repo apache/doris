@@ -24,12 +24,15 @@
 
 #include <iostream>
 
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/orc/orc_memory_stream_test.h"
 #include "vec/function/function_test_util.h"
 
 /* similar to DataTypeArrayTest
@@ -414,6 +417,102 @@ TEST_F(DataTypeStructTest, SerdeNestedTypeArrowTest) {
     auto assert_block = std::make_shared<Block>(block->clone_empty());
     CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+TEST_F(DataTypeStructTest, writeColumnToOrc) {
+    DataTypePtr dt1 = std::make_shared<DataTypeInt64>();
+    DataTypePtr dt2 = std::make_shared<DataTypeInt64>();
+    DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {dt1, dt2});
+    auto serde = st->get_serde(1);
+
+    Tuple test_data;
+    test_data.push_back(Field::create_field<TYPE_BIGINT>(100));
+    test_data.push_back(Field::create_field<TYPE_BIGINT>(200));
+
+    using namespace orc;
+    auto type = std::unique_ptr<Type>(Type::buildTypeFromString("struct<col1:int,col2:int>"));
+    size_t rowCount = 1;
+
+    MemoryOutputStream memStream(100 * 1024 * 1024);
+    WriterOptions options;
+    options.setMemoryPool(getDefaultPool());
+    auto writer = createWriter(*type, &memStream, options);
+    auto batch = writer->createRowBatch(rowCount);
+    auto& structBatch = dynamic_cast<StructVectorBatch&>(*batch);
+    structBatch.numElements = rowCount;
+    auto& longBatch1 = dynamic_cast<LongVectorBatch&>(*structBatch.fields[0]);
+    auto& longBatch2 = dynamic_cast<LongVectorBatch&>(*structBatch.fields[1]);
+    longBatch1.numElements = rowCount;
+    longBatch2.numElements = rowCount;
+
+    MutableColumnPtr struct_column = st->create_column();
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(test_data));
+
+    vectorized::Arena arena;
+
+    Status status =
+            serde->write_column_to_orc("UTC", *struct_column, nullptr, &structBatch, 0, 1, arena);
+
+    EXPECT_EQ(status, Status::OK()) << "Failed to write column to orc: " << status;
+    EXPECT_EQ(structBatch.numElements, 1);
+    EXPECT_EQ(longBatch1.data[0], 100);
+    EXPECT_EQ(longBatch2.data[0], 200);
+}
+
+TEST_F(DataTypeStructTest, formString) {
+    DataTypePtr dt1 = std::make_shared<DataTypeInt32>();
+    DataTypePtr dt2 = std::make_shared<DataTypeString>();
+    DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {dt1, dt2});
+    Tuple tt1;
+    tt1.push_back(Field::create_field<TYPE_INT>(100));
+    tt1.push_back(Field::create_field<TYPE_STRING>("asd"));
+
+    MutableColumnPtr struct_column = st->create_column();
+    MutableColumnPtr res_column = st->create_column();
+    struct_column->reserve(1);
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(tt1));
+
+    auto res_to_string = st->to_string(*struct_column, 0);
+    std::cout << "res_to_string: " << res_to_string << std::endl
+              << "expect: {100, asd}" << std::endl;
+    EXPECT_EQ(res_to_string, "{100, asd}");
+    ReadBuffer buffer(res_to_string.data(), res_to_string.size());
+    auto status = st->from_string(buffer, res_column.get());
+    EXPECT_EQ(status, Status::OK()) << "Failed to from_string: " << status;
+    EXPECT_EQ(res_column->size(), 1) << "Failed to from_string, size is not 1";
+    EXPECT_EQ(struct_column->operator[](0), res_column->operator[](0))
+            << "Failed to from_string, data is not equal";
+
+    vectorized::ColumnWithTypeAndName type_and_name1(struct_column->get_ptr(), st, "col_asd1");
+    vectorized::ColumnWithTypeAndName type_and_name2(res_column->get_ptr(), st, "col_asd2");
+    Block block;
+    block.insert(type_and_name1);
+    block.insert(type_and_name2);
+    std::cout << "block: " << block.dump_data() << std::endl;
+}
+
+TEST_F(DataTypeStructTest, insertColumnLastValueMultipleTimes) {
+    DataTypePtr dt1 = std::make_shared<DataTypeInt32>();
+    DataTypePtr dt2 = std::make_shared<DataTypeString>();
+    DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {dt1, dt2});
+    Tuple tt1;
+    tt1.push_back(Field::create_field<TYPE_INT>(100));
+    tt1.push_back(Field::create_field<TYPE_STRING>("asd"));
+
+    MutableColumnPtr struct_column = st->create_column();
+    struct_column->reserve(1);
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(tt1));
+    auto serde = st->get_serde(1);
+    serde->insert_column_last_value_multiple_times(*struct_column, 1);
+
+    EXPECT_EQ(struct_column->size(), 2) << "Failed to from_string, size is not 1";
+    EXPECT_EQ(struct_column->operator[](0), struct_column->operator[](1))
+            << "Failed to insert_column_last_value_multiple_times, data is not equal";
+
+    vectorized::ColumnWithTypeAndName type_and_name1(struct_column->get_ptr(), st, "col_asd1");
+    Block block;
+    block.insert(type_and_name1);
+    std::cout << "block: " << block.dump_data() << std::endl;
 }
 
 } // namespace doris::vectorized

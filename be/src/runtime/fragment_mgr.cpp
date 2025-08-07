@@ -93,6 +93,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
@@ -135,7 +136,7 @@ static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
     TFetchRunningQueriesRequest rpc_request;
 
     Status client_status;
-    const int32 timeout_ms = 3 * 1000;
+    const int32_t timeout_ms = 3 * 1000;
     FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(),
                                          fe_info.info.coordinator_address, timeout_ms,
                                          &client_status);
@@ -440,7 +441,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         params.__isset.fragment_instance_reports = true;
         TFragmentInstanceReport t;
         t.__set_fragment_instance_id(req.runtime_state->fragment_instance_id());
-        t.__set_num_finished_range(req.runtime_state->num_finished_range());
+        t.__set_num_finished_range(cast_set<int>(req.runtime_state->num_finished_range()));
         t.__set_loaded_rows(req.runtime_state->num_rows_load_total());
         t.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         params.fragment_instance_reports.push_back(t);
@@ -455,7 +456,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.__isset.fragment_instance_reports = true;
                 TFragmentInstanceReport t;
                 t.__set_fragment_instance_id(rs->fragment_instance_id());
-                t.__set_num_finished_range(rs->num_finished_range());
+                t.__set_num_finished_range(cast_set<int>(rs->num_finished_range()));
                 t.__set_loaded_rows(rs->num_rows_load_total());
                 t.__set_loaded_bytes(rs->num_bytes_load_total());
                 params.fragment_instance_reports.push_back(t);
@@ -654,9 +655,9 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 }
 
 void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
-    int64 now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
     g_fragment_executing_count << -1;
     g_fragment_last_active_time.set_value(now);
 
@@ -739,7 +740,9 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                             query_ctx->set_rsc_info = true;
                         }
 
-                        _set_scan_concurrency(params, query_ctx.get());
+                        if (params.__isset.llm_resources) {
+                            query_ctx->set_llm_resources(params.llm_resources);
+                        }
 
                         RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
 
@@ -792,7 +795,7 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                                     std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
                                     -> Status {
             for (auto& it : map) {
-                auto elapsed = it.second->elapsed_time() / 1000000000.0;
+                auto elapsed = it.second->elapsed_time() / 1000000000;
                 if (elapsed < duration) {
                     // Only display tasks which has been running for more than {duration} seconds.
                     continue;
@@ -858,9 +861,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     {
-        int64 now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
+        int64_t now = duration_cast<std::chrono::milliseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
         g_fragment_executing_count << 1;
         g_fragment_last_active_time.set_value(now);
 
@@ -882,18 +885,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     RETURN_IF_ERROR(context->submit());
     return Status::OK();
-}
-
-template <typename Param>
-void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query_ctx) {
-#ifndef BE_TEST
-    // If the token is set, the scan task will use limited_scan_pool in scanner scheduler.
-    // Otherwise, the scan task will use local/remote scan pool in scanner scheduler
-    if (params.query_options.__isset.resource_limit &&
-        params.query_options.resource_limit.__isset.cpu_limit) {
-        query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
-    }
-#endif
 }
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
@@ -1381,5 +1372,16 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
 
     return Status::OK();
 }
+
+Status FragmentMgr::get_query_statistics(const TUniqueId& query_id, TQueryStatistics* query_stats) {
+    if (query_stats == nullptr) {
+        return Status::InvalidArgument("query_stats is nullptr");
+    }
+
+    return ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_query_statistics(
+            print_id(query_id), query_stats);
+}
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

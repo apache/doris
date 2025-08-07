@@ -22,7 +22,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
@@ -164,6 +163,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public TQueryCacheParam queryCacheParam;
     private int numBackends = 0;
+    private boolean forceSingleInstance = false;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -300,14 +300,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 return;
             }
             Preconditions.checkState(sink == null);
-            QueryStmt queryStmt = stmtBase instanceof QueryStmt ? (QueryStmt) stmtBase : null;
-            if (queryStmt != null && queryStmt.hasOutFileClause()) {
-                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause(), queryStmt.getColLabels());
-            } else {
-                // add ResultSink
-                // we're streaming to an result sink
-                sink = new ResultSink(planRoot.getId(), resultSinkType);
-            }
+            sink = new ResultSink(planRoot.getId(), resultSinkType);
         }
     }
 
@@ -320,6 +313,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public int getParallelExecNum() {
+        if (forceSingleInstance) {
+            return 1;
+        }
         return parallelExecNum;
     }
 
@@ -537,5 +533,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean hasSerialScanNode() {
         return planRoot.hasSerialScanChildren();
+    }
+
+    public void setForceSingleInstance() {
+        this.forceSingleInstance = true;
     }
 }

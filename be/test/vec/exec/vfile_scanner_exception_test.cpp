@@ -299,7 +299,7 @@ TEST_F(VfileScannerExceptionTest, failure_case) {
     auto st = scanner->get_block(&_runtime_state, block.get(), &eof);
     ASSERT_FALSE(st.ok());
     auto msg = st.to_string();
-    auto pos = msg.find("Failed to create reader for");
+    auto pos = msg.find("Not supported create reader");
     std::cout << "msg = " << msg << std::endl;
     ASSERT_TRUE(pos != msg.npos);
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");

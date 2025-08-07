@@ -286,6 +286,20 @@
 8	chengdu	2345678
 9	xian	2345679
 
+-- !json_compressed --
+1	beijing	2345671
+10	hefei	23456710
+11	\N	23456711
+12	hefei	\N
+2	shanghai	2345672
+3	guangzhou	2345673
+4	shenzhen	2345674
+5	hangzhou	2345675
+6	nanjing	2345676
+7	wuhan	2345677
+8	chengdu	2345678
+9	xian	2345679
+
 -- !json_limit1 --
 1	beijing	2345671
 10	hefei	23456710

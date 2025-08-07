@@ -303,8 +303,8 @@ struct WorkloadGroupInfo {
     const int min_remote_scan_thread_num = 0;
     const int memory_low_watermark = 0;
     const int memory_high_watermark = 0;
-    const int read_bytes_per_second = -1;
-    const int remote_read_bytes_per_second = -1;
+    const int64_t read_bytes_per_second = -1;
+    const int64_t remote_read_bytes_per_second = -1;
     const int total_query_slot_count = 0;
     const TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::NONE;
     const int write_buffer_ratio = 0;

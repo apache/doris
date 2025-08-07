@@ -78,7 +78,8 @@ public class MergeProjectPostProcessTest {
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> DataTrait.EMPTY_TRAIT);
         PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1, qualifier, 0L,
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(), ImmutableList.of(),
-                Optional.empty(), t1Properties, Optional.empty(), ImmutableList.of());
+                Optional.empty(), t1Properties, Optional.empty(), ImmutableList.of(),
+                ImmutableList.of());
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);

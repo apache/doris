@@ -46,12 +46,26 @@ message EncryptionKeyInfoPB {
     }
     repeated Item items = 1;
 }
+
 message RamUserPB {
     optional string user_id = 1;
     optional string ak = 2;
     optional string sk = 3;
     optional string external_id = 4;
     optional EncryptionInfoPB encryption_info = 6;
+}
+
+enum MultiVersionStatus {
+    MULTI_VERSION_DISABLED = 0;     // write/read single version
+    MULTI_VERSION_WRITE_ONLY = 1;   // write both single/multi version, but read single version
+    MULTI_VERSION_READ_WRITE = 2;   // write both single/multi version, but read multi version
+    MULTI_VERSION_ENABLED = 3;      // write/read multi version
+}
+
+enum SnapshotSwitchStatus {
+    SNAPSHOT_SWITCH_DISABLED = 0; // This instance is not ready to enable the snapshot.
+    SNAPSHOT_SWITCH_OFF = 1;
+    SNAPSHOT_SWITCH_ON = 2;
 }
 
 message InstanceInfoPB {
@@ -79,6 +93,21 @@ message InstanceInfoPB {
     optional string default_storage_vault_id = 102;
     optional string default_storage_vault_name = 103;
     optional bool enable_storage_vault = 104;
+
+    // For snapshot
+    optional MultiVersionStatus multi_version_status = 110;
+    optional SnapshotSwitchStatus snapshot_switch_status = 111;
+    optional string source_instance_id = 112;   // The instance cloned from.
+    optional string source_snapshot_id = 113;   // The snapshot cloned from.
+
+    // Inherited from which instance (only used during rollback, the earliest instance id).
+    optional string original_instance_id = 114;
+    optional string succeed_instance_id = 115;  // The last heir (only used during rollback).
+    optional bool ready_only = 116;             // A read only instance.
+
+    // Snapshot properties.
+    optional int64 max_reserved_snapshot = 117;
+    optional int64 snapshot_interval_seconds = 118;
 }
 
 message StagePB {
@@ -160,6 +189,8 @@ message NodeInfoPB {
     optional bool is_smooth_upgrade = 12;
     // fqdn
     optional string host = 13;
+    optional string public_endpoint = 14;
+    optional string private_endpoint = 15;
 }
 
 enum NodeStatusPB {
@@ -208,7 +239,7 @@ message ObjectStoreInfoPB {
     optional bool use_path_style = 16;
 
     optional CredProviderTypePB cred_provider_type = 17;
-    optional string role_arn = 18;  // aws assumed role's arn 
+    optional string role_arn = 18;  // aws assumed role's arn
     optional string external_id = 19;  // aws assumed role's external_id if configure
 }
 
@@ -410,6 +441,7 @@ message TxnInfoPB {
     // for transaction load, used for recycler
     repeated int64 sub_txn_ids = 18;
     // TODO: There are more fields TBD
+    optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
 }
 
 // For check txn conflict and txn timeout
@@ -443,6 +475,7 @@ message RecycleIndexPB {
     optional int64 creation_time = 2;
     optional int64 expiration = 3; // expiration timestamp
     optional State state = 4;
+    optional int64 db_id = 5;
 }
 
 message RecyclePartitionPB {
@@ -481,6 +514,23 @@ message RecycleStagePB {
     optional StagePB stage = 3;
 }
 
+message RestoreJobCloudPB {
+    enum State {
+        UNKNOWN = 0;
+        PREPARED = 1;
+        DROPPED = 2;
+    }
+    optional int64 tablet_id = 1;
+    optional int64 creation_time = 2;
+    optional int64 expiration = 3; // expiration timestamp
+    optional doris.TabletMetaCloudPB tablet_meta = 4;
+    optional State state = 5;
+    optional int64 total_rowset_num = 6;
+    optional int64 total_row_num = 7;
+    optional int64 total_segment_num = 8;
+    optional int64 total_disk_size = 9;
+}
+
 message JobRecyclePB {
     enum Status {
         IDLE = 0;
@@ -501,6 +551,16 @@ message TabletIndexPB {
     optional int64 index_id = 3;
     optional int64 partition_id = 4;
     optional int64 tablet_id = 5;
+}
+
+message PartitionIndexPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+}
+
+message IndexIndexPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
 }
 
 message TabletMetaInfoPB { // For update tablet meta
@@ -591,6 +651,130 @@ message TabletJobInfoPB {
     optional TabletSchemaChangeJobPB schema_change = 5;
 }
 
+message CompactionLogPB {
+    optional int64 tablet_id = 1;
+    optional int64 start_version = 2;
+    optional int64 end_version = 3; // included, [start, end]
+    repeated RecycleRowsetPB recycle_rowsets = 4;
+}
+
+message CommitTxnLogPB {
+    repeated int64 table_ids = 1;
+    map<int64, int64> partition_version_map = 2;
+    map<int64, int64> tablet_to_partition_map = 3;
+
+    // for recycle txn key
+    optional int64 txn_id = 4;
+    optional RecycleTxnPB recycle_txn = 5;
+    optional int64 db_id = 6;
+}
+
+message SchemaChangeLogPB {
+    optional int64 old_tablet_id = 1;
+    optional int64 new_tablet_id = 2;
+    optional int64 alter_version = 3;
+    repeated RecycleRowsetPB recycle_rowsets = 4;
+}
+
+message CommitPartitionLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+}
+
+message DropPartitionLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+    optional int64 expiration = 5; // expiration timestamp
+    optional bool update_table_version = 6;
+}
+
+message CommitIndexLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    optional bool update_table_version = 4;
+}
+
+message DropIndexLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    optional int64 expiration = 4; // expiration timestamp
+}
+
+message UpdateTabletLogPB {
+    repeated int64 tablet_ids = 1;
+}
+
+message UpdateDeleteBitmapLogPB {
+    // TODO
+}
+
+// The operation log records which data needs to be recycled.
+// If the log is not referenced by any snapshot, the operation log will be recycled.
+message OperationLogPB {
+    optional bytes min_timestamp = 1;
+
+    optional CommitTxnLogPB commit_txn = 2;
+    optional CompactionLogPB compaction = 3;
+    optional SchemaChangeLogPB schema_change = 4;
+    optional DropPartitionLogPB drop_partition = 5;
+    optional DropIndexLogPB drop_index = 6;
+    optional UpdateTabletLogPB update_tablet = 7;
+    optional UpdateDeleteBitmapLogPB update_delete_bitmap = 8;
+    optional CommitPartitionLogPB commit_partition = 9;
+    optional CommitIndexLogPB commit_index = 10;
+}
+
+enum SnapshotType {
+    // A snapshot references the metadata saved in the TxnKv.
+    SNAPSHOT_REFERENCE = 0;
+}
+
+enum SnapshotStatus {
+    // This snapshot is being prepared.
+    SNAPSHOT_PREPARE = 0;
+    // This snapshot is ready for serving.
+    SNAPSHOT_NORMAL = 1;
+    // This snapshot was aborted due to an error.
+    SNAPSHOT_ABORTED = 2;
+}
+
+// A cluster snapshot.
+message SnapshotPB {
+    optional SnapshotStatus status = 1;
+    optional SnapshotType type = 2;
+
+    // The image dir in the object store. The FE will upload the FE image to the directory.
+    optional string image_url = 3;
+    // The last journal id of the image.
+    optional int64 last_journal_id = 4;
+
+    optional int64 create_at = 5;
+    optional int64 finish_at = 6;
+
+    // The timeout for making snapshots. After the timeout, the snapshot will be marked as aborted.
+    optional int64 timeout_seconds = 7;
+    // The instance id to which snapshot belongs.
+    optional string instance_id = 8;
+    // When creating a snapshot, the source snapshot id of the instance (if any)
+    optional string snapshot_ancestor = 9;
+    // Whether the snapshot was created automatically or manually
+    optional bool auto = 10;
+    // Snapshot survival time (for manually created snapshots)
+    optional int64 ttl_seconds = 11;
+    // The abort reason.
+    optional string reason = 12;
+    // The label of the snapshot, which is not guaranteed to be unique.
+    optional string label = 13;
+
+    // TODO: add the referenced resources
+}
+
 //==============================================================================
 // Stats
 //==============================================================================
@@ -609,7 +793,7 @@ message TabletStatsPB {
     optional int64 full_compaction_cnt = 12;
     optional int64 last_full_compaction_time_ms = 13;
     optional int64 index_size = 14;
-    optional int64 segment_size = 15; 
+    optional int64 segment_size = 15;
 }
 
 message ObjectFilePB {
@@ -652,6 +836,14 @@ message ServiceRegistryPB {
     repeated Item items = 1;
 }
 
+// A special message, to test the message splitting logic.
+message SplitSingleMessagePB {
+    optional KeyBoundsPB segment_key_bounds = 1;
+    optional int64 other_fields = 2;
+
+    optional SplitSchemaPB __split_schema = 3; // A special field, DO NOT change it.
+}
+
 //==============================================================================
 // Rpc structures
 //==============================================================================
@@ -659,6 +851,7 @@ message ServiceRegistryPB {
 message BeginTxnRequest {
     optional string cloud_unique_id = 1; // For auth
     optional TxnInfoPB txn_info = 2;
+    optional string request_ip = 3;
 }
 
 message BeginTxnResponse {
@@ -675,6 +868,7 @@ message PrecommitTxnRequest {
     optional int64 txn_id = 3;
     optional TxnCommitAttachmentPB commit_attachment = 4;
     optional int64 precommit_timeout_ms = 5;
+    optional string request_ip = 6;
 }
 
 message PrecommitTxnResponse {
@@ -696,6 +890,7 @@ message CommitTxnRequest {
     optional bool is_txn_load = 9;
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
+    optional string request_ip = 12;
 }
 
 message SubTxnInfo {
@@ -729,6 +924,7 @@ message AbortTxnRequest {
     optional string label = 4;
     optional string reason = 5;
     optional TxnCommitAttachmentPB commit_attachment = 6;
+    optional string request_ip = 7;
 }
 
 message AbortTxnResponse {
@@ -741,6 +937,7 @@ message GetTxnRequest {
     optional int64 db_id = 2;
     optional int64 txn_id = 3;
     optional string label = 4;
+    optional string request_ip = 5;
 }
 
 message GetTxnResponse {
@@ -753,6 +950,7 @@ message GetTxnIdRequest {
     optional int64 db_id = 2;
     optional string label = 3;
     repeated TxnStatusPB txn_status = 4;
+    optional string request_ip = 5;
 }
 
 message GetTxnIdResponse {
@@ -770,6 +968,7 @@ message BeginSubTxnRequest {
     repeated int64 table_ids = 5;
     // a random label used to generate a sub_txn_id
     optional string label = 6;
+    optional string request_ip = 7;
 }
 
 message BeginSubTxnResponse {
@@ -788,6 +987,7 @@ message AbortSubTxnRequest {
     optional int64 db_id = 5;
     // set table_ids in txn_info
     repeated int64 table_ids = 6;
+    optional string request_ip = 7;
 }
 
 message AbortSubTxnResponse {
@@ -797,6 +997,7 @@ message AbortSubTxnResponse {
 
 message GetCurrentMaxTxnRequest {
     optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
 }
 
 message GetCurrentMaxTxnResponse {
@@ -809,6 +1010,7 @@ message AbortTxnWithCoordinatorRequest {
     optional string ip = 2;
     optional int64 id = 3;
     optional int64 start_time = 4;
+    optional string request_ip = 5;
 }
 
 message AbortTxnWithCoordinatorResponse {
@@ -821,18 +1023,20 @@ message CheckTxnConflictRequest {
     optional int64 end_txn_id = 3;
     repeated int64 table_ids = 4;
     optional bool ignore_timeout_txn = 5;
+    optional string request_ip = 6;
 }
 
 message CheckTxnConflictResponse {
     optional MetaServiceResponseStatus status = 1;
     optional bool finished = 2;
-    repeated TxnInfoPB conflict_txns = 3; 
+    repeated TxnInfoPB conflict_txns = 3;
 }
 
 message CleanTxnLabelRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     repeated string labels = 3;
+    optional string request_ip = 4;
 }
 
 message CleanTxnLabelResponse {
@@ -853,6 +1057,8 @@ message GetVersionRequest {
 
     // True if get table version
     optional bool is_table_version = 9;
+
+    optional string request_ip = 10;
 };
 
 message GetVersionResponse {
@@ -870,6 +1076,7 @@ message GetVersionResponse {
 
 message GetObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
 };
 
 message AlterObjStoreInfoRequest {
@@ -896,6 +1103,7 @@ message AlterObjStoreInfoRequest {
     optional Operation op = 3;
     optional StorageVaultPB vault = 4;
     optional bool set_as_default_storage_vault = 5;
+    optional string request_ip = 6;
 }
 
 message AlterObjStoreInfoResponse {
@@ -908,6 +1116,7 @@ message UpdateAkSkRequest {
     optional string instance_id = 1;
     repeated RamUserPB internal_bucket_user = 2;
     optional RamUserPB ram_user = 3;
+    optional string request_ip = 4;
 }
 
 message UpdateAkSkResponse {
@@ -928,6 +1137,7 @@ message CreateTabletsRequest {
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
     optional string storage_vault_name = 3;
     optional int64 db_id = 4;
+    optional string request_ip = 5;
 }
 
 message CreateTabletsResponse {
@@ -939,6 +1149,7 @@ message CreateTabletsResponse {
 message UpdateTabletRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated TabletMetaInfoPB tablet_meta_infos = 2;
+    optional string request_ip = 3;
 }
 
 message UpdateTabletResponse {
@@ -949,6 +1160,7 @@ message UpdateTabletSchemaRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
     optional doris.TabletSchemaCloudPB tablet_schema = 3;
+    optional string request_ip = 4;
 }
 
 message UpdateTabletSchemaResponse {
@@ -958,12 +1170,14 @@ message UpdateTabletSchemaResponse {
 message DropTabletRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
+    optional string request_ip = 3;
     // TODO: There are more fields TBD
 }
 
 message GetTabletRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
+    optional string request_ip = 3;
     // TODO: There are more fields TBD
 }
 
@@ -978,6 +1192,7 @@ message CreateRowsetRequest {
     optional bool temporary = 3;
     optional int64 txn_id = 4;
     optional string tablet_job_id = 5;
+    optional string request_ip = 6;
 }
 
 message CreateRowsetResponse {
@@ -1001,6 +1216,7 @@ message GetRowsetRequest {
     // returned schema format on rowset schema, used in variant type directly.
     // for compability reason we use FILL_WITH_DICT as default
     optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
+    optional string request_ip = 9;
 }
 
 message GetRowsetResponse {
@@ -1008,12 +1224,13 @@ message GetRowsetResponse {
     repeated doris.RowsetMetaCloudPB rowset_meta = 2;
     optional TabletStatsPB stats = 3;
     // Return dict value if SchemaOp is RETURN_DICT
-    optional SchemaCloudDictionary schema_dict = 4; 
+    optional SchemaCloudDictionary schema_dict = 4;
 }
 
 message GetSchemaDictRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 index_id = 2;
+    optional string request_ip = 3;
 }
 
 message GetSchemaDictResponse {
@@ -1028,6 +1245,7 @@ message IndexRequest {
     optional int64 expiration = 4;
     optional int64 db_id = 5;
     optional bool is_new_table = 6; // For table version
+    optional string request_ip = 7;
 }
 
 message IndexResponse {
@@ -1042,9 +1260,23 @@ message PartitionRequest {
     optional int64 expiration = 5;
     optional int64 db_id = 6;
     optional bool need_update_table_version = 7;
+    optional string request_ip = 8;
+    repeated int64 partition_versions = 9;
 }
 
 message PartitionResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message RestoreJobRequest {
+    optional string cloud_unique_id = 1;
+    optional int64 tablet_id = 2;
+    optional doris.TabletMetaCloudPB tablet_meta = 3;
+    optional int64 expiration = 4;
+    optional string request_ip = 5;
+}
+
+message RestoreJobResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -1067,6 +1299,7 @@ message CreateInstanceRequest {
     optional RamUserPB ram_user = 5;
     optional bool sse_enabled = 6;
     optional StorageVaultPB vault = 7;
+    optional string request_ip = 8;
 }
 
 message CreateInstanceResponse {
@@ -1075,18 +1308,26 @@ message CreateInstanceResponse {
 
 message AlterInstanceRequest {
     enum Operation {
-        UNKNOWN        = 0;
-        DROP           = 1;
-        REFRESH        = 2;
-        RENAME         = 3;
-        ENABLE_SSE     = 4;
-        DISABLE_SSE    = 5;
-        SET_OVERDUE    = 6;
-        SET_NORMAL     = 7;
+        UNKNOWN                     = 0;
+        DROP                        = 1;
+        REFRESH                     = 2;
+        RENAME                      = 3;
+        ENABLE_SSE                  = 4;
+        DISABLE_SSE                 = 5;
+        SET_OVERDUE                 = 6;
+        SET_NORMAL                  = 7;
+        SNAPSHOT_SWITCH_ON          = 8;
+        SNAPSHOT_SWITCH_OFF         = 9;
+        WRITE_MULTI_VERSION_KEYS    = 10;
+        READ_MULTI_VERSION_KEYS     = 11;
+        DISABLE_SINGLE_VERSION_KEYS = 12;
+        SET_SNAPSHOT_PROPERTY       = 13;
     }
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
+    optional string value = 4;
+    optional string request_ip = 5;
 }
 
 message AlterInstanceResponse {
@@ -1096,6 +1337,7 @@ message AlterInstanceResponse {
 message GetInstanceRequest {
     optional string instance_id = 1;
     optional string cloud_unique_id = 2;
+    optional string request_ip = 3;
 }
 
 message GetInstanceResponse {
@@ -1123,6 +1365,7 @@ message AlterClusterRequest {
     optional Operation op = 4;
     // for SQL mode rename cluster, rename to cluster name eq instance empty cluster name, need drop empty cluster
     optional bool replace_if_existing_empty_target_cluster = 5;
+    optional string request_ip = 6;
 }
 
 message AlterClusterResponse {
@@ -1135,12 +1378,14 @@ message GetClusterRequest {
     optional string cluster_id = 3;
     optional string cluster_name = 4;
     optional string mysql_user_name = 5;
+    optional string request_ip = 6;
 }
 
 message GetClusterStatusRequest {
     repeated string instance_ids = 1; // Redundant field
     repeated string cloud_unique_ids = 2;
     optional ClusterStatus status = 3;
+    optional string request_ip = 4;
 }
 
 message GetClusterStatusResponse {
@@ -1161,6 +1406,7 @@ message GetClusterResponse {
 message GetTabletStatsRequest {
     optional string cloud_unique_id = 1;
     repeated TabletIndexPB tablet_idx = 2;
+    optional string request_ip = 3;
 }
 
 message GetTabletStatsResponse {
@@ -1171,6 +1417,7 @@ message GetTabletStatsResponse {
 message CreateStageRequest {
     optional string cloud_unique_id = 1;
     optional StagePB stage = 2;
+    optional string request_ip = 3;
 }
 
 message CreateStageResponse {
@@ -1183,6 +1430,7 @@ message GetStageRequest {
     optional string mysql_user_name = 3;
     optional StagePB.StageType type = 4;
     optional string mysql_user_id = 5;
+    optional string request_ip = 6;
 }
 
 message GetStageResponse {
@@ -1197,6 +1445,7 @@ message DropStageRequest {
     optional StagePB.StageType type = 4;
     optional string mysql_user_id = 5;
     optional string reason = 6;
+    optional string request_ip = 7;
 }
 
 message DropStageResponse {
@@ -1205,6 +1454,7 @@ message DropStageResponse {
 
 message GetIamRequest {
     optional string cloud_unique_id = 1;
+    optional string request_ip = 2;
 }
 
 message GetIamResponse {
@@ -1217,6 +1467,7 @@ message AlterIamRequest {
     optional string account_id = 1;
     optional string ak = 2;
     optional string sk = 3;
+    optional string request_ip = 4;
 }
 
 message AlterIamResponse {
@@ -1226,6 +1477,7 @@ message AlterIamResponse {
 message AlterRamUserRequest {
     optional string instance_id = 1;
     optional RamUserPB ram_user = 2;
+    optional string request_ip = 3;
 }
 
 message AlterRamUserResponse {
@@ -1235,6 +1487,7 @@ message AlterRamUserResponse {
 message StartTabletJobRequest {
     optional string cloud_unique_id = 1; // For auth
     optional TabletJobInfoPB job = 2;
+    optional string request_ip = 3;
 }
 
 message StartTabletJobResponse {
@@ -1253,6 +1506,7 @@ message FinishTabletJobRequest {
     optional string cloud_unique_id = 1; // For auth
     optional Action action = 2;
     optional TabletJobInfoPB job = 3;
+    optional string request_ip = 4;
 }
 
 message FinishTabletJobResponse {
@@ -1274,6 +1528,7 @@ message BeginCopyRequest {
     optional int64 file_num_limit = 10;
     optional int64 file_size_limit = 11;
     optional int64 file_meta_size_limit = 12;
+    optional string request_ip = 13;
 }
 
 message BeginCopyResponse {
@@ -1296,6 +1551,7 @@ message FinishCopyRequest {
     optional int32 group_id = 6;
     optional Action action = 7;
     optional int64 finish_time_ms = 8;
+    optional string request_ip = 9;
 }
 
 message FinishCopyResponse {
@@ -1308,6 +1564,7 @@ message GetCopyJobRequest {
     optional int64 table_id = 3;
     optional string copy_id = 4;
     optional int32 group_id = 5;
+    optional string request_ip = 6;
 }
 
 message GetCopyJobResponse {
@@ -1319,6 +1576,7 @@ message GetCopyFilesRequest {
     optional string cloud_unique_id = 1;
     optional string stage_id = 2;
     optional int64 table_id = 3;
+    optional string request_ip = 4;
 }
 
 message GetCopyFilesResponse {
@@ -1331,6 +1589,7 @@ message FilterCopyFilesRequest {
     optional string stage_id = 2;
     optional int64 table_id = 3;
     repeated ObjectFilePB object_files = 4;
+    optional string request_ip = 5;
 }
 
 message FilterCopyFilesResponse {
@@ -1340,6 +1599,12 @@ message FilterCopyFilesResponse {
 
 message RecycleInstanceRequest {
     repeated string instance_ids = 1;
+    optional string request_ip = 2;
+}
+
+message StatisticsRecycleRequest {
+    repeated string instance_ids = 1;
+    repeated string resource_type = 2;
 }
 
 message RecycleInstanceResponse {
@@ -1447,6 +1712,7 @@ message UpdateDeleteBitmapRequest {
     optional int64 pre_rowset_agg_end_version = 16;
     // when update delete_bitmap of pre rowsets, check the rowset exists
     repeated int64 pre_rowset_versions = 17;
+    optional string request_ip = 18;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1463,6 +1729,7 @@ message GetDeleteBitmapRequest {
     optional int64 base_compaction_cnt = 7;
     optional int64 cumulative_compaction_cnt = 8;
     optional int64 cumulative_point = 9;
+    optional string request_ip = 10;
 }
 
 message GetDeleteBitmapResponse {
@@ -1481,6 +1748,7 @@ message RemoveDeleteBitmapRequest {
     repeated string rowset_ids = 3;
     repeated int64 begin_versions = 4;
     repeated int64 end_versions = 5;
+    optional string request_ip = 6;
 }
 
 message RemoveDeleteBitmapResponse {
@@ -1497,7 +1765,7 @@ message DeleteBitmapUpdateLockPB {
     repeated int64 initiators = 3;
 }
 
-message MowTabletCompactionPB {
+message MowTabletJobPB {
     optional int64 expiration = 1;
 }
 
@@ -1510,6 +1778,8 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 expiration = 6;
     optional bool require_compaction_stats = 7 [default = false];
     repeated TabletIndexPB tablet_indexes = 8;
+    optional string request_ip = 9;
+    optional bool urgent = 10;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
@@ -1526,6 +1796,7 @@ message RemoveDeleteBitmapUpdateLockRequest {
     optional int64 tablet_id = 3;
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
+    optional string request_ip = 6;
 }
 
 message RemoveDeleteBitmapUpdateLockResponse {
@@ -1536,6 +1807,7 @@ message GetRLTaskCommitAttachRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     optional int64 job_id = 3;
+    optional string request_ip = 4;
 }
 
 message GetRLTaskCommitAttachResponse {
@@ -1548,6 +1820,7 @@ message ResetRLProgressRequest {
     optional int64 db_id = 2;
     optional int64 job_id = 3;
     map<int32, int64> partition_to_offset = 4;
+    optional string request_ip = 5;
 }
 
 message ResetRLProgressResponse {
@@ -1568,12 +1841,105 @@ message CheckKVRequest {
     }
     optional string cloud_unique_id = 1; // For auth
     optional CheckKeyInfos check_keys = 2;
-    optional Operation op = 3; 
+    optional Operation op = 3;
+    optional string request_ip = 4;
 }
 
 message CheckKVResponse {
     optional MetaServiceResponseStatus status = 1;
     optional CheckKeyInfos bad_keys = 2;
+}
+
+message BeginSnapshotRequest {
+    optional string cloud_unique_id = 1;
+    optional string snapshot_label = 2;
+    optional bool auto_snapshot = 3;
+    optional int64 timeout_seconds = 4;
+    optional int64 ttl_seconds = 5;
+    optional string request_ip = 6;
+}
+
+message BeginSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional string snapshot_id = 2;
+    optional string image_url = 3;
+}
+
+message CommitSnapshotRequest {
+    optional string cloud_unique_id = 1;
+    optional string snapshot_id = 2;
+    optional string image_url = 3;
+    optional int64 last_journal_id = 4;
+    optional string request_ip = 5;
+}
+
+message CommitSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message AbortSnapshotRequest {
+    optional string cloud_unique_id = 1;
+    optional string snapshot_id = 2;
+    optional string reason = 3;
+    optional string request_ip = 4;
+}
+
+message AbortSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message SnapshotInfoPB {
+    optional string snapshot_id = 1;
+    optional string ancestor_id = 2; // The snapshot cloned from (if any).
+    optional int64 create_at = 3;    // unix timestamp, in seconds
+    optional int64 finish_at = 4;    // unix timestamp, in seconds
+    optional string image_url = 5;
+    optional int64 journal_id = 6;
+    optional SnapshotStatus status = 7;
+    optional SnapshotType type = 8;
+    optional string instance_id = 9;
+    optional bool auto_snapshot = 10;
+    optional int64 ttl_seconds = 11;
+    optional int64 timeout_seconds = 12;
+    optional string snapshot_label = 13;
+    optional string reason = 14;
+
+    repeated string derived_instance_ids = 15;
+}
+
+message ListSnapshotRequest {
+    optional string cloud_unique_id = 1;
+    optional string required_snapshot_id = 2;   // Return all snapshots if not set.
+    optional bool include_aborted = 3;
+    optional string request_ip = 4;
+}
+
+message ListSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated SnapshotInfoPB snapshots = 2;
+}
+
+message CloneInstanceRequest {
+    enum CloneType {
+        UNKNOWN = 0;
+        READ_ONLY = 1;
+        WRITABLE = 2;
+        ROLLBACK = 3;
+    }
+    optional string from_snapshot_id = 1;
+    optional string from_instance_id = 2;
+    optional string new_instance_id = 3;
+    optional string snapshot_name = 4;      // only used for clone
+    optional CloneType clone_type = 5;
+
+    // Below fields are required for WRITABLE clone.
+    optional ObjectStoreInfoPB obj_info = 6;
+    optional StorageVaultPB storage_vault = 7;
+    optional string request_ip = 8;
+}
+
+message CloneInstanceResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 service MetaService {
@@ -1595,6 +1961,10 @@ service MetaService {
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
     // DEPRECATED
     rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
+
+    rpc prepare_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc commit_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc finish_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
 
     rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
@@ -1654,6 +2024,13 @@ service MetaService {
 
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
+
+    // cluster snapshot related methods
+    rpc begin_snapshot(BeginSnapshotRequest) returns (BeginSnapshotResponse);
+    rpc commit_snapshot(CommitSnapshotRequest) returns (CommitSnapshotResponse);
+    rpc abort_snapshot(AbortSnapshotRequest) returns (AbortSnapshotResponse);
+    rpc list_snapshot(ListSnapshotRequest) returns (ListSnapshotResponse);
+    rpc clone_instance(CloneInstanceRequest) returns (CloneInstanceResponse);
 };
 
 service RecyclerService {

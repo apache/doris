@@ -86,7 +86,7 @@ public:
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
 
-    int32 max_version_config();
+    int32_t max_version_config();
 
     // FIXME(plat1ko): It is not appropriate to expose this lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
@@ -103,7 +103,7 @@ public:
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
-    virtual const std::string& tablet_path() const = 0;
+    virtual std::string tablet_path() const = 0;
 
     virtual bool exceed_version_limit(int32_t limit) = 0;
 
@@ -163,7 +163,7 @@ public:
     //       not supported error in other data model.
     Status lookup_row_key(const Slice& encoded_key, TabletSchema* latest_schema, bool with_seq_col,
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
-                          RowLocation* row_location, uint32_t version,
+                          RowLocation* row_location, int64_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
                           std::string* encoded_seq_value = nullptr,
@@ -176,13 +176,14 @@ public:
     // for rowset 6-7. Also, if a compaction happens between commit_txn and
     // publish_txn, we should remove compaction input rowsets' delete_bitmap
     // and build newly generated rowset's delete_bitmap
-    static Status calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-                                     const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                                     const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                     DeleteBitmapPtr delete_bitmap, int64_t version,
-                                     CalcDeleteBitmapToken* token,
-                                     RowsetWriter* rowset_writer = nullptr,
-                                     DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+    static Status calc_delete_bitmap(
+            const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+            int64_t version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr,
+            DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+            std::function<void(segment_v2::SegmentSharedPtr, Status)> callback =
+                    [](segment_v2::SegmentSharedPtr, Status) {});
 
     Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                       const segment_v2::SegmentSharedPtr& seg,
@@ -192,7 +193,8 @@ public:
                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     Status calc_delete_bitmap_between_segments(
-            RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            TabletSchemaSPtr schema, RowsetId rowset_id,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
 
     static Status commit_phase_update_delete_bitmap(

@@ -186,11 +186,16 @@ enum TDownloadType {
     S3 = 1,
 }
 
+enum TWarmUpEventType {
+    LOAD = 0,
+    QUERY = 1,
+}
+
 enum TWarmUpTabletsRequestType {
     SET_JOB = 0,
     SET_BATCH = 1,
     GET_CURRENT_JOB_STATE_AND_LEASE = 2,
-    CLEAR_JOB = 3,
+    CLEAR_JOB = 3
 }
 
 struct TJobMeta {
@@ -205,6 +210,7 @@ struct TWarmUpTabletsRequest {
     2: required i64 batch_id
     3: optional list<TJobMeta> job_metas
     4: required TWarmUpTabletsRequestType type
+    5: optional TWarmUpEventType event
 }
 
 struct TWarmUpTabletsResponse {
@@ -344,11 +350,14 @@ struct TPublishTopicResult {
 struct TGetRealtimeExecStatusRequest {
     // maybe query id or other unique id
     1: optional Types.TUniqueId id
+    2: optional string req_type // "stats" or "profile"
 }
 
 struct TGetRealtimeExecStatusResponse {
     1: optional Status.TStatus status
     2: optional FrontendService.TReportExecStatusParams report_exec_status_params
+    // query_stats is for getting real-time query statistics of a certain query
+    3: optional FrontendService.TQueryStatistics query_stats
 }
 
 struct TDictionaryStatus {

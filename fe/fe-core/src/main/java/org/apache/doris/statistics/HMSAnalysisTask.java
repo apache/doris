@@ -248,13 +248,15 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
             bucketFlag = true;
             sb.append(LINEAR_ANALYZE_TEMPLATE);
             params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
-            params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
+            params.put("rowCount", "ROUND(COUNT(1) * ${scaleFactor})");
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
         } else {
             sb.append(DUJ1_ANALYZE_TEMPLATE);
             params.put("subStringColName", getStringTypeColName(col));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
             params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
             params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");
+            params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
         }
         LOG.info("Sample for column [{}]. Scale factor [{}], "
                 + "limited [{}], is distribute column [{}]",

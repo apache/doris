@@ -34,7 +34,7 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
     if (argument_types.size() == 1) {
         AggregateFunctionPtr res(
                 creator_with_numeric_type::create<AggregateFunctionUniqDistributeKey, Data>(
-                        argument_types, result_is_nullable));
+                        argument_types, result_is_nullable, attr));
         if (res) {
             return res;
         } else {
@@ -42,25 +42,25 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
             case PrimitiveType::TYPE_DECIMAL32:
                 return creator_without_type::create<
                         AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL32>>>(
-                        argument_types, result_is_nullable);
+                        argument_types, result_is_nullable, attr);
             case PrimitiveType::TYPE_DECIMAL64:
                 return creator_without_type::create<
                         AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL64>>>(
-                        argument_types, result_is_nullable);
+                        argument_types, result_is_nullable, attr);
             case PrimitiveType::TYPE_DECIMAL128I:
                 return creator_without_type::create<
                         AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL128I>>>(
-                        argument_types, result_is_nullable);
+                        argument_types, result_is_nullable, attr);
             case PrimitiveType::TYPE_DECIMALV2:
                 return creator_without_type::create<
                         AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMALV2>>>(
-                        argument_types, result_is_nullable);
+                        argument_types, result_is_nullable, attr);
             case PrimitiveType::TYPE_STRING:
             case PrimitiveType::TYPE_CHAR:
             case PrimitiveType::TYPE_VARCHAR:
                 return creator_without_type::create<
                         AggregateFunctionUniqDistributeKey<TYPE_STRING, Data<TYPE_STRING>>>(
-                        argument_types, result_is_nullable);
+                        argument_types, result_is_nullable, attr);
             default:
                 break;
             }

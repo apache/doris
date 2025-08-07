@@ -217,18 +217,6 @@ QueryContext::~QueryContext() {
         _report_query_profile();
     }
 
-    // Not release the the thread token in query context's dector method, because the query
-    // conext may be dectored in the thread token it self. It is very dangerous and may core.
-    // And also thread token need shutdown, it may take some time, may cause the thread that
-    // release the token hang, the thread maybe a pipeline task scheduler thread.
-    if (_thread_token) {
-        Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                DelayReleaseToken::create_shared(std::move(_thread_token)));
-        if (!submit_st.ok()) {
-            LOG(WARNING) << "Failed to release query context thread token, query_id "
-                         << print_id(_query_id) << ", error status " << submit_st;
-        }
-    }
 #ifndef BE_TEST
     if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
         try {

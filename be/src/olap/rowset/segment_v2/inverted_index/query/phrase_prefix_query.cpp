@@ -17,7 +17,10 @@
 
 #include "phrase_prefix_query.h"
 
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
+
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 PhrasePrefixQuery::PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                                      const TQueryOptions& query_options,
@@ -28,30 +31,41 @@ PhrasePrefixQuery::PhrasePrefixQuery(const std::shared_ptr<lucene::search::Index
           _prefix_query(searcher, query_options, io_ctx) {}
 
 void PhrasePrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.empty()) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "PhrasePrefixQuery::add: terms empty");
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
-    _term_size = query_info.terms.size();
-    std::vector<std::vector<std::wstring>> terms(query_info.terms.size());
-    for (size_t i = 0; i < query_info.terms.size(); i++) {
-        if (i < query_info.terms.size() - 1) {
-            std::wstring ws = StringUtil::string_to_wstring(query_info.terms[i]);
-            terms[i].emplace_back(ws);
+    _term_size = query_info.term_infos.size();
+
+    InvertedIndexQueryInfo new_query_info;
+    new_query_info.field_name = query_info.field_name;
+    new_query_info.term_infos.resize(query_info.term_infos.size());
+    for (size_t i = 0; i < query_info.term_infos.size(); i++) {
+        const auto& term_info = query_info.term_infos[i];
+        if (term_info.is_multi_terms()) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
+        }
+
+        if (i < query_info.term_infos.size() - 1) {
+            new_query_info.term_infos[i].term = query_info.term_infos[i].get_single_term();
+            new_query_info.term_infos[i].position = query_info.term_infos[i].position;
         } else {
+            std::vector<std::string> prefix_terms;
             _prefix_query.get_prefix_terms(_searcher->getReader(), query_info.field_name,
-                                           query_info.terms[i], terms[i], _max_expansions);
-            if (terms[i].empty()) {
-                std::wstring ws = StringUtil::string_to_wstring(query_info.terms[i]);
-                terms[i].emplace_back(ws);
+                                           query_info.term_infos[i].get_single_term(), prefix_terms,
+                                           _max_expansions);
+            if (prefix_terms.empty()) {
+                prefix_terms.emplace_back(query_info.term_infos[i].get_single_term());
             }
+            new_query_info.term_infos[i].term = std::move(prefix_terms);
+            new_query_info.term_infos[i].position = query_info.term_infos[i].position;
         }
     }
 
     if (_term_size == 1) {
-        _prefix_query.add(query_info.field_name, terms[0]);
+        _prefix_query.add(new_query_info);
     } else {
-        _phrase_query.add(query_info.field_name, terms);
+        _phrase_query.add(new_query_info);
     }
 }
 
@@ -63,4 +77,5 @@ void PhrasePrefixQuery::search(roaring::Roaring& roaring) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

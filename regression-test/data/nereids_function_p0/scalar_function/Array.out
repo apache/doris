@@ -2872,32 +2872,32 @@
 
 -- !sql_array_join_DecimalV3 --
 \N
-0.1,0.1
-0.2,0.2
-0.3,0.3
-0.4,0.4
-0.5,0.5
-0.6,0.6
-0.7,0.7
-0.8,0.8
-0.9,0.9
-1,1
-1.1,1.1
-1.2,1.2
+0.100000000,0.100000000
+0.200000000,0.200000000
+0.300000000,0.300000000
+0.400000000,0.400000000
+0.500000000,0.500000000
+0.600000000,0.600000000
+0.700000000,0.700000000
+0.800000000,0.800000000
+0.900000000,0.900000000
+1.000000000,1.000000000
+1.100000000,1.100000000
+1.200000000,1.200000000
 
 -- !sql_array_join_DecimalV3_notnull --
-0.1,0.1
-0.2,0.2
-0.3,0.3
-0.4,0.4
-0.5,0.5
-0.6,0.6
-0.7,0.7
-0.8,0.8
-0.9,0.9
-1,1
-1.1,1.1
-1.2,1.2
+0.100000000,0.100000000
+0.200000000,0.200000000
+0.300000000,0.300000000
+0.400000000,0.400000000
+0.500000000,0.500000000
+0.600000000,0.600000000
+0.700000000,0.700000000
+0.800000000,0.800000000
+0.900000000,0.900000000
+1.000000000,1.000000000
+1.100000000,1.100000000
+1.200000000,1.200000000
 
 -- !sql_array_join_Boolean --
 \N
@@ -3278,32 +3278,32 @@ char23,char33,varchar13,varchar23,varchar33,string3
 
 -- !sql_array_join_two_params_DecimalV3 --
 \N
-0.1,0.1
-0.2,0.2
-0.3,0.3
-0.4,0.4
-0.5,0.5
-0.6,0.6
-0.7,0.7
-0.8,0.8
-0.9,0.9
-1,1
-1.1,1.1
-1.2,1.2
+0.100000000,0.100000000
+0.200000000,0.200000000
+0.300000000,0.300000000
+0.400000000,0.400000000
+0.500000000,0.500000000
+0.600000000,0.600000000
+0.700000000,0.700000000
+0.800000000,0.800000000
+0.900000000,0.900000000
+1.000000000,1.000000000
+1.100000000,1.100000000
+1.200000000,1.200000000
 
 -- !sql_array_join_two_params_DecimalV3_notnull --
-0.1,0.1
-0.2,0.2
-0.3,0.3
-0.4,0.4
-0.5,0.5
-0.6,0.6
-0.7,0.7
-0.8,0.8
-0.9,0.9
-1,1
-1.1,1.1
-1.2,1.2
+0.100000000,0.100000000
+0.200000000,0.200000000
+0.300000000,0.300000000
+0.400000000,0.400000000
+0.500000000,0.500000000
+0.600000000,0.600000000
+0.700000000,0.700000000
+0.800000000,0.800000000
+0.900000000,0.900000000
+1.000000000,1.000000000
+1.100000000,1.100000000
+1.200000000,1.200000000
 
 -- !sql_array_join_two_params_Boolean --
 \N
@@ -11658,33 +11658,33 @@ true
 ["string3"]
 
 -- !sql_tokenize_Char --
-["char11"]
-["char11"]
-["char11"]
-["char11"]
-["char12"]
-["char12"]
-["char12"]
-["char12"]
-["char13"]
-["char13"]
-["char13"]
-["char13"]
-["null"]
+[{\n        "token": "char11"\n    }]
+[{\n        "token": "char11"\n    }]
+[{\n        "token": "char11"\n    }]
+[{\n        "token": "char11"\n    }]
+[{\n        "token": "char12"\n    }]
+[{\n        "token": "char12"\n    }]
+[{\n        "token": "char12"\n    }]
+[{\n        "token": "char12"\n    }]
+[{\n        "token": "char13"\n    }]
+[{\n        "token": "char13"\n    }]
+[{\n        "token": "char13"\n    }]
+[{\n        "token": "char13"\n    }]
+[{\n        "token": "null"\n    }]
 
 -- !sql_tokenize_Char_notnull --
-["char11"]
-["char11"]
-["char11"]
-["char11"]
-["char12"]
-["char12"]
-["char12"]
-["char12"]
-["char13"]
-["char13"]
-["char13"]
-["char13"]
+[{\n        "token": "char11"\n    }]
+[{\n        "token": "char11"\n    }]
+[{\n        "token": "char11"\n    }]
+[{\n        "token": "char11"\n    }]
+[{\n        "token": "char12"\n    }]
+[{\n        "token": "char12"\n    }]
+[{\n        "token": "char12"\n    }]
+[{\n        "token": "char12"\n    }]
+[{\n        "token": "char13"\n    }]
+[{\n        "token": "char13"\n    }]
+[{\n        "token": "char13"\n    }]
+[{\n        "token": "char13"\n    }]
 
 -- !sql_tokenize_VarChar --
 \N
@@ -11702,33 +11702,33 @@ true
 \N
 
 -- !sql_tokenize_VarChar_notnull --
-["varchar11"]
-["varchar11"]
-["varchar11"]
-["varchar11"]
-["varchar12"]
-["varchar12"]
-["varchar12"]
-["varchar12"]
-["varchar13"]
-["varchar13"]
-["varchar13"]
-["varchar13"]
+[{\n        "token": "varchar11"\n    }]
+[{\n        "token": "varchar11"\n    }]
+[{\n        "token": "varchar11"\n    }]
+[{\n        "token": "varchar11"\n    }]
+[{\n        "token": "varchar12"\n    }]
+[{\n        "token": "varchar12"\n    }]
+[{\n        "token": "varchar12"\n    }]
+[{\n        "token": "varchar12"\n    }]
+[{\n        "token": "varchar13"\n    }]
+[{\n        "token": "varchar13"\n    }]
+[{\n        "token": "varchar13"\n    }]
+[{\n        "token": "varchar13"\n    }]
 
 -- !sql_tokenize_String --
-["null"]
-["string1"]
-["string1"]
-["string1"]
-["string1"]
-["string2"]
-["string2"]
-["string2"]
-["string2"]
-["string3"]
-["string3"]
-["string3"]
-["string3"]
+[{\n        "token": "null"\n    }]
+[{\n        "token": "string1"\n    }]
+[{\n        "token": "string1"\n    }]
+[{\n        "token": "string1"\n    }]
+[{\n        "token": "string1"\n    }]
+[{\n        "token": "string2"\n    }]
+[{\n        "token": "string2"\n    }]
+[{\n        "token": "string2"\n    }]
+[{\n        "token": "string2"\n    }]
+[{\n        "token": "string3"\n    }]
+[{\n        "token": "string3"\n    }]
+[{\n        "token": "string3"\n    }]
+[{\n        "token": "string3"\n    }]
 
 -- !sql_tokenize_String_notnull --
 \N

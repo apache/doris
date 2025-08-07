@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateStorageVaultStmt;
-import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
@@ -59,22 +57,6 @@ public class StorageVaultMgr {
 
     public StorageVaultMgr(SystemInfoService systemInfoService) {
         this.systemInfoService = systemInfoService;
-    }
-
-    public void createStorageVaultResource(CreateStorageVaultStmt stmt) throws Exception {
-        switch (stmt.getStorageVaultType()) {
-            case HDFS:
-                createHdfsVault(StorageVault.fromStmt(stmt));
-                break;
-            case S3:
-                createS3Vault(StorageVault.fromStmt(stmt));
-                break;
-            case UNKNOWN:
-            default:
-                throw new DdlException("Only support S3, HDFS storage vault.");
-        }
-        // Make BE eagerly fetch the storage vault info from Meta Service
-        ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
     }
 
     public void createStorageVaultResource(CreateStorageVaultCommand command) throws Exception {
@@ -255,11 +237,6 @@ public class StorageVaultMgr {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
-    }
-
-    @VisibleForTesting
-    public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
-        setDefaultStorageVault(stmt.getStorageVaultName());
     }
 
     public void setDefaultStorageVault(String vaultName) throws DdlException {

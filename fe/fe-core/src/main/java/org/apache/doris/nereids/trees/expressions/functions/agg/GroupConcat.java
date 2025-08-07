@@ -23,10 +23,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,10 +39,18 @@ import java.util.List;
 public class GroupConcat extends NullableAggregateFunction
         implements ExplicitlyCastableSignature, SupportMultiDistinct {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
+    private static final List<FunctionSignature> ONE_ARG = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT)
+    );
+    private static final List<FunctionSignature> ONE_ARG_WITH_ORDER_BY = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX),
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX)
+    );
+    private static final List<FunctionSignature> TWO_ARGS = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+    );
+    private static final List<FunctionSignature> TWO_ARGS_WITH_ORDER_BY = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
@@ -53,7 +61,7 @@ public class GroupConcat extends NullableAggregateFunction
      * constructor with 1 argument.
      */
     public GroupConcat(boolean distinct, boolean alwaysNullable, Expression arg, Expression... others) {
-        this(distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg, others));
+        this(distinct, alwaysNullable, false, ExpressionUtils.mergeArguments(arg, others));
     }
 
     /**
@@ -73,9 +81,15 @@ public class GroupConcat extends NullableAggregateFunction
     /**
      * constructor for always nullable.
      */
-    public GroupConcat(boolean distinct, boolean alwaysNullable, List<Expression> args) {
-        super("group_concat", distinct, alwaysNullable, args);
+    public GroupConcat(boolean distinct, boolean alwaysNullable, boolean isSkew, List<Expression> args) {
+        super("group_concat", distinct, alwaysNullable, isSkew, args);
         this.nonOrderArguments = findOrderExprIndex(children);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private GroupConcat(int nonOrderArguments, NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.nonOrderArguments = nonOrderArguments;
     }
 
     @Override
@@ -94,25 +108,8 @@ public class GroupConcat extends NullableAggregateFunction
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType typeOrArg0 = getArgumentType(0);
-        if (!typeOrArg0.isStringLikeType() && !typeOrArg0.isNullType()) {
-            throw new AnalysisException(
-                    "group_concat requires first parameter to be of type STRING: " + this.toSql());
-        }
-
-        if (nonOrderArguments == 2) {
-            DataType typeOrArg1 = getArgumentType(1);
-            if (!typeOrArg1.isStringLikeType() && !typeOrArg1.isNullType()) {
-                throw new AnalysisException(
-                        "group_concat requires second parameter to be of type STRING: " + this.toSql());
-            }
-        }
-    }
-
-    @Override
     public GroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupConcat(distinct, alwaysNullable, children);
+        return new GroupConcat(nonOrderArguments, getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     /**
@@ -120,7 +117,12 @@ public class GroupConcat extends NullableAggregateFunction
      */
     @Override
     public GroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new GroupConcat(distinct, alwaysNullable, children);
+        return new GroupConcat(nonOrderArguments, getFunctionParams(distinct, children));
+    }
+
+    @Override
+    public Expression withIsSkew(boolean isSkew) {
+        return new GroupConcat(nonOrderArguments, getFunctionParams(distinct, isSkew, children));
     }
 
     @Override
@@ -130,7 +132,39 @@ public class GroupConcat extends NullableAggregateFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        if (nonOrderArguments == 2) {
+            if (arity() >= 3) {
+                return TWO_ARGS_WITH_ORDER_BY;
+            }
+            return TWO_ARGS;
+        } else {
+            if (arity() >= 2) {
+                return ONE_ARG_WITH_ORDER_BY;
+            }
+            return ONE_ARG;
+        }
+    }
+
+    @Override
+    public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().useOnePhaseAggForGroupConcatWithOrder
+                && children.stream().anyMatch(OrderExpression.class::isInstance)
+                && aggregatePhase != AggregatePhase.ONE) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean forceSkipRegulator(AggregatePhase aggregatePhase) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().useOnePhaseAggForGroupConcatWithOrder
+                && children.stream().anyMatch(OrderExpression.class::isInstance)
+                && aggregatePhase == AggregatePhase.ONE) {
+            return true;
+        }
+        return false;
     }
 
     @Override

@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
@@ -29,6 +30,7 @@
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -42,12 +44,13 @@
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h"                   // RowCursor // IWYU pragma: keep
+#include "olap/row_cursor.h" // RowCursor // IWYU pragma: keep
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -69,12 +72,17 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/io/reader_buffer.h"
+#include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
+
+#include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
 
@@ -89,17 +97,18 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             InvertedIndexFileWriter* inverted_file_writer)
+                                             IndexFileWriter* index_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _inverted_index_file_writer(inverted_file_writer),
+          _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(
                   vertical_segment_writer_mem_tracker_name(segment_id))),
-          _mow_context(std::move(opts.mow_ctx)) {
+          _mow_context(std::move(opts.mow_ctx)),
+          _block_aggregator(*this) {
     CHECK_NOTNULL(file_writer);
     _num_sort_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
@@ -113,7 +122,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
     for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
         _key_coders.push_back(get_key_coder(column.type()));
-        _key_index_size.push_back(column.index_length());
+        _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
     }
     // encode the sequence id into the primary key index
     if (_is_mow()) {
@@ -134,7 +143,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
             for (auto cid : _tablet_schema->cluster_key_uids()) {
                 const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
-                _key_index_size.push_back(column.index_length());
+                _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
             }
         }
     }
@@ -148,7 +157,7 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
                                               const TabletColumn& column) {
     meta->set_column_id(column_id);
     meta->set_type(int(column.type()));
-    meta->set_length(column.length());
+    meta->set_length(cast_set<int32_t>(column.length()));
     meta->set_encoding(DEFAULT_ENCODING);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
@@ -163,9 +172,8 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
-    // add sparse column to footer
-    for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
-        _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
+    if (column.is_variant_type()) {
+        meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
     }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
@@ -202,8 +210,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
             return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
                                         gram_bf_size);
         }
-        opts.gram_size = gram_size;
-        opts.gram_bf_size = gram_bf_size;
+        opts.gram_size = cast_set<uint8_t>(gram_size);
+        opts.gram_bf_size = cast_set<uint16_t>(gram_bf_size);
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
@@ -218,14 +226,19 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-    if (const auto& index = tablet_schema->inverted_index(column);
-        index != nullptr && !skip_inverted_index) {
-        opts.inverted_index = index;
-        opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
-        // TODO support multiple inverted index
+    if (!skip_inverted_index) {
+        auto inverted_indexs = tablet_schema->inverted_indexs(column);
+        if (!inverted_indexs.empty()) {
+            // TODO(lihangyu) multi indexes
+            // for (const auto& index : inverted_indexs) {
+            //     opts.inverted_indexs.emplace_back(index);
+            // }
+            opts.inverted_index = inverted_indexs.front();
+            opts.need_inverted_index = true;
+            DCHECK(_index_file_writer != nullptr);
+        }
     }
+    opts.index_file_writer = _index_file_writer;
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
@@ -253,6 +266,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     if (storage_page_size >= 4096 && storage_page_size <= 10485760) {
         opts.data_page_size = storage_page_size;
     }
+    opts.dict_page_size = _tablet_schema->storage_dict_page_size();
     DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
         auto table_id = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
                 "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",
@@ -281,6 +295,12 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         opts.data_page_size =
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
+
+    opts.rowset_ctx = _opts.rowset_ctx;
+    opts.file_writer = _file_writer;
+    opts.compression_type = _opts.compression_type;
+    opts.footer = &_footer;
+    opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
 
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
@@ -350,8 +370,8 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
             std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
                                                        _tablet_schema->row_columns_uids().end());
             vectorized::JsonbSerializeUtil::block_to_jsonb(
-                    *_tablet_schema, block, *row_store_column, _tablet_schema->num_columns(),
-                    serdes, row_store_cids_set);
+                    *_tablet_schema, block, *row_store_column,
+                    cast_set<int>(_tablet_schema->num_columns()), serdes, row_store_cids_set);
             break;
         }
     }
@@ -375,13 +395,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
                                       specified_rowsets, &loc, _mow_context->max_version,
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-            ++stats.num_rows_filtered;
-            // delete the invalid newly inserted row
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-        } else if (!have_delete_sign) {
+        if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
@@ -399,7 +413,15 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     // 2. the one exception is when there are sequence columns in the table, we need to read
     //    the sequence columns, otherwise it may cause the merge-on-read based compaction
     //    policy to produce incorrect results
-    if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
+
+    // 3. In flexible partial update, we may delete the existing rows before if there exists
+    //    insert after delete in one load. In this case, the insert should also be treated
+    //    as newly inserted rows, note that the sequence column value is filled in
+    //    BlockAggregator::aggregate_for_insert_after_delete() if this row doesn't specify the sequence column
+    if (st.is<KEY_ALREADY_EXISTS>() || (have_delete_sign && !_tablet_schema->has_sequence_col()) ||
+        (_opts.rowset_ctx->partial_update_info->is_flexible_partial_update() &&
+         _mow_context->delete_bitmap->contains(
+                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id))) {
         has_default_or_nullable = true;
         use_default_or_null_flag.emplace_back(true);
     } else {
@@ -414,7 +436,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
         // for this row, we need to ensure that each column is aligned
         _mow_context->delete_bitmap->add(
                 {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                segment_pos);
+                cast_set<uint32_t>(segment_pos));
         ++stats.num_rows_deleted;
     } else {
         _mow_context->delete_bitmap->add(
@@ -495,10 +517,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
-    size_t segment_start_pos;
+    uint32_t segment_start_pos = 0;
     for (auto cid : including_cids) {
         // here we get segment column row num before append data.
-        segment_start_pos = _column_writers[cid]->get_next_rowid();
+        segment_start_pos = cast_set<uint32_t>(_column_writers[cid]->get_next_rowid());
         // olap data convertor alway start from id = 0
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
@@ -518,7 +540,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(data.num_rows);
-    const auto* delete_sign_column_data =
+    const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(full_block, data.row_pos + data.num_rows);
 
     DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
@@ -553,12 +575,14 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         }
 
         // mark key with delete sign as deleted.
-        bool have_delete_sign =
-                (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
+        bool have_delete_sign = (delete_signs != nullptr && delete_signs[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema, [&]() -> std::string {
+                        return data.block->dump_one_line(block_pos,
+                                                         cast_set<int>(_num_sort_key_columns));
+                    });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos);
@@ -637,17 +661,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // create full block and fill with sort key columns
     full_block = _tablet_schema->create_block();
 
-    auto segment_start_pos = _column_writers.front()->get_next_rowid();
+    uint32_t segment_start_pos = cast_set<uint32_t>(_column_writers.front()->get_next_rowid());
 
     DCHECK(_tablet_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = _tablet_schema->skip_bitmap_col_idx();
-
-    auto get_skip_bitmaps = [&skip_bitmap_col_idx](const vectorized::Block* block) {
-        return &(assert_cast<vectorized::ColumnBitmap*>(
-                         block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
-                         ->get_data());
-    };
-    std::vector<BitmapValue>* skip_bitmaps = get_skip_bitmaps(data.block);
 
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
@@ -661,77 +678,44 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
-    vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
+    // 1. aggregate duplicate rows in block
+    RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
+            const_cast<vectorized::Block*>(data.block), data.num_rows, specified_rowsets,
+            segment_caches));
+    if (data.block->rows() != data.num_rows) {
+        data.num_rows = data.block->rows();
+        _olap_data_convertor->clear_source_content();
+    }
 
-    auto encode_key_columns =
-            [&full_block, &data,
-             this](std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns) -> Status {
-        key_columns.clear();
-        for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
-            full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
-            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                    full_block.get_by_position(cid), data.row_pos, data.num_rows, cid));
-            auto [status, column] = _olap_data_convertor->convert_column_data(cid);
-            if (!status.ok()) {
-                return status;
-            }
-            key_columns.push_back(column);
-        }
-        return Status::OK();
-    };
-
-    auto encode_seq_column = [&data, &schema_has_sequence_col,
-                              this](vectorized::IOlapColumnDataAccessor*& seq_column) -> Status {
-        seq_column = nullptr;
-        if (schema_has_sequence_col) {
-            auto seq_col_idx = _tablet_schema->sequence_col_idx();
-            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                    data.block->get_by_position(seq_col_idx), data.row_pos, data.num_rows,
-                    seq_col_idx));
-            auto [status, column] = _olap_data_convertor->convert_column_data(seq_col_idx);
-            if (!status.ok()) {
-                return status;
-            }
-            seq_column = column;
-        }
-        return Status::OK();
-    };
-
-    // 1. encode key columns
-    // we can only encode sort key columns currently becasue all non-key columns in flexible partial update
+    // 2. encode primary key columns
+    // we can only encode primary key columns currently becasue all non-primary columns in flexible partial update
     // can have missing cells
-    RETURN_IF_ERROR(encode_key_columns(key_columns));
-
-    // 2. encode sequence column
+    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
+    RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(const_cast<vectorized::Block*>(data.block),
+                                                         data.row_pos, data.num_rows, key_columns));
+    // 3. encode sequence column
     // We encode the seguence column even thought it may have invalid values in some rows because we need to
     // encode the value of sequence column in key for rows that have a valid value in sequence column during
     // lookup_raw_key. We will encode the sequence column again at the end of this method. At that time, we have
     // a valid sequence column to encode the key with seq col.
-    RETURN_IF_ERROR(encode_seq_column(seq_column));
+    vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
+    RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<vectorized::Block*>(data.block),
+                                                         data.row_pos, data.num_rows, seq_column));
 
-    // 3. merge duplicate rows when table has sequence column
-    // When there are multiple rows with the same keys in memtable, some of them specify specify the sequence column,
-    // some of them don't. We can't do the de-duplication in memtable. We must de-duplicate them here.
-    if (schema_has_sequence_col) {
-        std::size_t origin_rows = data.num_rows;
-        RETURN_IF_ERROR(_merge_rows_for_sequence_column(data, skip_bitmaps, key_columns, seq_column,
-                                                        specified_rowsets, segment_caches));
-        if (origin_rows != data.num_rows) {
-            // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps
-            _olap_data_convertor->clear_source_content();
-            RETURN_IF_ERROR(encode_key_columns(key_columns));
-            RETURN_IF_ERROR(encode_seq_column(seq_column));
-            skip_bitmaps = get_skip_bitmaps(data.block);
-        }
+    std::vector<BitmapValue>* skip_bitmaps = &(
+            assert_cast<vectorized::ColumnBitmap*>(
+                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
+                    ->get_data());
+    const auto* delete_signs =
+            BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
+    DCHECK(delete_signs != nullptr);
+
+    for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
+        full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
     }
 
-    const auto* delete_sign_column_data =
-            BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
-    DCHECK(delete_sign_column_data != nullptr);
-
-    // 4. write key columns data
-    for (std::size_t cid {0}; cid < _num_sort_key_columns; cid++) {
+    // 4. write primary key columns data
+    for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
         const auto& column = key_columns[cid];
         DCHECK(_column_writers[cid]->get_next_rowid() == _num_rows_written);
         RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
@@ -744,8 +728,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     PartialUpdateStats stats;
     RETURN_IF_ERROR(_generate_flexible_read_plan(
             read_plan, data, segment_start_pos, schema_has_sequence_col, seq_map_col_unique_id,
-            skip_bitmaps, key_columns, seq_column, delete_sign_column_data, specified_rowsets,
-            segment_caches, has_default_or_nullable, use_default_or_null_flag, stats));
+            skip_bitmaps, key_columns, seq_column, delete_signs, specified_rowsets, segment_caches,
+            has_default_or_nullable, use_default_or_null_flag, stats));
     CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
@@ -756,8 +740,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // 6. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.row_pos,
-            data.block, skip_bitmaps));
+            use_default_or_null_flag, has_default_or_nullable, segment_start_pos,
+            cast_set<uint32_t>(data.row_pos), data.block, skip_bitmaps));
 
     // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table
@@ -766,9 +750,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     _serialize_block_to_row_column(full_block);
 
     // 8. encode and write all non-primary key columns(including sequence column if exists)
-    for (auto cid = _num_sort_key_columns; cid < _tablet_schema->num_columns(); cid++) {
+    for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
         RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                full_block.get_by_position(cid), data.row_pos, data.num_rows, cid));
+                full_block.get_by_position(cid), data.row_pos, data.num_rows,
+                cast_set<uint32_t>(cid)));
         auto [status, column] = _olap_data_convertor->convert_column_data(cid);
         if (!status.ok()) {
             return status;
@@ -813,7 +798,7 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
                                                                   std::string* encoded_value) {
     const auto& seq_column = tablet_schema.column(tablet_schema.sequence_col_idx());
     auto block = tablet_schema.create_block_by_cids(
-            {static_cast<uint32_t>(tablet_schema.sequence_col_idx())});
+            {cast_set<uint32_t>(tablet_schema.sequence_col_idx())});
     if (seq_column.has_default_value()) {
         auto idx = tablet_schema.sequence_col_idx() - tablet_schema.num_key_columns();
         const auto& default_value = info.default_values[idx];
@@ -842,7 +827,7 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
         std::vector<BitmapValue>* skip_bitmaps,
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_sign_column_data,
+        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
@@ -858,14 +843,6 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         size_t segment_pos = segment_start_pos + delta_pos;
         auto& skip_bitmap = skip_bitmaps->at(block_pos);
 
-        // the hidden sequence column should have the same mark with sequence map column
-        if (seq_map_col_unique_id != -1) {
-            DCHECK(schema_has_sequence_col);
-            if (skip_bitmap.contains(seq_map_col_unique_id)) {
-                skip_bitmap.add(seq_col_unique_id);
-            }
-        }
-
         std::string key = _full_encode_keys(key_columns, delta_pos);
         _maybe_invalid_row_cache(key);
         bool row_has_sequence_col =
@@ -875,12 +852,17 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         }
 
         // mark key with delete sign as deleted.
-        bool have_delete_sign = (!skip_bitmap.contains(delete_sign_col_unique_id) &&
-                                 delete_sign_column_data[block_pos] != 0);
+        bool have_delete_sign =
+                (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema, &skip_bitmap);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema,
+                    [&]() -> std::string {
+                        return data.block->dump_one_line(block_pos,
+                                                         cast_set<int>(_num_sort_key_columns));
+                    },
+                    &skip_bitmap);
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos, skip_bitmap);
@@ -890,104 +872,6 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
                                            have_delete_sign, specified_rowsets, segment_caches,
                                            has_default_or_nullable, use_default_or_null_flag,
                                            update_read_plan, not_found_cb, stats));
-    }
-    return Status::OK();
-}
-
-Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
-        RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-        vectorized::IOlapColumnDataAccessor* seq_column,
-        const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
-    VLOG_DEBUG << fmt::format(
-            "VerticalSegmentWriter::_merge_rows_for_sequence_column enter: data.block:{}\n",
-            data.block->dump_data());
-    auto seq_col_unique_id = _tablet_schema->column(_tablet_schema->sequence_col_idx()).unique_id();
-    std::string previous_key {};
-    bool previous_has_seq_col {false};
-    int duplicate_keys {0};
-
-    auto filter_column = vectorized::ColumnUInt8::create(data.num_rows, 1);
-    auto* __restrict filter_map = filter_column->get_data().data();
-
-    std::string encoded_default_seq_value {};
-    RETURN_IF_ERROR(_generate_encoded_default_seq_value(
-            *_tablet_schema, *_opts.rowset_ctx->partial_update_info, &encoded_default_seq_value));
-
-    for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows; block_pos++) {
-        size_t delta_pos = block_pos - data.row_pos;
-        auto& skip_bitmap = skip_bitmaps->at(block_pos);
-        std::string key = _full_encode_keys(key_columns, delta_pos);
-        bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
-        Status st;
-        if (delta_pos > 0 && previous_key == key) {
-            DCHECK(previous_has_seq_col == !row_has_sequence_col);
-            ++duplicate_keys;
-            RowLocation loc;
-            RowsetSharedPtr rowset;
-            size_t rid_missing_seq {};
-            size_t rid_with_seq {};
-            if (row_has_sequence_col) {
-                rid_missing_seq = block_pos - 1;
-                rid_with_seq = block_pos;
-            } else {
-                rid_missing_seq = block_pos;
-                rid_with_seq = block_pos - 1;
-            }
-            std::string previous_encoded_seq_value {};
-            st = _tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets, &loc,
-                                         _mow_context->max_version, segment_caches, &rowset, true,
-                                         &previous_encoded_seq_value);
-            DCHECK(st.is<KEY_NOT_FOUND>() || st.ok());
-
-            Slice previous_seq_slice {};
-            if (st.is<KEY_NOT_FOUND>()) {
-                previous_seq_slice = Slice {encoded_default_seq_value};
-            } else {
-                // TODO(bobhan1): we can mark these rows in delete bitmap and eliminate reading them in later phase
-                _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-                previous_seq_slice = Slice {previous_encoded_seq_value};
-            }
-            std::string cur_encoded_seq_value {};
-            _encode_seq_column(seq_column, rid_with_seq, &cur_encoded_seq_value);
-            // the encoded value is order-preserving, so we can use Slice::compare() to compare them
-            int res = previous_seq_slice.compare(Slice {cur_encoded_seq_value});
-            VLOG_DEBUG << fmt::format(
-                    "VerticalSegmentWriter::_merge_rows_for_sequence_column: rid_with_seq={}, "
-                    "rid_missing_seq={}, res={}",
-                    rid_with_seq, rid_missing_seq, res);
-            if (res > 0) {
-                filter_map[rid_with_seq] = 0;
-            } else if (res < 0) {
-                filter_map[rid_missing_seq] = 0;
-            } else {
-                filter_map[std::min(rid_with_seq, rid_missing_seq)] = 0;
-            }
-        }
-        previous_key = std::move(key);
-        previous_has_seq_col = row_has_sequence_col;
-    }
-    if (duplicate_keys > 0) {
-        auto num_cols = data.block->columns();
-        auto* block = const_cast<vectorized::Block*>(data.block);
-        block->insert({std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(),
-                       "__dup_key_filter_col__"});
-        RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
-        int merged_rows = data.num_rows - block->rows();
-        VLOG_DEBUG << fmt::format(
-                "VerticalSegmentWriter::_merge_rows_for_sequence_column after filter: "
-                "data.block:{}\n",
-                data.block->dump_data());
-        if (duplicate_keys != merged_rows) {
-            auto msg = fmt::format(
-                    "duplicate_keys != merged_rows, duplicate_keys={}, merged_rows={}, "
-                    "num_rows={}, mutable_block->rows()={}",
-                    duplicate_keys, merged_rows, data.num_rows, block->rows());
-            DCHECK(false) << msg;
-            return Status::InternalError<false>(msg);
-        }
-        data.num_rows = block->rows();
     }
     return Status::OK();
 }
@@ -1024,115 +908,6 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
     return Status::OK();
 }
 
-// for variant type, we should do following steps to fill content of block:
-// 1. set block data to data convertor, and get all flattened columns from variant subcolumns
-// 2. get sparse columns from previous sparse columns stripped in OlapColumnDataConvertorVariant
-// 3. merge current columns info(contains extracted columns) with previous merged_tablet_schema
-//    which will be used to contruct the new schema for rowset
-Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock& data) {
-    if (_tablet_schema->num_variant_columns() == 0) {
-        return Status::OK();
-    }
-    size_t column_id = _tablet_schema->num_columns();
-    for (int i = 0; i < _tablet_schema->columns().size(); ++i) {
-        if (!_tablet_schema->columns()[i]->is_variant_type()) {
-            continue;
-        }
-        if (_flush_schema == nullptr) {
-            _flush_schema = std::make_shared<TabletSchema>();
-            // deep copy
-            _flush_schema->copy_from(*_tablet_schema);
-        }
-        auto column_ref = data.block->get_by_position(i).column;
-        const vectorized::ColumnVariant& object_column = assert_cast<vectorized::ColumnVariant&>(
-                remove_nullable(column_ref)->assume_mutable_ref());
-        const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
-
-        // generate column info by entry info
-        auto generate_column_info = [&](const auto& entry) {
-            const std::string& column_name =
-                    parent_column->name_lower_case() + "." + entry->path.get_path();
-            const vectorized::DataTypePtr& final_data_type_from_object =
-                    entry->data.get_least_common_type();
-            vectorized::PathInDataBuilder full_path_builder;
-            auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
-                                     .append(entry->path.get_parts(), false)
-                                     .build();
-            return vectorized::schema_util::get_column_by_type(
-                    final_data_type_from_object, column_name,
-                    vectorized::schema_util::ExtraInfo {
-                            .unique_id = -1,
-                            .parent_unique_id = parent_column->unique_id(),
-                            .path_info = full_path});
-        };
-
-        CHECK(object_column.is_finalized());
-        // common extracted columns
-        for (const auto& entry :
-             vectorized::schema_util::get_sorted_subcolumns(object_column.get_subcolumns())) {
-            if (entry->path.empty()) {
-                // already handled by parent column
-                continue;
-            }
-            CHECK(entry->data.is_finalized());
-            int current_column_id = column_id++;
-            TabletColumn tablet_column = generate_column_info(entry);
-            vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
-                                                               _flush_schema);
-            RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
-                                                  _flush_schema));
-            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                    {entry->data.get_finalized_column_ptr()->get_ptr(),
-                     entry->data.get_least_common_type(), tablet_column.name()},
-                    data.row_pos, data.num_rows, current_column_id));
-            // convert column data from engine format to storage layer format
-            auto [status, column] = _olap_data_convertor->convert_column_data(current_column_id);
-            if (!status.ok()) {
-                return status;
-            }
-            RETURN_IF_ERROR(_column_writers[current_column_id]->append(
-                    column->get_nullmap(), column->get_data(), data.num_rows));
-            _flush_schema->append_column(tablet_column);
-            _olap_data_convertor->clear_source_content();
-        }
-        // sparse_columns
-        for (const auto& entry : vectorized::schema_util::get_sorted_subcolumns(
-                     object_column.get_sparse_subcolumns())) {
-            TabletColumn sparse_tablet_column = generate_column_info(entry);
-            _flush_schema->mutable_column_by_uid(parent_column->unique_id())
-                    .append_sparse_column(sparse_tablet_column);
-
-            // add sparse column to footer
-            auto* column_pb = _footer.mutable_columns(i);
-            _init_column_meta(column_pb->add_sparse_columns(), -1, sparse_tablet_column);
-        }
-    }
-
-    // Update rowset schema, tablet's tablet schema will be updated when build Rowset
-    // Eg. flush schema:    A(int),    B(float),  C(int), D(int)
-    // ctx.tablet_schema:  A(bigint), B(double)
-    // => update_schema:   A(bigint), B(double), C(int), D(int)
-    std::lock_guard<std::mutex> lock(*(_opts.rowset_ctx->schema_lock));
-    if (_opts.rowset_ctx->merged_tablet_schema == nullptr) {
-        _opts.rowset_ctx->merged_tablet_schema = _opts.rowset_ctx->tablet_schema;
-    }
-    TabletSchemaSPtr update_schema;
-    bool check_schema_size = true;
-    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
-            {_opts.rowset_ctx->merged_tablet_schema, _flush_schema}, nullptr, update_schema,
-            check_schema_size));
-    CHECK_GE(update_schema->num_columns(), _flush_schema->num_columns())
-            << "Rowset merge schema columns count is " << update_schema->num_columns()
-            << ", but flush_schema is larger " << _flush_schema->num_columns()
-            << " update_schema: " << update_schema->dump_structure()
-            << " flush_schema: " << _flush_schema->dump_structure();
-    _opts.rowset_ctx->merged_tablet_schema.swap(update_schema);
-    VLOG_DEBUG << "dump block " << data.block->dump_data();
-    VLOG_DEBUG << "dump rs schema: " << _opts.rowset_ctx->merged_tablet_schema->dump_full_schema();
-    VLOG_DEBUG << "rowset : " << _opts.rowset_ctx->rowset_id << ", seg id : " << _segment_id;
-    return Status::OK();
-}
-
 Status VerticalSegmentWriter::write_batch() {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
@@ -1151,10 +926,6 @@ Status VerticalSegmentWriter::write_batch() {
             } else {
                 RETURN_IF_ERROR(_append_block_with_partial_content(data, full_block));
             }
-        }
-        for (auto& data : _batched_blocks) {
-            RowsInBlock full_rows_block {&full_block, data.row_pos, data.num_rows};
-            RETURN_IF_ERROR(_append_block_with_variant_subcolumns(full_rows_block));
         }
         for (auto& column_writer : _column_writers) {
             RETURN_IF_ERROR(column_writer->finish());
@@ -1218,19 +989,6 @@ Status VerticalSegmentWriter::write_batch() {
         RETURN_IF_ERROR(_generate_key_index(data, key_columns, seq_column, cid_to_column));
         _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
-    }
-
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        size_t original_writers_cnt = _column_writers.size();
-        // handle variant dynamic sub columns
-        for (auto& data : _batched_blocks) {
-            RETURN_IF_ERROR(_append_block_with_variant_subcolumns(data));
-        }
-        for (size_t i = original_writers_cnt; i < _column_writers.size(); ++i) {
-            RETURN_IF_ERROR(_column_writers[i]->finish());
-            RETURN_IF_ERROR(_column_writers[i]->write_data());
-        }
     }
 
     _batched_blocks.clear();
@@ -1563,6 +1321,7 @@ Status VerticalSegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
+    VLOG_DEBUG << "footer " << _footer.DebugString();
     std::string footer_buf;
     if (!_footer.SerializeToString(&footer_buf)) {
         return Status::InternalError("failed to serialize segment footer");
@@ -1570,7 +1329,7 @@ Status VerticalSegmentWriter::_write_footer() {
 
     faststring fixed_buf;
     // footer's size
-    put_fixed32_le(&fixed_buf, footer_buf.size());
+    put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
     uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
@@ -1626,5 +1385,7 @@ inline bool VerticalSegmentWriter::_is_mow() {
 inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
-} // namespace segment_v2
-} // namespace doris
+
+#include "common/compile_check_end.h"
+
+} // namespace doris::segment_v2

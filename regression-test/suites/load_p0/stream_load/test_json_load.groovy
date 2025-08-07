@@ -21,16 +21,6 @@ suite("test_json_load", "p0,nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    def set_be_param = { paramName, paramValue ->
-        // for eache be node, set paramName=paramValue
-        for (String id in backendId_to_backendIP.keySet()) {
-		    def beIp = backendId_to_backendIP.get(id)
-		    def bePort = backendId_to_backendHttpPort.get(id)
-		    def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
-		    assertTrue(out.contains("OK"))
-	    }
-    }
-
     // define a sql table
     def testTable = "test_json_load"
     
@@ -228,7 +218,7 @@ suite("test_json_load", "p0,nonConcurrent") {
     }
 
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
             result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
@@ -654,9 +644,9 @@ suite("test_json_load", "p0,nonConcurrent") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName =getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName =getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_file_path = uploadToHdfs "load_p0/stream_load/simple_object_json.json"
         def format = "json" 
 
@@ -692,8 +682,6 @@ suite("test_json_load", "p0,nonConcurrent") {
         
         // case25: import json with enable_simdjson_reader=false
         try {
-            set_be_param.call("enable_simdjson_reader", "false")
-
             sql "DROP TABLE IF EXISTS ${testTable}"
             
             create_test_table1.call(testTable)
@@ -704,15 +692,12 @@ suite("test_json_load", "p0,nonConcurrent") {
             
             check_load_result.call(test_load_label, testTable)
         } finally {
-            set_be_param.call("enable_simdjson_reader", "true")
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         } 
     }
 
     // case26: import json with enable_simdjson_reader=false
     try {
-        set_be_param.call("enable_simdjson_reader", "false")
-
         sql "DROP TABLE IF EXISTS ${testTable}"
 
         create_test_table2.call(testTable)
@@ -723,7 +708,6 @@ suite("test_json_load", "p0,nonConcurrent") {
         qt_select26 "select * from ${testTable} order by id"
 
     } finally {
-        set_be_param.call("enable_simdjson_reader", "true")
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
@@ -928,6 +912,33 @@ suite("test_json_load", "p0,nonConcurrent") {
         
         sql "sync"
         qt_select31 "select * from ${testTable} order by id"
+
+    } finally {
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // support read "$."  as root with json type
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` json NULL,
+                `k3` json NULL,
+                `k4` json NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case30", 'false', 'true', 'json', '', '[\"$.k1\",\"$.\", \"$.\", \"$.k3\"]',
+                             '', '', '', 'test_read_root_path.json')
+        
+        sql "sync"
+        qt_select30 "select * from ${testTable} order by k1"
 
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${testTable}")

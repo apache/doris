@@ -28,10 +28,11 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/serde/data_type_date64_serde.h"
+#include "vec/data_types/serde/data_type_date_or_datetime_serde.h"
 
 namespace doris::vectorized {
 class BufferWritable;
@@ -79,8 +80,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     std::string to_string(Int64 value) const;
 
+    using SerDeType = DataTypeDateTimeSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDateTimeSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 
     Field get_field(const TExprNode& node) const override {
@@ -131,10 +133,17 @@ template <>
 inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
 
 template <typename DataType>
-constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+constexpr bool IsTimeV2Type = false;
+template <>
+inline constexpr bool IsTimeV2Type<DataTypeTimeV2> = true;
 
 template <typename DataType>
+constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+template <typename DataType>
 constexpr bool IsDatelikeV2Types = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
+template <typename DataType>
+constexpr bool IsDatelikeTypes =
+        IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -50,8 +50,8 @@
 
 namespace doris::signal {
 
-inline thread_local uint64 query_id_hi;
-inline thread_local uint64 query_id_lo;
+inline thread_local uint64_t query_id_hi;
+inline thread_local uint64_t query_id_lo;
 inline thread_local int64_t tablet_id = 0;
 inline thread_local bool is_nereids = false;
 
@@ -201,10 +201,10 @@ public:
 
     // Formats "number" in "radix" and updates the internal cursor.
     // Lowercase letters are used for 'a' - 'z'.
-    void AppendUint64(uint64 number, unsigned radix) {
+    void AppendUint64(uint64_t number, unsigned radix) {
         unsigned i = 0;
         while (cursor_ + i < end_) {
-            const uint64 tmp = number % radix;
+            const uint64_t tmp = number % radix;
             number /= radix;
             cursor_[i] = static_cast<char>(tmp < 10 ? '0' + tmp : 'a' + tmp - 10);
             ++i;
@@ -251,10 +251,10 @@ void DumpTimeInfo() {
     formatter.AppendUint64(tablet_id, 10);
     formatter.AppendString(" ***\n");
     formatter.AppendString("*** Aborted at ");
-    formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
+    formatter.AppendUint64(static_cast<uint64_t>(time_in_sec), 10);
     formatter.AppendString(" (unix time)");
     formatter.AppendString(" try \"date -d @");
-    formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
+    formatter.AppendUint64(static_cast<uint64_t>(time_in_sec), 10);
     formatter.AppendString("\" if you are using GNU date ***\n");
     formatter.AppendString("*** Current BE git commitID: ");
     formatter.AppendString(version::doris_build_short_hash());
@@ -282,7 +282,7 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
         // Use the signal number if the name is unknown.  The signal name
         // should be known, but just in case.
         formatter.AppendString("Signal ");
-        formatter.AppendUint64(static_cast<uint64>(signal_number), 10);
+        formatter.AppendUint64(static_cast<uint64_t>(signal_number), 10);
     }
     formatter.AppendString(" ");
     // Detail reason explain
@@ -298,7 +298,7 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     formatter.AppendUint64(reinterpret_cast<uintptr_t>(siginfo->si_addr), 16);
     formatter.AppendString(")");
     formatter.AppendString(" received by PID ");
-    formatter.AppendUint64(static_cast<uint64>(getpid()), 10);
+    formatter.AppendUint64(static_cast<uint64_t>(getpid()), 10);
     formatter.AppendString(" (TID ");
     uint64_t tid;
 #ifdef __APPLE__
@@ -313,11 +313,11 @@ void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     // returns an uint64 but in some other environments pthread_self()
     // returns a pointer.
     pthread_t id = pthread_self();
-    formatter.AppendUint64(reinterpret_cast<uint64>(reinterpret_cast<const char*>(id)), 16);
+    formatter.AppendUint64(reinterpret_cast<uint64_t>(reinterpret_cast<const char*>(id)), 16);
     formatter.AppendString(") ");
     // Only linux has the PID of the signal sender in si_pid.
     formatter.AppendString("from PID ");
-    formatter.AppendUint64(static_cast<uint64>(siginfo->si_pid), 10);
+    formatter.AppendUint64(static_cast<uint64_t>(siginfo->si_pid), 10);
     formatter.AppendString("; ");
     formatter.AppendString("stack trace: ***\n");
     g_failure_writer(buf, formatter.num_bytes_written());
@@ -438,6 +438,16 @@ inline void set_signal_task_id(TUniqueId tid) {
     query_id_hi = tid.hi;
     query_id_lo = tid.lo;
 }
+
+// this struct is used to set signal task id in the constructor and reset it in the destructor
+// thread pool will reuse pthread, so we need to clean thread local data
+struct SignalTaskIdKeeper {
+    template <typename T>
+    SignalTaskIdKeeper(const T& id) {
+        set_signal_task_id(id);
+    }
+    ~SignalTaskIdKeeper() { set_signal_task_id(PUniqueId {}); }
+};
 
 inline void set_signal_is_nereids(bool is_nereids_arg) {
     is_nereids = is_nereids_arg;

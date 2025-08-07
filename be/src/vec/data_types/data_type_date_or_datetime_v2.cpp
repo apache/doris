@@ -31,6 +31,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -41,6 +42,15 @@ namespace vectorized {
 class IColumn;
 } // namespace vectorized
 } // namespace doris
+
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
 
 namespace doris::vectorized {
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
@@ -53,11 +63,7 @@ size_t DataTypeDateV2::number_length() const {
 }
 void DataTypeDateV2::push_number(ColumnString::Chars& chars, const UInt32& num) const {
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(num);
-
-    char buf[64];
-    char* pos = val.to_string(buf);
-    // DateTime to_string the end is /0
-    chars.insert(buf, pos - 1);
+    CastToString::push_datev2(val, chars);
 }
 
 std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) const {
@@ -174,9 +180,7 @@ size_t DataTypeDateTimeV2::number_length() const {
 void DataTypeDateTimeV2::push_number(ColumnString::Chars& chars, const UInt64& num) const {
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(num);
-    char buf[64];
-    char* pos = val.to_string(buf, _scale);
-    chars.insert(buf, pos - 1);
+    CastToString::push_datetimev2(val, _scale, chars);
 }
 
 void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
@@ -240,6 +244,18 @@ void DataTypeDateTimeV2::cast_from_date_time(const Int64 from, UInt64& to) {
                                 from_value.hour(), from_value.minute(), from_value.second(), 0);
 }
 
+FieldWithDataType DataTypeDateTimeV2::get_field_with_data_type(const IColumn& column,
+                                                               size_t row_num) const {
+    const auto& column_data =
+            assert_cast<const ColumnDateTimeV2&, TypeCheckOnRelease::DISABLE>(column);
+    Field field;
+    column_data.get(row_num, field);
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type(),
+                              .precision = -1,
+                              .scale = static_cast<int>(get_scale())};
+}
+
 void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {
     to = from >> TIME_PART_LENGTH;
 }
@@ -253,3 +269,7 @@ DataTypePtr create_datetimev2(UInt64 scale_value) {
 }
 
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif

@@ -74,10 +74,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     GroupingScalarFunction.class,
                     TableGeneratingFunction.class,
                     WindowExpression.class))
-            .put(LogicalOneRowRelation.class, ImmutableSet.of(
-                    GroupingScalarFunction.class,
-                    TableGeneratingFunction.class,
-                    WindowExpression.class))
+            .put(LogicalOneRowRelation.class, LogicalOneRowRelation.FORBIDDEN_EXPRESSIONS)
             .put(LogicalProject.class, ImmutableSet.of(
                     TableGeneratingFunction.class))
             .put(LogicalSort.class, ImmutableSet.of(

@@ -90,6 +90,7 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace {
 
 bvar::LatencyRecorder g_ingest_binlog_latency("doris_backend_service", "ingest_binlog");
@@ -143,7 +144,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
         double copy_rate = 0.0;
         if (elapsed_time_ms > 0) {
-            copy_rate = total_download_bytes / ((double)elapsed_time_ms) / 1000;
+            copy_rate = (double)total_download_bytes / ((double)elapsed_time_ms) / 1000;
         }
         LOG(INFO) << "ingest binlog elapsed " << elapsed_time_ms << " ms, download "
                   << total_download_files << " files, total " << total_download_bytes
@@ -393,7 +394,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
-        auto status = _exec_http_req(client, max_retry, 1, get_segment_file_cb);
+        status = _exec_http_req(client, max_retry, 1, get_segment_file_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file from " << get_segment_file_url
                          << ", status=" << status.to_string();
@@ -612,8 +613,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         elapsed_time_map.emplace("load_segments", watch.elapsed_time_microseconds());
         if (segments.size() > 1) {
             // calculate delete bitmap between segments
-            status = local_tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
-                                                                       segments, delete_bitmap);
+            status = local_tablet->calc_delete_bitmap_between_segments(
+                    rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap);
             if (!status) {
                 LOG(WARNING) << "failed to calculate delete bitmap"
                              << ". tablet_id: " << local_tablet->tablet_id()
@@ -857,7 +858,7 @@ void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenP
         }
 
         const uint8_t* buf = (const uint8_t*)query_plan_info.data();
-        uint32_t len = query_plan_info.size();
+        uint32_t len = (uint32_t)query_plan_info.size();
         // deserialize TQueryPlanInfo
         auto st = deserialize_thrift_msg(buf, &len, false, &t_query_plan_info);
         if (!st.ok()) {
@@ -1085,10 +1086,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     p_load_id.set_lo(load_id.lo);
 
     {
-        // See RowsetBuilder::prepare_txn for details
-        std::shared_lock base_migration_lock(local_tablet->get_migration_lock());
-        auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id,
-                                                         p_load_id, is_ingrest);
+        // TODO: Before push_lock is not held, but I think it should hold.
+        auto status = local_tablet->prepare_txn(partition_id, txn_id, p_load_id, is_ingrest);
         if (!status.ok()) {
             LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                          << ", status=" << status.to_string();
@@ -1321,19 +1320,28 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
 
     std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
             std::make_unique<TReportExecStatusParams>();
-    Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
-            request.id, report_exec_status_params.get());
+    std::unique_ptr<TQueryStatistics> query_stats = std::make_unique<TQueryStatistics>();
 
-    if (!st.ok()) {
-        response.__set_status(st.to_thrift());
-        return;
+    std::string req_type = request.__isset.req_type ? request.req_type : "profile";
+    Status st;
+    if (req_type == "stats") {
+        st = ExecEnv::GetInstance()->fragment_mgr()->get_query_statistics(request.id,
+                                                                          query_stats.get());
+        if (st.ok()) {
+            response.__set_query_stats(*query_stats);
+        }
+    } else {
+        // default is "profile"
+        st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
+                request.id, report_exec_status_params.get());
+        if (st.ok()) {
+            response.__set_report_exec_status_params(*report_exec_status_params);
+        }
     }
 
     report_exec_status_params->__set_query_id(TUniqueId());
     report_exec_status_params->__set_done(false);
-
-    response.__set_status(Status::OK().to_thrift());
-    response.__set_report_exec_status_params(*report_exec_status_params);
+    response.__set_status(st.to_thrift());
 }
 
 void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
@@ -1345,5 +1353,5 @@ void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
     LOG(INFO) << "query for dictionary status, return " << result.dictionary_status_list.size()
               << " rows";
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

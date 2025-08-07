@@ -44,17 +44,27 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
+size_t ColumnVector<T>::serialize_impl(char* pos, const size_t row) const {
+    memcpy_fixed<value_type>(pos, (char*)&data[row]);
+    return sizeof(value_type);
+}
+
+template <PrimitiveType T>
+size_t ColumnVector<T>::deserialize_impl(const char* pos) {
+    data.push_back(unaligned_load<value_type>(pos));
+    return sizeof(value_type);
+}
+
+template <PrimitiveType T>
 StringRef ColumnVector<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const {
-    auto pos = arena.alloc_continue(sizeof(value_type), begin);
-    unaligned_store<value_type>(pos, data[n]);
-    return StringRef(pos, sizeof(value_type));
+    auto* pos = arena.alloc_continue(sizeof(value_type), begin);
+    return {pos, serialize_impl(pos, n)};
 }
 
 template <PrimitiveType T>
 const char* ColumnVector<T>::deserialize_and_insert_from_arena(const char* pos) {
-    data.push_back(unaligned_load<value_type>(pos));
-    return pos + sizeof(value_type);
+    return pos + deserialize_impl(pos);
 }
 
 template <PrimitiveType T>
@@ -63,62 +73,18 @@ size_t ColumnVector<T>::get_max_row_byte_size() const {
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::serialize_vec(StringRef* keys, size_t num_rows,
-                                    size_t max_row_byte_size) const {
+void ColumnVector<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy_fixed<value_type>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
-        keys[i].size += sizeof(value_type);
-    }
-}
-
-template <PrimitiveType T>
-void ColumnVector<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                                  const UInt8* null_map) const {
-    DCHECK(null_map != nullptr);
-
-    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
-
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
-            // serialize null first
-            memcpy(dest, null_map + i, sizeof(UInt8));
-            if (null_map[i] == 0) {
-                // If this row is not null, serialize the value
-                memcpy(dest + 1, (void*)&data[i], sizeof(value_type));
-            }
-
-            keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(value_type);
-        }
-    } else {
-        // All rows are not null, serialize null & value
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
-            memset(dest, 0, 1);
-            memcpy_fixed<value_type>(dest + 1, (char*)&data[i]);
-            keys[i].size += sizeof(value_type) + sizeof(UInt8);
-        }
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 template <PrimitiveType T>
 void ColumnVector<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-        keys[i].size -= sizeof(value_type);
-    }
-}
-
-template <PrimitiveType T>
-void ColumnVector<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                                    const uint8_t* null_map) {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-            keys[i].size -= sizeof(value_type);
-        } else {
-            insert_default();
-        }
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
     }
 }
 
@@ -156,8 +122,8 @@ void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 template <PrimitiveType T>
 void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        int nan_direction_hint, int direction,
-                                       std::vector<uint8>& cmp_res,
-                                       uint8* __restrict filter) const {
+                                       std::vector<uint8_t>& cmp_res,
+                                       uint8_t* __restrict filter) const {
     const auto sz = data.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(rhs)
@@ -284,14 +250,13 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
-        new_col.data.resize(size);
-
         size_t count = std::min(this->size(), size);
+        new_col.data.resize(count);
         memcpy(new_col.data.data(), data.data(), count * sizeof(data[0]));
 
-        if (size > count)
-            memset(static_cast<void*>(&new_col.data[count]), static_cast<int>(value_type()),
-                   (size - count) * sizeof(value_type));
+        if (size > count) {
+            new_col.insert_many_defaults(size - count);
+        }
     }
 
     return res;
@@ -466,31 +431,6 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
-    size_t size = data.size();
-    column_match_offsets_size(size, offsets.size());
-
-    auto res = this->create();
-    if (0 == size) return res;
-
-    typename Self::Container& res_data = res->get_data();
-    res_data.reserve(offsets.back());
-
-    // vectorized this code to speed up
-    auto counts_uptr = std::unique_ptr<IColumn::Offset[]>(new IColumn::Offset[size]);
-    IColumn::Offset* counts = counts_uptr.get();
-    for (ssize_t i = 0; i < size; ++i) {
-        counts[i] = offsets[i] - offsets[i - 1];
-    }
-
-    for (size_t i = 0; i < size; ++i) {
-        res_data.resize_fill(res_data.size() + counts[i], data[i]);
-    }
-
-    return res;
-}
-
-template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
     size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
@@ -498,7 +438,7 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
         return;
     }
     for (size_t i = 0; i < s; ++i) {
-        data[i] = null_map[i] ? value_type() : data[i];
+        data[i] = null_map[i] ? default_value() : data[i];
     }
 }
 

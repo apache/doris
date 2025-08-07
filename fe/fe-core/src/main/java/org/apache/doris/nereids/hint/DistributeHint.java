@@ -17,7 +17,11 @@
 
 package org.apache.doris.nereids.hint;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.DistributeType;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Hints for join.
@@ -30,13 +34,42 @@ public class DistributeHint extends Hint {
 
     private boolean isSuccessInLeading = false;
 
+    private JoinSkewInfo skewInfo;
+
     public DistributeHint(DistributeType distributeType) {
         super("Distribute");
         this.distributeType = distributeType;
+        this.skewInfo = null;
+    }
+
+    public DistributeHint(DistributeType distributeType, JoinSkewInfo skewInfo) {
+        super("Distribute");
+        this.distributeType = distributeType;
+        this.skewInfo = skewInfo;
+    }
+
+    public void setSkewInfo(JoinSkewInfo skewInfo) {
+        this.skewInfo = skewInfo;
     }
 
     public void setSuccessInLeading(boolean successInLeading) {
         isSuccessInLeading = successInLeading;
+    }
+
+    public Expression getSkewExpr() {
+        return skewInfo.getSkewExpr();
+    }
+
+    public List<Expression> getSkewValues() {
+        return skewInfo.getSkewValues();
+    }
+
+    public JoinSkewInfo getSkewInfo() {
+        return skewInfo;
+    }
+
+    public boolean isSuccessInSkewRewrite() {
+        return skewInfo.isSuccessInSkewRewrite();
     }
 
     /**
@@ -52,7 +85,12 @@ public class DistributeHint extends Hint {
             case NONE:
                 break;
             case SHUFFLE_RIGHT:
-                out.append("[shuffle]");
+                out.append("[shuffle");
+                if (skewInfo != null && skewInfo.isSuccessInSkewRewrite()) {
+                    out.append("_skew]");
+                } else {
+                    out.append("]");
+                }
                 break;
             case BROADCAST_RIGHT:
                 out.append("[broadcast]");
@@ -71,6 +109,7 @@ public class DistributeHint extends Hint {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        return this.distributeType == ((DistributeHint) o).distributeType;
+        DistributeHint that = (DistributeHint) o;
+        return this.distributeType == that.distributeType && Objects.equals(this.skewInfo, that.skewInfo);
     }
 }
