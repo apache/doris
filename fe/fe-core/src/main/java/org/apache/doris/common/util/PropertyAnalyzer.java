@@ -134,6 +134,7 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
     public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
+    public static final String PROPERTIES_EXPECTED_VERSIONS = "expected_versions";
     public static final String PROPERTIES_TYPE = "type";
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
