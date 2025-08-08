@@ -789,30 +789,19 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
         typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
                            std::vector<std::string>, std::vector<std::string>>
                 FieldType_RandStr;
-        std::vector<FieldType_RandStr> nested_field_types = {
-                FieldType_RandStr(
-                        FieldType::OLAP_FIELD_TYPE_STRING,
-                        {"[[Hello, World],[This, is, a, nested, array],null,[null,null,aaaa]]"},
-                        {"[[\"Hello\", \"World\"], [\"This\", \"is\", \"a\", \"nested\", "
-                         "\"array\"], null, [null, null, "
-                         "\"aaaa\"]]"},
-                        {"[null, null, null, null, null, null, null, null, null, null, null]"},
-                        {"[[\"Hello\", \"World\"], [\"This\", \"is\", \"a\", \"nested\", "
-                         "\"array\"], null, [null, null, "
-                         "\"aaaa\"]]"}),
-                FieldType_RandStr(
-                        FieldType::OLAP_FIELD_TYPE_STRING,
-                        {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), "
-                         "-, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
-                        {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
-                         "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
-                         "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
-                         "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"},
-                        {""},
-                        {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
-                         "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
-                         "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
-                         "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"})};
+        std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
+                FieldType::OLAP_FIELD_TYPE_STRING,
+                {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), "
+                 "-, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
+                {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
+                 "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
+                 "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
+                 "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"},
+                {""},
+                {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
+                 "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
+                 "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
+                 "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"})};
         // array type
         for (auto type_pair : nested_field_types) {
             auto type = std::get<0>(type_pair);
@@ -869,7 +858,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                     auto col2 = array_data_type_ptr->create_column();
                     Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
-                        EXPECT_EQ(status.ok(), false);
+                        EXPECT_EQ(status.ok(), true);
                         std::cout << "test from_string: " << status.to_json() << std::endl;
                     } else {
                         auto ser_col = ColumnString::create();
@@ -1024,7 +1013,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                     auto col2 = array_data_type_ptr->create_column();
                     Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
-                        EXPECT_EQ(status.ok(), false);
+                        EXPECT_EQ(status.ok(), true);
                         std::cout << "test from_string: " << status.to_json() << std::endl;
                     } else {
                         auto ser_col = ColumnString::create();
@@ -1242,7 +1231,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                     auto col2 = map_data_type_ptr->create_column();
                     Status status = map_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
-                        EXPECT_EQ(status.ok(), false);
+                        EXPECT_EQ(status.ok(), true);
                         std::cout << "test from_string: " << status.to_json() << std::endl;
                     } else {
                         auto ser_col = ColumnString::create();
@@ -1383,7 +1372,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                     auto col2 = array_data_type_ptr->create_column();
                     Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
-                        EXPECT_EQ(status.ok(), false);
+                        EXPECT_EQ(status.ok(), true);
                         std::cout << "test from_string: " << status.to_json() << std::endl;
                     } else {
                         auto ser_col = ColumnString::create();

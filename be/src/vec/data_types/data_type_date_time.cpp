@@ -89,17 +89,6 @@ void DataTypeDateTime::to_string(const IColumn& column, size_t row_num,
     ostr.write(buf, pos - buf - 1);
 }
 
-Status DataTypeDateTime::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnDateTime*>(column);
-    Int64 val = 0;
-    if (!read_datetime_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse datetime fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
-    column_data->insert_value(val);
-    return Status::OK();
-}
-
 void DataTypeDateTime::cast_to_date_time(Int64& x) {
     auto value = binary_cast<Int64, doris::VecDateTimeValue>(x);
     value.to_datetime();
