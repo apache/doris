@@ -96,13 +96,16 @@ public:
             return client_->ListObjectsV2(req_);
         });
 
+        const auto& request_id = outcome.IsSuccess() ? outcome.GetResult().GetRequestId()
+                                                     : outcome.GetError().GetRequestId();
         if (!outcome.IsSuccess()) {
             LOG_WARNING("failed to list objects")
                     .tag("endpoint", endpoint_)
                     .tag("bucket", req_.GetBucket())
                     .tag("prefix", req_.GetPrefix())
                     .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                    .tag("error", outcome.GetError().GetMessage());
+                    .tag("error", outcome.GetError().GetMessage())
+                    .tag("request_id", request_id);
             is_valid_ = false;
             return false;
         }
@@ -112,7 +115,8 @@ public:
             LOG_WARNING("failed to list objects, isTruncated but no continuation token")
                     .tag("endpoint", endpoint_)
                     .tag("bucket", req_.GetBucket())
-                    .tag("prefix", req_.GetPrefix());
+                    .tag("prefix", req_.GetPrefix())
+                    .tag("request_id", request_id);
 
             is_valid_ = false;
             return false;
@@ -123,7 +127,8 @@ public:
                 const_cast<std::string&&>(outcome.GetResult().GetNextContinuationToken())));
 
         auto&& content = outcome.GetResult().GetContents();
-        DCHECK(!(has_more_ && content.empty())) << has_more_ << ' ' << content.empty();
+        DCHECK(!(has_more_ && content.empty()))
+                << has_more_ << ' ' << content.empty() << " request_id=" << request_id;
 
         results_.reserve(content.size());
         for (auto&& obj : std::ranges::reverse_view(content)) {
@@ -178,7 +183,8 @@ ObjectStorageResponse S3ObjClient::put_object(ObjectStoragePathRef path, std::st
                 .tag("bucket", path.bucket)
                 .tag("key", path.key)
                 .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage());
+                .tag("error", outcome.GetError().GetMessage())
+                .tag("request_id", outcome.GetError().GetRequestId());
         return -1;
     }
     return 0;
@@ -204,7 +210,8 @@ ObjectStorageResponse S3ObjClient::head_object(ObjectStoragePathRef path, Object
                 .tag("bucket", path.bucket)
                 .tag("key", path.key)
                 .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage());
+                .tag("error", outcome.GetError().GetMessage())
+                .tag("request_id", outcome.GetError().GetRequestId());
         return -1;
     }
 }
@@ -243,18 +250,8 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
                     .tag("key[0]", delete_request.GetDelete().GetObjects().front().GetKey())
                     .tag("responseCode",
                          static_cast<int>(delete_outcome.GetError().GetResponseCode()))
-                    .tag("error", delete_outcome.GetError().GetMessage());
-            return -1;
-        }
-
-        if (!delete_outcome.IsSuccess()) {
-            LOG_WARNING("failed to delete objects")
-                    .tag("endpoint", endpoint_)
-                    .tag("bucket", bucket)
-                    .tag("key[0]", delete_request.GetDelete().GetObjects().front().GetKey())
-                    .tag("responseCode",
-                         static_cast<int>(delete_outcome.GetError().GetResponseCode()))
-                    .tag("error", delete_outcome.GetError().GetMessage());
+                    .tag("error", delete_outcome.GetError().GetMessage())
+                    .tag("request_id", delete_outcome.GetError().GetRequestId());
             return -1;
         }
 
@@ -303,7 +300,8 @@ ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
                 .tag("key", path.key)
                 .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
                 .tag("error", outcome.GetError().GetMessage())
-                .tag("exception", outcome.GetError().GetExceptionName());
+                .tag("exception", outcome.GetError().GetExceptionName())
+                .tag("request_id", outcome.GetError().GetRequestId());
         if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
             return {ObjectStorageResponse::NOT_FOUND, outcome.GetError().GetMessage()};
         }
@@ -339,7 +337,8 @@ ObjectStorageResponse S3ObjClient::get_life_cycle(const std::string& bucket,
                 .tag("endpoint", endpoint_)
                 .tag("bucket", bucket)
                 .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage());
+                .tag("error", outcome.GetError().GetMessage())
+                .tag("request_id", outcome.GetError().GetRequestId());
         return -1;
     }
 
@@ -370,7 +369,8 @@ ObjectStorageResponse S3ObjClient::check_versioning(const std::string& bucket) {
                 .tag("endpoint", endpoint_)
                 .tag("bucket", bucket)
                 .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage());
+                .tag("error", outcome.GetError().GetMessage())
+                .tag("request_id", outcome.GetError().GetRequestId());
         return -1;
     }
     return 0;
