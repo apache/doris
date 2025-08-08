@@ -1269,10 +1269,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
-    | KW_ALTER KW_WORKLOAD KW_POLICY ident_or_text:policyName opt_properties:properties
-    {:
-        RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
-    :}
     | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
     opt_properties:properties
     {:
@@ -1282,10 +1278,6 @@ alter_stmt ::=
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
-    :}
-    | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
-    {:
-        RESULT = new AlterRepositoryStmt(repoName, properties);
     :}
     ;
 
