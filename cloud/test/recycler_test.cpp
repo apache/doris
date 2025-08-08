@@ -75,77 +75,49 @@ std::vector<std::string> index_v2_file_path = {
         "data/1753202639971/02000000000026fo56l8q4p0n2l6n4k343m7o5l9p2o8n4p0_0.idx",
         "data/1753202639973/02000000000027gp67m9r5q8q4p0n2l1o4n8p6m0q3p9o5q1_0.idx",
         "data/1753202639975/02000000000028hq78n0s6rm9r5q8q42p5o9q7n1r4q0p6r2_0.idx",
-        "data/1753202639977/02000000000029ir89o1t7s78n0s6rm3q6p0r8o2s5r1q7s3_4.idx",
+        "data/1753202639977/02000000000029ir89o1t7s78n0s6rm3q6p0r8o2s5r1q7s3_0.idx",
         "data/1753202639979/0200000000002ajs90p2u8t4m3q6p0r8r7q1s9p3t6s2r8t4_0.idx",
         "data/1753202639981/0200000000002bkt01q3v9u2u8t4m3q5s8r2t0q4u7t3s9u5_0.idx",
         "data/1753202639983/0200000000002clu12r4w1q3v9u2u0v6t9s3u1r5v8u4t0v6_0.idx",
         "data/1753202639985/0200000000002dmv23s5x1w7u0t4t9s3u1r5v2s6w9v5u1w7_0.idx"};
 
-std::vector<std::string> segment_v2_file_path = {
-        "data/1753202639945/0200000000001a5c92f4e7d9j8f2b4c8a3e6f8b1c9d2e5f8_0.dat",
-        "data/1753202639947/0200000000001b8d45a74r6c7sf3e9c2b6d4a8e1f7c3d9e2_0.dat",
-        "data/1753202639951/0200000000001c9e56b8g4f0x8s7g2f0d3c7e5b9f2e8d4f0_0.dat",
-        "data/1753202639953/0200000000001d0f67c9h5g8a3e6f8b1e4d8f6c0g3f9e5g1_0.dat",
-        "data/1753202639955/0200000000001e1g78d067c9h5g8i6h2f5e9g7d1h4g0f6h2_0.dat",
-        "data/1753202639957/0200000000001f2h89e1jg7d1h4g07i3g6f0h8e2i5h1g7i3_0.dat",
-        "data/1753202639959/020000000000208i90f2k0h8e2i5h8j4h7g1i9f3j6i2h8j4_0.dat",
-        "data/1753202639961/02000000000021aj01g3l9k5i8h2j8e2i5h8j0g4k7j3i9k5_0.dat",
-        "data/1753202639963/02000000000022bk12h4m0lk0h8e2i56j9i3k1h5l8k4j0l6_0.dat",
-        "data/1753202639965/02000000000023cl23i5n1m7g3l9k5i8k0j4l2i6m9l5k1m7_0.dat",
-        "data/1753202639967/02000000000024dm34j1m7g3l9k6o2n8l1k5m3j7n0m6l2n8_0.dat",
-        "data/1753202639969/02000000000025en45k7p3o9m2l6n4k34j1m7g38o1n7m3o9_0.dat",
-        "data/1753202639971/02000000000026fo56l8q4p0n2l6n4k343m7o5l9p2o8n4p0_0.dat",
-        "data/1753202639973/02000000000027gp67m9r5q8q4p0n2l1o4n8p6m0q3p9o5q1_0.dat",
-        "data/1753202639975/02000000000028hq78n0s6rm9r5q8q42p5o9q7n1r4q0p6r2_0.dat",
-        "data/1753202639977/02000000000029ir89o1t7s78n0s6rm3q6p0r8o2s5r1q7s3_4.dat",
-        "data/1753202639979/0200000000002ajs90p2u8t4m3q6p0r8r7q1s9p3t6s2r8t4_0.dat",
-        "data/1753202639981/0200000000002bkt01q3v9u2u8t4m3q5s8r2t0q4u7t3s9u5_0.dat",
-        "data/1753202639983/0200000000002clu12r4w1q3v9u2u0v6t9s3u1r5v8u4t0v6_0.dat",
-        "data/1753202639985/0200000000002dmv23s5x1w7u0t4t9s3u1r5v2s6w9v5u1w7_0.dat"};
-
 // clang-format off
 std::vector<std::string> index_v1_file_path = {
         "data/1753202846974/0200000000007864994f6aa97288842758c2e89b03e65682_0_1753202846943.idx",
         "data/1753202845724/020000000000786635407b55b72242ac167cf83cd4c598a2_0_1753202841593.idx",
-        "data/1753202846984/020000000000788bdd40fcf18bcaa1bbd4058ef92606e79a_0_1753202846943.idx",
-        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_0_1753202846943.idx",
-        "data/1753202846986/02000000000078ec35407b55b72242ac167cf83cd4c598a2_0_1753202846943.idx",
+        "data/1753202846984/020000000000788bdd40fcf18bcaa1bbd4058ef92606e79a_0_1753202846923.idx",
+        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_0_1753202846963.idx",
+        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_0_1753202846903.idx",
+        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_1_1753202846903.idx",
+        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_1_1753202846963.idx",
         "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0_1753202844931.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0_1753202846410.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0_1753222846410.idx",
         "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0_1753202847011.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202844931.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202846410.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202847011.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202858543.idx",
-        "data/1753202858558/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202844931.idx",
-        "data/1753202858558/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202846410.idx",
-        "data/1753202858558/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202847011.idx",
-        "data/1753202858558/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202858543.idx",
-        "data/1753202858552/0200000000007b7add40fcf18bcaa1bbd4058ef92606e79a_0_1753202844931.idx",
-        "data/1753202858552/0200000000007b7add40fcf18bcaa1bbd4058ef92606e79a_0_1753202846410.idx",
-        "data/1753202858552/0200000000007b7add40fcf18bcaa1bbd4058ef92606e79a_0_1753202847011.idx"};
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_1_1753202844931.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_1_1753222846410.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_1_1753202847011.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_2_1753202844931.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_2_1753222846410.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_2_1753202847011.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202843931.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753252846410.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202847021.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_1_1753202843931.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_1_1753252846410.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_1_1753202847021.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_2_1753202843931.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_2_1753252846410.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_2_1753202847021.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202824931.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1756202846410.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202847071.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_1_1753202824931.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_1_1756202846410.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_1_1753202847071.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_2_1753202824931.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_2_1756202846410.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_2_1753202847071.idx"};
 // clang-format on
-
-std::vector<std::string> segment_v1_file_path = {
-        "data/1753202846974/0200000000007864994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202845724/020000000000786635407b55b72242ac167cf83cd4c598a2_0.dat",
-        "data/1753202846984/020000000000788bdd40fcf18bcaa1bbd4058ef92606e79a_0.dat",
-        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_0.dat",
-        "data/1753202846986/02000000000078ec35407b55b72242ac167cf83cd4c598a2_0.dat",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0.dat",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0.dat",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0.dat",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202858558/0200000000007afc994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202858558/0200000000007afc994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202858558/0200000000007afc994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202858558/0200000000007afc994f6aa97288842758c2e89b03e65682_0.dat",
-        "data/1753202858552/0200000000007b7add40fcf18bcaa1bbd4058ef92606e79a_0.dat",
-        "data/1753202858552/0200000000007b7add40fcf18bcaa1bbd4058ef92606e79a_0.dat",
-        "data/1753202858552/0200000000007b7add40fcf18bcaa1bbd4058ef92606e79a_0.dat"};
 
 doris::cloud::RecyclerThreadPoolGroup thread_group;
 
@@ -452,9 +424,10 @@ static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,
     std::string segment_str = filename.substr(underscore_pos + 1, dot_pos - underscore_pos - 1);
     std::string extension = filename.substr(dot_pos + 1);
 
-    int segment_id = stoll(segment_str);
-    int64_t tablet_index_id = 123; // Default index id
-    int64_t schema_version = 456;  // Default schema version
+    int64_t segment_id = stoll(segment_str);
+    int64_t tablet_index_id = tablet_id + 10;
+    // take the last 4 digits of tablet_id as the unique identifier
+    int64_t schema_version = std::atoll(path_parts[1].substr(path_parts[1].size() - 4).c_str());
 
     // Create rowset meta data
     MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
@@ -494,26 +467,39 @@ static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,
 
     // Create tablet schema if dealing with index files
     if (extension == "idx") {
-        doris::TabletSchemaCloudPB tablet_schema;
-        tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
-        tablet_schema.set_schema_version(schema_version);
-
-        auto index = tablet_schema.add_index();
-        index->set_index_id(0);
-        index->set_index_type(IndexType::INVERTED);
-
         std::string tablet_schema_key =
                 meta_schema_key({instance_id, tablet_index_id, schema_version});
-        tablet_schema.SerializeToString(&val);
+        std::string tablet_schema_val;
         if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
             return -1;
         }
+        doris::TabletSchemaCloudPB tablet_schema;
+
+        if (txn->get(tablet_schema_key, &tablet_schema_val) == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+            tablet_schema.set_schema_version(schema_version);
+
+            auto index = tablet_schema.add_index();
+            index->set_index_id(tablet_schema.index().size());
+            index->set_index_type(IndexType::INVERTED);
+
+        } else {
+            tablet_schema.ParseFromString(tablet_schema_val);
+
+            auto index = tablet_schema.add_index();
+            index->set_index_id(tablet_schema.index().size());
+            index->set_index_type(IndexType::INVERTED);
+        }
+        tablet_schema.SerializeToString(&val);
+
         txn->put(tablet_schema_key, val);
         if (txn->commit() != TxnErrorCode::TXN_OK) {
             return -1;
         }
     }
 
+    std::string segment_path = file_path.substr(0, file_path.size() - 4) + ".dat";
+    accessor->put_file(segment_path, "");
     accessor->put_file(file_path, "");
 
     return 0;
@@ -523,7 +509,7 @@ static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
                                                          StorageVaultAccessor* accessor,
                                                          const std::string& resource_id,
                                                          const std::string& file_path,
-                                                         int64_t version = 1) {
+                                                         size_t& version) {
     std::string val;
     std::unique_ptr<Transaction> txn;
 
@@ -567,8 +553,8 @@ static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
 
     int segment_id = stoll(segment_str);
     int64_t index_id = std::stoll(index_id_str);
-    int64_t tablet_index_id = 123; // Default tablet index id
-    int64_t schema_version = 456;  // Default schema version
+    int64_t tablet_index_id = tablet_id + 10;
+    int64_t schema_version = std::atoll(path_parts[1].substr(path_parts[1].size() - 4).c_str());
 
     // Create rowset meta data
     MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
@@ -608,29 +594,45 @@ static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
 
     // Create tablet schema if dealing with index files
     if (extension == "idx") {
-        doris::TabletSchemaCloudPB tablet_schema;
-        tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
-        tablet_schema.set_schema_version(schema_version);
-
-        auto index = tablet_schema.add_index();
-        index->set_index_id(index_id);
-        index->set_index_type(IndexType::INVERTED);
-        if (!index_suffix.empty()) {
-            index->set_index_suffix_name(index_suffix);
-        }
-
         std::string tablet_schema_key =
                 meta_schema_key({instance_id, tablet_index_id, schema_version});
-        tablet_schema.SerializeToString(&val);
+        std::string tablet_schema_val;
         if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
             return -1;
         }
+        doris::TabletSchemaCloudPB tablet_schema;
+
+        if (txn->get(tablet_schema_key, &tablet_schema_val) == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+            tablet_schema.set_schema_version(schema_version);
+
+            auto index = tablet_schema.add_index();
+            index->set_index_id(index_id);
+            index->set_index_type(IndexType::INVERTED);
+            if (!index_suffix.empty()) {
+                index->set_index_suffix_name(index_suffix);
+            }
+
+        } else {
+            tablet_schema.ParseFromString(tablet_schema_val);
+
+            auto* index = tablet_schema.add_index();
+            index->set_index_id(index_id);
+            index->set_index_type(IndexType::INVERTED);
+            if (!index_suffix.empty()) {
+                index->set_index_suffix_name(index_suffix);
+            }
+        }
+        tablet_schema.SerializeToString(&val);
+
         txn->put(tablet_schema_key, val);
         if (txn->commit() != TxnErrorCode::TXN_OK) {
             return -1;
         }
     }
 
+    std::string segment_path = fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, segment_id);
+    accessor->put_file(segment_path, "");
     accessor->put_file(file_path, "");
 
     return 0;
@@ -3101,7 +3103,7 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
     ASSERT_NE(checker.do_inverted_check(), 0);
 }
 
-TEST(CheckerTest, normal_check_index_file) {
+TEST(CheckerTest, normal_check_index_file_v1) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -3130,17 +3132,16 @@ TEST(CheckerTest, normal_check_index_file) {
     // Add some visible rowsets along with some rowsets that should be recycled
     // call inverted check after do recycle which would sweep all the rowsets not visible
     auto accessor = checker.accessor_map_.begin()->second;
-    for (const auto& file : index_v2_file_path) {
-        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file);
+    size_t version = 0;
+    for (const auto& file : index_v1_file_path) {
+        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version);
     }
 
-    for (const auto& file : segment_v2_file_path) {
-        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file);
-    }
-    ASSERT_EQ(checker.do_inverted_check(), 0);
+    ASSERT_EQ(checker.do_check(), 0);
 }
 
-TEST(CheckerTest, normal_inverted_check_index_file) {
+TEST(CheckerTest, normal_inverted_check_index_file_v1) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -3169,17 +3170,16 @@ TEST(CheckerTest, normal_inverted_check_index_file) {
     // Add some visible rowsets along with some rowsets that should be recycled
     // call inverted check after do recycle which would sweep all the rowsets not visible
     auto accessor = checker.accessor_map_.begin()->second;
-    for (const auto& file : index_v2_file_path) {
-        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file);
+    size_t version = 0;
+    for (const auto& file : index_v1_file_path) {
+        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version);
     }
 
-    for (const auto& file : segment_v2_file_path) {
-        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file);
-    }
     ASSERT_EQ(checker.do_inverted_check(), 0);
 }
 
-TEST(CheckerTest, inverted_check_recycle_idx_file_v1) {
+TEST(CheckerTest, normal_check_index_file_v2) {
     auto* sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
         sp->clear_all_call_backs();
@@ -3218,142 +3218,20 @@ TEST(CheckerTest, inverted_check_recycle_idx_file_v1) {
             });
     sp->enable_processing();
 
-    for (const auto& file : index_v1_file_path) {
-        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file);
-    }
-
-    for (const auto& file : segment_v1_file_path) {
-        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file);
-    }
-
-    size_t delete_kv_num = 5;
-    std::string meta_rowset_key_begin, meta_rowset_key_end;
-    meta_rowset_key({instance_id, 0, 1}, &meta_rowset_key_begin);
-    meta_rowset_key({instance_id, INT64_MAX, 1}, &meta_rowset_key_end);
-    std::vector<std::string> rowset_key_to_delete;
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
-
-    std::unique_ptr<RangeGetIterator> it;
-    do {
-        err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-            if (rowset_key_to_delete.size() < delete_kv_num) {
-                rowset_key_to_delete.emplace_back(k);
-            }
-            if (!it->has_next()) {
-                meta_rowset_key_begin = k;
-            }
-        }
-        meta_rowset_key_begin.push_back('\x00');
-    } while (it->more());
-
-    for (const auto& key : rowset_key_to_delete) {
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv->create_txn(&txn);
-        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
-        txn->remove(key);
-        err = txn->commit();
-        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
-    }
-
-    std::unique_ptr<ListIterator> list_iter;
-    int ret = accessor->list_directory("data", &list_iter);
-    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
-
-    ASSERT_EQ(checker.do_inverted_check(), 1);
-}
-
-TEST(CheckerTest, inverted_check_recycle_idx_file_v2) {
-    auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
-        sp->clear_all_call_backs();
-        sp->disable_processing();
-    });
-
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-
-    InstanceInfoPB instance;
-    instance.set_instance_id(instance_id);
-    auto obj_info = instance.add_obj_info();
-    obj_info->set_id("1");
-    obj_info->set_ak(config::test_s3_ak);
-    obj_info->set_sk(config::test_s3_sk);
-    obj_info->set_endpoint(config::test_s3_endpoint);
-    obj_info->set_region(config::test_s3_region);
-    obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("CheckerTest");
-
-    InstanceChecker checker(txn_kv, instance_id);
-    ASSERT_EQ(checker.init(instance), 0);
-    // Add some visible rowsets along with some rowsets that should be recycled
-    // call inverted check after do recycle which would sweep all the rowsets not visible
-    auto accessor = checker.accessor_map_.begin()->second;
-
-    sp->set_call_back(
-            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
-                auto* map = try_any_cast<
-                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
-                        args[0]);
-                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
-                if (vault->name() == "test_success_hdfs_vault") {
-                    map->emplace(vault->id(), accessor);
-                }
-            });
-    sp->enable_processing();
-
+    size_t version = 1;
     for (const auto& file : index_v2_file_path) {
-        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file);
-    }
-
-    for (const auto& file : segment_v2_file_path) {
-        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file);
-    }
-
-    size_t delete_kv_num = 5;
-    std::string meta_rowset_key_begin, meta_rowset_key_end;
-    meta_rowset_key({instance_id, 0, 1}, &meta_rowset_key_begin);
-    meta_rowset_key({instance_id, INT64_MAX, 1}, &meta_rowset_key_end);
-    std::vector<std::string> rowset_key_to_delete;
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
-
-    std::unique_ptr<RangeGetIterator> it;
-    do {
-        err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-            if (rowset_key_to_delete.size() < delete_kv_num) {
-                rowset_key_to_delete.emplace_back(k);
-            }
-            if (!it->has_next()) {
-                meta_rowset_key_begin = k;
-            }
-        }
-        meta_rowset_key_begin.push_back('\x00');
-    } while (it->more());
-
-    for (const auto& key : rowset_key_to_delete) {
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv->create_txn(&txn);
-        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
-        txn->remove(key);
-        err = txn->commit();
-        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version++);
     }
 
     std::unique_ptr<ListIterator> list_iter;
     int ret = accessor->list_directory("data", &list_iter);
     ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
 
-    ASSERT_EQ(checker.do_inverted_check(), 1);
+    ASSERT_EQ(checker.do_check(), 0);
 }
 
-TEST(CheckerTest, forward_check_recycle_idx_file_v1) {
+TEST(CheckerTest, normal_inverted_check_index_file_v2) {
     auto* sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
         sp->clear_all_call_backs();
@@ -3392,13 +3270,63 @@ TEST(CheckerTest, forward_check_recycle_idx_file_v1) {
             });
     sp->enable_processing();
 
-    for (const auto& file : index_v1_file_path) {
-        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file);
+    size_t version = 1;
+    for (const auto& file : index_v2_file_path) {
+        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version++);
     }
 
-    for (const auto& file : segment_v1_file_path) {
-        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file);
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+}
+
+TEST(CheckerTest, abnormal_check_index_file_v1) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+    size_t version = 0;
+    for (const auto& file : index_v1_file_path) {
+        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version);
     }
+
     std::unique_ptr<ListIterator> list_iter;
     int ret = accessor->list_directory("data", &list_iter);
     ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
@@ -3418,7 +3346,91 @@ TEST(CheckerTest, forward_check_recycle_idx_file_v1) {
     ASSERT_EQ(checker.do_check(), 1);
 }
 
-TEST(CheckerTest, forward_check_recycle_idx_file_v2) {
+TEST(CheckerTest, abnormal_inverted_check_index_file_v1) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+    size_t version = 0;
+    for (const auto& file : index_v1_file_path) {
+        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version);
+    }
+
+    size_t delete_kv_num = 5;
+    std::string meta_rowset_key_begin, meta_rowset_key_end;
+    meta_rowset_key({instance_id, 0, 1}, &meta_rowset_key_begin);
+    meta_rowset_key({instance_id, INT64_MAX, 1}, &meta_rowset_key_end);
+    std::vector<std::string> rowset_key_to_delete;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            if (rowset_key_to_delete.size() < delete_kv_num) {
+                rowset_key_to_delete.emplace_back(k);
+            }
+            if (!it->has_next()) {
+                meta_rowset_key_begin = k;
+            }
+        }
+        meta_rowset_key_begin.push_back('\x00');
+    } while (it->more());
+
+    for (const auto& key : rowset_key_to_delete) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+        txn->remove(key);
+        err = txn->commit();
+        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+}
+
+TEST(CheckerTest, abnormal_inverted_check_index_file_v2) {
     auto* sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
         sp->clear_all_call_backs();
@@ -3457,13 +3469,97 @@ TEST(CheckerTest, forward_check_recycle_idx_file_v2) {
             });
     sp->enable_processing();
 
+    size_t version = 1;
     for (const auto& file : index_v2_file_path) {
-        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file);
+        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version++);
     }
 
-    for (const auto& file : segment_v2_file_path) {
-        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file);
+    size_t delete_kv_num = 5;
+    std::string meta_rowset_key_begin, meta_rowset_key_end;
+    meta_rowset_key({instance_id, 0, 1}, &meta_rowset_key_begin);
+    meta_rowset_key({instance_id, INT64_MAX, 1}, &meta_rowset_key_end);
+    std::vector<std::string> rowset_key_to_delete;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            if (rowset_key_to_delete.size() < delete_kv_num) {
+                rowset_key_to_delete.emplace_back(k);
+            }
+            if (!it->has_next()) {
+                meta_rowset_key_begin = k;
+            }
+        }
+        meta_rowset_key_begin.push_back('\x00');
+    } while (it->more());
+
+    for (const auto& key : rowset_key_to_delete) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+        txn->remove(key);
+        err = txn->commit();
+        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
     }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+}
+
+TEST(CheckerTest, abnormal_check_index_file_v2) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+
+    size_t version = 1;
+    for (const auto& file : index_v2_file_path) {
+        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version++);
+    }
+
     std::unique_ptr<ListIterator> list_iter;
     int ret = accessor->list_directory("data", &list_iter);
     ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
