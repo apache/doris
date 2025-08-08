@@ -109,7 +109,11 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
-    return open(state, operator_profile);
+    auto st = open(state, operator_profile);
+    if (!st.ok()) {
+        force_close(st);
+    }
+    return st;
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
