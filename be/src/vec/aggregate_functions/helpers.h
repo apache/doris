@@ -121,8 +121,10 @@ struct creator_without_type {
                         argument_types_, result_is_nullable, attr, std::forward<TArgs>(args)...);
             }
         } else {
-            return create_varargs<AggregateFunctionTemplate>(argument_types_, result_is_nullable,
-                                                             attr, std::forward<TArgs>(args)...);
+            static_assert(std::is_same_v<AggregateFunctionTemplate, void>,
+                          "AggregateFunctionTemplate must have tag (UnaryExpression, "
+                          "MultiExpression or VarargsExpression) , (NullableAggregateFunction , "
+                          "NonNullableAggregateFunction)");
         }
         return nullptr;
     }
