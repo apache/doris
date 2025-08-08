@@ -33,6 +33,10 @@ import java.util.function.Supplier;
  * date v2 literal for nereids
  */
 public class DateV2Literal extends DateLiteral {
+
+    public static final DateV2Literal USE_IN_FLOOR_CEIL
+            = new DateV2Literal(0001L, 01L, 01L);
+
     private final Supplier<org.apache.doris.analysis.DateLiteral> legacyLiteral = Suppliers.memoize(() ->
             new org.apache.doris.analysis.DateLiteral(year, month, day, Type.DATEV2)
     );
