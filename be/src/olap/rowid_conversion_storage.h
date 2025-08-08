@@ -137,8 +137,8 @@ class RowIdSpillableStorage final : public RowIdConversionStorage {
 public:
     struct SegmentData {
         bool is_spilled {false};
-        TrackableResource resource;
-        RowIdMappingType mapping {&resource};
+        std::unique_ptr<TrackableResource> resource {std::make_unique<TrackableResource>()};
+        RowIdMappingType mapping {resource.get()};
     };
 
     RowIdSpillableStorage(const std::string& path)
@@ -203,7 +203,7 @@ public:
             it != _segment_to_id_map.end()) {
             uint32_t internal_id = it->second;
             _segments[internal_id].mapping.clear();
-            _segments[internal_id].resource.reset();
+            _segments[internal_id].resource->reset();
             _segments[internal_id].is_spilled = false;
         }
     }
@@ -218,7 +218,7 @@ public:
     std::size_t memory_usage() const override {
         std::size_t total = 0;
         for (const auto& segment : _segments) {
-            total += segment.resource.bytes_allocated();
+            total += segment.resource->bytes_allocated();
         }
         return total;
     }
@@ -229,12 +229,12 @@ private:
         RETURN_IF_ERROR(_spill_manager->spill_segment_mapping(internal_id, segment.mapping));
         segment.is_spilled = true;
         segment.mapping.clear();
-        segment.resource.reset();
+        segment.resource->reset();
         return Status::OK();
     }
 
     Status check_and_spill_segment(uint32_t internal_id) {
-        if (_segments[internal_id].resource.bytes_allocated() >=
+        if (_segments[internal_id].resource->bytes_allocated() >=
             config::rowid_conversion_max_mb * 1024 * 1024) {
             RETURN_IF_ERROR(_spill_segment(internal_id));
         }
