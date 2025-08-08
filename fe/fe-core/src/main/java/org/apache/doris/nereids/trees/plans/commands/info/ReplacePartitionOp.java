@@ -28,8 +28,11 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ReplacePartitionOp
@@ -58,6 +61,11 @@ public class ReplacePartitionOp extends AlterTableOp {
     //      but if "use_temp_partition_name" is true, the partition names will be "tp1" and "tp2".
     private boolean useTempPartitionName;
 
+    // Expected versions for partition version checking
+    // Format: "partition_name:expected_version"
+    // Example: "p20240601:2, p20240602:2"
+    private Map<String, Long> expectedVersions;
+
     // The replaced partitions will be moved to recycle bin when "forceDropNormalPartition" is false,
     // and instead, these partitions will be deleted directly.
     private boolean forceDropOldPartition;
@@ -82,6 +90,7 @@ public class ReplacePartitionOp extends AlterTableOp {
         this.isStrictRange = getBoolProperty(properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
         this.useTempPartitionName = getBoolProperty(
                 properties, PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
+        this.expectedVersions = new HashMap<>();
     }
 
     public List<String> getPartitionNames() {
@@ -98,6 +107,14 @@ public class ReplacePartitionOp extends AlterTableOp {
 
     public boolean useTempPartitionName() {
         return useTempPartitionName;
+    }
+
+    public Map<String, Long> getExpectedVersions() {
+        return expectedVersions;
+    }
+
+    public boolean hasVersionChecking() {
+        return expectedVersions != null && !expectedVersions.isEmpty();
     }
 
     public boolean isForceDropOldPartition() {
@@ -123,6 +140,15 @@ public class ReplacePartitionOp extends AlterTableOp {
         this.useTempPartitionName = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
 
+        // Parse expected versions for partition version checking
+        if (properties != null && properties.containsKey(PropertyAnalyzer.PROPERTIES_EXPECTED_VERSIONS)) {
+            String expectedVersionsStr = properties.get(PropertyAnalyzer.PROPERTIES_EXPECTED_VERSIONS);
+            parseExpectedVersions(expectedVersionsStr);
+            properties.remove(PropertyAnalyzer.PROPERTIES_EXPECTED_VERSIONS);
+            // Validate that all partitions in expected_versions match the partitions to be replaced
+            validateExpectedVersionsPartitions();
+        }
+
         if (properties != null && !properties.isEmpty()) {
             throw new AnalysisException("Unknown properties: " + properties.keySet());
         }
@@ -132,7 +158,7 @@ public class ReplacePartitionOp extends AlterTableOp {
     public AlterTableClause translateToLegacyAlterClause() {
         return new ReplacePartitionClause(partitionNames.translateToLegacyPartitionNames(),
                 tempPartitionNames.translateToLegacyPartitionNames(),
-                forceDropOldPartition, properties, isStrictRange, useTempPartitionName);
+                forceDropOldPartition, properties, isStrictRange, useTempPartitionName, expectedVersions);
     }
 
     @Override
@@ -171,5 +197,66 @@ public class ReplacePartitionOp extends AlterTableOp {
             return Boolean.parseBoolean(val);
         }
         return defaultVal;
+    }
+
+    /**
+     * Validate that all partitions in expected_versions match the partitions to be replaced.
+     */
+    private void validateExpectedVersionsPartitions() throws AnalysisException {
+        if (expectedVersions == null || expectedVersions.isEmpty()) {
+            return;
+        }
+
+        Set<String> partitionsToReplaceSet = new HashSet<>(getPartitionNames());
+        Set<String> expectedPartitionsSet = expectedVersions.keySet();
+
+        if (!partitionsToReplaceSet.equals(expectedPartitionsSet)) {
+            throw new AnalysisException(
+                    "Partitions in expected_versions must exactly match the partitions to be replaced. "
+                            + "Expected: " + partitionsToReplaceSet + ", but got: " + expectedPartitionsSet);
+        }
+    }
+
+    /**
+     * Parse expected versions from string format.
+     * Format: "partition_name1:version1, partition_name2:version2"
+     * Example: "p20240601:2, p20240602:3"
+     */
+    private void parseExpectedVersions(String expectedVersionsStr) throws AnalysisException {
+        if (expectedVersionsStr == null || expectedVersionsStr.trim().isEmpty()) {
+            return;
+        }
+
+        String[] pairs = expectedVersionsStr.split(",");
+        for (String pair : pairs) {
+            String trimmedPair = pair.trim();
+            if (trimmedPair.isEmpty()) {
+                continue;
+            }
+
+            String[] parts = trimmedPair.split(":");
+            if (parts.length != 2) {
+                throw new AnalysisException(
+                        "Invalid expected_versions format. Expected 'partition_name:version', got: "
+                                + trimmedPair);
+            }
+
+            String partitionName = parts[0].trim();
+            String versionStr = parts[1].trim();
+
+            if (partitionName.isEmpty()) {
+                throw new AnalysisException("Partition name cannot be empty in expected_versions");
+            }
+
+            try {
+                long version = Long.parseLong(versionStr);
+                if (version <= 0) {
+                    throw new AnalysisException("Partition version must be positive, got: " + version);
+                }
+                expectedVersions.put(partitionName, version);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid version number: " + versionStr);
+            }
+        }
     }
 }
