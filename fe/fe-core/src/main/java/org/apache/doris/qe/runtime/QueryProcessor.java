@@ -41,11 +41,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 
 public class QueryProcessor extends AbstractJobProcessor {
     private static final Logger LOG = LogManager.getLogger(QueryProcessor.class);
@@ -117,7 +115,7 @@ public class QueryProcessor extends AbstractJobProcessor {
         return receiverConsumer.isEos();
     }
 
-    public RowBatch getNext() throws UserException, InterruptedException, TException, RpcException, ExecutionException {
+    public RowBatch getNext() throws Exception {
         Status status = new Status();
         RowBatch resultBatch = receiverConsumer.getNext(status);
         if (!status.ok()) {
