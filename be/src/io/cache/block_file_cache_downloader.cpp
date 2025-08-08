@@ -174,7 +174,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
         VLOG_DEBUG << "download_file_cache_block: start, tablet_id=" << meta.tablet_id()
                    << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
-                   << ", offset=" << meta.offset() << ", size=" << meta.size();
+                   << ", offset=" << meta.offset() << ", size=" << meta.size()
+                   << ", type=" << meta.cache_type();
         CloudTabletSPtr tablet;
         if (auto res = _engine.tablet_mgr().get_tablet(meta.tablet_id(), false); !res.has_value()) {
             LOG(INFO) << "failed to find tablet " << meta.tablet_id() << " : " << res.error();
