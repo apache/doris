@@ -689,7 +689,7 @@ message DropPartitionLogPB {
     optional int64 table_id = 2;
     repeated int64 index_ids = 3;
     repeated int64 partition_ids = 4;
-    optional int64 expiration = 5; // expiration timestamp
+    optional int64 expiration_secs = 5; // expiration timestamp
     optional bool update_table_version = 6;
 }
 

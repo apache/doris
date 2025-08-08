@@ -96,7 +96,7 @@ int OperationLogRecycler::recycle_drop_partition_log(const DropPartitionLogPB& d
         recycle_partition_pb.set_table_id(drop_partition_log.table_id());
         *recycle_partition_pb.mutable_index_id() = drop_partition_log.index_ids();
         recycle_partition_pb.set_creation_time(::time(nullptr));
-        recycle_partition_pb.set_expiration(drop_partition_log.expiration());
+        recycle_partition_pb.set_expiration(drop_partition_log.expiration_secs());
         recycle_partition_pb.set_state(RecyclePartitionPB::DROPPED);
         std::string recycle_partition_value;
         if (!recycle_partition_pb.SerializeToString(&recycle_partition_value)) {
