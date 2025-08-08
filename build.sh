@@ -583,26 +583,15 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         BUILD_FS_BENCHMARK=OFF
     fi
 
-<<<<<<< HEAD
-=======
-    if [[ -z "${BUILD_TASK_EXECUTOR_SIMULATOR}" ]]; then
-        BUILD_TASK_EXECUTOR_SIMULATOR=OFF
-    fi
-
     if [[ -z "${BUILD_FILE_CACHE_LRU_TOOL}" ]]; then
         BUILD_FILE_CACHE_LRU_TOOL=OFF
     fi
 
->>>>>>> 4e2f0fcfb3 (add lru tool)
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
-<<<<<<< HEAD
-=======
-    echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
     echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
->>>>>>> 4e2f0fcfb3 (add lru tool)
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -614,7 +603,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CACHE_LOCK_DEBUG="${ENABLE_CACHE_LOCK_DEBUG}" \
         -DMAKE_TEST=OFF \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
-        -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \
         -DBUILD_FILE_CACHE_LRU_TOOL="${BUILD_FILE_CACHE_LRU_TOOL}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
