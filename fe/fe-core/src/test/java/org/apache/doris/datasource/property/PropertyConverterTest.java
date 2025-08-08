@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property;
 
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
@@ -491,7 +490,7 @@ public class PropertyConverterTest extends TestWithFeService {
     private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
                                                    String endpoint, String sql,
                                                    int catalogPropsSize, int bePropsSize) throws Exception {
-        Env.getCurrentEnv().getCatalogMgr().dropCatalog(new DropCatalogStmt(true, catalogName));
+        Env.getCurrentEnv().getCatalogMgr().dropCatalog(catalogName, true);
 
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
