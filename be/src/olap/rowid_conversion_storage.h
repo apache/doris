@@ -152,6 +152,7 @@ public:
             uint32_t id = cast_set<uint32_t>(_segment_to_id_map.size());
             _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {rowset_id, i}, id);
             _id_to_segment_map.emplace_back(rowset_id, i);
+            _segments.emplace_back();
             RETURN_IF_ERROR(_spill_manager->init_new_segment(id, segment_row_counts[i]));
         }
 

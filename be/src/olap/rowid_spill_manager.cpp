@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include "common/logging.h"
 #include "util/coding.h"
 
 namespace doris {
@@ -28,7 +29,9 @@ Status RowIdSpillManager::init() {
 
     _fd = open(_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (_fd < 0) {
-        return Status::IOError(fmt::format("Failed to create spill file: {}", strerror(errno)));
+        auto msg = fmt::format("Failed to open spill file {}: {}", _path, strerror(errno));
+        LOG_WARNING(msg);
+        return Status::IOError(msg);
     }
 
     _header.segment_count = 0;
