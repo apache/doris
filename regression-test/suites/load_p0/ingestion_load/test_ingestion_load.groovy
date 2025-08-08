@@ -126,7 +126,7 @@ suite('test_ingestion_load', 'p0') {
 
     if (enableHdfs()) {
 
-        tableName = 'tbl_test_spark_load'
+        def tableName = 'tbl_test_spark_load'
 
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (

@@ -126,7 +126,7 @@ suite('test_ingestion_load_drop_table', 'p0') {
 
     if (enableHdfs()) {
 
-        tableName = 'tbl_test_spark_load_drop_table'
+        def tableName = 'tbl_test_spark_load_drop_table'
 
         try {
 
@@ -156,7 +156,7 @@ suite('test_ingestion_load_drop_table', 'p0') {
                 )
                 """
 
-            label = "test_ingestion_load_drop_table"
+            def label = "test_ingestion_load_drop_table"
 
             testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet', {
                 sql "DROP TABLE ${tableName}"
