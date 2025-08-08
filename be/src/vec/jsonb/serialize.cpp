@@ -41,7 +41,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-
 namespace doris::vectorized {
 
 void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block& block,

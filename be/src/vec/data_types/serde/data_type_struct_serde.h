@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "data_type_serde.h"
 
-
 namespace doris {
 class PValues;
 struct JsonbValue;
@@ -36,7 +35,6 @@ class Arena;
 
 class DataTypeStructSerDe : public DataTypeSerDe {
 public:
-   
     DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elem_serdes_ptrs, const Strings names,
                         int nesting_level = 1)
             : DataTypeSerDe(nesting_level),
