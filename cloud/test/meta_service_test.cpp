@@ -152,6 +152,7 @@ void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t ind
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(1); // default db_id
     add_tablet(req, table_id, index_id, partition_id, tablet_id);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
@@ -9082,6 +9083,19 @@ TEST(MetaServiceTest, CreateVersionedTablet) {
         ASSERT_EQ(versioned::document_get(txn.get(), key, &load_stats, &versionstamp),
                   TxnErrorCode::TXN_OK);
         ASSERT_EQ(versionstamp, commit_versionstamp);
+    }
+
+    {
+        // verify the tablet compact stats is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        TabletStatsPB compact_stats;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &compact_stats, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+        EXPECT_EQ(compact_stats.cumulative_point(), 2);
     }
 
     SyncPoint::get_instance()->disable_processing();

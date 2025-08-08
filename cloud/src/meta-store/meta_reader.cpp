@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <limits>
 #include <memory>
 
 #include "common/logging.h"
@@ -221,22 +222,34 @@ TxnErrorCode MetaReader::get_tablet_merged_stats(Transaction* txn, int64_t table
 }
 
 TxnErrorCode MetaReader::get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index,
-                                          Versionstamp* versionstamp, bool snapshot) {
+                                          bool snapshot) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
 
-    return get_tablet_index(txn.get(), tablet_id, tablet_index, versionstamp, snapshot);
+    return get_tablet_index(txn.get(), tablet_id, tablet_index, snapshot);
 }
 
 TxnErrorCode MetaReader::get_tablet_index(Transaction* txn, int64_t tablet_id,
-                                          TabletIndexPB* tablet_index, Versionstamp* versionstamp,
-                                          bool snapshot) {
+                                          TabletIndexPB* tablet_index, bool snapshot) {
     std::string tablet_index_key = versioned::tablet_index_key({instance_id_, tablet_id});
-    return versioned::document_get(txn, tablet_index_key, snapshot_version_, tablet_index,
-                                   versionstamp, snapshot);
+    std::string value;
+    TxnErrorCode err = txn->get(tablet_index_key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    if (tablet_index && !tablet_index->ParseFromString(value)) {
+        LOG_ERROR("Failed to parse TabletIndexPB")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("key", hex(tablet_index_key));
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+
+    return TxnErrorCode::TXN_OK;
 }
 
 TxnErrorCode MetaReader::get_table_versions(
@@ -415,6 +428,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
         options.exclude_begin_key = false;
         options.exclude_end_key = false;
 
+        int64_t last_start_version = std::numeric_limits<int64_t>::max();
         auto iter =
                 versioned::document_get_range<RowsetMetaCloudPB>(txn, start_key, end_key, options);
         for (auto&& kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
@@ -423,9 +437,15 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                     << "version: " << version.to_string()
                     << ", snapshot_version: " << snapshot_version_.to_string();
 
-            // erase the rowsets that are covered by this compact rowset
             int64_t start_version = rowset_meta.start_version();
             int64_t end_version = rowset_meta.end_version();
+            if (last_start_version <= start_version) {
+                // This compact rowset has been covered by a large compact rowset
+                continue;
+            }
+
+            last_start_version = start_version;
+            // erase the rowsets that are covered by this compact rowset
             rowset_graph.erase(rowset_graph.lower_bound(start_version),
                                rowset_graph.upper_bound(end_version));
             rowset_graph.emplace(end_version, std::move(rowset_meta));
@@ -452,20 +472,18 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
 
 TxnErrorCode MetaReader::get_tablet_indexes(
         const std::vector<int64_t>& tablet_ids,
-        std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
-        std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot) {
+        std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes, bool snapshot) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
-    return get_tablet_indexes(txn.get(), tablet_ids, tablet_indexes, versionstamps, snapshot);
+    return get_tablet_indexes(txn.get(), tablet_ids, tablet_indexes, snapshot);
 }
 
 TxnErrorCode MetaReader::get_tablet_indexes(
         Transaction* txn, const std::vector<int64_t>& tablet_ids,
-        std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
-        std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot) {
+        std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes, bool snapshot) {
     if (tablet_ids.empty()) {
         return TxnErrorCode::TXN_OK;
     }
@@ -477,39 +495,66 @@ TxnErrorCode MetaReader::get_tablet_indexes(
         index_keys.push_back(std::move(tablet_index_key));
     }
 
-    std::vector<std::optional<std::pair<std::string, Versionstamp>>> versioned_values;
-    TxnErrorCode err =
-            versioned_batch_get(txn, index_keys, snapshot_version_, &versioned_values, snapshot);
+    std::vector<std::optional<std::string>> values;
+    Transaction::BatchGetOptions options;
+    options.snapshot = snapshot;
+    TxnErrorCode err = txn->batch_get(&values, index_keys, options);
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
 
-    for (size_t i = 0; i < versioned_values.size(); ++i) {
-        const auto& kv = versioned_values[i];
+    for (size_t i = 0; i < values.size(); ++i) {
+        const auto& kv = values[i];
         if (!kv.has_value()) {
             continue; // Key not found, skip
         }
 
-        const std::string& value = kv->first;
-        Versionstamp versionstamp = kv->second;
+        const std::string& value = kv.value();
         int64_t tablet_id = tablet_ids[i];
 
-        if (versionstamps) {
-            versionstamps->emplace(tablet_id, versionstamp);
+        TabletIndexPB tablet_index;
+        if (!tablet_index.ParseFromString(value)) {
+            LOG_ERROR("Failed to parse TabletIndexPB")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("key", hex(index_keys[i]))
+                    .tag("value", hex(value));
+            return TxnErrorCode::TXN_INVALID_DATA;
         }
+        tablet_indexes->emplace(tablet_id, std::move(tablet_index));
+    }
 
-        if (tablet_indexes) {
-            TabletIndexPB tablet_index;
-            if (!tablet_index.ParseFromString(value)) {
-                LOG_ERROR("Failed to parse TabletIndexPB")
-                        .tag("instance_id", instance_id_)
-                        .tag("tablet_id", tablet_id)
-                        .tag("key", hex(index_keys[i]))
-                        .tag("value", hex(value));
-                return TxnErrorCode::TXN_INVALID_DATA;
-            }
-            tablet_indexes->emplace(tablet_id, std::move(tablet_index));
-        }
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
+                                                      bool snapshot) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_partition_pending_txn_id(txn.get(), partition_id, first_txn_id, snapshot);
+}
+
+TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
+                                                      int64_t* first_txn_id, bool snapshot) {
+    // Initialize to -1 to indicate no pending transactions
+    *first_txn_id = -1;
+
+    VersionPB version_pb;
+    Versionstamp versionstamp;
+    TxnErrorCode err =
+            get_partition_version(txn, partition_id, &version_pb, &versionstamp, snapshot);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // No version found, no pending transactions
+        return TxnErrorCode::TXN_OK;
+    } else if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    if (version_pb.pending_txn_ids_size() > 0) {
+        *first_txn_id = version_pb.pending_txn_ids(0);
     }
 
     return TxnErrorCode::TXN_OK;

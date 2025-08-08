@@ -40,6 +40,7 @@
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
@@ -62,6 +63,16 @@ extern void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const s
                           int64_t table_id, int64_t partition_id, int64_t tablet_id);
 extern void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
                        int64_t partition_id, int64_t tablet_id);
+
+void insert_compact_rowset(Transaction* txn, std::string instance_id, int64_t tablet_id,
+                           int64_t partition_id, int64_t start_version, int64_t end_version,
+                           int num_rows) {
+    doris::RowsetMetaCloudPB compact_rowset =
+            create_rowset(1, tablet_id, partition_id, start_version, num_rows);
+    compact_rowset.set_end_version(end_version);
+    std::string key = versioned::meta_rowset_compact_key({instance_id, tablet_id, end_version});
+    ASSERT_TRUE(versioned::document_put(txn, key, std::move(compact_rowset)));
+}
 
 // Create a MULTI_VERSION_READ_WRITE instance and refresh the resource manager.
 static void create_and_refresh_instance(MetaServiceProxy* service, std::string instance_id) {
@@ -336,6 +347,199 @@ TEST(MetaServiceVersionedReadTest, BatchGetVersionFallback) {
             << ", code=" << resp.status().code();
 
     ASSERT_EQ(resp.versions_size(), N);
+}
+
+TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
+    auto service = get_meta_service(false);
+    std::string instance_id = "test_cloud_instance_id";
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(service.get(), instance_id);
+
+    int64_t db_id = 1;
+    int64_t table_id = 2;
+    int64_t index_id = 3;
+    int64_t partition_id = 4;
+    int64_t tablet_id = 5;
+
+    // Create tablet
+    create_tablet(service.get(), table_id, index_id, partition_id, tablet_id);
+
+    // Helper function to get rowsets using MetaService get_rowset interface
+    auto get_rowsets = [&](int64_t start_version, int64_t end_version) -> GetRowsetResponse {
+        brpc::Controller cntl;
+        GetRowsetRequest req;
+        auto* tablet_idx = req.mutable_idx();
+        tablet_idx->set_db_id(db_id);
+        tablet_idx->set_table_id(table_id);
+        tablet_idx->set_index_id(index_id);
+        tablet_idx->set_partition_id(partition_id);
+        tablet_idx->set_tablet_id(tablet_id);
+        req.set_start_version(start_version);
+        req.set_end_version(end_version);
+        req.set_cumulative_compaction_cnt(0);
+        req.set_base_compaction_cnt(0);
+        req.set_cumulative_point(2);
+
+        GetRowsetResponse resp;
+        service->get_rowset(&cntl, &req, &resp, nullptr);
+        return resp;
+    };
+
+    // Test 1: Contains the first rowset
+    {
+        auto resp = get_rowsets(1, 10);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.rowset_meta_size(), 1);
+    }
+
+    // Step 1: Insert loading rowsets with versions 2, 3, 4, 5, 6, 7, 8, 9, 10
+    LOG(INFO) << "Inserting loading rowsets for versions 2-10";
+    for (int64_t version = 2; version <= 10; ++version) {
+        insert_rowset(service.get(), 1, fmt::format("load_label_{}", version), table_id,
+                      partition_id, tablet_id);
+    }
+
+    // Test 2: Get all loading rowsets
+    {
+        auto resp = get_rowsets(1, 10);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.rowset_meta_size(), 10);
+
+        // Verify rowsets are sorted by version
+        for (int i = 0; i < resp.rowset_meta_size(); ++i) {
+            const auto& meta = resp.rowset_meta(i);
+            ASSERT_EQ(meta.end_version(), i + 1) << meta.DebugString();
+        }
+    }
+
+    // Step 2: Insert compact rowsets [3-5] and [9-10]
+    LOG(INFO) << "Inserting compact rowsets [3-5] and [9-10]";
+
+    // Create compact rowset [3-4]
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        insert_compact_rowset(txn.get(), instance_id, tablet_id, partition_id, 3, 4, 300);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Create compact rowset [3-5]
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        insert_compact_rowset(txn.get(), instance_id, tablet_id, partition_id, 3, 5, 300);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Create compact rowset [9-10]
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        insert_compact_rowset(txn.get(), instance_id, tablet_id, partition_id, 9, 10, 190);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Test 3: Verify compact rowsets override load rowsets
+    {
+        auto resp = get_rowsets(1, 10);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+
+        // 1, 2, [3-5], 6, 7, 8, [9-10]
+        ASSERT_EQ(resp.rowset_meta_size(), 7) << resp.ShortDebugString();
+
+        // Expected sequence: v1, v2, [3-5], v6, v7, v8, [9-10]
+        std::vector<std::pair<int64_t, int64_t>> expected_versions = {
+                {0, 1}, {2, 2}, {3, 5}, {6, 6}, {7, 7}, {8, 8}, {9, 10}};
+
+        for (int i = 0; i < resp.rowset_meta_size(); ++i) {
+            const auto& meta = resp.rowset_meta(i);
+            ASSERT_EQ(meta.start_version(), expected_versions[i].first)
+                    << "Rowset " << i << " start_version mismatch";
+            ASSERT_EQ(meta.end_version(), expected_versions[i].second)
+                    << "Rowset " << i << " end_version mismatch";
+        }
+    }
+
+    // Test 4: Boundary cases - query ranges that test boundaries
+    struct TestCase {
+        int64_t start_version;
+        int64_t end_version;
+        std::vector<std::pair<int64_t, int64_t>> expected_ranges;
+        std::string description;
+    };
+
+    std::vector<TestCase> test_cases = {
+            // Test exact version match
+            {1, 1, {{0, 1}}, "Single version 1"},
+            {2, 2, {{2, 2}}, "Single version 2"},
+
+            // Test range before compact
+            {1, 2, {{0, 1}, {2, 2}}, "Range [1-2] before compact"},
+
+            // Test range ending at compact boundary
+            {2, 5, {{2, 2}, {3, 5}}, "Range [2-5] ending at compact boundary"},
+
+            // Test range starting at compact boundary
+            {3, 6, {{3, 5}, {6, 6}}, "Range [3-6] starting at compact boundary"},
+
+            // Test exact compact range
+            {3, 5, {{3, 5}}, "Exact compact range [3-5]"},
+            {9, 10, {{9, 10}}, "Exact compact range [9-10]"},
+
+            // Test range spanning compact
+            {2, 6, {{2, 2}, {3, 5}, {6, 6}}, "Range [2-6] spanning compact"},
+
+            // Test range between compacts
+            {6, 8, {{6, 6}, {7, 7}, {8, 8}}, "Range [6-8] between compacts"},
+
+            // Test range crossing second compact
+            {8, 10, {{8, 8}, {9, 10}}, "Range [8-10] crossing second compact"},
+
+            // Test partial compact overlap
+            {4, 6, {{3, 5}, {6, 6}}, "Range [4-6] partial compact overlap"},
+            {9, 10, {{9, 10}}, "Range [9-10] contains last version"},
+
+            // Test edge cases
+            {5,
+             10,
+             {{3, 5}, {6, 6}, {7, 7}, {8, 8}, {9, 10}},
+             "Range [5-10] crossing both compacts"},
+            {5, 9, {{3, 5}, {6, 6}, {7, 7}, {8, 8}, {9, 9}}, "Range [5-9] includes first compact"},
+            {3, 4, {{3, 4}}, "Range [3-4] within first compact"},
+    };
+
+    for (const auto& test_case : test_cases) {
+        LOG(INFO) << "Testing: " << test_case.description;
+        auto resp = get_rowsets(test_case.start_version, test_case.end_version);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+                << "Failed for " << test_case.description;
+
+        ASSERT_EQ(resp.rowset_meta_size(), test_case.expected_ranges.size())
+                << "Rowset count mismatch for " << test_case.description << ". Got "
+                << resp.rowset_meta_size() << " rowsets, expected "
+                << test_case.expected_ranges.size();
+
+        for (int i = 0; i < resp.rowset_meta_size(); ++i) {
+            const auto& meta = resp.rowset_meta(i);
+            const auto& expected = test_case.expected_ranges[i];
+            ASSERT_EQ(meta.start_version(), expected.first)
+                    << "Start version mismatch for " << test_case.description << " at index " << i;
+            ASSERT_EQ(meta.end_version(), expected.second)
+                    << "End version mismatch for " << test_case.description << " at index " << i
+                    << " \nRowsetMeta: " << meta.ShortDebugString()
+                    << " \nResponse: " << resp.ShortDebugString();
+        }
+    }
+
+    // Test 5: Test empty ranges
+    {
+        auto resp = get_rowsets(11, 15);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.rowset_meta_size(), 0) << "Should return empty for non-existent versions";
+    }
+
+    LOG(INFO) << "GetRowsetMetas test completed successfully";
 }
 
 } // namespace doris::cloud
