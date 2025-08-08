@@ -104,9 +104,9 @@ public:
     Status commit_restore_job(const int64_t tablet_id);
 
     /**
-     * Remove a restore job for a tablet from meta-service
+     * finish a restore job for a tablet from meta-service
      */
-    Status finish_restore_job(const int64_t tablet_id);
+    Status finish_restore_job(const int64_t tablet_id, bool is_completed);
 
     /**
      * Gets storage vault (storage backends) from meta-service

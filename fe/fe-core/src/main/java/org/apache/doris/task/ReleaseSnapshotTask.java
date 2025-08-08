@@ -24,16 +24,21 @@ import org.apache.doris.thrift.TTaskType;
 public class ReleaseSnapshotTask extends AgentTask {
 
     private String snapshotPath;
+    private boolean isJobFinished; // now only for cloud
 
     public ReleaseSnapshotTask(TResourceInfo resourceInfo, long backendId, long dbId, long tabletId,
-                               String snapshotPath) {
+                               String snapshotPath, boolean isJobFinished) {
         super(resourceInfo, backendId, TTaskType.RELEASE_SNAPSHOT, dbId, -1, -1, -1, tabletId);
         this.snapshotPath = snapshotPath;
+        this.isJobFinished = isJobFinished;
+
     }
 
     public TReleaseSnapshotRequest toThrift() {
         TReleaseSnapshotRequest request = new TReleaseSnapshotRequest(snapshotPath);
         request.setTabletId(tabletId);
+        request.setIsJobFinished(isJobFinished);
         return request;
+
     }
 }
