@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
@@ -98,6 +99,14 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
+    }
+
+    public static OSSProperties of(Map<String, String> properties) {
+        OSSProperties propertiesObj = new OSSProperties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.initNormalizeAndCheckProps();
+        propertiesObj.initializeHadoopStorageConfig();
+        return propertiesObj;
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
@@ -209,7 +218,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         super.initializeHadoopStorageConfig();
-        hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
         hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
         hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
         hadoopStorageConfig.set("fs.oss.endpoint", endpoint);

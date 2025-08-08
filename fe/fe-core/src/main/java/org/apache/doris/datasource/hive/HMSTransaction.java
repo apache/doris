@@ -25,6 +25,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.PathUtils;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.fs.FileSystem;
@@ -1179,7 +1180,8 @@ public class HMSTransaction implements Transaction {
             Table table = tableAndMore.getTable();
             String targetPath = table.getSd().getLocation();
             String writePath = tableAndMore.getCurrentLocation();
-            if (!targetPath.equals(writePath)) {
+            boolean needRename = !PathUtils.equalsIgnoreScheme(targetPath, writePath);
+            if (needRename) {
                 wrapperAsyncRenameWithProfileSummary(
                         fileSystemExecutor,
                         asyncFileSystemTaskFutures,
@@ -1614,7 +1616,7 @@ public class HMSTransaction implements Transaction {
 
     private void s3Commit(Executor fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
             AtomicBoolean fileSystemTaskCancelled, THivePartitionUpdate hivePartitionUpdate, String path) {
-
+        LOG.warn("s3Commit for path: {}", path);
         List<TS3MPUPendingUpload> s3MpuPendingUploads = hivePartitionUpdate.getS3MpuPendingUploads();
         if (isMockedPartitionUpdate) {
             return;
