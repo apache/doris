@@ -39,6 +39,7 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "util/doris_metrics.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
@@ -86,6 +87,7 @@ S3FileWriter::~S3FileWriter() {
     // We won't do S3 abort operation in BE, we let s3 service do it own.
     if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
+        DorisMetrics::instance()->s3_bytes_written_total->increment(_bytes_appended);
     }
     s3_file_being_written << -1;
 }
@@ -306,6 +308,7 @@ void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
         return;
     }
     s3_bytes_written_total << buf.get_size();
+    DorisMetrics::instance()->s3_bytes_written_total->increment(buf.get_size());
 
     ObjectCompleteMultiPart completed_part {
             static_cast<int>(part_num), resp.etag.has_value() ? std::move(resp.etag.value()) : ""};
@@ -476,6 +479,8 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         return;
     }
 
+    s3_bytes_written_total << _bytes_appended;
+    DorisMetrics::instance()->s3_bytes_written_total->increment(_bytes_appended);
     s3_file_created_total << 1;
 }
 
