@@ -795,6 +795,7 @@ message TabletStatsPB {
     optional int64 last_full_compaction_time_ms = 13;
     optional int64 index_size = 14;
     optional int64 segment_size = 15;
+    optional int64 num_compaction_rowsets = 16;
 }
 
 message ObjectFilePB {
