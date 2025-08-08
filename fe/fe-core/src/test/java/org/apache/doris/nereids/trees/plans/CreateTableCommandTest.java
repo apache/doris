@@ -292,7 +292,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                 () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
-                        + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+                        + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd', 'medium_allocation_mode' = 'strict');"));
 
         checkThrow(org.apache.doris.common.DdlException.class, "sequence column only support UNIQUE_KEYS",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int sum)\n"
