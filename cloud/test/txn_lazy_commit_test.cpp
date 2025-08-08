@@ -1908,21 +1908,10 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::PROTOBUF_PARSE_ERR);
     }
 }
-TEST(TxnLazyCommitTest, FuzzyRandom) {
-    int counter = 0;
-    for (size_t i = 0; i < 100000; i++) {
-        if (fuzzy_random()) {
-            counter++;
-        }
-    }
-    LOG(INFO) << "fuzzy_random counter: " << counter;
-    ASSERT_GT(counter, 30000);
-    ASSERT_LT(counter, 70000);
-}
 
 TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
     int counter = 0;
-    config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 0;
     for (size_t i = 0; i < 100000; i++) {
         if (force_txn_lazy_commit()) {
             counter++;
@@ -1931,7 +1920,7 @@ TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
     LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
     ASSERT_EQ(counter, 0);
 
-    config::enable_cloud_txn_lazy_commit_fuzzy_test = true;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 50;
     counter = 0;
     for (size_t i = 0; i < 100000; i++) {
         if (force_txn_lazy_commit()) {
@@ -1941,7 +1930,7 @@ TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
     LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
     ASSERT_GT(counter, 30000);
     ASSERT_LT(counter, 70000);
-    config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 0;
 }
 
 TEST(TxnLazyCommitTest, RecycleTmpRowsetsCase1) {
