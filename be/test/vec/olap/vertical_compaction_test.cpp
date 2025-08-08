@@ -486,6 +486,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
+    EXPECT_TRUE(rowid_conversion.init().ok());
     stats.rowid_conversion = &rowid_conversion;
     auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
                                             *tablet_schema, input_rs_readers,
@@ -592,6 +593,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
+    EXPECT_TRUE(rowid_conversion.init().ok());
     stats.rowid_conversion = &rowid_conversion;
     auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
                                             *tablet_schema, input_rs_readers,
@@ -698,6 +700,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
+    EXPECT_TRUE(rowid_conversion.init().ok());
     stats.rowid_conversion = &rowid_conversion;
     auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
                                             *tablet_schema, input_rs_readers,
@@ -806,6 +809,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     // merge input rowset
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
+    EXPECT_TRUE(rowid_conversion.init().ok());
     stats.rowid_conversion = &rowid_conversion;
     st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
                                         input_rs_readers, output_rs_writer.get(), 100, num_segments,
@@ -907,6 +911,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     // merge input rowset
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
+    EXPECT_TRUE(rowid_conversion.init().ok());
     stats.rowid_conversion = &rowid_conversion;
     st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
                                         input_rs_readers, output_rs_writer.get(), 100, num_segments,
@@ -998,6 +1003,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
+    EXPECT_TRUE(rowid_conversion.init().ok());
     stats.rowid_conversion = &rowid_conversion;
     auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
                                             *tablet_schema, input_rs_readers,

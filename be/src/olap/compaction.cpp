@@ -135,8 +135,8 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
                   config::enable_vertical_compact_variant_subcolumns) {
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
-    _rowid_conversion =
-            std::make_unique<RowIdConversion>(_tablet->tablet_id(), _tablet->tablet_path());
+    _rowid_conversion = std::make_unique<RowIdConversion>(
+            config::enable_rowid_conversion_spill, _tablet->tablet_id(), _tablet->tablet_path());
 }
 
 Compaction::~Compaction() {
@@ -195,6 +195,7 @@ Status Compaction::merge_input_rowsets() {
         (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
          _tablet->enable_unique_key_merge_on_write())) {
         _stats.rowid_conversion = _rowid_conversion.get();
+        RETURN_IF_ERROR(_stats.rowid_conversion->init());
     }
 
     int64_t way_num = merge_way_num();

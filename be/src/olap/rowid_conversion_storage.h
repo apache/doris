@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <memory_resource>
 #include <unordered_map>
 #include <vector>
 
 #include "olap/olap_common.h"
 #include "olap/rowid_spill_manager.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 
 namespace doris {
 namespace detail {
@@ -31,42 +31,71 @@ namespace detail {
 class RowIdConversionStorage {
 public:
     virtual ~RowIdConversionStorage() = default;
-    virtual Status init(const std::vector<uint32_t>& segment_row_counts) = 0;
-    virtual Status add(uint32_t segment_id, uint32_t row_id,
+    virtual Status init() { return Status::OK(); }
+    virtual Status init_new_segments(const RowsetId& rowset_id,
+                                     const std::vector<uint32_t>& segment_row_counts) = 0;
+    virtual Status add(const RowsetId& rowset_id, uint32_t segment_id, uint32_t row_id,
                        const std::pair<uint32_t, uint32_t>& value) = 0;
-    virtual Status get(uint32_t segment_id, uint32_t row_id,
+    virtual Status get(const RowsetId& rowset_id, uint32_t segment_id, uint32_t row_id,
                        std::pair<uint32_t, uint32_t>* value) = 0;
-    virtual void prune_segment_mapping(uint32_t segment_id) = 0;
+    virtual void prune_segment_mapping(const RowsetId& rowset_id, uint32_t segment_id) = 0;
     virtual std::size_t memory_usage() const = 0;
     virtual Status spill_if_eligible() { return Status::OK(); }
     virtual const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>&
     get_rowid_conversion_map() const = 0;
+
+    const std::map<std::pair<RowsetId, uint32_t>, uint32_t>& get_src_segment_to_id_map() const {
+        return _segment_to_id_map;
+    }
+
+protected:
+    std::map<std::pair<RowsetId, uint32_t>, uint32_t> _segment_to_id_map;
+    std::vector<std::pair<RowsetId, uint32_t>> _id_to_segment_map;
 };
 
 // Vector-based storage implementation, memory only
 class RowIdMemoryStorage final : public RowIdConversionStorage {
 public:
-    Status init(const std::vector<uint32_t>& segment_row_counts) override {
-        _segments.resize(segment_row_counts.size());
-        for (std::size_t i = 0; i < segment_row_counts.size(); ++i) {
-            _segments[i].resize(segment_row_counts[i], {UINT32_MAX, UINT32_MAX});
+    Status init_new_segments(const RowsetId& src_rowset_id,
+                             const std::vector<uint32_t>& segment_row_counts) override {
+        for (size_t i = 0; i < segment_row_counts.size(); i++) {
+            constexpr size_t RESERVED_MEMORY = 10 * 1024 * 1024;
+            if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(RESERVED_MEMORY)) {
+                return Status::MemoryLimitExceeded("Memory limit exceeded during init");
+            }
+
+            uint32_t id = cast_set<uint32_t>(_segment_to_id_map.size());
+            _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
+            _id_to_segment_map.emplace_back(src_rowset_id, i);
+
+            std::vector<std::pair<uint32_t, uint32_t>> vec(
+                    segment_row_counts[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX));
+            _segments.emplace_back(std::move(vec));
         }
+
         return Status::OK();
     }
 
-    Status add(uint32_t segment_id, uint32_t row_id,
+    Status add(const RowsetId& rowset_id, uint32_t segment_id, uint32_t row_id,
                const std::pair<uint32_t, uint32_t>& value) override {
-        auto& vec = _segments[segment_id];
+        uint32_t internal_id =
+                _segment_to_id_map.at(std::pair<RowsetId, uint32_t> {rowset_id, segment_id});
+        auto& vec = _segments[internal_id];
         vec[row_id] = value;
         return Status::OK();
     }
 
-    Status get(uint32_t segment_id, uint32_t row_id,
+    Status get(const RowsetId& rowset_id, uint32_t segment_id, uint32_t row_id,
                std::pair<uint32_t, uint32_t>* value) override {
-        if (segment_id >= _segments.size()) {
-            return Status::NotFound<false>("segment_id out of range");
+        auto it = _segment_to_id_map.find({rowset_id, segment_id});
+        if (it == _segment_to_id_map.end()) {
+            return Status::NotFound("segment mapping not found");
         }
-        const auto& vec = _segments[segment_id];
+        uint32_t internal_id = it->second;
+        if (internal_id >= _segments.size()) {
+            return Status::NotFound<false>("internal_id out of range");
+        }
+        const auto& vec = _segments[internal_id];
         if (row_id >= vec.size()) {
             return Status::NotFound<false>("row_id out of range");
         }
@@ -78,9 +107,11 @@ public:
         return Status::OK();
     }
 
-    void prune_segment_mapping(uint32_t segment_id) override {
-        if (segment_id < _segments.size()) {
-            _segments[segment_id].clear();
+    void prune_segment_mapping(const RowsetId& rowset_id, uint32_t segment_id) override {
+        if (auto it = _segment_to_id_map.find({rowset_id, segment_id});
+            it != _segment_to_id_map.end()) {
+            uint32_t internal_id = it->second;
+            _segments[internal_id].clear();
         }
     }
 
@@ -113,15 +144,25 @@ public:
     RowIdSpillableStorage(const std::string& path)
             : _spill_manager {std::make_unique<RowIdSpillManager>(path)} {}
 
-    Status init(const std::vector<uint32_t>& segment_row_counts) override {
-        RETURN_IF_ERROR(_spill_manager->init(segment_row_counts));
-        _segments.resize(segment_row_counts.size());
+    Status init() override { return _spill_manager->init(); }
+
+    Status init_new_segments(const RowsetId& rowset_id,
+                             const std::vector<uint32_t>& segment_row_counts) override {
+        for (size_t i = 0; i < segment_row_counts.size(); i++) {
+            uint32_t id = cast_set<uint32_t>(_segment_to_id_map.size());
+            _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {rowset_id, i}, id);
+            _id_to_segment_map.emplace_back(rowset_id, i);
+            RETURN_IF_ERROR(_spill_manager->init_new_segment(id, segment_row_counts[i]));
+        }
+
         return Status::OK();
     }
 
-    Status add(uint32_t segment_id, uint32_t row_id,
+    Status add(const RowsetId& rowset_id, uint32_t segment_id, uint32_t row_id,
                const std::pair<uint32_t, uint32_t>& value) override {
-        auto& segment_mapping = _segments[segment_id].mapping;
+        uint32_t internal_id =
+                _segment_to_id_map.at(std::pair<RowsetId, uint32_t> {rowset_id, segment_id});
+        auto& segment_mapping = _segments[internal_id].mapping;
         segment_mapping[row_id] = value;
         return Status::OK();
     }
@@ -137,11 +178,16 @@ public:
         return Status::OK();
     }
 
-    Status get(uint32_t segment_id, uint32_t row_id,
+    Status get(const RowsetId& rowset_id, uint32_t segment_id, uint32_t row_id,
                std::pair<uint32_t, uint32_t>* value) override {
-        auto& mappings = _segments[segment_id].mapping;
-        if (_segments[segment_id].is_spilled) {
-            RETURN_IF_ERROR(_spill_manager->read_segment_mapping(segment_id, &mappings));
+        auto it = _segment_to_id_map.find({rowset_id, segment_id});
+        if (it == _segment_to_id_map.end()) {
+            return Status::NotFound("segment mapping not found");
+        }
+        uint32_t internal_id = it->second;
+        auto& mappings = _segments[internal_id].mapping;
+        if (_segments[internal_id].is_spilled) {
+            RETURN_IF_ERROR(_spill_manager->read_segment_mapping(internal_id, &mappings));
         }
 
         if (auto it = mappings.find(row_id); it != mappings.end()) {
@@ -151,14 +197,18 @@ public:
         return Status::NotFound("row_id not found in spilled data");
     }
 
-    void prune_segment_mapping(uint32_t segment_id) override {
-        if (segment_id < _segments.size()) {
-            _segments[segment_id].mapping.clear();
-            _segments[segment_id].resource.reset();
-            _segments[segment_id].is_spilled = false;
+    void prune_segment_mapping(const RowsetId& rowset_id, uint32_t segment_id) override {
+        if (auto it = _segment_to_id_map.find({rowset_id, segment_id});
+            it != _segment_to_id_map.end()) {
+            uint32_t internal_id = it->second;
+            _segments[internal_id].mapping.clear();
+            _segments[internal_id].resource.reset();
+            _segments[internal_id].is_spilled = false;
         }
     }
 
+    // for inverted index compaction
+    // TODO: fix me
     const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& get_rowid_conversion_map()
             const override {
         throw Exception(Status::FatalError("Unreachable"));
@@ -173,22 +223,19 @@ public:
     }
 
 private:
-    static constexpr std::size_t _spill_threshold = 1000000;               // 1M entries per segment
-    static constexpr std::size_t _total_memory_limit = 1024 * 1024 * 1024; // 1GB total
-
-    Status _spill_segment(uint32_t segment_id) {
-        auto& segment = _segments[segment_id];
-        RETURN_IF_ERROR(_spill_manager->spill_segment_mapping(segment_id, segment.mapping));
+    Status _spill_segment(uint32_t internal_id) {
+        auto& segment = _segments[internal_id];
+        RETURN_IF_ERROR(_spill_manager->spill_segment_mapping(internal_id, segment.mapping));
         segment.is_spilled = true;
         segment.mapping.clear();
         segment.resource.reset();
         return Status::OK();
     }
 
-    Status check_and_spill_segment(uint32_t segment_id) {
-        if (_segments[segment_id].resource.bytes_allocated() >=
+    Status check_and_spill_segment(uint32_t internal_id) {
+        if (_segments[internal_id].resource.bytes_allocated() >=
             config::rowid_conversion_max_mb * 1024 * 1024) {
-            RETURN_IF_ERROR(_spill_segment(segment_id));
+            RETURN_IF_ERROR(_spill_segment(internal_id));
         }
         return Status::OK();
     }

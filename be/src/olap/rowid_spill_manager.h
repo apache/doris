@@ -67,7 +67,7 @@ public:
     struct MetaInfo {
         uint32_t segment_count {0};
         uint64_t segment_info_offset {0};
-        uint64_t data_offset {0};
+        uint64_t next_data_offset {0};
     };
 
     struct SegmentInfo {
@@ -88,15 +88,17 @@ public:
         }
     }
 
-    Status init(const std::vector<uint32_t>& segment_row_counts);
+    Status init();
+    Status init_new_segment(uint32_t internal_id, uint32_t row_count);
 
-    // Write segment data to spill file
-    Status spill_segment_mapping(uint32_t segment_id, const RowIdMappingType& mappings);
+    // spill segment data to file
+    Status spill_segment_mapping(uint32_t internal_id, const RowIdMappingType& mappings);
 
     // Read all mappings for a segment
-    Status read_segment_mapping(uint32_t segment_id, RowIdMappingType* mappings);
+    Status read_segment_mapping(uint32_t internal_id, RowIdMappingType* mappings);
     Status read_segment_mapping_internal(
-            uint32_t segment_id, const std::function<void(uint32_t, uint32_t, uint32_t)>& callback);
+            uint32_t internal_id,
+            const std::function<void(uint32_t, uint32_t, uint32_t)>& callback);
 
 private:
     std::string _path;
@@ -104,8 +106,8 @@ private:
     mutable std::mutex _mutex;
 
     MetaInfo _header;
-    // segment_id -> SegmentInfo
-    std::vector<SegmentInfo> _segment_infos;
+    // internal_id -> SegmentInfo
+    std::unordered_map<uint32_t, SegmentInfo> _segment_infos;
 };
 
 } // namespace doris

@@ -34,6 +34,7 @@
 #include <tuple>
 #include <unordered_map>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
@@ -83,6 +84,7 @@ protected:
         auto engine = std::make_unique<StorageEngine>(options);
         engine_ref = engine.get();
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        config::enable_rowid_conversion_spill = false;
     }
 
     void TearDown() override {
@@ -344,6 +346,7 @@ protected:
 
         Merger::Statistics stats;
         RowIdConversion rowid_conversion;
+        EXPECT_TRUE(rowid_conversion.init().ok());
         stats.rowid_conversion = &rowid_conversion;
         Status s;
         if (is_vertical_merger) {
@@ -488,6 +491,7 @@ TEST_F(TestRowIdConversion, Basic) {
         rss_row_ids.push_back(rss_row_id);
     }
     RowIdConversion rowid_conversion;
+    EXPECT_TRUE(rowid_conversion.init().ok());
     src_rowset.init(0);
     std::vector<uint32_t> rs0_segment_num_rows = {4, 3};
     auto st = rowid_conversion.init_segment_map(src_rowset, rs0_segment_num_rows);
@@ -499,7 +503,7 @@ TEST_F(TestRowIdConversion, Basic) {
     rowid_conversion.set_dst_rowset_id(dst_rowset);
 
     std::vector<uint32_t> dst_segment_num_rows = {4, 3, 4};
-    rowid_conversion.add(rss_row_ids, dst_segment_num_rows);
+    EXPECT_TRUE(rowid_conversion.add(rss_row_ids, dst_segment_num_rows).ok());
 
     int res = 0;
     src_rowset.init(0);

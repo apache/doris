@@ -23,7 +23,7 @@
 
 namespace doris {
 
-Status RowIdSpillManager::init(const std::vector<uint32_t>& segment_row_counts) {
+Status RowIdSpillManager::init() {
     std::lock_guard<std::mutex> lock(_mutex);
 
     _fd = open(_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
@@ -31,34 +31,36 @@ Status RowIdSpillManager::init(const std::vector<uint32_t>& segment_row_counts) 
         return Status::IOError(fmt::format("Failed to create spill file: {}", strerror(errno)));
     }
 
-    _header.segment_count = segment_row_counts.size();
-    _header.data_offset = 0;
+    _header.segment_count = 0;
+    _header.next_data_offset = 0;
 
-    uint64_t current_offset = 0;
-    _segment_infos.reserve(segment_row_counts.size());
-    for (auto segment_row_count : segment_row_counts) {
-        SegmentInfo info;
-        info.row_count = segment_row_count;
-        info.offset = current_offset;
-        info.size = 0;
-        _segment_infos.push_back(info);
-        current_offset += segment_row_count * ENTRY_BYTES;
-    }
     return Status::OK();
 }
 
-Status RowIdSpillManager::spill_segment_mapping(uint32_t segment_id,
+Status RowIdSpillManager::init_new_segment(uint32_t internal_id, uint32_t row_count) {
+    std::lock_guard<std::mutex> lock(_mutex);
+
+    _segment_infos[internal_id] = SegmentInfo {
+            .row_count = row_count,
+            .offset = _header.next_data_offset,
+            .size = 0,
+    };
+    _header.next_data_offset += row_count * ENTRY_BYTES;
+    return Status::OK();
+}
+
+Status RowIdSpillManager::spill_segment_mapping(uint32_t internal_id,
                                                 const RowIdMappingType& mappings) {
     std::lock_guard<std::mutex> lock(_mutex);
 
-    if (segment_id >= _segment_infos.size()) {
-        return Status::InvalidArgument(fmt::format("Invalid segment id: {}", segment_id));
+    if (internal_id >= _segment_infos.size()) {
+        return Status::InvalidArgument(fmt::format("Invalid segment id: {}", internal_id));
     }
 
-    auto& info = _segment_infos[segment_id];
+    auto& info = _segment_infos[internal_id];
 
     // spill current segment's mappings from memory to file
-    uint64_t file_offset = _header.data_offset + info.offset + info.size * ENTRY_BYTES;
+    uint64_t file_offset = info.offset + info.size * ENTRY_BYTES;
     std::string data_buffer;
     data_buffer.reserve(mappings.size() * ENTRY_BYTES);
     uint64_t count = 0;
@@ -99,7 +101,7 @@ Status RowIdSpillManager::read_segment_mapping_internal(
         return Status::OK(); // Empty segment
     }
 
-    uint64_t file_offset = _header.data_offset + info.offset;
+    uint64_t file_offset = info.offset;
     std::size_t bytes = info.size * ENTRY_BYTES;
     std::string buffer(bytes, '\0');
     ssize_t bytes_read = ::pread(_fd, buffer.data(), bytes, file_offset);
