@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
@@ -243,18 +242,22 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 .collect(Collectors.toSet());
     }
 
-    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        Set<String> result = Sets.newHashSet();
-        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        // The database will not be locked in here.
-        // The getTable is a thread-safe method called without read lock of database
-        for (long tableId : fileGroupAggInfo.getAllTableIds()) {
-            Table table = database.getTableOrMetaException(tableId);
-            result.add(table.getName());
+        try {
+            Set<String> result = Sets.newHashSet();
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            // The database will not be locked in here.
+            // The getTable is a thread-safe method called without read lock of database
+            for (long tableId : fileGroupAggInfo.getAllTableIds()) {
+                Table table = database.getTableOrMetaException(tableId);
+                result.add(table.getName());
+            }
+            return result;
+        } catch (Exception e) {
+            LOG.warn(e);
+            throw e;
         }
-        return result;
     }
 
     @Override
