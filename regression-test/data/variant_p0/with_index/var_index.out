@@ -6,6 +6,11 @@
 
 -- !sql --
 2	{"a":18811,"b":"hello world","c":1181111}
+3	{"a":18811,"b":"hello wworld","c":11111}
+4	{"a":1234,"b":"hello xxx world","c":8181111}
+
+-- !sql --
+2	{"a":18811,"b":"hello world","c":1181111}
 4	{"a":1234,"b":"hello xxx world","c":8181111}
 
 -- !sql --
@@ -13,12 +18,12 @@
 2	{"a":18811,"b":"hello world","c":1181111}
 3	{"a":18811,"b":"hello wworld","c":11111}
 4	{"a":1234,"b":"hello xxx world","c":8181111}
-5	{"a":123456789,"b":123456,"c":8181111}
-6	{"timestamp":1713283200.06036}
+5	{"a":123456789,"b":"123456","c":8181111}
+6	{"timestamp":1713283200.060359}
 7	{"timestamp":17}
-8	{"timestamp":[123]}
+8	{"arr":[123]}
 9	{"timestamp":17}
-10	{"timestamp":"17.0"}
+10	{"timestamp":17}
 11	{"nested":[{"a":1}]}
 11	{"nested":[{"b":"1024"}]}
 
