@@ -10849,7 +10849,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-        
+
         // prepare restore job
         RestoreJobRequest make_req;
         RestoreJobResponse make_res;
