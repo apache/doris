@@ -27,10 +27,12 @@
 #include <utility>
 
 #include "absl/strings/substitute.h"
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/table_connector.h"
 #include "jni.h"
+#include "runtime/cloud_plugin_downloader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -657,6 +659,20 @@ std::string JdbcConnector::_check_and_return_default_driver_url(const std::strin
         if (std::filesystem::exists(file)) {
             return "file://" + default_url + "/" + url;
         } else {
+            // Try cloud plugin download if in cloud mode
+            if (config::is_cloud_mode()) {
+                std::string target_path = default_url + "/" + url;
+                std::string downloaded_path = CloudPluginDownloader::download_plugin_if_needed(
+                        CloudPluginDownloader::PluginType::JDBC_DRIVERS, url, target_path);
+                if (!downloaded_path.empty()) {
+                    LOG(INFO) << "Successfully downloaded JDBC driver from cloud: " << url << " to "
+                              << downloaded_path;
+                    return "file://" + downloaded_path;
+                }
+                LOG(WARNING) << "Failed to download JDBC driver from cloud: " << url
+                             << ", falling back to old directory";
+            }
+            // Fall back to old directory
             return "file://" + default_old_url + "/" + url;
         }
     } else {

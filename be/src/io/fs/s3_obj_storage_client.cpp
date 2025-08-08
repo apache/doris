@@ -253,7 +253,8 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
             "s3_file_system::head_object", std::ref(request).get());
     if (outcome.IsSuccess()) {
         return {.resp = {convert_to_obj_response(Status::OK())},
-                .file_size = outcome.GetResult().GetContentLength()};
+                .file_size = outcome.GetResult().GetContentLength(),
+                .etag = outcome.GetResult().GetETag()};
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return {.resp = {convert_to_obj_response(Status::Error<ErrorCode::NOT_FOUND, false>(""))}};
     } else {

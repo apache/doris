@@ -81,6 +81,7 @@ struct ObjectStorageUploadResponse {
 struct ObjectStorageHeadResponse {
     ObjectStorageResponse resp {};
     long long file_size {0};
+    std::string etag {}; // ETag for incremental download comparison
 };
 
 class ObjStorageClient {

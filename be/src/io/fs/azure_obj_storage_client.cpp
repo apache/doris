@@ -253,7 +253,7 @@ ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStorage
             SCOPED_BVAR_LATENCY(s3_bvar::s3_head_latency);
             return _client->GetBlockBlobClient(opts.key).GetProperties().Value;
         });
-        return {.file_size = properties.BlobSize};
+        return {.file_size = properties.BlobSize, .etag = properties.ETag.ToString()};
     } catch (Azure::Core::RequestFailedException& e) {
         if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
             return ObjectStorageHeadResponse {

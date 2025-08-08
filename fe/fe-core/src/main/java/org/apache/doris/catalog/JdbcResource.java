@@ -23,6 +23,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
+import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -334,6 +336,13 @@ public class JdbcResource extends Resource {
             if (file.exists()) {
                 return "file://" + defaultDriverUrl + "/" + driverUrl;
             } else {
+                if (Config.isCloudMode()) {
+                    String downloadedPath = CloudPluginDownloader.downloadPluginIfNeeded(
+                            PluginType.JDBC_DRIVERS, driverUrl, defaultDriverUrl + "/" + driverUrl);
+                    if (!downloadedPath.isEmpty()) {
+                        return "file://" + downloadedPath;
+                    }
+                }
                 // use old one
                 return "file://" + defaultOldDriverUrl + "/" + driverUrl;
             }

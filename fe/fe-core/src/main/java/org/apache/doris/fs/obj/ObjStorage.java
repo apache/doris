@@ -43,6 +43,8 @@ public interface ObjStorage<C> extends AutoCloseable {
 
     Status headObject(String remotePath);
 
+    String getObjectETag(String remotePath);
+
     Status getObject(String remoteFilePath, File localFile);
 
     Status putObject(String remotePath, @Nullable InputStream content, long contentLenghth);

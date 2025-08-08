@@ -134,6 +134,33 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     @Override
+    public String getObjectETag(String remotePath) {
+        try {
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
+            BlobProperties properties = blobClient.getProperties();
+            String eTag = properties.getETag();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getObjectETag success: {}, eTag: {}", remotePath, eTag);
+            }
+            return eTag;
+        } catch (BlobStorageException e) {
+            if (e.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
+                LOG.warn("getObjectETag failed - file not found: {}", remotePath);
+            } else {
+                LOG.warn("getObjectETag failed: {}", e.getMessage());
+            }
+            return null;
+        } catch (UserException e) {
+            LOG.warn("getObjectETag failed - connect to azure failed: {}", e.getMessage());
+            return null;
+        } catch (Exception e) {
+            LOG.warn("getObjectETag failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
     public Status getObject(String remoteFilePath, File localFile) {
         try {
             S3URI uri = S3URI.create(remoteFilePath, isUsePathStyle, forceParsingByStandardUri);
