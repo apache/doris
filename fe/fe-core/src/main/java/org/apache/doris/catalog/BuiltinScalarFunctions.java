@@ -21,10 +21,12 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSimilarity;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
@@ -1002,12 +1004,14 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Uncompress.class, "uncompress"),
             scalar(LLMTranslate.class, "llm_translate"),
             scalar(LLMSentiment.class, "llm_sentiment"),
+            scalar(LLMFilter.class, "llm_filter"),
             scalar(LLMFixGrammar.class, "llm_fixgrammar"),
             scalar(LLMExtract.class, "llm_extract"),
             scalar(LLMGenerate.class, "llm_generate"),
             scalar(LLMClassify.class, "llm_classify"),
             scalar(LLMMask.class, "llm_mask"),
-            scalar(LLMSummarize.class, "llm_summarize"));
+            scalar(LLMSummarize.class, "llm_summarize"),
+            scalar(LLMSimilarity.class, "llm_similarity"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

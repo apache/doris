@@ -28,10 +28,12 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/functions/llm/llm_classify.h"
 #include "vec/functions/llm/llm_extract.h"
+#include "vec/functions/llm/llm_filter.h"
 #include "vec/functions/llm/llm_fix_grammar.h"
 #include "vec/functions/llm/llm_generate.h"
 #include "vec/functions/llm/llm_mask.h"
 #include "vec/functions/llm/llm_sentiment.h"
+#include "vec/functions/llm/llm_similarity.h"
 #include "vec/functions/llm/llm_summarize.h"
 #include "vec/functions/llm/llm_translate.h"
 
@@ -266,6 +268,51 @@ TEST(LLMFunctionTest, LLMTranslateTest) {
     ASSERT_EQ(prompt,
               "Translate the following text to Spanish.\n"
               "Text: Hello world");
+}
+
+TEST(LLMFunctionTest, LLMSimilarityTest) {
+    FunctionLLMSimilarity function;
+
+    std::vector<std::string> resources = {"resource_name"};
+    std::vector<std::string> text1 = {"I like this dish"};
+    std::vector<std::string> text2 = {"This dish is very good"};
+
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text1 = ColumnHelper::create_column<DataTypeString>(text1);
+    auto col_text2 = ColumnHelper::create_column<DataTypeString>(text2);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text1), std::make_shared<DataTypeString>(), "text1"});
+    block.insert({std::move(col_text2), std::make_shared<DataTypeString>(), "text2"});
+
+    ColumnNumbers arguments = {0, 1, 2};
+    std::string prompt;
+    Status status = function.build_prompt(block, arguments, 0, prompt);
+
+    ASSERT_TRUE(status.ok());
+    ASSERT_EQ(prompt, "Text 1: I like this dish\nText 2: This dish is very good");
+}
+
+TEST(LLMFunctionTest, LLMFilterTest) {
+    FunctionLLMFilter function;
+
+    std::vector<std::string> resources = {"resource_name"};
+    std::vector<std::string> texts = {"This is a valid sentence."};
+
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+
+    ColumnNumbers arguments = {0, 1};
+    std::string prompt;
+    Status status = function.build_prompt(block, arguments, 0, prompt);
+
+    ASSERT_TRUE(status.ok());
+    ASSERT_EQ(prompt, "This is a valid sentence.");
 }
 
 TEST(LLMFunctionTest, ResourceNotFound) {
