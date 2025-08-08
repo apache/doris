@@ -207,11 +207,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
         if (properties.containsKey(MAX_MEMORY_PERCENT)) {
             String memHardLimitStr = properties.get(MAX_MEMORY_PERCENT);
-            // If the input is -1, it means use all memory, in this version we could change it to 100% now
-            // since sum of all group's memory could be larger than 100%
-            if (memHardLimitStr.equals("-1")) {
-                memHardLimitStr = MAX_MEMORY_PERCENT_DEFAULT_VALUE;
-            }
             if (memHardLimitStr.endsWith("%")) {
                 memHardLimitStr = memHardLimitStr.substring(0, memHardLimitStr.length() - 1);
             }

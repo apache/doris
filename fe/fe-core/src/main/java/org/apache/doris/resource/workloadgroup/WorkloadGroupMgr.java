@@ -230,6 +230,18 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     private void checkGlobalUnlock(WorkloadGroup newWg, WorkloadGroup oldWg) throws DdlException {
         // trim all properties
         newWg.trimProperties();
+
+        if (newWg.getMinCpuPercent() > newWg.getMaxCpuPercent()) {
+            throw new DdlException("min_cpu_percent is " + newWg.getMinCpuPercent()
+                + "%, it should be less or equal than max_cpu_percent "
+                + newWg.getMaxCpuPercent() + "%");
+        }
+        if (newWg.getMinMemoryPercent() > newWg.getMaxMemoryPercent()) {
+            throw new DdlException("min_memory_percent is " + newWg.getMinMemoryPercent()
+                + "%, it should be less or equal than max_memory_percent "
+                + newWg.getMaxMemoryPercent() + "%");
+        }
+
         String newWgCg = newWg.getComputeGroup();
 
         int wgNumOfCurrentCg = 0;
@@ -246,17 +258,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             WorkloadGroup wg = entry.getValue();
             if (!newWgCg.equalsIgnoreCase(wg.getComputeGroup())) {
                 continue;
-            }
-
-            if (newWg.getMinCpuPercent() > newWg.getMaxCpuPercent()) {
-                throw new DdlException("min_cpu_percent is " + newWg.getMinCpuPercent()
-                    + "%, it should be less or equal than max_cpu_percent "
-                    + newWg.getMaxCpuPercent() + "%");
-            }
-            if (newWg.getMinMemoryPercent() > newWg.getMaxMemoryPercent()) {
-                throw new DdlException("min_memory_percent is " + newWg.getMinMemoryPercent()
-                    + "%, it should be less or equal than max_memory_percent "
-                    + newWg.getMaxMemoryPercent() + "%");
             }
             if (wg.getId() != newWg.getId()) {
                 ++ wgNumOfCurrentCg;
