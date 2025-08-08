@@ -28,6 +28,7 @@ import org.apache.doris.fs.obj.RemoteObjects;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -201,11 +202,28 @@ public class S3Resource extends Resource {
 
         // modify properties
         writeLock();
+
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
             if (kv.getKey().equals(S3Properties.Env.TOKEN)
                     || kv.getKey().equals(S3Properties.SESSION_TOKEN)) {
                 this.properties.put(kv.getKey(), kv.getValue());
+            }
+
+            if (kv.getKey().equalsIgnoreCase(S3Properties.ROLE_ARN)
+                    && !Strings.isNullOrEmpty(kv.getValue())) {
+                this.properties.remove(S3Properties.ACCESS_KEY);
+                this.properties.remove(S3Properties.Env.ACCESS_KEY);
+                this.properties.remove(S3Properties.SECRET_KEY);
+                this.properties.remove(S3Properties.Env.SECRET_KEY);
+            }
+
+            if (kv.getKey().equalsIgnoreCase(S3Properties.ACCESS_KEY)
+                    && !Strings.isNullOrEmpty(kv.getValue())) {
+                this.properties.remove(S3Properties.ROLE_ARN);
+                this.properties.remove(S3Properties.Env.ROLE_ARN);
+                this.properties.remove(S3Properties.EXTERNAL_ID);
+                this.properties.remove(S3Properties.Env.EXTERNAL_ID);
             }
         }
         ++version;
