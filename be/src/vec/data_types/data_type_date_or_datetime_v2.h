@@ -89,7 +89,6 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt32 int_val) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     MutableColumnPtr create_column() const override;
 
@@ -139,7 +138,6 @@ public:
     void push_number(ColumnString::Chars& chars, const UInt64& num) const;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt64 int_val) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     using SerDeType = DataTypeDateTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(_scale, nesting_level);

@@ -57,7 +57,7 @@ suite ("agg_no_group") {
 
     test {
         sql """CREATE MATERIALIZED VIEW mv_name_2_3_5  AS  
-        select l_shipdate, l_partkey, l_orderkey from lineitem_2_agg"""
+        select l_shipdate as a1, l_partkey as a2, l_orderkey as a3 from lineitem_2_agg"""
         exception "agg mv must has group by clause"
     }
 }

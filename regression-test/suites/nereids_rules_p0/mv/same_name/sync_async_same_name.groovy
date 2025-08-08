@@ -93,7 +93,7 @@ suite("sync_async_same_name") {
             """
 
     def mv_query = """
-            select o_shippriority, o_comment,
+            select o_shippriority as a1, o_comment as a2,
             sum(o_totalprice),
             max(o_totalprice),
             min(o_totalprice),

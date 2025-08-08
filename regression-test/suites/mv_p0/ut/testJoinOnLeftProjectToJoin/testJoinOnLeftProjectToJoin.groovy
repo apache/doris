@@ -55,8 +55,8 @@ suite ("testJoinOnLeftProjectToJoin") {
     sql """insert into depts values("2020-01-02",2,"b",1);"""
     sql """insert into depts values("2020-01-02",2,"b",1);"""
 
-    createMV("create materialized view emps_mv as select deptno, sum(salary), sum(commission) from emps group by deptno;")
-    createMV("create materialized view depts_mv as select deptno, max(cost) from depts group by deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, sum(salary), sum(commission) from emps group by deptno;")
+    createMV("create materialized view depts_mv as select deptno as a2, max(cost) from depts group by deptno;")
 
     sql "analyze table emps with sync;"
     sql """alter table emps modify column time_col set stats ('row_count'='6');"""

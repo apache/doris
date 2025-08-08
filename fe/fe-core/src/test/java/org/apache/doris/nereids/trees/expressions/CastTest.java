@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
@@ -628,6 +629,28 @@ public class CastTest {
             Assertions.assertFalse(cast.nullable());
             child = new SlotReference("slot", JsonType.INSTANCE, true);
             cast = new Cast(child, JsonType.INSTANCE);
+            Assertions.assertTrue(cast.nullable());
+        }
+    }
+
+    @Test
+    public void testCastFromArray() {
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+            SlotReference child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, false);
+            Cast cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
+            Assertions.assertFalse(cast.nullable());
+            child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, true);
+            cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
+            Assertions.assertTrue(cast.nullable());
+
+            // When strict mode is false, always nullable.  to Json is PN
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
+            child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, false);
+            cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
+            Assertions.assertFalse(cast.nullable());
+            child = new SlotReference("slot", ArrayType.SYSTEM_DEFAULT, true);
+            cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
     }

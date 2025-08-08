@@ -1293,6 +1293,7 @@ void MetaServiceImpl::commit_txn_immediately(
         }
 
         bool is_versioned_write = is_version_write_enabled(instance_id);
+        bool is_versioned_read = is_version_read_enabled(instance_id);
 
         // Save rowset meta
         for (auto& i : rowsets) {
@@ -1406,6 +1407,7 @@ void MetaServiceImpl::commit_txn_immediately(
         }
 
         txn_info.set_versioned_write(is_versioned_write);
+        txn_info.set_versioned_read(is_versioned_read);
 
         LOG(INFO) << "after update txn_info=" << txn_info.ShortDebugString();
         info_val.clear();
@@ -1907,7 +1909,9 @@ void MetaServiceImpl::commit_txn_eventually(
         txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
 
         bool is_versioned_write = is_version_write_enabled(instance_id);
+        bool is_versioned_read = is_version_read_enabled(instance_id);
         txn_info.set_versioned_write(is_versioned_write);
+        txn_info.set_versioned_read(is_versioned_read);
 
         LOG(INFO) << "after update txn_id= " << txn_id
                   << " txn_info=" << txn_info.ShortDebugString();
@@ -2036,6 +2040,7 @@ void MetaServiceImpl::commit_txn_eventually(
         std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer_->submit(instance_id, txn_id);
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::txn_lazy_committer_wait", &txn_id);
         std::pair<MetaServiceCode, std::string> ret = task->wait();
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::task->wait", &ret);
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
                          << " msg=" << ret.second;
@@ -2446,6 +2451,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
     }
 
     bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
 
     // Save rowset meta
     for (auto& i : rowsets) {
@@ -2554,6 +2560,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
     }
     txn_info.set_versioned_write(is_versioned_write);
+    txn_info.set_versioned_read(is_versioned_read);
 
     LOG(INFO) << "after update txn_info=" << txn_info.ShortDebugString();
     info_val.clear();

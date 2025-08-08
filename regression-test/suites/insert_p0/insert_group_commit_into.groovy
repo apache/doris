@@ -414,7 +414,7 @@ suite("insert_group_commit_into") {
             ); """
         sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON ${table};"""
         createMV("""create materialized view ods_zn_dnt_max1 as
-            select ordernum,max(dnt) as dnt from ${table}
+            select ordernum as a1,max(dnt) as dnt from ${table}
             group by ordernum
             ORDER BY ordernum;""")
         connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {

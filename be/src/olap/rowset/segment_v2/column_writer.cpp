@@ -465,7 +465,7 @@ Status ScalarColumnWriter::init() {
     if (_opts.need_inverted_index) {
         do {
             DBUG_EXECUTE_IF("column_writer.init", {
-                class InvertedIndexColumnWriterEmptyImpl final : public InvertedIndexColumnWriter {
+                class InvertedIndexColumnWriterEmpty final : public IndexColumnWriter {
                 public:
                     Status init() override { return Status::OK(); }
                     Status add_values(const std::string name, const void* values,
@@ -490,14 +490,13 @@ Status ScalarColumnWriter::init() {
                     void close_on_error() override {}
                 };
 
-                _inverted_index_builder = std::make_unique<InvertedIndexColumnWriterEmptyImpl>();
+                _index_builder = std::make_unique<InvertedIndexColumnWriterEmpty>();
 
                 break;
             });
 
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.index_file_writer,
-                                                              _opts.inverted_index));
+            RETURN_IF_ERROR(IndexColumnWriter::create(
+                    get_field(), &_index_builder, _opts.index_file_writer, _opts.inverted_index));
         } while (false);
     }
     if (_opts.need_bloom_filter) {
@@ -523,7 +522,7 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
         _bitmap_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
     }
     if (_opts.need_inverted_index) {
-        RETURN_IF_ERROR(_inverted_index_builder->add_nulls(cast_set<uint32_t>(num_rows)));
+        RETURN_IF_ERROR(_index_builder->add_nulls(cast_set<uint32_t>(num_rows)));
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
@@ -559,8 +558,7 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
         _bitmap_index_builder->add_values(data, *num_written);
     }
     if (_opts.need_inverted_index) {
-        RETURN_IF_ERROR(
-                _inverted_index_builder->add_values(get_field()->name(), data, *num_written));
+        RETURN_IF_ERROR(_index_builder->add_values(get_field()->name(), data, *num_written));
     }
     if (_opts.need_bloom_filter) {
         RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(data, *num_written));
@@ -652,7 +650,7 @@ Status ScalarColumnWriter::write_bitmap_index() {
 
 Status ScalarColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
-        return _inverted_index_builder->finish();
+        return _index_builder->finish();
     }
     return Status::OK();
 }
@@ -910,9 +908,8 @@ Status ArrayColumnWriter::init() {
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.index_file_writer,
-                                                              _opts.inverted_index));
+            RETURN_IF_ERROR(IndexColumnWriter::create(
+                    get_field(), &_index_builder, _opts.index_file_writer, _opts.inverted_index));
         }
     }
     return Status::OK();
@@ -920,7 +917,7 @@ Status ArrayColumnWriter::init() {
 
 Status ArrayColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
-        return _inverted_index_builder->finish();
+        return _index_builder->finish();
     }
     return Status::OK();
 }
@@ -945,7 +942,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         // now only support nested type is scala
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-            RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
+            RETURN_IF_ERROR(_index_builder->add_array_values(
                     _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         }
@@ -966,7 +963,7 @@ Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t
     RETURN_IF_ERROR(append_data(ptr, num_rows));
     if (is_nullable()) {
         if (_opts.need_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index_builder->add_array_nulls(null_map, num_rows));
+            RETURN_IF_ERROR(_index_builder->add_array_nulls(null_map, num_rows));
         }
         RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
     }
@@ -1164,7 +1161,7 @@ Status MapColumnWriter::finish_current_page() {
 
 Status MapColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
-        return _inverted_index_builder->finish();
+        return _index_builder->finish();
     }
     return Status::OK();
 }

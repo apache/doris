@@ -702,7 +702,8 @@ protected:
                 EXPECT_TRUE(st.ok()) << st.to_string();
             } else {
                 // check index file terms for multiple segments
-                std::vector<std::unique_ptr<DorisCompoundReader>> dirs_idx(num_segments_idx);
+                std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_idx(
+                        num_segments_idx);
                 for (int i = 0; i < num_segments_idx; i++) {
                     const auto& seg_path = output_rowset_index->segment_path(i);
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
@@ -714,7 +715,8 @@ protected:
                     EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
                     dirs_idx[i] = std::move(dir_idx.value());
                 }
-                std::vector<std::unique_ptr<DorisCompoundReader>> dirs_normal(num_segments_normal);
+                std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_normal(
+                        num_segments_normal);
                 for (int i = 0; i < num_segments_normal; i++) {
                     const auto& seg_path = output_rowset_normal->segment_path(i);
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();

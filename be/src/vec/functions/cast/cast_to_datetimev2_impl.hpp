@@ -442,7 +442,10 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
     SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
     SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
                              part[0]);
-    SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 0));
+    if (ptr == end) {
+        // no minute part, just return.
+        return true;
+    }
     if (*ptr == ':') {
         // with hour:minute:second
         if (consume_one_colon(ptr, end)) { // minute
@@ -675,7 +678,7 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
         SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::DAY>(day), "invalid day {}", day);
     }
 
-    if (ptr == end) {
+    if (is_space_range(ptr, end)) {
         // no time part, just return.
         res.unchecked_set_time_unit<TimeUnit::HOUR>(0);
         res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);

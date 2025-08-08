@@ -19,6 +19,7 @@
 
 #include <hs/hs.h>
 
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -43,7 +44,8 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        if (iter->get_reader()->is_fulltext_index() && !iter->get_reader()->is_support_phrase()) {
+        if (segment_v2::IndexReaderHelper::is_fulltext_index(iter->get_reader()) &&
+            !segment_v2::IndexReaderHelper::is_support_phrase(iter->get_reader())) {
             return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                     "phrase queries require setting support_phrase = true");
         }

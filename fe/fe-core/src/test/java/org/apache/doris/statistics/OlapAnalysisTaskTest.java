@@ -212,7 +212,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public boolean isPartitionColumn(String columnName) {
+            public boolean isPartitionColumn(Column column) {
                 return true;
             }
         };
@@ -668,7 +668,7 @@ public class OlapAnalysisTaskTest {
         };
         new MockUp<OlapTable>() {
             @Mock
-            boolean isPartitionColumn(String columnName) {
+            boolean isPartitionColumn(Column column) {
                 return false;
             }
 

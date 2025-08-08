@@ -50,6 +50,16 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
     return serdes;
 }
 
+Status DataTypeSerDe::default_from_string(StringRef& str, IColumn& column) const {
+    auto slice = str.to_slice();
+    DataTypeSerDe::FormatOptions options;
+    options.converted_from_string = true;
+    ///TODO: Think again, when do we need to consider escape characters?
+    // options.escape_char = '\\';
+    // Deserialize the string into the column
+    return deserialize_one_cell_from_json(column, slice, options);
+}
+
 Status DataTypeSerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
                                                        ColumnString& to_column) const {
     const auto size = from_column.size();

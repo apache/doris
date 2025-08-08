@@ -35,7 +35,7 @@ suite ("incMVReInSub") {
     sql """insert into incMVReInSub values("2020-01-01",1,"a",1);"""
     sql """insert into incMVReInSub values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view incMVReInSub_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from incMVReInSub group by user_id;")
+    createMV("create materialized view incMVReInSub_mv as select user_id as a1, bitmap_union(to_bitmap(tag_id)) from incMVReInSub group by user_id;")
 
     sleep(3000)
 

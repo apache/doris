@@ -121,7 +121,9 @@ public abstract class Type {
     public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
-    public static final ScalarType VARIANT = new ScalarType(PrimitiveType.VARIANT);
+    // In the past, variant metadata used the ScalarType type.
+    // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+    public static final VariantType VARIANT = new VariantType();
     public static final AnyType ANY_STRUCT_TYPE = new AnyStructType();
     public static final AnyType ANY_ELEMENT_TYPE = new AnyElementType();
     private static final Map<String, Type> typeMap = new HashMap<>();
@@ -135,6 +137,7 @@ public abstract class Type {
     private static final ArrayList<Type> arraySubTypes;
     private static final ArrayList<Type> mapSubTypes;
     private static final ArrayList<Type> structSubTypes;
+    private static final ArrayList<Type> variantSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
 
     static {
@@ -301,6 +304,22 @@ public abstract class Type {
         structSubTypes.add(ARRAY);
         structSubTypes.add(MAP);
         structSubTypes.add(STRUCT);
+
+        variantSubTypes = Lists.newArrayList();
+        variantSubTypes.add(BOOLEAN);
+        variantSubTypes.addAll(integerTypes);
+        variantSubTypes.add(FLOAT);
+        variantSubTypes.add(DOUBLE);
+        variantSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
+        variantSubTypes.add(DECIMAL64);
+        variantSubTypes.add(DECIMAL128);
+        variantSubTypes.add(DECIMAL256);
+        variantSubTypes.add(DATEV2);
+        variantSubTypes.add(DATETIMEV2);
+        variantSubTypes.add(IPV4);
+        variantSubTypes.add(IPV6);
+        variantSubTypes.add(STRING);
+        variantSubTypes.add(NULL);
     }
 
     public static final Set<Class> ARRAY_SUPPORTED_JAVA_TYPE = Sets.newHashSet(ArrayList.class, List.class);
@@ -369,6 +388,10 @@ public abstract class Type {
 
     public static ArrayList<Type> getStructSubTypes() {
         return structSubTypes;
+    }
+
+    public static ArrayList<Type> getVariantSubTypes() {
+        return variantSubTypes;
     }
 
     /**
@@ -850,6 +873,9 @@ public abstract class Type {
     public static boolean canCastTo(Type sourceType, Type targetType) {
         if (targetType.isJsonbType() && sourceType.isComplexType()) {
             return true;
+        }
+        if (sourceType.isVariantType() && targetType.isVariantType()) {
+            return sourceType.equals(targetType);
         }
         if (sourceType.isJsonbType()) {
             return true;

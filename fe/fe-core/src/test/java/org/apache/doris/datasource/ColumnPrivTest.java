@@ -17,16 +17,16 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -57,34 +57,36 @@ public class ColumnPrivTest extends TestWithFeService {
         auth = env.getAuth();
 
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test1 properties(\n"
-                        + "    \"type\" = \"test\",\n"
-                        + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.ColumnPrivTest$MockedCatalogProvider\",\n"
-                        + "    \"access_controller.class\" "
-                        + "= \"org.apache.doris.datasource.ColumnPrivTest$TestAccessControllerFactory\",\n"
-                        + "    \"access_controller.properties.key1\" = \"val1\",\n"
-                        + "    \"access_controller.properties.key2\" = \"val2\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+        String createStmt = "create catalog test1 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.ColumnPrivTest$MockedCatalogProvider\",\n"
+                + "    \"access_controller.class\" "
+                + "= \"org.apache.doris.datasource.ColumnPrivTest$TestAccessControllerFactory\",\n"
+                + "    \"access_controller.properties.key1\" = \"val1\",\n"
+                + "    \"access_controller.properties.key2\" = \"val2\"\n"
+                + ");";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
-        CreateCatalogStmt testCatalog2 = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test2 properties(\n"
-                        + "    \"type\" = \"test\",\n"
-                        + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.ColumnPrivTest$MockedCatalogProvider\",\n"
-                        + "    \"access_controller.properties.key1\" = \"val1\",\n"
-                        + "    \"access_controller.properties.key2\" = \"val2\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog2);
+        createStmt = "create catalog test2 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.ColumnPrivTest$MockedCatalogProvider\",\n"
+                + "    \"access_controller.properties.key1\" = \"val1\",\n"
+                + "    \"access_controller.properties.key2\" = \"val2\"\n"
+                + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
         // 2. create internal db and tbl
         String createDbStmtStr = "create database innerdb1";
-        NereidsParser nereidsParser = new NereidsParser();
-        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
         if (logicalPlan instanceof CreateDatabaseCommand) {
             ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
@@ -133,8 +135,11 @@ public class ColumnPrivTest extends TestWithFeService {
         super.runAfterAll();
         rootCtx.setThreadLocalInfo();
         Assert.assertTrue(env.getAccessManager().checkIfAccessControllerExist("test1"));
-        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
-        env.getCatalogMgr().dropCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop catalog test1");
+        if (logicalPlan instanceof DropCatalogCommand) {
+            ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
         Assert.assertFalse(env.getAccessManager().checkIfAccessControllerExist("test1"));
     }
 

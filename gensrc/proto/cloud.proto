@@ -442,6 +442,7 @@ message TxnInfoPB {
     repeated int64 sub_txn_ids = 18;
     // TODO: There are more fields TBD
     optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
+    optional bool versioned_read = 20;  // whether to read versioned keys
 }
 
 // For check txn conflict and txn timeout
@@ -475,6 +476,7 @@ message RecycleIndexPB {
     optional int64 creation_time = 2;
     optional int64 expiration = 3; // expiration timestamp
     optional State state = 4;
+    optional int64 db_id = 5;
 }
 
 message RecyclePartitionPB {
@@ -553,6 +555,11 @@ message TabletIndexPB {
 }
 
 message PartitionIndexPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+}
+
+message IndexIndexPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
 }
@@ -686,11 +693,18 @@ message DropPartitionLogPB {
     optional bool update_table_version = 6;
 }
 
+message CommitIndexLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    optional bool update_table_version = 4;
+}
+
 message DropIndexLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
-    optional RecycleIndexPB recycle_index = 4;
+    repeated int64 index_ids = 3;
+    optional int64 expiration = 4; // expiration timestamp
 }
 
 message UpdateTabletLogPB {
@@ -714,6 +728,7 @@ message OperationLogPB {
     optional UpdateTabletLogPB update_tablet = 7;
     optional UpdateDeleteBitmapLogPB update_delete_bitmap = 8;
     optional CommitPartitionLogPB commit_partition = 9;
+    optional CommitIndexLogPB commit_index = 10;
 }
 
 enum SnapshotType {

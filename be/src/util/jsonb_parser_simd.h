@@ -279,8 +279,8 @@ private:
 
             break;
         }
-        case simdjson::fallback::number_type::signed_integer:
-        case simdjson::fallback::number_type::unsigned_integer: {
+        case simdjson::ondemand::number_type::signed_integer:
+        case simdjson::ondemand::number_type::unsigned_integer: {
             int128_t val = num.is_int64() ? (int128_t)num.get_int64() : (int128_t)num.get_uint64();
             bool success = false;
             if (val >= std::numeric_limits<int8_t>::min() &&
@@ -304,7 +304,7 @@ private:
             }
             break;
         }
-        case simdjson::fallback::number_type::big_integer: {
+        case simdjson::ondemand::number_type::big_integer: {
             StringParser::ParseResult result;
             auto val = StringParser::string_to_int<int128_t>(raw_string.data(), raw_string.size(),
                                                              &result);

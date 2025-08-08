@@ -65,8 +65,6 @@ public:
         value.to_string(buf);
         return buf;
     }
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
-
     static void cast_to_date(Int64& x);
     Field get_field(const TExprNode& node) const override {
         VecDateTimeValue value;

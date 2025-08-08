@@ -53,7 +53,7 @@ struct CastFromVariant {
             new_context->set_jsonb_string_as_string(true);
             // dst type nullable has been removed, so we should remove the inner nullable of root column
             auto wrapper = prepare_impl(new_context.get(), remove_nullable(nested_from_type),
-                                        data_type_to, true);
+                                        data_type_to);
             Block tmp_block {{remove_nullable(nested), remove_nullable(nested_from_type), ""}};
             tmp_block.insert({nullptr, data_type_to, ""});
             /// Perform the requested conversion.

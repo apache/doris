@@ -143,7 +143,7 @@ suite('test_schema_change_with_compaction3', 'p1,nonConcurrent') {
 
         // cu compaction
         for (int i = 0; i < array.size(); i++) {
-            tabletId = array[i].TabletId
+            def tabletId = array[i].TabletId
             logger.info("run compaction:" + tabletId)
             (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
@@ -153,7 +153,7 @@ suite('test_schema_change_with_compaction3', 'p1,nonConcurrent') {
             running = true
             do {
                 Thread.sleep(100)
-                tabletId = array[i].TabletId
+                def tabletId = array[i].TabletId
                 (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
@@ -170,6 +170,7 @@ suite('test_schema_change_with_compaction3', 'p1,nonConcurrent') {
             DebugPoint.disableDebugPoint(injectBe.Host, injectBe.HttpPort.toInteger(), NodeType.BE, injectName)
         }
         int max_try_time = 3000
+        def result = null
         while (max_try_time--){
             result = getJobState("date")
             if (result == "FINISHED" || result == "CANCELLED") {

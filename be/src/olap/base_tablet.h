@@ -193,7 +193,8 @@ public:
                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     Status calc_delete_bitmap_between_segments(
-            RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            TabletSchemaSPtr schema, RowsetId rowset_id,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
 
     static Status commit_phase_update_delete_bitmap(

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.SwitchStmt;
@@ -39,6 +38,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartit
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
@@ -113,10 +113,15 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         createTable(createSourceInterPTable, true);
 
         // create external catalog and switch it
-        CreateCatalogStmt hiveCatalog = createStmt("create catalog " + mockedCtlName
+        String hiveCatalog = "create catalog " + mockedCtlName
                 + " properties('type' = 'hms',"
-                + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');");
-        Env.getCurrentEnv().getCatalogMgr().createCatalog(hiveCatalog);
+                + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(hiveCatalog);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
         switchHive();
 
         // create db and use it

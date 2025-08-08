@@ -786,7 +786,8 @@ Status Compaction::do_inverted_index_compaction() {
 
         std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
         try {
-            std::vector<std::unique_ptr<DorisCompoundReader>> src_idx_dirs(src_segment_num);
+            std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> src_idx_dirs(
+                    src_segment_num);
             for (int src_segment_id = 0; src_segment_id < src_segment_num; src_segment_id++) {
                 auto res = index_file_readers[src_segment_id]->open(index_meta);
                 DBUG_EXECUTE_IF("Compaction::open_inverted_index_file_reader", {

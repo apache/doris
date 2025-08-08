@@ -115,7 +115,7 @@ suite('test_schema_change_with_compaction11', 'docker') {
 
 
             // cu compaction
-            tabletId = array[0].TabletId
+            def tabletId = array[0].TabletId
             logger.info("run compaction:" + tabletId)
             (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
@@ -144,8 +144,9 @@ suite('test_schema_change_with_compaction11', 'docker') {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
             }
             int max_try_time = 3000
+            def result = null
             while (max_try_time--){
-                def result = getJobState("date")
+                result = getJobState("date")
                 if (result == "FINISHED" || result == "CANCELLED") {
                     sleep(3000)
                     break

@@ -423,6 +423,7 @@ void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
     }
 }
 
+// In non-strict mode, from string will handle errors by inserting a null value.
 Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
                                           const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
@@ -437,10 +438,7 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-// Note that the difference between the strict mode and the non-strict mode here is that in the non-strict mode,
-// if an error occurs, a null value will be inserted.
-// But the problem is that in fact, only some nested complex types need to "inject an error and insert a null value".
-// Maybe it's better to leave this processing to the complex type's own from string processing?
+// In strict mode, from string will directly return an error.
 Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                       const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);

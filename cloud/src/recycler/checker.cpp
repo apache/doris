@@ -583,7 +583,7 @@ int InstanceChecker::do_check() {
 
         TabletIndexPB tablet_index;
         if (get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index) == -1) {
-            LOG(WARNING) << "failedt to get tablet index, tablet_id= " << rs_meta.tablet_id();
+            LOG(WARNING) << "failed to get tablet index, tablet_id= " << rs_meta.tablet_id();
             return;
         }
 
@@ -612,8 +612,8 @@ int InstanceChecker::do_check() {
                     InvertedIndexStorageFormatPB::V1) {
                     for (const auto& index_id : index_ids) {
                         LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
-                                  << " rowset_id=" << rs_meta.rowset_id_v2()
-                                  << " segment_index=" << i << " index_id=" << index_id.first
+                                  << " rowset_id=" << rs_meta.rowset_id_v2() << " segment_id=" << i
+                                  << " index_id=" << index_id.first
                                   << " index_suffix_name=" << index_id.second;
                         index_path_v.emplace_back(
                                 inverted_index_path_v1(rs_meta.tablet_id(), rs_meta.rowset_id_v2(),
@@ -626,14 +626,17 @@ int InstanceChecker::do_check() {
 
                 if (!index_path_v.empty()) {
                     if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
-                            return tablet_files_cache.files.contains(idx_file_path);
+                            if (!tablet_files_cache.files.contains(idx_file_path)) {
+                                LOG(INFO) << "loss index file: " << idx_file_path;
+                                return false;
+                            }
+                            return true;
                         })) {
                         continue;
                     }
                 }
                 index_file_loss = true;
                 data_loss = true;
-                LOG(WARNING) << "object not exist, key=" << hex(tablet_idx_key);
             }
         }
     };
@@ -742,6 +745,10 @@ int InstanceChecker::do_inverted_check() {
         butil::SplitString(obj_key, '/', &str);
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
         if (str.size() < 3) {
+            // clang-format off
+            LOG(WARNING) << "split obj_key error, str.size() should be less than 3,"
+                         << " value = " << str.size();
+            // clang-format on
             return -1;
         }
 
@@ -749,6 +756,11 @@ int InstanceChecker::do_inverted_check() {
         if (tablet_id <= 0) {
             LOG(WARNING) << "failed to parse tablet_id, key=" << obj_key;
             return -1;
+        }
+
+        if (!str[2].ends_with(".dat")) {
+            // skip check not segment file
+            return 0;
         }
 
         std::string rowset_id;
@@ -820,6 +832,10 @@ int InstanceChecker::do_inverted_check() {
         // format v1: data/{tablet_id}/{rowset_id}_{seg_num}_{idx_id}{idx_suffix}.idx
         // format v2: data/{tablet_id}/{rowset_id}_{seg_num}.idx
         if (str.size() < 3) {
+            // clang-format off
+            LOG(WARNING) << "split obj_key error, str.size() should be less than 3,"
+                         << " value = " << str.size();
+            // clang-format on
             return -1;
         }
 
@@ -897,7 +913,7 @@ int InstanceChecker::do_inverted_check() {
     return num_file_leak > 0 ? 1 : check_ret;
 }
 
-int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& check_func) {
+int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t, bool)>& check_func) {
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_rowset_key({instance_id_, 0, 0});
     auto end = meta_rowset_key({instance_id_, std::numeric_limits<int64_t>::max(), 0});
@@ -943,7 +959,9 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
 
             if (tablet_meta.enable_unique_key_merge_on_write()) {
                 // only check merge-on-write table
-                int ret = check_func(tablet_id);
+                bool has_sequence_col = tablet_meta.schema().has_sequence_col_idx() &&
+                                        tablet_meta.schema().sequence_col_idx() != -1;
+                int ret = check_func(tablet_id, has_sequence_col);
                 if (ret < 0) {
                     // return immediately when encounter unexpected error,
                     // otherwise, we continue to check the next tablet
@@ -1325,8 +1343,11 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
 
             for (const auto& i : rs_meta.tablet_schema().index()) {
                 if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
+                    LOG(INFO) << fmt::format(
+                            "record index info, index_id: {}, index_suffix_name: {}", i.index_id(),
+                            i.index_suffix_name());
                     rowset_index_cache_v1.index_ids.insert(
-                            fmt::format("{}{}", i.index_name(), i.index_suffix_name()));
+                            fmt::format("{}{}", i.index_id(), i.index_suffix_name()));
                 }
             }
 
@@ -1340,13 +1361,21 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
 
     if (!rowset_index_cache_v1.segment_ids.contains(segment_id)) {
         // Garbage data leak
-        LOG(WARNING) << "rowset should be recycled, key=" << file_path;
+        // clang-format off
+        LOG(WARNING) << "rowset_index_cache_v1.segment_ids don't contains segment_id, rowset should be recycled,"
+                     << " key = " << file_path 
+                     << " segment_id = " << segment_id;
+        // clang-format on
         return 1;
     }
 
     if (!rowset_index_cache_v1.index_ids.contains(index_id_with_suffix_name)) {
         // Garbage data leak
-        LOG(WARNING) << "rowset with inde meta should be recycled, key=" << file_path;
+        // clang-format off
+        LOG(WARNING) << "rowset_index_cache_v1.index_ids don't contains index_id_with_suffix_name,"
+                     << " rowset with inde meta should be recycled, key=" << file_path 
+                     << " index_id_with_suffix_name=" << index_id_with_suffix_name;
+        // clang-format on
         return 1;
     }
 
@@ -1431,7 +1460,8 @@ int InstanceChecker::check_inverted_index_file_storage_format_v2(
 }
 
 int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
-        int64_t tablet_id, int64_t& rowsets_with_useless_delete_bitmap_version) {
+        int64_t tablet_id, bool has_sequence_col,
+        int64_t& rowsets_with_useless_delete_bitmap_version) {
     // end_version: create_time
     std::map<int64_t, int64_t> tablet_rowsets_map {};
     // rowset_id: {start_version, end_version}
@@ -1554,11 +1584,16 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
             if (tablet_rowsets_map.find(version) != tablet_rowsets_map.end()) {
                 continue;
             }
-            if (rowset_version_map.find(rowset_id) == rowset_version_map.end()) {
+            auto version_it = rowset_version_map.find(rowset_id);
+            if (version_it == rowset_version_map.end()) {
                 // checked in do_delete_bitmap_inverted_check
                 continue;
             }
             if (pending_delete_bitmaps.contains(std::string(k))) {
+                continue;
+            }
+            if (has_sequence_col && version >= version_it->second.first &&
+                version <= version_it->second.second) {
                 continue;
             }
             // there may be an interval in this situation:
@@ -1605,11 +1640,11 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check(int version) {
     int64_t tablet_id_with_max_rowsets_with_useless_delete_bitmap_version = 0;
 
     // check that for every visible rowset, there exists at least delete one bitmap in MS
-    int ret = traverse_mow_tablet([&](int64_t tablet_id) {
+    int ret = traverse_mow_tablet([&](int64_t tablet_id, bool has_sequence_col) {
         ++total_tablets_num;
         int64_t rowsets_with_useless_delete_bitmap_version = 0;
         int res = check_delete_bitmap_storage_optimize_v2(
-                tablet_id, rowsets_with_useless_delete_bitmap_version);
+                tablet_id, has_sequence_col, rowsets_with_useless_delete_bitmap_version);
         if (rowsets_with_useless_delete_bitmap_version >
             max_rowsets_with_useless_delete_bitmap_version) {
             max_rowsets_with_useless_delete_bitmap_version =

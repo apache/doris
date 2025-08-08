@@ -67,7 +67,7 @@ public:
     explicit PathInData(const std::string& root, const std::vector<std::string>& paths);
     PathInData(const PathInData& other);
     PathInData& operator=(const PathInData& other);
-    static UInt128 get_parts_hash(const Parts& parts_);
+    static UInt128 get_parts_hash(const Parts& parts_, bool is_typed_ = false);
     bool empty() const { return parts.empty(); }
     const vectorized::String& get_path() const { return path; }
     // if path is v.a.b, then relative path will return a.b
@@ -78,7 +78,10 @@ public:
     const Parts& get_parts() const { return parts; }
     bool is_nested(size_t i) const { return parts[i].is_nested; }
     bool has_nested_part() const { return has_nested; }
-    bool operator==(const PathInData& other) const { return parts == other.parts; }
+    bool operator==(const PathInData& other) const {
+        return parts == other.parts && is_typed == other.is_typed;
+    }
+    bool operator!=(const PathInData& other) const { return !(*this == other); }
     PathInData get_nested_prefix_path() const;
     struct Hash {
         size_t operator()(const PathInData& value) const;

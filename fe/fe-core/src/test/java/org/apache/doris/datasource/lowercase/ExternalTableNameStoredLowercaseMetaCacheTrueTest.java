@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.lowercase;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
@@ -27,6 +25,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
@@ -50,14 +52,18 @@ public class ExternalTableNameStoredLowercaseMetaCacheTrueTest extends TestWithF
         rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt("create catalog test1 properties(\n"
-                        + "    \"type\" = \"test\",\n"
-                        + "    \"use_meta_cache\" = \"true\",\n"
-                        + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameStoredLowercaseMetaCacheTrueTest$ExternalTableNameStoredLowercaseProvider\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+        String createStmt = "create catalog test1 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"true\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.lowercase.ExternalTableNameStoredLowercaseMetaCacheTrueTest$ExternalTableNameStoredLowercaseProvider\"\n"
+                + ");";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Override
@@ -70,8 +76,11 @@ public class ExternalTableNameStoredLowercaseMetaCacheTrueTest extends TestWithF
     protected void runAfterAll() throws Exception {
         super.runAfterAll();
         rootCtx.setThreadLocalInfo();
-        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
-        env.getCatalogMgr().dropCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop catalog test1");
+        if (logicalPlan instanceof DropCatalogCommand) {
+            ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
 

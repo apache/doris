@@ -19,6 +19,7 @@
 
 #include "common/exception.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
 
@@ -51,16 +52,8 @@ AggregateFunctionPtr create_aggregate_function_approx_top_sum(const std::string&
                                                               const DataTypes& argument_types,
                                                               const bool result_is_nullable,
                                                               const AggregateFunctionAttr& attr) {
-    if (argument_types.size() < 3) {
-        return nullptr;
-    }
-
     constexpr size_t max_param_value = 10;
-    if (argument_types.size() > max_param_value) {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "Argument types size exceeds the supported limit.");
-    }
-
+    assert_arity_range(name, argument_types, 3, max_param_value);
     return create_aggregate_function_multi_top_sum_impl<max_param_value>(argument_types,
                                                                          result_is_nullable, attr);
 }

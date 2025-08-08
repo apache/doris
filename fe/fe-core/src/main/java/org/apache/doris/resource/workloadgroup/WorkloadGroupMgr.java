@@ -17,7 +17,6 @@
 
 package org.apache.doris.resource.workloadgroup;
 
-import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -250,10 +249,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     "Workload group number in Compute Group " + newWgCg + "can not exceed "
                             + Config.workload_group_max_num);
         }
-    }
-
-    public void alterWorkloadGroup(AlterWorkloadGroupStmt stmt) throws DdlException {
-        throw new DdlException("Unsupported alter statement");
     }
 
     public void alterWorkloadGroup(ComputeGroup cg, String workloadGroupName, Map<String, String> properties)

@@ -174,7 +174,7 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (iter->get_reader()->is_fulltext_index()) {
+        if (segment_v2::IndexReaderHelper::is_fulltext_index(iter->get_reader())) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, FULLTEXT reader can not support "
                     "array_overlap");

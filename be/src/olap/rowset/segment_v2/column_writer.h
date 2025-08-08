@@ -292,7 +292,7 @@ private:
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _index_builder;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 
     // call before flush data page.
@@ -421,7 +421,7 @@ private:
     std::unique_ptr<OffsetColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _index_builder;
     ColumnWriterOptions _opts;
 };
 
@@ -475,7 +475,7 @@ private:
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _index_builder;
     ColumnWriterOptions _opts;
 };
 

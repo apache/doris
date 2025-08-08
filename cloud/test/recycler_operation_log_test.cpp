@@ -440,6 +440,180 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
     ASSERT_EQ(count_range(txn_kv.get()), 2) << "Should only have 2 recycle partition records";
 }
 
+TEST(RecycleOperationLogTest, RecycleCommitIndexLog) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    uint64_t db_id = 1;
+    uint64_t table_id = 2;
+    uint64_t index_id = 3;
+    {
+        // Update the table version
+        std::string ver_key = versioned::table_version_key({instance_id, table_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), ver_key, "");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        Versionstamp table_version;
+        TxnErrorCode err = meta_reader.get_table_version(table_id, &table_version);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Put a commit index log
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+        auto* commit_index = operation_log.mutable_commit_index();
+        commit_index->set_db_id(db_id);
+        commit_index->set_table_id(table_id);
+        commit_index->add_index_ids(index_id);
+        commit_index->set_update_table_version(true);
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs.
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // The above table version key should be removed.
+    {
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        Versionstamp table_version;
+        TxnErrorCode err = meta_reader.get_table_version(table_id, &table_version);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    {
+        // Put a new commit index log
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+        auto* commit_index = operation_log.mutable_commit_index();
+        commit_index->set_db_id(db_id);
+        commit_index->set_table_id(table_id);
+        commit_index->add_index_ids(index_id);
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs.
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Scan the operation logs to verify that the commit index log is removed.
+    remove_instance_info(txn_kv.get());
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
+}
+
+TEST(RecycleOperationLogTest, RecycleDropIndexLog) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    uint64_t db_id = 1;
+    uint64_t table_id = 2;
+    uint64_t index_id = 3;
+    int64_t expiration = ::time(nullptr) + 3600; // 1 hour from now
+
+    {
+        // Put a drop index log
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.mutable_min_timestamp()->append(
+                reinterpret_cast<const char*>(versionstamp.data().data()),
+                versionstamp.data().size());
+        auto* drop_index = operation_log.mutable_drop_index();
+        drop_index->set_db_id(db_id);
+        drop_index->set_table_id(table_id);
+        drop_index->add_index_ids(index_id);
+        drop_index->set_expiration(expiration);
+
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs.
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Verify that the recycle index record is created
+    {
+        std::string recycle_key = recycle_index_key({instance_id, index_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RecycleIndexPB recycle_index_pb;
+        ASSERT_TRUE(recycle_index_pb.ParseFromString(value));
+        ASSERT_EQ(recycle_index_pb.db_id(), db_id);
+        ASSERT_EQ(recycle_index_pb.table_id(), table_id);
+        ASSERT_EQ(recycle_index_pb.state(), RecycleIndexPB::DROPPED);
+        ASSERT_EQ(recycle_index_pb.expiration(), expiration);
+    }
+
+    // Scan the operation logs to verify that the drop index logs are removed.
+    remove_instance_info(txn_kv.get());
+
+    // Verify that the recycle index records are created and operation logs are removed
+    {
+        // Check that the first recycle index record exists
+        std::string recycle_key1 = recycle_index_key({instance_id, index_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key1, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        RecycleIndexPB recycle_index_pb;
+        ASSERT_TRUE(recycle_index_pb.ParseFromString(value));
+        ASSERT_EQ(recycle_index_pb.db_id(), db_id);
+        ASSERT_EQ(recycle_index_pb.table_id(), table_id);
+        ASSERT_EQ(recycle_index_pb.state(), RecycleIndexPB::DROPPED);
+        ASSERT_EQ(recycle_index_pb.expiration(), expiration);
+    }
+
+    // Verify that operation logs are removed (only recycle index records should remain)
+    ASSERT_EQ(count_range(txn_kv.get()), 1) << "Should only have 2 recycle index records";
+}
+
 TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);

@@ -114,33 +114,33 @@ import java.util.stream.Collectors;
  */
 public class CreateFunctionCommand extends Command implements ForwardWithSync {
     @Deprecated
-    private static final String OBJECT_FILE_KEY = "object_file";
-    private static final String FILE_KEY = "file";
-    private static final String SYMBOL_KEY = "symbol";
-    private static final String PREPARE_SYMBOL_KEY = "prepare_fn";
-    private static final String CLOSE_SYMBOL_KEY = "close_fn";
-    private static final String MD5_CHECKSUM = "md5";
-    private static final String INIT_KEY = "init_fn";
-    private static final String UPDATE_KEY = "update_fn";
-    private static final String MERGE_KEY = "merge_fn";
-    private static final String SERIALIZE_KEY = "serialize_fn";
-    private static final String FINALIZE_KEY = "finalize_fn";
-    private static final String GET_VALUE_KEY = "get_value_fn";
-    private static final String REMOVE_KEY = "remove_fn";
-    private static final String BINARY_TYPE = "type";
-    private static final String EVAL_METHOD_KEY = "evaluate";
-    private static final String CREATE_METHOD_NAME = "create";
-    private static final String DESTROY_METHOD_NAME = "destroy";
-    private static final String ADD_METHOD_NAME = "add";
-    private static final String SERIALIZE_METHOD_NAME = "serialize";
-    private static final String MERGE_METHOD_NAME = "merge";
-    private static final String GETVALUE_METHOD_NAME = "getValue";
-    private static final String STATE_CLASS_NAME = "State";
+    public static final String OBJECT_FILE_KEY = "object_file";
+    public static final String FILE_KEY = "file";
+    public static final String SYMBOL_KEY = "symbol";
+    public static final String PREPARE_SYMBOL_KEY = "prepare_fn";
+    public static final String CLOSE_SYMBOL_KEY = "close_fn";
+    public static final String MD5_CHECKSUM = "md5";
+    public static final String INIT_KEY = "init_fn";
+    public static final String UPDATE_KEY = "update_fn";
+    public static final String MERGE_KEY = "merge_fn";
+    public static final String SERIALIZE_KEY = "serialize_fn";
+    public static final String FINALIZE_KEY = "finalize_fn";
+    public static final String GET_VALUE_KEY = "get_value_fn";
+    public static final String REMOVE_KEY = "remove_fn";
+    public static final String BINARY_TYPE = "type";
+    public static final String EVAL_METHOD_KEY = "evaluate";
+    public static final String CREATE_METHOD_NAME = "create";
+    public static final String DESTROY_METHOD_NAME = "destroy";
+    public static final String ADD_METHOD_NAME = "add";
+    public static final String SERIALIZE_METHOD_NAME = "serialize";
+    public static final String MERGE_METHOD_NAME = "merge";
+    public static final String GETVALUE_METHOD_NAME = "getValue";
+    public static final String STATE_CLASS_NAME = "State";
     // add for java udf check return type nullable mode, always_nullable or always_not_nullable
-    private static final String IS_RETURN_NULL = "always_nullable";
+    public static final String IS_RETURN_NULL = "always_nullable";
     // iff is static load, BE will be cache the udf class load, so only need load once
-    private static final String IS_STATIC_LOAD = "static_load";
-    private static final String EXPIRATION_TIME = "expiration_time";
+    public static final String IS_STATIC_LOAD = "static_load";
+    public static final String EXPIRATION_TIME = "expiration_time";
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;

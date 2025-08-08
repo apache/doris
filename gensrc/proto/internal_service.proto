@@ -863,6 +863,7 @@ message PGetFileCacheMetaResponse {
 message PWarmUpRowsetRequest {
     repeated RowsetMetaPB rowset_metas = 1;
     optional int64 unix_ts_us = 2;
+    optional int64 sync_wait_timeout_ms = 3;
 }
 
 message PWarmUpRowsetResponse {

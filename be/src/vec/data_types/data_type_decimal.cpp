@@ -190,23 +190,6 @@ std::string DataTypeDecimal<T>::to_string(const FieldType& value) const {
     }
 }
 
-template <PrimitiveType T>
-Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto& column_data = static_cast<ColumnType&>(*column).get_data();
-    FieldType val {};
-    StringRef str_ref(rb.position(), rb.count());
-    StringParser::ParseResult res =
-            read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), FieldType>(
-                    val, str_ref, precision, scale);
-    if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
-        column_data.emplace_back(val);
-        return Status::OK();
-    }
-    return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
-                                   std::string(rb.position(), rb.count()).c_str(),
-                                   DataTypeDecimalSerDe<T>::get_primitive_type());
-}
-
 // binary: const flag | row num | real_saved_num | data
 // data  : {val1 | val2| ...} or {encode_size | val1 | val2| ...}
 template <PrimitiveType T>

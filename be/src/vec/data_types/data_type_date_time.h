@@ -105,8 +105,6 @@ public:
     size_t number_length() const;
     void push_number(ColumnString::Chars& chars, const Int64& num) const;
 
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
-
     static void cast_to_date_time(Int64& x);
 
     MutableColumnPtr create_column() const override;

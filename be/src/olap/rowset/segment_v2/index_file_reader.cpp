@@ -148,9 +148,9 @@ Result<InvertedIndexDirectoryMap> IndexFileReader::get_all_directories() {
     return res;
 }
 
-Result<std::unique_ptr<DorisCompoundReader>> IndexFileReader::_open(
+Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::_open(
         int64_t index_id, const std::string& index_suffix, const io::IOContext* io_ctx) const {
-    std::unique_ptr<DorisCompoundReader> compound_reader;
+    std::unique_ptr<DorisCompoundReader, DirectoryDeleter> compound_reader;
 
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
@@ -193,7 +193,7 @@ Result<std::unique_ptr<DorisCompoundReader>> IndexFileReader::_open(
             }
 
             // 3. read file in DorisCompoundReader
-            compound_reader = std::make_unique<DorisCompoundReader>(index_input, _read_buffer_size);
+            compound_reader.reset(new DorisCompoundReader(index_input, _read_buffer_size));
         } catch (CLuceneError& err) {
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open idx file {}, error msg: {}", index_file_path,
@@ -218,13 +218,13 @@ Result<std::unique_ptr<DorisCompoundReader>> IndexFileReader::_open(
                     errMsg.str()));
         }
         // Need to clone resource here, because index searcher cache need it.
-        compound_reader = std::make_unique<DorisCompoundReader>(_stream->clone(), *index_it->second,
-                                                                _read_buffer_size, io_ctx);
+        compound_reader.reset(new DorisCompoundReader(_stream->clone(), *index_it->second,
+                                                      _read_buffer_size, io_ctx));
     }
     return compound_reader;
 }
 
-Result<std::unique_ptr<DorisCompoundReader>> IndexFileReader::open(
+Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::open(
         const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
     auto index_id = index_meta->index_id();
     auto index_suffix = index_meta->get_index_suffix();
