@@ -272,8 +272,8 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
                 LOG_INFO("inject error when CloudTabletCalcDeleteBitmapTask::_handle_rowset");
                 return Status::MemoryLimitExceeded("injected MemoryLimitExceeded error");
             });
-            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
-                                                                        segments, delete_bitmap));
+            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+                    rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap));
         }
         status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id,
                                                    txn_expiration);
