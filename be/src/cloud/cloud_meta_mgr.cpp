@@ -1247,7 +1247,8 @@ Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
 }
 
 Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_completed) {
-    VLOG_DEBUG << "finish restore job, tablet_id: " << tablet_id << ", is_completed: " << is_completed;
+    VLOG_DEBUG << "finish restore job, tablet_id: " << tablet_id
+               << ", is_completed: " << is_completed;
     RestoreJobRequest req;
     RestoreJobResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);

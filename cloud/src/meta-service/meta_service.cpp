@@ -1201,8 +1201,8 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
     int32_t max_batch_size = config::max_restore_job_rowsets_per_batch;
     for (size_t i = 0; i < rs_metas.size(); i += max_batch_size) {
         size_t end = (i + max_batch_size) > rs_metas.size() ? rs_metas.size() : i + max_batch_size;
-        std::vector<doris::RowsetMetaCloudPB> sub_restore_job_rs_metas(
-                rs_metas.begin() + i, rs_metas.begin() + end);
+        std::vector<doris::RowsetMetaCloudPB> sub_restore_job_rs_metas(rs_metas.begin() + i,
+                                                                       rs_metas.begin() + end);
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1335,8 +1335,7 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
     if (restore_job_pb.total_rowset_num() != restore_job_rs_metas.size()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("rowset num mismatch, total_rowset_num={}, rs_metas_size={}",
-                          restore_job_pb.total_rowset_num(),
-                          restore_job_rs_metas.size());
+                          restore_job_pb.total_rowset_num(), restore_job_rs_metas.size());
         return;
     }
 
@@ -1583,9 +1582,9 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
 }
 
 void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* controller,
-                                        const RestoreJobRequest* request,
-                                        RestoreJobResponse* response,
-                                        ::google::protobuf::Closure* done) {
+                                         const RestoreJobRequest* request,
+                                         RestoreJobResponse* response,
+                                         ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(finish_restore_job);
     if (!request->has_tablet_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1670,7 +1669,8 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
 
     // 2. update restore job
     std::string to_save_val;
-    restore_job_pb.set_state(is_completed ? RestoreJobCloudPB::COMPLETED : RestoreJobCloudPB::DROPPED);
+    restore_job_pb.set_state(is_completed ? RestoreJobCloudPB::COMPLETED
+                                          : RestoreJobCloudPB::DROPPED);
     restore_job_pb.set_need_recycle_data(!is_completed);
     restore_job_pb.SerializeToString(&to_save_val);
     LOG_INFO("finish restore job")

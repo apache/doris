@@ -1454,9 +1454,9 @@ void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskReque
 
     LOG(INFO) << "get release snapshot task. signature=" << req.signature;
 
-    Status status =
-            engine.cloud_snapshot_mgr().release_snapshot(release_snapshot_request.tablet_id,
-                                                         release_snapshot_request.is_job_finished);
+    Status status = engine.cloud_snapshot_mgr().release_snapshot(
+            release_snapshot_request.tablet_id, release_snapshot_request.is_job_finished);
+
     if (!status.ok()) {
         LOG_WARNING("failed to release snapshot")
                 .tag("signature", req.signature)

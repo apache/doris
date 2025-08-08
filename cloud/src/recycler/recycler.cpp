@@ -1002,10 +1002,10 @@ int64_t calculate_restore_job_expired_time(
         return 0L;
     }
     // not final state, wait much longer than the FE's timeout(1 day)
-    int64_t last_modified_s = restore_job.has_mtime_s() ? restore_job.mtime_s() : restore_job.ctime_s();
-    int64_t expiration = restore_job.expiration() > 0
-                                 ? last_modified_s + restore_job.expiration()
-                                 : last_modified_s;
+    int64_t last_modified_s =
+            restore_job.has_mtime_s() ? restore_job.mtime_s() : restore_job.ctime_s();
+    int64_t expiration = restore_job.expiration() > 0 ? last_modified_s + restore_job.expiration()
+                                                      : last_modified_s;
     int64_t final_expiration = expiration + config::retention_seconds;
     if (*earlest_ts > final_expiration) {
         *earlest_ts = final_expiration;
@@ -2895,8 +2895,7 @@ int InstanceRecycler::recycle_restore_jobs() {
         VLOG_DEBUG << "recycle restore job scan, key=" << hex(k) << " num_scanned=" << num_scanned
                    << " num_expired=" << num_expired << " expiration time=" << expiration
                    << " job expiration=" << restore_job_pb.expiration()
-                   << " ctime=" << restore_job_pb.ctime_s()
-                   << " mtime=" << restore_job_pb.mtime_s()
+                   << " ctime=" << restore_job_pb.ctime_s() << " mtime=" << restore_job_pb.mtime_s()
                    << " state=" << restore_job_pb.state();
         int64_t current_time = ::time(nullptr);
         if (current_time < expiration) { // not expired

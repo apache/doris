@@ -10837,7 +10837,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         MetaServiceCode code;
         std::string msg;
         scan_restore_job_rowset(txn.get(), instance_id, tablet_id, code, msg,
-                &restore_job_rs_metas);
+                                &restore_job_rs_metas);
         ASSERT_EQ(code, MetaServiceCode::OK) << msg;
         ASSERT_EQ(restore_job_rs_metas.size(), 1);
         req.Clear();
