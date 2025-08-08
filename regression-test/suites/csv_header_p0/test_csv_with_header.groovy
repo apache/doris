@@ -118,14 +118,14 @@ suite("test_csv_with_header") {
 
     if (enableHdfs()) {
         //test import data from hdfs
-        hdfsUser = getHdfsUser()
-        brokerName =getBrokerName()
-        hdfsPasswd = getHdfsPasswd()
-        hdfsFs = getHdfsFs()
+        def hdfsUser = getHdfsUser()
+        def brokerName =getBrokerName()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfsFs = getHdfsFs()
         //[broker load] test normal
         label = UUID.randomUUID().toString().replaceAll("-", "")
-        remote_csv_file = uploadToHdfs format_csv_file
-        export_result = import_from_hdfs.call(testTable, label, remote_csv_file, format_csv, brokerName, hdfsUser, hdfsPasswd)
+        def remote_csv_file = uploadToHdfs format_csv_file
+        def export_result = import_from_hdfs.call(testTable, label, remote_csv_file, format_csv, brokerName, hdfsUser, hdfsPasswd)
         check_import_result.call(label, testTable, expect_rows * 4)
 
         //[broker load] csv_with_names
@@ -179,22 +179,22 @@ suite("test_csv_with_header") {
         }
 
         sql "sync"
-        resultCount = sql "select count(*) from ${testTable}"
-        currentTotalRows = resultCount[0][0]
+        def resultCount = sql "select count(*) from ${testTable}"
+        def currentTotalRows = resultCount[0][0]
 
         // export table to hdfs format=csv
-        hdfsDataDir = getHdfsDataDir()
+        def hdfsDataDir = getHdfsDataDir()
         label = UUID.randomUUID().toString().replaceAll("-", "")
         export_to_hdfs.call(testTable, label, hdfsDataDir + "/" + label, format_csv, brokerName, hdfsUser, hdfsPasswd)
         check_export_result(label)
-        result = downloadExportFromHdfs(label + "/export-data")
+        def result = downloadExportFromHdfs(label + "/export-data")
         check_download_result(result, format_csv, currentTotalRows)
 
         // export table to hdfs format=csv_with_names
         label = UUID.randomUUID().toString().replaceAll("-", "")
         export_to_hdfs.call(testTable, label, hdfsDataDir + "/" + label, format_csv_with_names, brokerName, hdfsUser, hdfsPasswd)
         check_export_result(label)
-        def result = downloadExportFromHdfs(label + "/export-data")
+        result = downloadExportFromHdfs(label + "/export-data")
         check_download_result(result, format_csv_with_names, currentTotalRows)
 
         // export table to hdfs format=csv_with_names_and_types
@@ -205,7 +205,7 @@ suite("test_csv_with_header") {
         check_download_result(result, format_csv_with_names_and_types, currentTotalRows)
         
         // select out file to hdfs 
-        select_out_file = {outTable, outHdfsPath, outFormat, outHdfsFs, outBroker, outHdfsUser, outPasswd->
+        def select_out_file = {outTable, outHdfsPath, outFormat, outHdfsFs, outBroker, outHdfsUser, outPasswd->
             sql "sync"
             sql """
                 SELECT * FROM ${outTable}

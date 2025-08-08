@@ -140,9 +140,9 @@ suite('test_ingestion_load_alter_partition', 'p0') {
 
     if (enableHdfs()) {
 
-        tableName1 = 'tbl_test_spark_load_alter_partition_1'
-        tableName2 = 'tbl_test_spark_load_alter_partition_2'
-        tableName3 = 'tbl_test_spark_load_alter_partition_3'
+        def tableName1 = 'tbl_test_spark_load_alter_partition_1'
+        def tableName2 = 'tbl_test_spark_load_alter_partition_2'
+        def tableName3 = 'tbl_test_spark_load_alter_partition_3'
 
         try {
 
@@ -162,7 +162,7 @@ suite('test_ingestion_load_alter_partition', 'p0') {
                 )
                 """
 
-            label = "test_ingestion_load_alter_partition_1"
+            def label = "test_ingestion_load_alter_partition_1"
 
             testIngestLoadJob.call(tableName1, label, [context.config.dataPath + '/load_p0/ingestion_load/data2-0.parquet', context.config.dataPath + '/load_p0/ingestion_load/data2-1.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-2.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-3.parquet'], {
                 sql "alter table ${tableName1} drop partition p_20240901"

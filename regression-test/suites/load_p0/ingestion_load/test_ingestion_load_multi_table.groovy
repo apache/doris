@@ -145,7 +145,7 @@ suite('test_ingestion_load_multi_table', 'p0') {
 
     if (enableHdfs()) {
 
-        tableName1 = 'tbl_test_spark_load_multi_1'
+        def tableName1 = 'tbl_test_spark_load_multi_1'
 
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName1} (
@@ -172,7 +172,7 @@ suite('test_ingestion_load_multi_table', 'p0') {
             )
             """
 
-        tableName2 = 'tbl_test_spark_load_multi_2'
+        def tableName2 = 'tbl_test_spark_load_multi_2'
 
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName2} (

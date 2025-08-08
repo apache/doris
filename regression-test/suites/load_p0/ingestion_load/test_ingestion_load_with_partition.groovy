@@ -133,7 +133,7 @@ suite('test_ingestion_load_with_partition', 'p0') {
 
     if (enableHdfs()) {
 
-        tableName = 'tbl_test_spark_load_partition'
+        def tableName = 'tbl_test_spark_load_partition'
 
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
