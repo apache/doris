@@ -346,7 +346,9 @@ template <PrimitiveType PrimitiveType, typename NativeType>
 class AggregateFunctionWindowFunnel
         : public IAggregateFunctionDataHelper<
                   WindowFunnelState<PrimitiveType, NativeType>,
-                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>> {
+                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
