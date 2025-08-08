@@ -297,6 +297,27 @@ public class StorageVaultMgr {
         }
     }
 
+    public StorageVaultType getStorageVaultTypeByName(String vaultName) throws DdlException {
+        try {
+            Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+
+            for (Cloud.StorageVaultPB vault : resp.getStorageVaultList()) {
+                if (vault.getName().equals(vaultName)) {
+                    if (vault.hasHdfsInfo()) {
+                        return StorageVaultType.HDFS;
+                    } else if (vault.hasObjInfo()) {
+                        return StorageVaultType.S3;
+                    }
+                }
+            }
+            return StorageVaultType.UNKNOWN;
+        } catch (RpcException e) {
+            LOG.warn("failed to get storage vault type due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
+        }
+    }
+
     @VisibleForTesting
     public void createHdfsVault(StorageVault vault) throws Exception {
         Cloud.StorageVaultPB.Builder alterHdfsInfoBuilder = buildAlterStorageVaultRequest(vault);
