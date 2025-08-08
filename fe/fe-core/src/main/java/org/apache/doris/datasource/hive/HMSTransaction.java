@@ -1616,7 +1616,6 @@ public class HMSTransaction implements Transaction {
 
     private void s3Commit(Executor fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
             AtomicBoolean fileSystemTaskCancelled, THivePartitionUpdate hivePartitionUpdate, String path) {
-        LOG.warn("s3Commit for path: {}", path);
         List<TS3MPUPendingUpload> s3MpuPendingUploads = hivePartitionUpdate.getS3MpuPendingUploads();
         if (isMockedPartitionUpdate) {
             return;
