@@ -66,6 +66,7 @@
 #include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
@@ -253,6 +254,44 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         return;
     }
     RPC_RATE_LIMIT(get_version)
+
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    if (is_versioned_read) {
+        MetaReader reader(instance_id, txn_kv_.get());
+        if (is_table_version) {
+            Versionstamp table_version;
+            TxnErrorCode err = reader.get_table_version(table_id, &table_version);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                msg = "table version not found";
+                code = MetaServiceCode::VERSION_NOT_FOUND;
+                return;
+            } else if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get table version, err={} table_id={}", err, table_id);
+                return;
+            }
+            response->set_version(table_version.version());
+        } else {
+            VersionPB partition_version;
+            TxnErrorCode err =
+                    reader.get_partition_version(partition_id, &partition_version, nullptr);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                msg = "partition version not found";
+                code = MetaServiceCode::VERSION_NOT_FOUND;
+                return;
+            } else if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get partition version, err={} table_id={}", err,
+                                  table_id);
+                return;
+            }
+            response->set_version(partition_version.version());
+            response->add_version_update_time_ms(partition_version.update_time_ms());
+        }
+        TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
+        return;
+    }
+
     std::string ver_key;
     if (is_table_version) {
         table_version_key({instance_id, db_id, table_id}, &ver_key);
@@ -342,6 +381,23 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    if (is_version_read_enabled(instance_id)) {
+        if (is_table_version) {
+            std::tie(code, msg) = batch_get_table_versions(request, response, instance_id, stats);
+        } else {
+            std::tie(code, msg) =
+                    batch_get_partition_versions(request, response, instance_id, stats);
+        }
+        TEST_SYNC_POINT_CALLBACK("batch_get_version_code", &code);
+        if (code != MetaServiceCode::OK) {
+            response->clear_partition_ids();
+            response->clear_table_ids();
+            response->clear_versions();
+            response->clear_db_ids();
+        }
         return;
     }
 
@@ -443,6 +499,127 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         response->clear_table_ids();
         response->clear_versions();
     }
+}
+
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_table_versions(
+        const GetVersionRequest* request, GetVersionResponse* response,
+        std::string_view instance_id, KVStats& stats) {
+    size_t num_acquired = request->table_ids_size();
+    response->mutable_versions()->Reserve(num_acquired);
+    response->mutable_db_ids()->CopyFrom(request->db_ids());
+    response->mutable_table_ids()->CopyFrom(request->table_ids());
+    response->mutable_partition_ids()->CopyFrom(request->partition_ids());
+
+    constexpr size_t BATCH_SIZE = 500;
+    MetaReader reader(instance_id, txn_kv_.get());
+    std::vector<int64_t> acquired_ids;
+    acquired_ids.reserve(BATCH_SIZE);
+
+    while (response->versions_size() < num_acquired) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            return {cast_as<ErrCategory::CREATE>(err), "failed to create txn"};
+        }
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
+            stats.get_counter += txn->num_get_keys();
+        };
+        for (size_t i = response->versions_size(); i < num_acquired; i += BATCH_SIZE) {
+            size_t limit = (i + BATCH_SIZE < num_acquired) ? i + BATCH_SIZE : num_acquired;
+            acquired_ids.clear();
+            for (size_t j = i; j < limit; j++) {
+                acquired_ids.push_back(request->table_ids(j));
+            }
+            std::unordered_map<int64_t, Versionstamp> table_versions;
+            err = reader.get_table_versions(acquired_ids, &table_versions, true);
+            TEST_SYNC_POINT_CALLBACK("batch_get_version_err", &err);
+            if (err == TxnErrorCode::TXN_TOO_OLD) {
+                // txn too old, fallback to non-snapshot versions.
+                LOG(WARNING) << "batch_get_version execution time exceeds the txn mvcc window, "
+                                "fallback to acquire non-snapshot versions, table_ids_size="
+                             << request->table_ids_size() << ", index=" << i;
+                break;
+            } else if (err != TxnErrorCode::TXN_OK) {
+                return {cast_as<ErrCategory::READ>(err),
+                        fmt::format("failed to batch get versions, index={}, err={}", i, err)};
+            }
+            for (auto& acquired_id : acquired_ids) {
+                auto it = table_versions.find(acquired_id);
+                if (it == table_versions.end()) {
+                    // return -1 if the target version is not exists.
+                    response->add_versions(-1);
+                } else {
+                    response->add_versions(it->second.version());
+                }
+            }
+        }
+    }
+
+    return {MetaServiceCode::OK, ""};
+}
+
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_partition_versions(
+        const GetVersionRequest* request, GetVersionResponse* response,
+        std::string_view instance_id, KVStats& stats) {
+    size_t num_acquired = request->partition_ids_size();
+    response->mutable_versions()->Reserve(num_acquired);
+    response->mutable_db_ids()->CopyFrom(request->db_ids());
+    response->mutable_table_ids()->CopyFrom(request->table_ids());
+
+    constexpr size_t BATCH_SIZE = 500;
+
+    MetaReader reader(instance_id, txn_kv_.get());
+    std::vector<int64_t> acquired_ids;
+    acquired_ids.reserve(BATCH_SIZE);
+
+    while (response->versions_size() < num_acquired) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            return {cast_as<ErrCategory::CREATE>(err), "failed to create txn"};
+        }
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
+            stats.get_counter += txn->num_get_keys();
+        };
+        for (size_t i = response->versions_size(); i < num_acquired; i += BATCH_SIZE) {
+            size_t limit = (i + BATCH_SIZE < num_acquired) ? i + BATCH_SIZE : num_acquired;
+            acquired_ids.clear();
+            for (size_t j = i; j < limit; j++) {
+                acquired_ids.push_back(request->partition_ids(j));
+            }
+            std::unordered_map<int64_t, VersionPB> partition_versions;
+            std::unordered_map<int64_t, Versionstamp> versionstamps;
+            err = reader.get_partition_versions(acquired_ids, &partition_versions, &versionstamps,
+                                                true);
+            if (err == TxnErrorCode::TXN_TOO_OLD) {
+                // txn too old, fallback to non-snapshot versions.
+                LOG(WARNING) << "batch_get_version execution time exceeds the txn mvcc window, "
+                                "fallback to acquire non-snapshot versions, partition_ids_size="
+                             << request->partition_ids_size() << ", index=" << i;
+                break;
+            } else if (err != TxnErrorCode::TXN_OK) {
+                return {cast_as<ErrCategory::READ>(err),
+                        fmt::format("failed to batch get versions, index={}, err={}", i, err)};
+            }
+            for (auto& acquired_id : acquired_ids) {
+                auto it = partition_versions.find(acquired_id);
+                if (it == partition_versions.end()) {
+                    // return -1 if the target version is not exists.
+                    response->add_versions(-1);
+                    response->add_version_update_time_ms(-1);
+                } else {
+                    response->add_versions(it->second.version());
+                    response->add_version_update_time_ms(it->second.update_time_ms());
+                }
+            }
+        }
+    }
+
+    return {MetaServiceCode::OK, ""};
 }
 
 void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode& code,
