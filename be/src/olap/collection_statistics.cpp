@@ -93,7 +93,7 @@ Status CollectionStatistics::extract_collect_info(
                 auto column = tablet_schema->column(column_idx);
                 auto index_metas = tablet_schema->inverted_indexs(column);
                 for (const auto* index_meta : index_metas) {
-                    if (InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
+                    if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
                         continue;
                     }
                     auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
