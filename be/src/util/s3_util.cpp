@@ -48,6 +48,7 @@
 #include "cpp/aws_logger.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
+#include "cpp/util.h"
 #ifdef USE_AZURE
 #include "io/fs/azure_obj_storage_client.h"
 #endif
@@ -241,6 +242,9 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
     options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     options.Retry.MaxRetries = config::max_s3_client_retry;
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
+
+    std::string normalized_uri = normalize_http_uri(uri);
+    VLOG_DEBUG << "uri:" << uri << ", normalized_uri:" << normalized_uri;
 
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
             uri, cred, std::move(options));
