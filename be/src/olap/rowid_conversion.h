@@ -99,6 +99,7 @@ public:
     Status add(const std::vector<RowLocation>& rss_row_ids,
                const std::vector<uint32_t>& dst_segments_num_row) {
         CHECK(_phase == Phase::BUILD) << "Cannot add row ids in READ phase";
+        size_t old_mem = _storage->memory_usage();
         for (const auto& item : rss_row_ids) {
             if (item.row_id == -1) {
                 continue;
@@ -113,11 +114,10 @@ public:
                 _cur_dst_segment_rowid = 0;
             }
 
-            size_t old_mem = _storage->memory_usage();
             RETURN_IF_ERROR(_storage->add(id, item.row_id,
                                           {_cur_dst_segment_id, _cur_dst_segment_rowid++}));
-            track_mem_usage(_storage->memory_usage() - old_mem);
         }
+        track_mem_usage(_storage->memory_usage() - old_mem);
         return Status::OK();
     }
 

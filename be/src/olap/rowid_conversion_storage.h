@@ -38,6 +38,7 @@ public:
                        std::pair<uint32_t, uint32_t>* value) = 0;
     virtual void prune_segment_mapping(uint32_t segment_id) = 0;
     virtual std::size_t memory_usage() const = 0;
+    virtual Status spill_if_eligible() { return Status::OK(); }
     virtual const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>&
     get_rowid_conversion_map() const = 0;
 };
@@ -103,6 +104,12 @@ private:
 // Map-based storage with spilling implementation
 class RowIdSpillableStorage final : public RowIdConversionStorage {
 public:
+    struct SegmentData {
+        bool is_spilled {false};
+        TrackableResource resource;
+        RowIdMappingType mapping {&resource};
+    };
+
     RowIdSpillableStorage(const std::string& path)
             : _spill_manager {std::make_unique<RowIdSpillManager>(path)} {}
 
@@ -114,22 +121,26 @@ public:
 
     Status add(uint32_t segment_id, uint32_t row_id,
                const std::pair<uint32_t, uint32_t>& value) override {
-        auto& segment_mapping = _segments[segment_id];
+        auto& segment_mapping = _segments[segment_id].mapping;
         segment_mapping[row_id] = value;
+        return Status::OK();
+    }
 
-        // Check if need to spill
-        if (segment_mapping.size() >= _spill_threshold) {
-            RETURN_IF_ERROR(_spill_manager->spill_segment_mapping(segment_id, segment_mapping));
-            _is_spilled[segment_id] = true;
-            segment_mapping.clear();
+    Status spill_if_eligible() override {
+        // First check if current segment needs spilling
+        for (std::size_t i = 0; i < _segments.size(); ++i) {
+            RETURN_IF_ERROR(check_and_spill_segment(i));
         }
+
+        // Then check if total memory exceeds limit
+        RETURN_IF_ERROR(check_and_spill_all());
         return Status::OK();
     }
 
     Status get(uint32_t segment_id, uint32_t row_id,
                std::pair<uint32_t, uint32_t>* value) override {
-        auto& mappings = _segments[segment_id];
-        if (_is_spilled[segment_id]) {
+        auto& mappings = _segments[segment_id].mapping;
+        if (_segments[segment_id].is_spilled) {
             RETURN_IF_ERROR(_spill_manager->read_segment_mapping(segment_id, &mappings));
         }
 
@@ -142,28 +153,58 @@ public:
 
     void prune_segment_mapping(uint32_t segment_id) override {
         if (segment_id < _segments.size()) {
-            _segments[segment_id].clear();
-            _is_spilled[segment_id] = false;
+            _segments[segment_id].mapping.clear();
+            _segments[segment_id].resource.reset();
+            _segments[segment_id].is_spilled = false;
         }
     }
-
-    std::size_t memory_usage() const override { return _tracking_resource.bytes_allocated(); }
 
     const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& get_rowid_conversion_map()
             const override {
         throw Exception(Status::FatalError("Unreachable"));
     }
 
+    std::size_t memory_usage() const override {
+        std::size_t total = 0;
+        for (const auto& segment : _segments) {
+            total += segment.resource.bytes_allocated();
+        }
+        return total;
+    }
+
 private:
-    static constexpr std::size_t _spill_threshold = 1000000; // 1M entries
-    std::string _spill_dir;
+    static constexpr std::size_t _spill_threshold = 1000000;               // 1M entries per segment
+    static constexpr std::size_t _total_memory_limit = 1024 * 1024 * 1024; // 1GB total
 
-    TrackableResource _tracking_resource;
-    std::vector<RowIdMappingType> _segments;
+    Status _spill_segment(uint32_t segment_id) {
+        auto& segment = _segments[segment_id];
+        RETURN_IF_ERROR(_spill_manager->spill_segment_mapping(segment_id, segment.mapping));
+        segment.is_spilled = true;
+        segment.mapping.clear();
+        segment.resource.reset();
+        return Status::OK();
+    }
 
-    std::vector<uint32_t> _segment_sizes;
-    std::vector<bool> _is_spilled;
+    Status check_and_spill_segment(uint32_t segment_id) {
+        if (_segments[segment_id].resource.bytes_allocated() >=
+            config::rowid_conversion_max_mb * 1024 * 1024) {
+            RETURN_IF_ERROR(_spill_segment(segment_id));
+        }
+        return Status::OK();
+    }
 
+    Status check_and_spill_all() {
+        if (memory_usage() >= config::rowid_conversion_max_mb * 1024 * 1024) {
+            for (std::size_t i = 0; i < _segments.size(); ++i) {
+                if (!_segments[i].mapping.empty()) {
+                    RETURN_IF_ERROR(_spill_segment(i));
+                }
+            }
+        }
+        return Status::OK();
+    }
+
+    std::vector<SegmentData> _segments;
     std::unique_ptr<RowIdSpillManager> _spill_manager;
 };
 
