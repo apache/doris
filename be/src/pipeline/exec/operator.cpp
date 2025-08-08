@@ -733,7 +733,7 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              bool eos) {
-    return _writer->sink(block, eos);
+    return _writer->sink(state, block, eos);
 }
 
 template <typename Writer, typename Parent>
