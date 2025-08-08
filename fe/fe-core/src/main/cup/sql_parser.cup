@@ -1279,10 +1279,6 @@ alter_stmt ::=
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
     :}
-    | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
-    {:
-        RESULT = new AlterRepositoryStmt(repoName, properties);
-    :}
     ;
 
 opt_datasource_properties ::=

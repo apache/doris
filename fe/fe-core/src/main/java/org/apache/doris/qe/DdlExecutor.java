@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterJobStatusStmt;
-import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
@@ -168,10 +167,6 @@ public class DdlExecutor {
             RefreshCatalogStmt refreshCatalogStmt = (RefreshCatalogStmt) ddlStmt;
             env.getRefreshManager()
                     .handleRefreshCatalog(refreshCatalogStmt.getCatalogName(), refreshCatalogStmt.isInvalidCache());
-        } else if (ddlStmt instanceof AlterRepositoryStmt) {
-            AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
-            env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
-                    false);
         } else if (ddlStmt instanceof CopyStmt) {
             executeCopyStmt(env, (CopyStmt) ddlStmt);
         } else {
