@@ -1362,9 +1362,19 @@ private:
     }
 
     static Status compute_previous_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
-        int delta = (dtv.weekday() + 1 - week_day + 7) % 7;
-        delta = (delta == 0) ? 7 : delta;
-        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, -delta, false));
+        int current_weekday = dtv.weekday() + 1;
+        int delta = current_weekday - week_day;
+        if (delta <= 0) {
+            delta += 7;
+        }
+
+        auto current_days = dtv.to_days();
+        if (current_days - delta < DateV2Value<DateV2ValueType>::MIN_DATE) {
+            dtv.from_days(DateV2Value<DateV2ValueType>::MIN_DATE);
+        } else {
+            dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, -delta, false));
+        }
+
         return Status::OK();
     }
 
