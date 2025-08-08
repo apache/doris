@@ -67,7 +67,10 @@ using namespace ErrorCode;
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
 
-class TestRowIdConversion : public testing::TestWithParam<std::tuple<KeysType, bool, bool, bool>> {
+using CompactionParam = std::tuple<KeysType, bool, bool, bool>;
+using SpillParam = std::tuple<bool, int64_t>;
+
+class TestRowIdConversion : public testing::TestWithParam<std::tuple<CompactionParam, SpillParam>> {
 protected:
     void SetUp() override {
         char buffer[MAX_PATH_LEN];
@@ -345,7 +348,8 @@ protected:
         }
 
         Merger::Statistics stats;
-        RowIdConversion rowid_conversion;
+        RowIdConversion rowid_conversion(config::enable_rowid_conversion_spill, tablet->tablet_id(),
+                                         writer_context.tablet_path);
         EXPECT_TRUE(rowid_conversion.init().ok());
         stats.rowid_conversion = &rowid_conversion;
         Status s;
@@ -551,25 +555,33 @@ TEST_F(TestRowIdConversion, Basic) {
 
 INSTANTIATE_TEST_SUITE_P(
         Parameters, TestRowIdConversion,
-        ::testing::ValuesIn(std::vector<std::tuple<KeysType, bool, bool, bool>> {
-                // Parameters: data_type, enable_unique_key_merge_on_write, has_delete_handler, is_vertical_merger
-                {DUP_KEYS, false, false, false},
-                {UNIQUE_KEYS, false, false, false},
-                {UNIQUE_KEYS, true, false, false},
-                {DUP_KEYS, false, true, false},
-                {UNIQUE_KEYS, false, true, false},
-                {UNIQUE_KEYS, true, true, false},
-                {UNIQUE_KEYS, false, false, true},
-                {UNIQUE_KEYS, true, false, true},
-                {DUP_KEYS, false, true, true},
-                {UNIQUE_KEYS, false, true, true},
-                {UNIQUE_KEYS, true, true, true}}));
+        ::testing::Combine(
+                ::testing::ValuesIn(
+                        // Parameters: data_type, enable_unique_key_merge_on_write, has_delete_handler, is_vertical_merger
+                        std::vector<CompactionParam> {{DUP_KEYS, false, false, false},
+                                                      {UNIQUE_KEYS, false, false, false},
+                                                      {UNIQUE_KEYS, true, false, false},
+                                                      {DUP_KEYS, false, true, false},
+                                                      {UNIQUE_KEYS, false, true, false},
+                                                      {UNIQUE_KEYS, true, true, false},
+                                                      {UNIQUE_KEYS, false, false, true},
+                                                      {UNIQUE_KEYS, true, false, true},
+                                                      {DUP_KEYS, false, true, true},
+                                                      {UNIQUE_KEYS, false, true, true},
+                                                      {UNIQUE_KEYS, true, true, true}}),
+                ::testing::ValuesIn(
+                        // Parameters: enable_spill, spill_threshold
+                        std::vector<SpillParam> {{false, 0}, {true, 1000000}, {true, 10000000}})));
 
 TEST_P(TestRowIdConversion, Conversion) {
-    KeysType keys_type = std::get<0>(GetParam());
-    bool enable_unique_key_merge_on_write = std::get<1>(GetParam());
-    bool has_delete_handler = std::get<2>(GetParam());
-    bool is_vertical_merger = std::get<3>(GetParam());
+    auto [compaction_param, spill_param] = GetParam();
+    KeysType keys_type = std::get<0>(compaction_param);
+    bool enable_unique_key_merge_on_write = std::get<1>(compaction_param);
+    bool has_delete_handler = std::get<2>(compaction_param);
+    bool is_vertical_merger = std::get<3>(compaction_param);
+
+    config::enable_rowid_conversion_spill = std::get<0>(spill_param);
+    config::rowid_conversion_max_mb = std::get<1>(spill_param);
 
     // if num_input_rowset = 2, VCollectIterator::Level1Iterator::_merge = flase
     // if num_input_rowset = 3, VCollectIterator::Level1Iterator::_merge = true
