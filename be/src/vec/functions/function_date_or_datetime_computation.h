@@ -1368,9 +1368,9 @@ private:
             delta += 7;
         }
 
-        auto current_days = dtv.to_days();
-        if (current_days - delta < DateV2Value<DateV2ValueType>::MIN_DATE) {
-            dtv.from_days(DateV2Value<DateV2ValueType>::MIN_DATE);
+        auto current_days = dtv.daynr();
+        if (current_days - delta < MIN_DATE_V2) {
+            dtv.get_date_from_daynr(MIN_DATE_V2);
         } else {
             dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, -delta, false));
         }
