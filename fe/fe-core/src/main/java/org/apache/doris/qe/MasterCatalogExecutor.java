@@ -74,7 +74,7 @@ public class MasterCatalogExecutor {
                 // 4. deadlock
                 // But no waiting on journal replayed may cause some request on non-master FE failed for some time.
                 // There is no good solution for this.
-                // In feature version, this whole process is refactored, so we temporarily remove this waiting.
+                // In future version, this whole process is refactored, so we temporarily remove this waiting.
                 // Env.getCurrentEnv().getJournalObservable().waitOn(result.maxJournalId, timeoutMs);
                 isReturnToPool = true;
             }
