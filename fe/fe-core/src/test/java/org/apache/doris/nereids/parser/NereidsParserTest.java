@@ -473,4 +473,39 @@ public class NereidsParserTest extends ParserTestBase {
         checkQueryTopPlanClass("SELECT a, b, sum(c) from test group by a, b WITH ROLLUP",
                 nereidsParser, LogicalRepeat.class);
     }
+
+    @Test
+    public void testLambdaSelect() {
+        parsePlan("SELECT  x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaGroupBy() {
+        parsePlan("SELECT 1 from ( select 2 ) t group by x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaSort() {
+        parsePlan("SELECT 1 from ( select 2 ) t order by x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaHaving() {
+        parsePlan("SELECT 1 from ( select 2 ) t having x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaJoin() {
+        parsePlan("SELECT 1 from ( select 2 as a1 ) t1 join ( select 2 as a2 ) as t2 on x -> x + 1 = t1.a1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
 }
