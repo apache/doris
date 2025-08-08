@@ -830,15 +830,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
             req.setTablets(tabletIds);
             TCheckWarmUpCacheAsyncResponse result = client.checkWarmUpCacheAsync(req);
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
-                LOG.warn("check pre cache status {} {}", result.getStatus().getStatusCode(),
+                LOG.warn("check pre tablets {} cache status {} {}", tabletIds, result.getStatus().getStatusCode(),
                         result.getStatus().getErrorMsgs());
             } else {
-                LOG.info("check pre cache succ status {} {}", result.getStatus().getStatusCode(),
+                LOG.info("check pre tablets {} cache succ status {} {}", tabletIds, result.getStatus().getStatusCode(),
                         result.getStatus().getErrorMsgs());
             }
             return result.getTaskDone();
         } catch (Exception e) {
-            LOG.warn("send check pre cache rpc error. backend[{}]", destBackend.getId(), e);
+            LOG.warn("send check pre cache rpc error. tablets{} backend[{}]", tabletIds, destBackend.getId(), e);
             ok = false;
         } finally {
             if (ok) {
