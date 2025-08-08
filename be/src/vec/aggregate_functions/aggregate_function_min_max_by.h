@@ -148,8 +148,15 @@ public:
     }
 };
 
+enum class AggMaxMinByType {
+    MAX_BY,
+    MIN_BY,
+};
+
 template <typename KT>
 struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<KT> {
+    constexpr static AggMaxMinByType type = AggMaxMinByType::MAX_BY;
+
     using Self = AggregateFunctionMaxByData;
 
     AggregateFunctionMaxByData(const DataTypes argument_types)
@@ -159,6 +166,19 @@ struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<KT>
                           Arena& arena) {
         if (this->key.change_if_greater(key_column, row_num, arena)) {
             this->value->change(value_column, row_num, arena);
+        }
+    }
+
+    void change_if_better_batch(const IColumn& value_column, const IColumn& key_column,
+                                size_t batch_size, Arena& arena) {
+        size_t max_pos = -1;
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (this->key.change_if_greater(key_column, i, arena)) {
+                max_pos = i;
+            }
+        }
+        if (max_pos != static_cast<size_t>(-1)) {
+            this->value->change(value_column, max_pos, arena);
         }
     }
 
@@ -174,6 +194,7 @@ struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<KT>
 template <typename KT>
 struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT> {
     using Self = AggregateFunctionMinByData;
+    constexpr static AggMaxMinByType type = AggMaxMinByType::MIN_BY;
 
     AggregateFunctionMinByData(const DataTypes argument_types)
             : AggregateFunctionMinMaxByBaseData<KT>(argument_types) {}
@@ -181,6 +202,19 @@ struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT>
                           Arena& arena) {
         if (this->key.change_if_less(key_column, row_num, arena)) {
             this->value->change(value_column, row_num, arena);
+        }
+    }
+
+    void change_if_better_batch(const IColumn& value_column, const IColumn& key_column,
+                                size_t batch_size, Arena& arena) {
+        size_t min_pos = -1;
+        for (size_t i = 0; i < batch_size; ++i) {
+            if (this->key.change_if_less(key_column, i, arena)) {
+                min_pos = i;
+            }
+        }
+        if (min_pos != static_cast<size_t>(-1)) {
+            this->value->change(value_column, min_pos, arena);
         }
     }
 
@@ -219,6 +253,11 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
         this->data(place).change_if_better(*columns[0], *columns[1], row_num, arena);
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena& arena) const override {
+        this->data(place).change_if_better_batch(*columns[0], *columns[1], batch_size, arena);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
