@@ -185,6 +185,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                         break;
                     }
                 }
+                _cache->add_need_update_lru_block(iter->second);
                 need_read_size -= reserve_bytes;
                 cur_offset += reserve_bytes;
                 already_read += reserve_bytes;

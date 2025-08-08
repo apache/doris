@@ -37,11 +37,13 @@ namespace io {
 
 struct FileBlocksHolder;
 class BlockFileCache;
+struct FileBlockCell;
 
 class FileBlock {
     friend struct FileBlocksHolder;
     friend class BlockFileCache;
     friend class CachedRemoteFileReader;
+    friend struct FileBlockCell;
 
 public:
     enum class State {
@@ -165,6 +167,8 @@ private:
     FileCacheKey _key;
     size_t _downloaded_size {0};
     bool _is_deleting {false};
+
+    FileBlockCell* cell;
 };
 
 extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);

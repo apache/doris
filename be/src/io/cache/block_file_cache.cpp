@@ -231,6 +231,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_lru_dump_latency_us");
     _recycle_keys_length_recorder = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_recycle_keys_length");
+    _need_update_lru_blocks_length_recorder = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_need_update_lru_blocks_length");
+    _update_lru_blocks_latency_us = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_update_lru_blocks_latency_us");
     _ttl_gc_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
                                                                  "file_cache_ttl_gc_latency_us");
     _shadow_queue_levenshtein_distance = std::make_shared<bvar::LatencyRecorder>(
@@ -350,6 +354,8 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     _cache_background_gc_thread = std::thread(&BlockFileCache::run_background_gc, this);
     _cache_background_evict_in_advance_thread =
             std::thread(&BlockFileCache::run_background_evict_in_advance, this);
+    _cache_background_block_lru_update_thread =
+            std::thread(&BlockFileCache::run_background_block_lru_update, this);
 
     // Initialize LRU dump thread and restore queues
     _cache_background_lru_dump_thread = std::thread(&BlockFileCache::run_background_lru_dump, this);
@@ -357,6 +363,21 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
             std::thread(&BlockFileCache::run_background_lru_log_replay, this);
 
     return Status::OK();
+}
+
+void BlockFileCache::update_block_lru(FileBlockSPtr block,
+                                      std::lock_guard<std::mutex>& cache_lock) {
+    FileBlockCell* cell = block->cell;
+    if (cell) {
+        if (cell->queue_iterator) {
+            auto& queue = get_queue(block->cache_type());
+            queue.move_to_end(*cell->queue_iterator, cache_lock);
+            _lru_recorder->record_queue_event(block->cache_type(), CacheLRULogType::MOVETOBACK,
+                                              block->_key.hash, block->_key.offset,
+                                              block->_block_range.size());
+        }
+        cell->update_atime();
+    }
 }
 
 void BlockFileCache::use_cell(const FileBlockCell& cell, FileBlocks* result, bool move_iter_flag,
@@ -379,8 +400,8 @@ void BlockFileCache::use_cell(const FileBlockCell& cell, FileBlocks* result, boo
 
 template <class T>
     requires IsXLock<T>
-BlockFileCache::FileBlockCell* BlockFileCache::get_cell(const UInt128Wrapper& hash, size_t offset,
-                                                        T& /* cache_lock */) {
+FileBlockCell* BlockFileCache::get_cell(const UInt128Wrapper& hash, size_t offset,
+                                        T& /* cache_lock */) {
     auto it = _files.find(hash);
     if (it == _files.end()) {
         return nullptr;
@@ -569,6 +590,15 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
     }
 
     return result;
+}
+
+void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
+    bool ret = _need_update_lru_blocks.enqueue(block);
+    if (ret) [[likely]] {
+        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size_approx();
+    } else {
+        LOG_WARNING("Failed to push FileBlockSPtr to _need_update_lru_blocks");
+    }
 }
 
 std::string BlockFileCache::clear_file_cache_async() {
@@ -775,10 +805,9 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     return FileBlocksHolder(std::move(file_blocks));
 }
 
-BlockFileCache::FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash,
-                                                        const CacheContext& context, size_t offset,
-                                                        size_t size, FileBlock::State state,
-                                                        std::lock_guard<std::mutex>& cache_lock) {
+FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheContext& context,
+                                        size_t offset, size_t size, FileBlock::State state,
+                                        std::lock_guard<std::mutex>& cache_lock) {
     /// Create a file block cell and put it in `files` map by [hash][offset].
     if (size == 0) {
         return nullptr; /// Empty files are not cached.
@@ -1395,6 +1424,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto type = file_block->cache_type();
     auto expiration_time = file_block->expiration_time();
     auto* cell = get_cell(hash, offset, cache_lock);
+    file_block->cell = nullptr;
     DCHECK(cell);
     DCHECK(cell->queue_iterator);
     if (cell->queue_iterator) {
@@ -1494,9 +1524,9 @@ size_t BlockFileCache::get_file_blocks_num_unlocked(FileCacheType cache_type,
     return get_queue(cache_type).get_elements_num(cache_lock);
 }
 
-BlockFileCache::FileBlockCell::FileBlockCell(FileBlockSPtr file_block,
-                                             std::lock_guard<std::mutex>& cache_lock)
+FileBlockCell::FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock)
         : file_block(file_block) {
+    file_block->cell = this;
     /**
      * Cell can be created with either DOWNLOADED or EMPTY file block's state.
      * File block acquires DOWNLOADING state and creates LRUQueue iterator on first
@@ -2011,6 +2041,37 @@ void BlockFileCache::run_background_evict_in_advance() {
             try_evict_in_advance(batch, cache_lock);
         }
         *_evict_in_advance_latency_us << (duration_ns / 1000);
+    }
+}
+
+void BlockFileCache::run_background_block_lru_update() {
+    Thread::set_self_name("run_background_block_lru_update");
+    FileBlockSPtr block;
+    size_t batch_count = 0;
+    while (!_close) {
+        int64_t interval_ms = config::file_cache_background_block_lru_update_interval_ms;
+        size_t batch_limit =
+                config::file_cache_background_block_lru_update_qps_limit * interval_ms / 1000;
+        {
+            std::unique_lock close_lock(_close_mtx);
+            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
+            if (_close) {
+                break;
+            }
+        }
+
+        int64_t duration_ns = 0;
+        {
+            SCOPED_CACHE_LOCK(_mutex, this);
+            SCOPED_RAW_TIMER(&duration_ns);
+            while (batch_count < batch_limit && _need_update_lru_blocks.try_dequeue(block)) {
+                update_block_lru(block, cache_lock);
+                batch_count++;
+            }
+        }
+        *_update_lru_blocks_latency_us << (duration_ns / 1000);
+        *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size_approx();
+        batch_count = 0;
     }
 }
 
