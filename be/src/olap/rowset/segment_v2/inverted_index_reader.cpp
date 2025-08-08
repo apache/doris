@@ -264,7 +264,6 @@ Status InvertedIndexReader::create_index_searcher(IndexSearcherBuilder* index_se
     // When the meta information has been read, the ioContext needs to be reset to prevent it from being used by other queries.
     auto* stream = static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput();
     stream->setIoContext(nullptr);
-    stream->setIndexFile(false);
 
     reader_size = index_searcher_builder->get_reader_size();
     return Status::OK();

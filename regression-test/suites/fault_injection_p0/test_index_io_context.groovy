@@ -80,6 +80,7 @@ suite("test_index_io_context", "nonConcurrent") {
 
         try {
             GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexReader.handle_searcher_cache.io_ctx")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexInput::readInternal::io_ctx_is_index_data")
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
@@ -152,6 +153,7 @@ suite("test_index_io_context", "nonConcurrent") {
             qt_sql """ select count() from ${tableName2} where size = '0'; """
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexReader.handle_searcher_cache.io_ctx")
+            GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexInput::readInternal::io_ctx_is_index_data")
         }
     } finally {
     }
