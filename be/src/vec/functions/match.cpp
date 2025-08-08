@@ -103,7 +103,9 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
         inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     }
-
+    if (inverted_index_ctx == nullptr) {
+        return Status::InternalError("inverted_index_ctx cannot be nullptr");
+    }
     if (!inverted_index_ctx->custom_analyzer.empty()) {
         return Status::NotSupported(
                 "Custom analyzer is not supported for unindexed MATCH operations.");
