@@ -1604,6 +1604,13 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
         return Status::OK();
     }
 
+    if (tablet->tablet_meta()->tablet_state() != TabletState::TABLET_RUNNING) {
+        LOG(INFO) << "tablet is not running, skip fill version holes, tablet_id: "
+                  << tablet->tablet_id() << ", tablet_state: "
+                  << tablet->tablet_meta()->tablet_state();
+        return Status::OK();
+    }
+
     std::vector<RowsetSharedPtr> hole_rowsets;
 
     Versions existing_versions;
@@ -1624,7 +1631,6 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
 
     // From the first version(=0), find the missing version until spec_version
     int64_t last_version = -1;
-    Versions missed_versions;
     for (const Version& version : existing_versions) {
         // missing versions are those that are not in the existing_versions
         if (version.first > last_version + 1) {
@@ -1681,6 +1687,7 @@ Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t v
     rs_meta->set_partition_id(tablet->partition_id());
     rs_meta->set_tablet_uid(tablet->tablet_uid());
     rs_meta->set_version(Version(version, version));
+    rs_meta->set_txn_id(version);
 
     // Copy schema and other metadata from template
     rs_meta->set_tablet_schema(prev_rowset_meta->tablet_schema());
