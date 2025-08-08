@@ -26,6 +26,7 @@
 #include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
+#include "util/runtime_profile.h"
 
 namespace doris::vectorized {
 class OlapScanner;
@@ -206,6 +207,12 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+
+    RuntimeProfile::Counter* _ann_index_range_search_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_topn_filter_counter = nullptr;
+    RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
+    RuntimeProfile::Counter* _ann_index_range_search_costs = nullptr;
+    RuntimeProfile::Counter* _ann_index_topn_costs = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
