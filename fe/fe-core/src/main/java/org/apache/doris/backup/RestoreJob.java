@@ -1661,7 +1661,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (reserveReplica) {
                 restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
             }
-            localPartitionInfo.addPartition(restorePart.getId(), false, remotePartitionInfo.getItem(remotePartId),
+            localPartitionInfo.addPartition(restorePart.getId(), false,
+                    remotePartitionInfo.getItem(remotePartId),
                     remoteDataProperty, restoreReplicaAlloc,
                     remotePartitionInfo.getIsInMemory(remotePartId),
                     remotePartitionInfo.getIsMutable(remotePartId));
