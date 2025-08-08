@@ -45,7 +45,7 @@ void convert_tmp_rowsets(
         const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
         MetaServiceCode& code, std::string& msg, int64_t db_id,
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
-        std::unordered_map<int64_t, TabletIndexPB>& tablet_ids) {
+        std::map<int64_t, TabletIndexPB>& tablet_ids) {
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -323,8 +323,7 @@ void TxnLazyCommitTask::commit() {
             }
 
             // <partition_id, tmp_rowsets>
-            std::unordered_map<int64_t,
-                               std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>>
+            std::map<int64_t, std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>>
                     partition_to_tmp_rowset_metas;
             for (auto& [tmp_rowset_key, tmp_rowset_pb] : all_tmp_rowset_metas) {
                 partition_to_tmp_rowset_metas[tmp_rowset_pb.partition_id()].emplace_back();
@@ -334,9 +333,9 @@ void TxnLazyCommitTask::commit() {
                         tmp_rowset_pb;
             }
 
-            // tablet_id -> TabletIndexPB
-            std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
             for (auto& [partition_id, tmp_rowset_metas] : partition_to_tmp_rowset_metas) {
+                // tablet_id -> TabletIndexPB
+                std::map<int64_t, TabletIndexPB> tablet_ids;
                 for (size_t i = 0; i < tmp_rowset_metas.size();
                      i += config::txn_lazy_max_rowsets_per_batch) {
                     size_t end =
