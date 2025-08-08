@@ -106,6 +106,12 @@ struct RowsetWriterContext {
 
     bool is_transient_rowset_writer = false;
 
+    // When true, writers should remove variant extracted subcolumns from the
+    // schema stored in RowsetMeta. This is used when compaction temporarily
+    // extends schema to split variant subcolumns for vertical compaction but
+    // the final rowset meta must not persist those extracted subcolumns.
+    bool strip_variant_extracted_columns_in_rowset_meta = false;
+
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
 
