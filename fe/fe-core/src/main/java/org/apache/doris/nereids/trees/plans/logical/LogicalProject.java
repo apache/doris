@@ -280,7 +280,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 continue;
             }
             // a+random(1,10) should continue, otherwise the a(determinant), a+random(1,10) (dependency) will be added.
-            if (expr.containsNonfoldable()) {
+            if (expr.containsUniqueFunction()) {
                 continue;
             }
             builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
