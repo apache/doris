@@ -28,7 +28,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -100,8 +100,8 @@ public class CancelWarmUpJobCommand extends Command implements ForwardWithSync {
         }
 
         String leftKey = ((UnboundSlot) whereClause.child(0)).getName();
-        if (leftKey.equalsIgnoreCase("id") && (whereClause.child(1) instanceof IntegerLiteral)) {
-            jobId = ((IntegerLiteral) whereClause.child(1)).getLongValue();
+        if (leftKey.equalsIgnoreCase("id") && (whereClause.child(1) instanceof IntegerLikeLiteral)) {
+            jobId = ((IntegerLikeLiteral) whereClause.child(1)).getLongValue();
         } else {
             return false;
         }
