@@ -22,63 +22,71 @@ import java.net.URISyntaxException;
 import java.util.Objects;
 
 public class PathUtils {
-
     /**
-     * Compares two paths ignoring the scheme (protocol).
+     * Compares two URI strings for equality with special handling for the "s3" scheme.
      * <p>
-     * Examples:
-     * <ul>
-     *   <li>s3://bucket/path/file.txt == cos://bucket/path/file.txt</li>
-     *   <li>hdfs://namenode/path == file:///path</li>
-     * </ul>
+     * The comparison rules are:
+     * - If both URIs have the same scheme, compare the full URI strings (case-insensitive).
+     * - If the schemes differ, but one of them is "s3", then compare only the authority and path parts,
+     * ignoring the scheme.
+     * - Otherwise, consider the URIs as not equal.
+     * <p>
+     * This is useful in scenarios where "s3" URIs should be treated as equivalent to other schemes
+     * if the host and path match, ignoring scheme differences.
      *
-     * @param path1 first path string
-     * @param path2 second path string
-     * @return true if host and path are equal ignoring the scheme
+     * @param p1 the first URI string to compare
+     * @param p2 the second URI string to compare
+     * @return true if the URIs are considered equal under the above rules, false otherwise
      */
-    public static boolean equalsIgnoreScheme(String path1, String path2) {
-        if (path1 == null || path2 == null) {
-            return false;
+    public static boolean equalsIgnoreSchemeIfOneIsS3(String p1, String p2) {
+        if (p1 == null || p2 == null) {
+            return p1 == null && p2 == null;
         }
+
         try {
-            URI uri1 = new URI(path1);
-            URI uri2 = new URI(path2);
+            URI uri1 = new URI(p1);
+            URI uri2 = new URI(p2);
 
-            String host1 = normalizeNull(uri1.getHost());
-            String host2 = normalizeNull(uri2.getHost());
+            String scheme1 = uri1.getScheme();
+            String scheme2 = uri2.getScheme();
 
-            String normPath1 = normalizePath(uri1.getPath());
-            String normPath2 = normalizePath(uri2.getPath());
+            // If schemes are equal, compare the full URI strings ignoring case
+            if (scheme1 != null && scheme1.equalsIgnoreCase(scheme2)) {
+                return p1.equalsIgnoreCase(p2);
+            }
 
-            return Objects.equals(host1, host2)
-                    && Objects.equals(normPath1, normPath2);
+            // If schemes differ but one is "s3", compare only authority and path ignoring scheme
+            if ("s3".equalsIgnoreCase(scheme1) || "s3".equalsIgnoreCase(scheme2)) {
+                String auth1 = normalize(uri1.getAuthority());
+                String auth2 = normalize(uri2.getAuthority());
+                String path1 = normalize(uri1.getPath());
+                String path2 = normalize(uri2.getPath());
+
+                return Objects.equals(auth1, auth2) && Objects.equals(path1, path2);
+            }
+
+            // Otherwise, URIs are not equal
+            return false;
 
         } catch (URISyntaxException e) {
-            // Fallback: compare as raw strings without scheme
-            return stripScheme(path1).equals(stripScheme(path2));
+            // If URI parsing fails, fallback to simple case-insensitive string comparison
+            return p1.equalsIgnoreCase(p2);
         }
     }
 
-    private static String normalizeNull(String s) {
-        return (s == null || s.isEmpty()) ? null : s.toLowerCase();
-    }
-
-    private static String normalizePath(String path) {
-        if (path == null || path.isEmpty()) {
-            return "/";
+    /**
+     * Normalizes a URI component by converting null to empty string and
+     * removing trailing slashes.
+     *
+     * @param s the string to normalize
+     * @return normalized string without trailing slashes
+     */
+    private static String normalize(String s) {
+        if (s == null) {
+            return "";
         }
-        // Remove trailing slashes except root "/"
-        if (path.length() > 1 && path.endsWith("/")) {
-            path = path.substring(0, path.length() - 1);
-        }
-        return path;
-    }
-
-    private static String stripScheme(String s) {
-        int idx = s.indexOf("://");
-        if (idx >= 0) {
-            return s.substring(idx + 3);
-        }
-        return s;
+        // Remove trailing slashes for consistent comparison
+        String trimmed = s.replaceAll("/+$", "");
+        return trimmed.isEmpty() ? "" : trimmed;
     }
 }

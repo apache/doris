@@ -1180,7 +1180,7 @@ public class HMSTransaction implements Transaction {
             Table table = tableAndMore.getTable();
             String targetPath = table.getSd().getLocation();
             String writePath = tableAndMore.getCurrentLocation();
-            boolean needRename = !PathUtils.equalsIgnoreScheme(targetPath, writePath);
+            boolean needRename = !PathUtils.equalsIgnoreSchemeIfOneIsS3(targetPath, writePath);
             if (needRename) {
                 wrapperAsyncRenameWithProfileSummary(
                         fileSystemExecutor,
