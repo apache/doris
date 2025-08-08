@@ -19,6 +19,7 @@
 #include <concurrentqueue.h>
 
 #include <condition_variable>
+#include <future>
 #include <queue> // IWYU pragma: keep
 
 #include "runtime/result_writer.h"
@@ -65,7 +66,7 @@ public:
     virtual Status open(RuntimeState* state, RuntimeProfile* operator_profile) = 0;
 
     // sink the block data to data queue, it is async
-    Status sink(Block* block, bool eos);
+    Status sink(RuntimeState* state, Block* block, bool eos);
 
     // Add the IO thread task process block() to thread pool to dispose the IO
     Status start_writer(RuntimeState* state, RuntimeProfile* operator_profile);
@@ -73,6 +74,11 @@ public:
     Status get_writer_status() { return _writer_status.status(); }
 
     void set_low_memory_mode();
+    bool closed() const { return _closed; }
+    bool thread_submitted() const { return _thread_submitted; }
+    int thread_quit_point() const { return _thread_quit_point; }
+    size_t data_queue_size() const { return _data_queue.size(); }
+    bool eos() const { return _eos; }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -82,7 +88,7 @@ protected:
     std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
 
 private:
-    void process_block(RuntimeState* state, RuntimeProfile* operator_profile);
+    Status process_block(RuntimeState* state, RuntimeProfile* operator_profile);
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
     void _set_ready_to_finish();
@@ -92,11 +98,15 @@ private:
 
     static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;
-    std::condition_variable _cv;
     std::deque<std::unique_ptr<Block>> _data_queue;
+    bool _opened = false;
+    std::shared_ptr<std::promise<Status>> _promise = nullptr;
+    std::atomic_bool _closed = false;
+    std::atomic_bool _thread_submitted = false;
+    std::atomic<int> _thread_quit_point = 0;
     // Default value is ok
     AtomicStatus _writer_status;
-    bool _eos = false;
+    std::atomic_bool _eos = false;
     std::atomic_bool _low_memory_mode = false;
 
     std::shared_ptr<pipeline::Dependency> _dependency;
