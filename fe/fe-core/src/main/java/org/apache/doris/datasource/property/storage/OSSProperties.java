@@ -90,7 +90,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * <p>
      */
-    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
+    public static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
                     .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$"),
             Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
             Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
@@ -147,7 +147,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
-    protected void checkEndpoint() {
+    protected void setEndpointIfPossible() {
         if (StringUtils.isBlank(this.endpoint) && StringUtils.isNotBlank(this.region)) {
             Optional<String> uriValueOpt = origProps.entrySet().stream()
                     .filter(e -> URI_KEYWORDS.stream()
@@ -165,7 +165,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 }
             }
         }
-        super.checkEndpoint();
+        super.setEndpointIfPossible();
     }
 
     @Override
@@ -185,7 +185,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         // If only one is provided, it's an error
         throw new StoragePropertiesException(
                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
-
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {

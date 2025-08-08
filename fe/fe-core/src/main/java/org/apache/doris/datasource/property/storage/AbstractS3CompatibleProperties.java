@@ -25,6 +25,8 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -47,7 +49,7 @@ import java.util.regex.Pattern;
  * determine if path-style URLs should be used for the storage system.
  */
 public abstract class AbstractS3CompatibleProperties extends StorageProperties implements ObjectStorageProperties {
-
+    private static final Logger LOG = LogManager.getLogger(AbstractS3CompatibleProperties.class);
     /**
      * The maximum number of concurrent connections that can be made to the object storage system.
      * This value is optional and can be configured by the user.
@@ -176,12 +178,11 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        checkEndpoint();
-        checkRequiredProperties();
-        initRegionIfNecessary();
-        if (StringUtils.isBlank(getRegion())) {
-            throw new IllegalArgumentException("region is required");
-        }
+        setEndpointIfPossible();
+        setRegionIfPossible();
+        // if (StringUtils.isBlank(getRegion())) {
+        //     throw new IllegalArgumentException("region is required");
+        // }
     }
 
     /**
@@ -200,31 +201,36 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
      *
      * @throws IllegalArgumentException if the endpoint format is invalid
      */
-    protected void checkEndpoint() {
+    protected void setEndpointIfPossible() {
         setEndpointIfNotSet();
-        if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
-        }
+        // if (!isValidEndpoint(getEndpoint())) {
+        //     throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
+        // }
     }
 
-    private void initRegionIfNecessary() {
+    private void setRegionIfPossible() {
         if (StringUtils.isNotBlank(getRegion())) {
             return;
         }
         String endpoint = getEndpoint();
         if (endpoint == null || endpoint.isEmpty()) {
-            throw new IllegalArgumentException("endpoint is required");
+            // throw new IllegalArgumentException("endpoint is required");
+            return;
         }
         Optional<String> regionOptional = extractRegion(endpoint);
         if (regionOptional.isPresent()) {
             setRegion(regionOptional.get());
             return;
         }
-        throw new IllegalArgumentException("Not a valid region, and cannot be parsed from endpoint: " + endpoint);
+        // throw new IllegalArgumentException("Not a valid region, and cannot be parsed from endpoint: " + endpoint);
     }
 
-    public Optional<String> extractRegion(String endpoint) {
-        for (Pattern pattern : endpointPatterns()) {
+    private Optional<String> extractRegion(String endpoint) {
+        return extractRegion(endpointPatterns(), endpoint);
+    }
+
+    public static Optional<String> extractRegion(Set<Pattern> endpointPatterns, String endpoint) {
+        for (Pattern pattern : endpointPatterns) {
             Matcher matcher = pattern.matcher(endpoint.toLowerCase());
             if (matcher.matches()) {
                 // Check all possible groups for region (group 1, 2, or 3)
@@ -258,14 +264,23 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }
-        String endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
+        String endpoint = null;
+        // 1. try getting endpoint from uri
+        try {
+            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
+        } catch (Exception e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Failed to construct endpoint from url: " + origProps, e);
+            }
+        }
+        // 2. try getting endpoint region
         if (StringUtils.isBlank(endpoint)) {
             endpoint = getEndpointFromRegion();
         }
-        if (StringUtils.isBlank(endpoint)) {
-            throw new IllegalArgumentException("endpoint is required");
+        if (!StringUtils.isBlank(endpoint)) {
+            setEndpoint(endpoint);
+            // throw new IllegalArgumentException("endpoint is required. But failed to construct it from uri or region");
         }
-        setEndpoint(endpoint);
     }
 
     // This method should be overridden by subclasses to provide a default endpoint based on the region.
