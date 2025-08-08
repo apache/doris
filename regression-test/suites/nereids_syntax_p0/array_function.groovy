@@ -65,6 +65,6 @@ suite("array_function") {
     """
     test {
         sql """SELECT  redirect_links -> CONCAT('x', JSON_LENGTH(redirect_links) - 1, 'x') AS last_element from lambda_test_table"""
-        exception "mismatched input '->'"
+        exception "Syntax error"
     }
 }
