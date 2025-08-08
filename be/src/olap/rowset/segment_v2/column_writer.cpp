@@ -561,6 +561,9 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
     if (_opts.need_bitmap_index) {
         _bitmap_index_builder->add_values(data, *num_written);
     }
+    if (_opts.need_zone_map) {
+        _zone_map_index_builder->add_values(data, *num_written);
+    }
     if (_opts.need_inverted_index) {
         for (const auto& builder : _inverted_index_builders) {
             RETURN_IF_ERROR(builder->add_values(get_field()->name(), data, *num_written));
