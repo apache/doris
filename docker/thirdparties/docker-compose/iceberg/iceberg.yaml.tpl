@@ -50,33 +50,14 @@ services:
       timeout: 120s
       retries: 120
 
-  postgres:
-    image: postgis/postgis:14-3.3
-    container_name: doris--postgres
-    environment:
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_USER: root
-      POSTGRES_DB: iceberg
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U root" ]
-      interval: 5s
-      timeout: 60s
-      retries: 120
-    volumes:
-      - ./data/input/pgdata:/var/lib/postgresql/data
-    networks:
-      - doris--iceberg
-
   rest:
-    image: tabulario/iceberg-rest:1.6.0
+    image: apache/iceberg-rest-fixture
     container_name: doris--iceberg-rest
     ports:
       - ${REST_CATALOG_PORT}:8181
     volumes:
       - ./data:/mnt/data
     depends_on:
-      postgres:
-        condition: service_healthy
       minio:
         condition: service_healthy
     environment:
@@ -86,12 +67,8 @@ services:
       - CATALOG_WAREHOUSE=s3a://warehouse/wh/
       - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
       - CATALOG_S3_ENDPOINT=http://minio:9000
-      - CATALOG_URI=jdbc:postgresql://postgres:5432/iceberg
-      - CATALOG_JDBC_USER=root
-      - CATALOG_JDBC_PASSWORD=123456
     networks:
       - doris--iceberg
-    entrypoint: /bin/bash /mnt/data/input/script/rest_init.sh
 
   minio:
     image: minio/minio:RELEASE.2025-01-20T14-49-07Z
