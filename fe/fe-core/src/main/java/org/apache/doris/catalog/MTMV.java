@@ -205,6 +205,7 @@ public class MTMV extends OlapTable {
                 LOG.warn("generate cache failed", e);
             }
         }
+        Set<String> partitionName = getPartitionNames();
         writeMvLock();
         try {
             if (task.getStatus() == TaskStatus.SUCCESS) {
@@ -219,7 +220,7 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
-            this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
+            this.refreshSnapshot.updateSnapshots(partitionSnapshots);
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
         } finally {
