@@ -22,13 +22,6 @@
 
 namespace doris {
 
-// Helper function to normalize URI by removing duplicate slashes
-// Keeps protocol part (http:// or https://) intact
-// Examples:
-//   "https://example.com//path//to///file" -> "https://example.com/path/to/file"
-//   "http://host.com///bucket//prefix/" -> "http://host.com/bucket/prefix/"
-//   "endpoint.com//bucket///prefix" -> "endpoint.com/bucket/prefix"
-//   "https://account.blob.core.windows.net////container" -> "https://account.blob.core.windows.net/container"
 std::string normalize_http_uri(const std::string& uri) {
     if (uri.empty()) {
         return uri;

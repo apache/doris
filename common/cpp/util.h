@@ -20,5 +20,29 @@
 #include <string>
 
 namespace doris {
+    /**
+    * Normalizes HTTP URI by removing duplicate slashes while preserving the protocol part.
+    * 
+    * This function removes consecutive forward slashes from URIs while keeping the protocol 
+    * section (http:// or https://) intact. It processes everything after the protocol to 
+    * ensure clean URI formatting.
+    *
+    * @param uri The input URI string to be normalized
+    * @return A normalized URI string with duplicate slashes removed, or the original 
+    *         string if it's empty
+    *
+    * @example
+    *   normalize_http_uri("https://example.com//path//to///file") 
+    *   returns "https://example.com/path/to/file"
+    *
+    *   normalize_http_uri("http://host.com///bucket//prefix/") 
+    *   returns "http://host.com/bucket/prefix/"
+    *
+    *   normalize_http_uri("endpoint.com//bucket///prefix") 
+    *   returns "endpoint.com/bucket/prefix"
+    *
+    *   normalize_http_uri("https://account.blob.core.windows.net////container") 
+    *   returns "https://account.blob.core.windows.net/container"
+    */
     std::string normalize_http_uri(const std::string& uri);
 } // namespace doris
