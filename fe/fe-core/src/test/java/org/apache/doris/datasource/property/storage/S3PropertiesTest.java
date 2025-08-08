@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -382,5 +383,19 @@ public class S3PropertiesTest {
         Assertions.assertEquals(baseResult.size(), result.size());
         Assertions.assertEquals("base-access-key", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("base-secret-key", result.get("AWS_SECRET_KEY"));
+    }
+
+    @Test
+    public void testS3PropertiesFromIcebergRest() throws UserException {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("iceberg.rest.access-key-id", "aaa");
+        props.put("iceberg.rest.secret-access-key", "bbb");
+        props.put("iceberg.rest.signing-region", "ap-east-1");
+
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("ap-east-1", s3Properties.region);
+        Assertions.assertEquals("https://s3.ap-east-1.amazonaws.com", s3Properties.endpoint);
+        Assertions.assertEquals("aaa", s3Properties.accessKey);
+        Assertions.assertEquals("bbb", s3Properties.secretKey);
     }
 }
