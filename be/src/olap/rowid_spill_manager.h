@@ -100,6 +100,16 @@ public:
             uint32_t internal_id,
             const std::function<void(uint32_t, uint32_t, uint32_t)>& callback);
 
+    std::string dump_info() const {
+        std::string info = fmt::format("RowIdSpillManager: path={}, segment_count={}", _path,
+                                       _header.segment_count);
+        for (const auto& [id, seg_info] : _segment_infos) {
+            info.append(fmt::format("\n  Segment {}: row_count={}, offset={}, size={}", id,
+                                    seg_info.row_count, seg_info.offset, seg_info.size));
+        }
+        return info;
+    }
+
 private:
     std::string _path;
     int _fd {-1};

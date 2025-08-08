@@ -111,6 +111,7 @@ public:
             RETURN_IF_ERROR(_storage->add(item.rowset_id, item.segment_id, item.row_id,
                                           {_cur_dst_segment_id, _cur_dst_segment_rowid++}));
         }
+        RETURN_IF_ERROR(_storage->spill_if_eligible());
         track_mem_usage(_storage->memory_usage() - old_mem);
         return Status::OK();
     }

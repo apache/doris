@@ -53,11 +53,11 @@ Status RowIdSpillManager::spill_segment_mapping(uint32_t internal_id,
                                                 const RowIdMappingType& mappings) {
     std::lock_guard<std::mutex> lock(_mutex);
 
-    if (internal_id >= _segment_infos.size()) {
+    auto it = _segment_infos.find(internal_id);
+    if (it == _segment_infos.end()) {
         return Status::InvalidArgument(fmt::format("Invalid segment id: {}", internal_id));
     }
-
-    auto& info = _segment_infos[internal_id];
+    auto& info = it->second;
 
     // spill current segment's mappings from memory to file
     uint64_t file_offset = info.offset + info.size * ENTRY_BYTES;
@@ -92,11 +92,12 @@ Status RowIdSpillManager::read_segment_mapping_internal(
         uint32_t segment_id, const std::function<void(uint32_t, uint32_t, uint32_t)>& callback) {
     std::lock_guard<std::mutex> lock(_mutex);
 
-    if (segment_id >= _segment_infos.size()) {
+    auto it = _segment_infos.find(segment_id);
+    if (it == _segment_infos.end()) {
         return Status::InvalidArgument(fmt::format("Invalid segment id: {}", segment_id));
     }
+    const auto& info = it->second;
 
-    const auto& info = _segment_infos[segment_id];
     if (info.size == 0) {
         return Status::OK(); // Empty segment
     }
