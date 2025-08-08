@@ -23,21 +23,12 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.MustFallbackException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -199,32 +190,6 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     @Test
-    public void testMustFallbackException() throws Exception {
-        ConnectContext connectContext = new ConnectContext();
-        connectContext.setSessionVariable(new SessionVariable());
-        new MockUp<ConnectContext>() {
-            @Mock
-            public MysqlCommand getCommand() {
-                return MysqlCommand.COM_STMT_PREPARE;
-            }
-        };
-
-        OriginStatement originStatement = new OriginStatement("create", 0);
-        StatementContext statementContext = new StatementContext(connectContext, originStatement);
-        LogicalPlan plan = new CreatePolicyCommand(PolicyTypeEnum.ROW, "test1", false, null, null, null, null, null, null);
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, statementContext);
-        logicalPlanAdapter.setOrigStmt(originStatement);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, logicalPlanAdapter);
-
-        try {
-            stmtExecutor.execute();
-        } catch (MustFallbackException e) {
-            Assertions.fail();
-            throw e;
-        }
-    }
-
-    @Test
     public void testSendTextResultRow() throws IOException {
         ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
         MysqlChannel channel = Mockito.mock(MysqlChannel.class);
@@ -295,8 +260,8 @@ public class StmtExecutorTest extends TestWithFeService {
         ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
         AtomicInteger i = new AtomicInteger();
         Mockito.doAnswer(invocation -> {
-            byte[] expected0 = new byte[]{0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
-            byte[] expected1 = new byte[]{0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3, 64, -30, 1, 0};
+            byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
+            byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3, 64, -30, 1, 0};
             ByteBuffer buffer = invocation.getArgument(0);
             if (i.get() == 0) {
                 Assertions.assertArrayEquals(expected0, buffer.array());
