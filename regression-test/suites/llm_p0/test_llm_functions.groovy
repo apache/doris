@@ -108,6 +108,8 @@ suite("test_llm_functions") {
     test_query_timeout_exception("SELECT LLM_SUMMARIZE('${resourceName}', 'test,test,test,test')")
     test_query_timeout_exception("SELECT LLM_SENTIMENT('${resourceName}', 'this is a test');")
     test_query_timeout_exception("SELECT LLM_MASK('${resourceName}', 'this is a test', label) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_FILTER('${resourceName}', text) FROM ${test_table_for_llm_functions};")
+    test_query_timeout_exception("SELECT LLM_SIMILARITY('${resourceName}', 'this is a similarity test', text) FROM ${test_table_for_llm_functions};")
 
     try_sql("""DROP TABLE IF EXISTS ${test_table_for_llm_functions}""")
     try_sql("""DROP RESOURCE IF EXISTS '${resourceName}'""")

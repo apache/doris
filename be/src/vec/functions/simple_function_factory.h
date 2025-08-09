@@ -117,6 +117,8 @@ void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
 void register_function_llm_translate(SimpleFunctionFactory& factory);
 void register_function_llm_sentiment(SimpleFunctionFactory& factory);
+void register_function_llm_similarity(SimpleFunctionFactory& factory);
+void register_function_llm_filter(SimpleFunctionFactory& factory);
 void register_function_llm_fixgrammar(SimpleFunctionFactory& factory);
 void register_function_llm_extract(SimpleFunctionFactory& factory);
 void register_function_llm_generate(SimpleFunctionFactory& factory);
@@ -336,6 +338,8 @@ public:
             register_function_dict_get_many(instance);
             register_function_llm_translate(instance);
             register_function_llm_sentiment(instance);
+            register_function_llm_similarity(instance);
+            register_function_llm_filter(instance);
             register_function_llm_fixgrammar(instance);
             register_function_llm_extract(instance);
             register_function_llm_generate(instance);
