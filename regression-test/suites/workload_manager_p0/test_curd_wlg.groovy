@@ -116,7 +116,7 @@ suite("test_crud_wlg") {
     test {
         sql "alter workload group normal $forComputeGroupStr properties ( 'min_cpu_percent'='-2' );"
 
-        exception "The allowed min_cpu_percent value is -1 or a positive integer"
+        exception "The allowed min_cpu_percent value has to be in [0,100]"
     }
 
     test {
@@ -216,7 +216,7 @@ suite("test_crud_wlg") {
                 "    'max_memory_percent'='1%' " +
                 ");"
 
-        exception "The allowed min_cpu_percent value is -1 or a positive integer"
+        exception "The allowed min_cpu_percent value has to be in [0,100]"
     }
 
 
