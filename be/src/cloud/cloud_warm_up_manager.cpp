@@ -606,36 +606,30 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
     }
 }
 
-void CloudWarmUpManager::recycle_cache(
-        int64_t tablet_id, const std::vector<RowsetId>& rowset_ids,
-        const std::vector<int64_t>& num_segments,
-        const std::vector<std::vector<std::string>>& index_file_names) {
-    LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowset_ids.size();
+void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
+                                       const std::vector<RecycledRowsets>& rowsets) {
+    LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowsets.size();
     auto replicas = get_replica_info(tablet_id);
     if (replicas.empty()) {
         return;
     }
-    if (rowset_ids.size() != num_segments.size()) {
-        LOG(WARNING) << "recycle_cache: rowset_ids size mismatch with num_segments";
-        return;
-    }
 
     PRecycleCacheRequest request;
-    for (int i = 0; i < rowset_ids.size(); i++) {
+    for (const auto& rowset : rowsets) {
         RecycleCacheMeta* meta = request.add_cache_metas();
         meta->set_tablet_id(tablet_id);
-        meta->set_rowset_id(rowset_ids[i].to_string());
-        meta->set_num_segments(num_segments[i]);
-        for (const auto& name : index_file_names[i]) {
+        meta->set_rowset_id(rowset.rowset_id.to_string());
+        meta->set_num_segments(rowset.num_segments);
+        for (const auto& name : rowset.index_file_names) {
             meta->add_index_file_names(name);
         }
-        g_file_cache_recycle_cache_requested_segment_num << num_segments[i];
-        g_file_cache_recycle_cache_requested_index_num << index_file_names[i].size();
+        g_file_cache_recycle_cache_requested_segment_num << rowset.num_segments;
+        g_file_cache_recycle_cache_requested_index_num << rowset.index_file_names.size();
     }
+    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
     for (auto& replica : replicas) {
         // send sync request
         std::string host = replica.host;
-        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
         if (dns_cache == nullptr) {
             LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
         } else if (!is_valid_ip(replica.host)) {
