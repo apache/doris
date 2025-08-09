@@ -19,13 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
@@ -34,31 +33,29 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'quarters_sub'.
+ * ScalarFunction 'array_range_quarter_unit'.
  */
-public class QuartersSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args {
-
-    // When enable_date_conversion is true, we prefer to V2 signature.
-    // This preference follows original planner. refer to ScalarType.getDefaultDateType()
+public class ArrayRangeQuarterUnit extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
-                    IntegerType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE));
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
+                .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE)
+    );
 
-    public QuartersSub(Expression arg0, Expression arg1) {
-        super("quarters_sub", arg0, arg1);
+    /**
+     * constructor with 3 arguments.
+     */
+    public ArrayRangeQuarterUnit(Expression arg0, Expression arg1, Expression arg2) {
+        super("array_range_quarter_unit", arg0, arg1, arg2);
     }
 
-    /** constructor for withChildren and reuse signature */
-    private QuartersSub(ScalarFunctionParams functionParams) {
-        super(functionParams);
-    }
-
+    /**
+     * withChildren.
+     */
     @Override
-    public QuartersSub withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new QuartersSub(getFunctionParams(children));
+    public ArrayRangeQuarterUnit withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 3);
+        return new ArrayRangeQuarterUnit(children.get(0), children.get(1), children.get(2));
     }
 
     @Override
@@ -68,6 +65,6 @@ public class QuartersSub extends ScalarFunction implements BinaryExpression, Exp
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitQuartersSub(this, context);
+        return visitor.visitArrayRangeQuarterUnit(this, context);
     }
 }
