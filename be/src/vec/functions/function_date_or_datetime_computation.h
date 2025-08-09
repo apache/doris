@@ -1363,18 +1363,10 @@ private:
 
     static Status compute_previous_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
         int current_weekday = dtv.weekday() + 1;
-        int delta = current_weekday - week_day;
-        if (delta <= 0) {
-            delta += 7;
-        }
+        auto days_to_subtract = ((current_weekday - week_day) + 7) % 7;
+        days_to_subtract = days_to_subtract == 0 ? 7 : days_to_subtract;
 
-        auto current_days = dtv.daynr();
-        if (current_days - delta < MIN_DATE_V2) {
-            dtv.get_date_from_daynr(MIN_DATE_V2);
-        } else {
-            dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, -delta, false));
-        }
-
+        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, -days_to_subtract, false));
         return Status::OK();
     }
 
