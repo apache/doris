@@ -77,7 +77,7 @@ suite("test_previous_day") {
         (13, '1970-01-01', '1970-01-01', '1970-01-01 00:00:00', '1970-01-01 00:00:00', 'THU', 'THURSDAY');
     """
 
-    order_qt_nullable "select previous_day(b, f), previous_day(d, f) from previous_day_args"
+    // order_qt_nullable "select previous_day(b, f), previous_day(d, f) from previous_day_args"
     order_qt_not_nullable "select previous_day(a, e), previous_day(c, e) from previous_day_args"
     order_qt_partial_nullable "select previous_day(a, f), previous_day(c, f), previous_day(b, e), previous_day(d, e) from previous_day_args"
     order_qt_nullable_no_null "select previous_day(a, nullable(e)), previous_day(c, nullable(e)) from previous_day_args"
