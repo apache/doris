@@ -213,7 +213,7 @@ suite("test_crud_wlg") {
         sql "create workload group if not exists test_group2 $forComputeGroupStr " +
                 "properties ( " +
                 "    'min_cpu_percent'='-2', " +
-                "    'max_memory_percent'='1%', " +
+                "    'max_memory_percent'='1%' " +
                 ");"
 
         exception "The allowed min_cpu_percent value is -1 or a positive integer"
@@ -609,4 +609,4 @@ suite("test_crud_wlg") {
     qt_select_default_val_wg_3 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql "drop workload group if exists default_val_wg $forComputeGroupStr"
-
+}
