@@ -65,7 +65,7 @@ public:
     virtual Status open(RuntimeState* state, RuntimeProfile* operator_profile) = 0;
 
     // sink the block data to data queue, it is async
-    Status sink(Block* block, bool eos);
+    Status sink(RuntimeState* state, Block* block, bool eos);
 
     // Add the IO thread task process block() to thread pool to dispose the IO
     Status start_writer(RuntimeState* state, RuntimeProfile* operator_profile);
@@ -92,8 +92,8 @@ private:
 
     static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;
-    std::condition_variable _cv;
     std::deque<std::unique_ptr<Block>> _data_queue;
+    bool _running_reader = false;
     // Default value is ok
     AtomicStatus _writer_status;
     bool _eos = false;

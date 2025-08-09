@@ -39,7 +39,7 @@ AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs&
                                      std::shared_ptr<pipeline::Dependency> fin_dep)
         : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(dep), _finish_dependency(fin_dep) {}
 
-Status AsyncResultWriter::sink(Block* block, bool eos) {
+Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
     auto rows = block->rows();
     std::unique_ptr<Block> add_block;
     if (rows) {
@@ -64,12 +64,26 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
             _dependency->block();
         }
     }
+    if (!_running_reader) {
+        _running_reader = true;
+        DCHECK(_operator_profile);
+        auto task_ctx = state->get_task_execution_context();
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+                [this, state, operator_profile = _operator_profile, task_ctx]() {
+                    SCOPED_ATTACH_TASK(state);
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        return;
+                    }
+                    this->process_block(state, operator_profile);
+                    task_lock.reset();
+                }));
+    }
     // in 'process block' we check _eos first and _data_queue second so here
     // in the lock. must modify the _eos after change _data_queue to make sure
     // not lead the logic error in multi thread
     _eos = eos;
 
-    _cv.notify_one();
     return Status::OK();
 }
 
@@ -87,10 +101,6 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
 }
 
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* operator_profile) {
-    // Attention!!!
-    // AsyncResultWriter::open is called asynchronously,
-    // so we need to setupt the operator_profile and memory counter here,
-    // or else the counter can be nullptr when AsyncResultWriter::sink is called.
     _operator_profile = operator_profile;
     DCHECK(_operator_profile->get_child("CommonCounters") != nullptr);
     _memory_used_counter =
@@ -99,34 +109,21 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
-    // This is a async thread, should lock the task ctx, to make sure runtimestate and operator_profile
-    // not deconstructed before the thread exit.
-    auto task_ctx = state->get_task_execution_context();
-    RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, operator_profile, task_ctx]() {
-                SCOPED_ATTACH_TASK(state);
-                auto task_lock = task_ctx.lock();
-                if (task_lock == nullptr) {
-                    return;
-                }
-                this->process_block(state, operator_profile);
-                task_lock.reset();
-            }));
-    return Status::OK();
+    auto st = open(state, operator_profile);
+    if (!st.ok()) {
+        force_close(st);
+    }
+    return st;
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
-    if (auto status = open(state, operator_profile); !status.ok()) {
-        force_close(status);
-    }
-
     if (state && state->get_query_ctx() && state->get_query_ctx()->workload_group()) {
         if (auto cg_ctl_sptr =
                     state->get_query_ctx()->workload_group()->get_cgroup_cpu_ctl_wptr().lock()) {
             Status ret = cg_ctl_sptr->add_thread_to_cgroup();
             if (ret.ok()) {
                 std::string wg_tname =
-                        "asyc_wr_" + state->get_query_ctx()->workload_group()->name();
+                        "async_wr_" + state->get_query_ctx()->workload_group()->name();
                 Thread::set_self_name(wg_tname);
             }
         }
@@ -151,8 +148,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
             // and the async thread will be exit.
             while (!_eos && _data_queue.empty() && _writer_status.ok() &&
                    !ExecEnv::GetInstance()->fragment_mgr()->shutting_down()) {
-                // Add 1s to check to avoid lost signal
-                _cv.wait_for(l, std::chrono::seconds(1));
+                // No block available.
+                _running_reader = false;
+                return;
             }
             // If writer status is not ok, then we should not change its status to avoid lost the actual error status.
             if (ExecEnv::GetInstance()->fragment_mgr()->shutting_down() && _writer_status.ok()) {
@@ -241,7 +239,6 @@ void AsyncResultWriter::force_close(Status s) {
     if (_is_finished()) {
         _dependency->set_ready();
     }
-    _cv.notify_one();
 }
 
 void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
