@@ -92,12 +92,12 @@ suite("test_crud_wlg") {
     sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '100');"
 
     // reset normal group property
-    sql "alter workload group normal $forComputeGroupStr properties ( 'min_cpu_percent'='20' );"
+    sql "alter workload group normal $forComputeGroupStr properties ( 'min_cpu_percent'='20%' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'max_memory_percent'='50%' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'max_concurrency'='2147483647' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'max_queue_size'='0' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'queue_timeout'='0' );"
-    sql "alter workload group normal $forComputeGroupStr properties ( 'max_cpu_percent'='1%' );"
+    sql "alter workload group normal $forComputeGroupStr properties ( 'max_cpu_percent'='30%' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'scan_thread_num'='-1' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'scan_thread_num'='-1' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'remote_read_bytes_per_second'='-1' );"
@@ -224,9 +224,9 @@ suite("test_crud_wlg") {
     test {
         sql "create workload group if not exists test_group2 $forComputeGroupStr " +
                 "properties ( " +
-                "    'min_cpu_percent'='10', " +
+                "    'min_cpu_percent'='10%', " +
                 "    'max_memory_percent'='3%', " +
-                " 'max_cpu_percent'='1%' " +
+                " 'max_cpu_percent'='30%' " +
                 ");"
 
         exception "must be true or false"
@@ -575,12 +575,12 @@ suite("test_crud_wlg") {
 
     sql """
             alter workload group default_val_wg $forComputeGroupStr properties(
-                'min_cpu_percent'='1024',
-                'max_memory_percent'='1%',
+                'min_cpu_percent'='1%',
+                'max_memory_percent'='100%',
                 'max_concurrency'='100',
                 'max_queue_size'='1',
                 'queue_timeout'='123',
-                'max_cpu_percent'='1%',
+                'max_cpu_percent'='10%',
                 'scan_thread_num'='1',
                 'max_remote_scan_thread_num'='12',
                 'min_remote_scan_thread_num'='10',
@@ -592,12 +592,12 @@ suite("test_crud_wlg") {
 
     sql """
        alter workload group default_val_wg $forComputeGroupStr properties(
-        'min_cpu_percent'='-1',
-        'max_memory_percent'='-1',
+        'min_cpu_percent'='0',
+        'max_memory_percent'='100%',
         'max_concurrency'='2147483647',
         'max_queue_size'='0',
         'queue_timeout'='0',
-        'max_cpu_percent'='-1',
+        'max_cpu_percent'='100%',
         'scan_thread_num'='-1',
         'max_remote_scan_thread_num'='-1',
         'min_remote_scan_thread_num'='-1',
