@@ -45,10 +45,11 @@ class TaskQueue;
 class PriorityTaskQueue;
 class Dependency;
 
-class PipelineTask {
+class PipelineTask : public std::enable_shared_from_this<PipelineTask> {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+                 std::shared_ptr<PipelineFragmentContext> fragment_context,
+                 RuntimeProfile* parent_profile,
                  std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                                          std::shared_ptr<Dependency>>>
                          le_state_map,
@@ -63,9 +64,7 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status, bool close_sink = true);
 
-    PipelineFragmentContext* fragment_context() { return _fragment_context; }
-
-    QueryContext* query_context();
+    std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
     int get_previous_core_id() const {
         return _previous_schedule_id != -1 ? _previous_schedule_id
@@ -87,7 +86,7 @@ public:
 
     bool is_pending_finish() {
         for (auto* fin_dep : _finish_dependencies) {
-            _blocked_dep = fin_dep->is_blocked_by(this);
+            _blocked_dep = fin_dep->is_blocked_by(shared_from_this());
             if (_blocked_dep != nullptr) {
                 _blocked_dep->start_watcher();
                 return true;
@@ -138,10 +137,11 @@ public:
     void set_wake_up_early() { _wake_up_early = true; }
 
     void clear_blocking_state() {
+        auto fragment = _fragment_context.lock();
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
-        if (!_finalized) {
+        if (!_finalized && fragment) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
@@ -229,13 +229,9 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
-    void stop_if_finished() {
-        if (_sink->is_finished(_state)) {
-            clear_blocking_state();
-        }
-    }
+    void stop_if_finished();
 
-    PipelineId pipeline_id() const { return _pipeline->id(); }
+    PipelineId pipeline_id() const { return _pip_id; }
 
     bool wake_up_early() const { return _wake_up_early; }
 
@@ -249,7 +245,9 @@ private:
     void _fresh_profile_counter();
     Status _open();
 
-    uint32_t _index;
+    const TUniqueId _query_id;
+    const PipelineId _pip_id;
+    const uint32_t _index;
     PipelinePtr _pipeline;
     bool _has_exceed_timeout = false;
     bool _opened;
@@ -257,7 +255,7 @@ private:
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;
     std::unique_ptr<doris::vectorized::Block> _block;
-    PipelineFragmentContext* _fragment_context = nullptr;
+    std::weak_ptr<PipelineFragmentContext> _fragment_context;
     TaskQueue* _task_queue = nullptr;
 
     // used for priority queue
@@ -320,6 +318,10 @@ private:
     std::atomic<bool> _running = false;
     std::atomic<bool> _eos = false;
     std::atomic<bool> _wake_up_early = false;
+    const std::string _pipeline_name;
 };
+
+using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
+using PipelineTaskWPtr = std::weak_ptr<PipelineTask>;
 
 } // namespace doris::pipeline
