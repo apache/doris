@@ -115,9 +115,20 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
             if (catalog instanceof HMSExternalCatalog) {
                 HMSExternalCatalog hmsExternalCatalog = (HMSExternalCatalog) catalog;
-                if (!hmsExternalCatalog.getHmsProperties().isHmsEventsIncrementalSyncEnabled()) {
+                try {
+                    // Check if HMS incremental events synchronization is enabled.
+                    // In the past, this value was a constant and always available.
+                    // Now it is retrieved from HmsProperties, which requires initialization.
+                    // In some scenarios, essential HMS parameters may be missing.
+                    // If so, isHmsEventsIncrementalSyncEnabled() may throw IllegalArgumentException.
+                    if (!hmsExternalCatalog.getHmsProperties().isHmsEventsIncrementalSyncEnabled()) {
+                        continue;
+                    }
+                } catch (IllegalArgumentException e) {
+                    //ignore
                     continue;
                 }
+
                 try {
                     List<NotificationEvent> events = getNextHMSEvents(hmsExternalCatalog);
                     if (!events.isEmpty()) {
@@ -218,7 +229,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                     hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, batchSize, null);
             LOG.info("CatalogName = {}, lastSyncedEventId = {}, currentEventId = {},"
                             + "batchSize = {}, getEventsSize = {}", hmsExternalCatalog.getName(), lastSyncedEventId,
-                            currentEventId, batchSize, notificationEventResponse.getEvents().size());
+                    currentEventId, batchSize, notificationEventResponse.getEvents().size());
 
             return notificationEventResponse;
         } catch (MetastoreNotificationFetchException e) {
@@ -237,7 +248,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
     }
 
     private NotificationEventResponse getNextEventResponseForSlave(HMSExternalCatalog hmsExternalCatalog)
-                throws Exception {
+            throws Exception {
         long lastSyncedEventId = getLastSyncedEventId(hmsExternalCatalog);
         long masterLastSyncedEventId = getMasterLastSyncedEventId(hmsExternalCatalog);
         // do nothing if masterLastSyncedEventId has not been synced

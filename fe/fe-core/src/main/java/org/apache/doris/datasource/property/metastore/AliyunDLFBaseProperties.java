@@ -20,8 +20,11 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
+import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
@@ -48,11 +51,12 @@ public class AliyunDLFBaseProperties {
             description = "The region of the Aliyun DLF.")
     protected String dlfEndpoint = "";
 
-    @ConnectorProperty(names = {"dlf.uid", "dlf.catalog.uid"},
+    @ConnectorProperty(names = {"dlf.catalog.uid", "dlf.uid"},
             description = "The uid of the Aliyun DLF.")
     protected String dlfUid = "";
 
-    @ConnectorProperty(names = {"dlf.catalog.id"},
+    @ConnectorProperty(names = {"dlf.catalog.id", "dlf.catalog_id"},
+            required = false,
             description = "The catalog id of the Aliyun DLF. If not set, it will be the same as dlf.uid.")
     protected String dlfCatalogId = "";
 
@@ -61,7 +65,7 @@ public class AliyunDLFBaseProperties {
             description = "Enable public access to Aliyun DLF.")
     protected String dlfAccessPublic = "false";
 
-    @ConnectorProperty(names = {DataLakeConfig.CATALOG_PROXY_MODE},
+    @ConnectorProperty(names = {DataLakeConfig.CATALOG_PROXY_MODE, "dlf.proxy.mode"},
             required = false,
             description = "The proxy mode of the Aliyun DLF. Default is DLF_ONLY.")
     protected String dlfProxyMode = "DLF_ONLY";
@@ -69,20 +73,32 @@ public class AliyunDLFBaseProperties {
     public static AliyunDLFBaseProperties of(Map<String, String> properties) {
         AliyunDLFBaseProperties propertiesObj = new AliyunDLFBaseProperties();
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.checkAndInit();
         return propertiesObj;
     }
-
 
     private ParamRules buildRules() {
 
         return new ParamRules()
                 .require(dlfAccessKey, "dlf.access_key is required")
-                .require(dlfSecretKey, "dlf.secret_key is required")
-                .require(dlfEndpoint, "dlf.endpoint is required");
+                .require(dlfSecretKey, "dlf.secret_key is required");
     }
 
     public void checkAndInit() {
         buildRules().validate();
+        if (StringUtils.isBlank(dlfEndpoint) && StringUtils.isNotBlank(dlfRegion)) {
+            if (BooleanUtils.toBoolean(dlfAccessPublic)) {
+                dlfEndpoint = "dlf." + dlfRegion + ".aliyuncs.com";
+            } else {
+                dlfEndpoint = "dlf-vpc." + dlfRegion + ".aliyuncs.com";
+            }
+        }
+        if (StringUtils.isBlank(dlfEndpoint)) {
+            throw new StoragePropertiesException("dlf.endpoint is required.");
+        }
+        if (StringUtils.isBlank(dlfCatalogId)) {
+            this.dlfCatalogId = dlfUid;
+        }
     }
 
 }
