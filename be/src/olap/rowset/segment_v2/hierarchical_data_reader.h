@@ -145,8 +145,11 @@ private:
             PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
 
             if (node.path.has_nested_part()) {
-                CHECK_EQ(getTypeName(remove_nullable(node.data.type)->get_type_id()),
-                         getTypeName(TypeIndex::Array));
+                if (remove_nullable(node.data.type)->get_type_id() != TypeIndex::Array) {
+                    return Status::InternalError(
+                            "Meet none array column when flatten nested array, path {}, type {}",
+                            node.path.get_path(), node.data.type->get_name());
+                }
                 PathInData parent_path = node.path.get_nested_prefix_path().copy_pop_nfront(
                         _path.get_parts().size());
                 nested_subcolumns[parent_path].emplace_back(relative_path, column->get_ptr(),
