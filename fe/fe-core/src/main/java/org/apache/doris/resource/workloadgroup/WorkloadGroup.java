@@ -369,7 +369,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         } else {
             properties.put(MIN_MEMORY_PERCENT, "0");
-            minMemPercent = 100;
+            minMemPercent = 0;
         }
 
         if (maxMemPercent < minMemPercent) {
