@@ -471,7 +471,7 @@ suite("test_crud_wlg") {
     qt_select_remote_scan_num_6 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
 
     sql "drop workload group test_remote_scan_wg $forComputeGroupStr;"
-    sql "create workload group test_remote_scan_wg $forComputeGroupStr properties('min_cpu_percent'='1024');"
+    sql "create workload group test_remote_scan_wg $forComputeGroupStr properties('min_cpu_percent'='10');"
     test {
         sql "alter workload group test_remote_scan_wg $forComputeGroupStr properties('min_remote_scan_thread_num'='30')"
         exception "must be specified simultaneously"
@@ -498,7 +498,7 @@ suite("test_crud_wlg") {
     sql "drop role if exists test_wg_priv_role1"
     sql "drop workload group if exists test_wg_priv_g1 $forComputeGroupStr;"
     // 1 test grant user
-    sql "create workload group test_wg_priv_g1 $forComputeGroupStr properties('min_cpu_percent'='1024')"
+    sql "create workload group test_wg_priv_g1 $forComputeGroupStr properties('min_cpu_percent'='10')"
 
     sql "create user test_wg_priv_user1"
     qt_select_wgp_1 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
