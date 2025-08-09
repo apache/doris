@@ -364,4 +364,57 @@ TEST(LLMFunctionTest, MockResourceSendRequest) {
     ASSERT_FALSE(exec_status.ok());
 }
 
+TEST(LLMFunctionTest, ReturnTypeTest) {
+    FunctionLLMClassify func_classify;
+    DataTypes args;
+    DataTypePtr ret_type = func_classify.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "String");
+
+    FunctionLLMExtract func_extract;
+    ret_type = func_extract.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "String");
+
+    FunctionLLMFilter func_filter;
+    ret_type = func_filter.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "BOOL");
+
+    FunctionLLMFixGrammar func_fix_grammar;
+    ret_type = func_fix_grammar.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "String");
+
+    FunctionLLMGenerate func_generate;
+    ret_type = func_generate.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "String");
+
+    FunctionLLMMask func_mask;
+    ret_type = func_mask.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "String");
+
+    FunctionLLMSentiment func_sentiment;
+    ret_type = func_sentiment.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "String");
+
+    FunctionLLMSimilarity func_similarity;
+    ret_type = func_similarity.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "FLOAT");
+
+    FunctionLLMSummarize func_summarize;
+    ret_type = func_summarize.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "String");
+
+    FunctionLLMTranslate func_translate;
+    ret_type = func_translate.get_return_type_impl(args);
+    ASSERT_TRUE(ret_type != nullptr);
+    ASSERT_EQ(ret_type->get_family_name(), "String");
+}
+
 } // namespace doris::vectorized
