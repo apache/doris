@@ -274,11 +274,11 @@ struct TWorkloadGroupInfo {
   1: optional i64 id
   2: optional string name
   3: optional i64 version
-  4: optional i64 cpu_share
-  5: optional i32 cpu_hard_limit
-  6: optional string mem_limit
-  7: optional bool enable_memory_overcommit
-  8: optional bool enable_cpu_hard_limit
+  4: optional i32 min_cpu_percent
+  5: optional i32 max_cpu_percent
+  6: optional string mem_limit  // deprecated
+  7: optional bool enable_memory_overcommit // deprecated
+  8: optional bool enable_cpu_hard_limit    // deprecated
   9: optional i32 scan_thread_num
   10: optional i32 max_remote_scan_thread_num
   11: optional i32 min_remote_scan_thread_num
@@ -286,10 +286,12 @@ struct TWorkloadGroupInfo {
   13: optional i32 memory_high_watermark
   14: optional i64 read_bytes_per_second
   15: optional i64 remote_read_bytes_per_second
-  16: optional string tag
+  16: optional string tag // deprecated
   17: optional i32 total_query_slot_count
   18: optional i32 write_buffer_ratio
   19: optional TWgSlotMemoryPolicy slot_memory_policy
+  20: optional i32 min_memory_percent
+  21: optional i32 max_memory_percent
 }
 
 enum TWorkloadMetricType {
