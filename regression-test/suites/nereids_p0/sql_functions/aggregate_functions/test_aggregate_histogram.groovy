@@ -108,7 +108,6 @@
 //     // If it does, need to add a similar method histogramhist(c_decimalv3, 2).
 //     qt_select """
 //         SELECT
-//             histogram(c_bool, 2),
 //             histogram(c_tinyint, 2),
 //             histogram(c_smallint, 2),
 //             histogram(c_bigint, 2),
