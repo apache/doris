@@ -36,7 +36,7 @@ AggregateFunctionPtr create_aggregate_function_kurt(const std::string& name,
     }
 
     const bool nullable_input = argument_types[0]->is_nullable();
-     using StatFunctionTemplate = StatFuncOneArg<TYPE_DOUBLE, 4>;
+    using StatFunctionTemplate = StatFuncOneArg<TYPE_DOUBLE, 4>;
 
     if (nullable_input) {
         return creator_without_type::create_ignore_nullable<
