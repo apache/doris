@@ -67,7 +67,7 @@ class GenericReader;
 class ShardedKVCache;
 class VExprContext;
 
-class IcebergTableReader : public TableFormatReader {
+class IcebergTableReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     struct PositionDeleteRange {
         std::vector<std::string> data_file_path;
@@ -118,9 +118,6 @@ protected:
 
     PositionDeleteRange _get_range(const ColumnString& file_path_column);
 
-    void _gen_file_col_names();
-
-    void _gen_new_colname_to_value_range();
     static std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
 
     Status _position_delete_base(const std::string data_file_path,
@@ -144,28 +141,12 @@ protected:
     ShardedKVCache* _kv_cache;
     IcebergProfile _iceberg_profile;
     std::vector<int64_t> _iceberg_delete_rows;
-    // col names from _file_slot_descs
-    std::vector<std::string> _file_col_names;
-    // file column name to table column name map. For iceberg schema evolution.
-    std::unordered_map<std::string, std::string> _file_col_to_table_col;
-    // table column name to file column name map. For iceberg schema evolution.
-    std::unordered_map<std::string, std::string> _table_col_to_file_col;
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    // copy from _colname_to_value_range with new column name that is in parquet/orc file, to support schema evolution.
-    std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
-    // column id to name map. Collect from FE slot descriptor.
-    std::unordered_map<int, std::string> _col_id_name_map;
-    // col names in the parquet,orc file
-    std::vector<std::string> _all_required_col_names;
-    // col names in table but not in parquet,orc file
-    std::vector<std::string> _not_in_file_col_names;
+
     // equality delete should read the primary columns
     std::vector<std::string> _expand_col_names;
     std::vector<ColumnWithTypeAndName> _expand_columns;
 
     io::IOContext* _io_ctx;
-    bool _has_schema_change = false;
-    bool _has_iceberg_schema = false;
 
     // the table level row count for optimizing query like:
     // select count(*) from table;
@@ -220,7 +201,8 @@ public:
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
     }
 
-    Status _gen_col_name_maps(const FieldDescriptor& field_desc);
+    Status get_file_col_id_to_name(bool& exist_schema,
+                                   std::map<int32_t, std::string>& file_col_id_to_name) final;
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
@@ -258,7 +240,8 @@ public:
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
-    Status _gen_col_name_maps(OrcReader* orc_reader);
+    Status get_file_col_id_to_name(bool& exist_schema,
+                                   std::map<int32_t, std::string>& file_col_id_to_name) final;
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
