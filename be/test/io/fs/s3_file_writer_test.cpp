@@ -57,6 +57,7 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "io/io_common.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "runtime/exec_env.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
@@ -1468,6 +1469,30 @@ TEST_F(S3FileWriterTest, write_buffer_boundary) {
     test('1', 2 * config::s3_write_buffer_size, fpath(__FILE__, __LINE__, ".dat"));
     test('2', 2 * config::s3_write_buffer_size + 1, fpath(__FILE__, __LINE__, ".dat"));
     // clang-format on
+}
+
+TEST_F(S3FileWriterTest, test_empty_file) {
+    std::vector<StorePath> paths;
+    paths.emplace_back(std::string("tmp_dir"), 1024000000);
+    auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+    EXPECT_TRUE(tmp_file_dirs->init().ok());
+    ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+    doris::io::FileWriterOptions opts;
+    io::FileWriterPtr file_writer;
+    auto st = s3_fs->create_file("test_empty_file.idx", &file_writer, &opts);
+    EXPECT_TRUE(st.ok()) << st;
+    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
+    auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
+    holder->_client = mock_client;
+    dynamic_cast<io::S3FileWriter*>(file_writer.get())->_obj_client = holder;
+    auto fs = io::global_local_filesystem();
+    std::string index_path = "/tmp/empty_index_file_test";
+    std::string rowset_id = "1234567890";
+    int64_t seg_id = 1234567890;
+    auto index_file_writer = std::make_unique<segment_v2::InvertedIndexFileWriter>(
+            fs, index_path, rowset_id, seg_id, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+    EXPECT_TRUE(index_file_writer->close().ok());
 }
 
 } // namespace doris
