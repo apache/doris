@@ -131,7 +131,7 @@ suite("test_crud_wlg") {
     sql "create workload group if not exists test_group $forComputeGroupStr " +
             "properties ( " +
             "    'min_cpu_percent'='10', " +
-            "    'max_memory_percent'='10%', " +
+            "    'max_memory_percent'='10%' " +
             ");"
     sql "set workload_group=test_group;"
 
