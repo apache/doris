@@ -340,6 +340,11 @@ add_definitions(-D__STDC_FORMAT_MACROS
 # Thrift requires these two definitions for some types that we use
 add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 
+# Mac specific definitions - needed for system headers and third-party libs
+if (OS_MACOSX)
+    add_definitions(-D_DARWIN_C_SOURCE)
+endif()
+
 if (RECORD_COMPILER_SWITCHES)
     add_compile_options(-frecord-gcc-switches)
 endif()
