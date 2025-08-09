@@ -293,6 +293,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                         "The allowed " + MIN_CPU_PERCENT + " value has to be in [0,100], but input value is "
                                 + inputValue);
             }
+        } else {
+            properties.put(MIN_CPU_PERCENT, "0");
         }
 
         int maxCpuPercent = 0;
@@ -313,6 +315,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                         "The allowed " + MAX_CPU_PERCENT + " value has to be in [1,100], but input value is "
                                 + inputValue);
             }
+        } else {
+            properties.put(MAX_CPU_PERCENT, "100");
+            maxCpuPercent = 100;
         }
 
         if (maxCpuPercent < minCpuPercent) {
@@ -339,6 +344,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                         "The allowed " + MAX_MEMORY_PERCENT + " value has to be in [1,100], but input value is "
                                 + inputValue);
             }
+        } else {
+            properties.put(MAX_MEMORY_PERCENT, "100");
+            maxMemPercent = 100;
         }
 
         int minMemPercent = 0;
@@ -359,6 +367,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                         "The allowed " + MIN_MEMORY_PERCENT + " value has to be in [0,100], but input value is "
                                 + inputValue);
             }
+        } else {
+            properties.put(MIN_MEMORY_PERCENT, "0");
+            minMemPercent = 100;
         }
 
         if (maxMemPercent < minMemPercent) {
