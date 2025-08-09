@@ -102,59 +102,66 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     }
 
     @Override
+    protected ColumnType convertTypeIfNecessary(int outputIdx, ColumnType origType, String[] replaceStringList) {
+        if (replaceStringList[outputIdx].equals("bitmap") || replaceStringList[outputIdx].equals("hll")) {
+            return new ColumnType(origType.getName(), Type.BYTE);
+        }
+        return origType;
+    }
+
+    @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
-        if (replaceStringList[columnIndex].equals("bitmap") || replaceStringList[columnIndex].equals("hll")) {
-            byte[] data = resultSet.getBytes(columnIndex + 1);
-            if (resultSet.wasNull()) {
-                return null;
-            }
-            return data;
-        } else {
-            switch (type.getType()) {
-                case BOOLEAN:
-                    return resultSet.getObject(columnIndex + 1, Boolean.class);
-                case TINYINT:
-                case SMALLINT:
-                case LARGEINT:
+        switch (type.getType()) {
+            case BOOLEAN:
+                return resultSet.getObject(columnIndex + 1, Boolean.class);
+            case TINYINT:
+            case SMALLINT:
+            case LARGEINT:
+                return resultSet.getObject(columnIndex + 1);
+            case INT:
+                return resultSet.getObject(columnIndex + 1, Integer.class);
+            case BIGINT:
+                return resultSet.getObject(columnIndex + 1, Long.class);
+            case FLOAT:
+                return resultSet.getObject(columnIndex + 1, Float.class);
+            case DOUBLE:
+                return resultSet.getObject(columnIndex + 1, Double.class);
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                return resultSet.getObject(columnIndex + 1, BigDecimal.class);
+            case DATE:
+            case DATEV2:
+                return resultSet.getObject(columnIndex + 1, LocalDate.class);
+            case DATETIME:
+            case DATETIMEV2:
+                return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
+            case CHAR:
+            case VARCHAR:
+            case ARRAY:
+                return resultSet.getObject(columnIndex + 1, String.class);
+            case STRING: {
+                int jdbcType = resultSetMetaData.getColumnType(columnIndex + 1);
+                // If it is a time type in mysql, or use mysql driver connect mariadb
+                // We need to obtain the string directly to ensure that we can obtain a time other than 24 hours.
+                // If it is another database, such as oceanbase, this processing will lose precision information,
+                // so the original processing method will be maintained for the time being.
+                if (jdbcType == Types.TIME && config.getTableType() == TOdbcTableType.MYSQL) {
+                    return resultSet.getString(columnIndex + 1);
+                } else {
                     return resultSet.getObject(columnIndex + 1);
-                case INT:
-                    return resultSet.getObject(columnIndex + 1, Integer.class);
-                case BIGINT:
-                    return resultSet.getObject(columnIndex + 1, Long.class);
-                case FLOAT:
-                    return resultSet.getObject(columnIndex + 1, Float.class);
-                case DOUBLE:
-                    return resultSet.getObject(columnIndex + 1, Double.class);
-                case DECIMALV2:
-                case DECIMAL32:
-                case DECIMAL64:
-                case DECIMAL128:
-                    return resultSet.getObject(columnIndex + 1, BigDecimal.class);
-                case DATE:
-                case DATEV2:
-                    return resultSet.getObject(columnIndex + 1, LocalDate.class);
-                case DATETIME:
-                case DATETIMEV2:
-                    return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
-                case CHAR:
-                case VARCHAR:
-                case ARRAY:
-                    return resultSet.getObject(columnIndex + 1, String.class);
-                case STRING: {
-                    int jdbcType = resultSetMetaData.getColumnType(columnIndex + 1);
-                    // If it is a time type in mysql, or use mysql driver connect mariadb
-                    // We need to obtain the string directly to ensure that we can obtain a time other than 24 hours.
-                    // If it is another database, such as oceanbase, this processing will lose precision information,
-                    // so the original processing method will be maintained for the time being.
-                    if (jdbcType == Types.TIME && config.getTableType() == TOdbcTableType.MYSQL) {
-                        return resultSet.getString(columnIndex + 1);
-                    } else {
-                        return resultSet.getObject(columnIndex + 1);
-                    }
                 }
-                default:
-                    throw new IllegalArgumentException("Unsupported column type: " + type.getType());
             }
+            case BYTE: {
+                byte[] data = resultSet.getBytes(columnIndex + 1);
+                if (resultSet.wasNull()) {
+                    return null;
+                }
+                return data;
+            }
+            default:
+                throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
     }
 

@@ -56,6 +56,7 @@ struct JdbcConnectorParam {
     std::string table_name;
     bool use_transaction = false;
     TOdbcTableType::type table_type;
+    bool is_tvf = false;
     int32_t connection_pool_min_size = -1;
     int32_t connection_pool_max_size = -1;
     int32_t connection_pool_max_wait_time = -1;
