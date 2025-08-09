@@ -801,7 +801,7 @@ DEFINE_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
 DEFINE_String(default_rowset_type, "BETA");
 
 // Maximum size of a single message body in all protocols
-DEFINE_Int64(brpc_max_body_size, "3147483648");
+DEFINE_Int64(brpc_max_body_size, "6442450944");
 DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
