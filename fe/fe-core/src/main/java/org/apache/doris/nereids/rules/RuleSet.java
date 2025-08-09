@@ -47,7 +47,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilt
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
-import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
+import org.apache.doris.nereids.rules.implementation.LogicalAggregateToPhysicalHashAggregate;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumerToPhysicalCTEConsumer;
@@ -200,7 +200,7 @@ public class RuleSet {
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
-            .add(new AggregateStrategies())
+            // .add(new AggregateStrategies())
             .add(new LogicalUnionToPhysicalUnion())
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())
@@ -213,6 +213,7 @@ public class RuleSet {
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .add(new LogicalDictionarySinkToPhysicalDictionarySink())
+            .add(new LogicalAggregateToPhysicalHashAggregate())
             .build();
 
     // left-zig-zag tree is used when column stats are not available.
