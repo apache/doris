@@ -807,8 +807,40 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
-                tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
-                                    options.warmup_delta_data);
+                if (config::enable_query_driven_warmup && options.warmup_delta_data &&
+                    options.query_version > 0 && !tablet->enable_unique_key_merge_on_write()) {
+                    VLOG_DEBUG << "warmup rowset";
+                    std::vector<RowsetSharedPtr> new_rowsets;
+                    std::vector<RowsetSharedPtr> overlapping_rowsets;
+                    if (tablet->split_rowsets_by_version_overlap(rowsets, &new_rowsets,
+                                                                 &overlapping_rowsets)) {
+                        VLOG_DEBUG << "warmup rowset, split into 2 sets, new_rowsets: "
+                                   << new_rowsets.size()
+                                   << ", overlapping_rowsets: " << overlapping_rowsets.size();
+                        // add all new rowsets directly, warmup async
+                        tablet->add_rowsets(std::move(new_rowsets), version_overlap, wlock, true);
+                        for (auto rs : overlapping_rowsets) {
+                            if (rs->version().second == 1) {
+                                // [0-1] rowset is empty for each tablet, skip it
+                                continue;
+                            }
+                            // the rowset will be added to tablet meta in the callback method after warm up
+                            tablet->warm_up_rowset_unlocked(rs, true, true);
+                        }
+                    } else {
+                        VLOG_DEBUG << "warmup rowset, can't split into 2 sets";
+                        // add all rowsets directly, warmup async
+                        tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, true);
+                    }
+                } else {
+                    VLOG_DEBUG << "add rowset without warmup, the config is: "
+                               << config::enable_query_driven_warmup
+                               << ", is mow: " << tablet->enable_unique_key_merge_on_write()
+                               << ", version_overlap: " << version_overlap
+                               << ", warmup_delta_data: " << options.warmup_delta_data;
+                    tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
+                                        version_overlap || options.warmup_delta_data);
+                }
                 if (options.merge_schema) {
                     RETURN_IF_ERROR(tablet->merge_rowsets_schema());
                 }

@@ -91,11 +91,15 @@ suite('test_warm_up_cluster_event', 'docker') {
             def submitted_index = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_submitted_index_num")
             def finished_index = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_finished_index_num")
             def failed_index = getBrpcMetrics(ip, port, "file_cache_event_driven_warm_up_failed_index_num")
+            def warm_up_triggered_by_job_num = getBrpcMetrics(ip, port, "file_cache_warm_up_rowset_triggered_by_job_num")
+            def warm_up_complete_num = getBrpcMetrics(ip, port, "file_cache_warm_up_rowset_complete_num")
             logger.info("${cluster} be ${ip}:${port}, submitted_segment=${submitted_segment}"
                     + ", finished_segment=${finished_segment}, failed_segment=${failed_segment}"
                     + ", submitted_index=${submitted_index}"
                     + ", finished_index=${finished_index}"
-                    + ", failed_index=${failed_index}")
+                    + ", failed_index=${failed_index}"
+                    + ", warm_up_triggered_by_job_num=${warm_up_triggered_by_job_num}"
+                    + ", warm_up_complete_num=${warm_up_complete_num}")
         }
     }
 

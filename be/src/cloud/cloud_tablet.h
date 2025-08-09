@@ -21,10 +21,12 @@
 
 #include "olap/base_tablet.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/rowset.h"
 
 namespace doris {
 
 class CloudStorageEngine;
+enum class WarmUpState : int;
 
 struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
@@ -286,11 +288,27 @@ public:
 
     static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
+    // return false if the `input_rowsets` can't be divided into 2 sets by max_version() simply.
+    bool split_rowsets_by_version_overlap(const std::vector<RowsetSharedPtr>& input_rowsets,
+                                          std::vector<RowsetSharedPtr>* new_rowsets,
+                                          std::vector<RowsetSharedPtr>* overlapping_rowsets);
+    void warm_up_rowset_unlocked(RowsetSharedPtr rowset, bool version_overlap,
+                                 bool delay_add_rowset = false);
+    WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
+    bool add_rowset_warmup_state(RowsetMetaSharedPtr rowset, WarmUpState state);
+    WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status);
+
+    bool is_warm_up_conflict_with_compaction();
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
+
+    bool add_rowset_warmup_state_unlocked(RowsetMetaSharedPtr rowset, WarmUpState state);
+
+    void warm_up_done_cb(RowsetSharedPtr rowset, Status status, bool delay_add_rowset = false);
 
     CloudStorageEngine& _engine;
 
@@ -350,6 +368,9 @@ private:
     std::mutex _gc_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
+
+    // for warm up states management
+    std::unordered_map<RowsetId, std::pair<WarmUpState, int32_t>> _rowset_warm_up_states;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
