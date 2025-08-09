@@ -367,6 +367,9 @@ private:
     const KeyCoder* _value_key_coder {};
 };
 
+template <PrimitiveType PT>
+class InvertedIndexQueryParam;
+
 /**
  * @brief InvertedIndexQueryParamFactory is a factory class to create QueryValue object.
  * we need a template function to make predict class like in_list_predict template class to use.
@@ -379,17 +382,38 @@ class InvertedIndexQueryParamFactory {
 public:
     virtual ~InvertedIndexQueryParamFactory() = default;
 
-    template <PrimitiveType PT>
-    static Status create_query_value(const void* value,
-                                     std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+    template <PrimitiveType PT, typename ValueType>
+    static Status create_query_value(
+            const ValueType* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
+        static_assert(!std::is_same_v<ValueType, void>,
+                      "ValueType cannot be void, as it is unsupported and dangerous.");
+
+        using CPP_TYPE = typename PrimitiveTypeTraits<PT>::CppType;
+        std::unique_ptr<InvertedIndexQueryParam<PT>> param =
+                InvertedIndexQueryParam<PT>::create_unique();
+
+        CPP_TYPE cpp_val;
+        if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
+            auto field_val =
+                    doris::vectorized::get<doris::vectorized::NearestFieldType<CPP_TYPE>>(*value);
+            cpp_val = static_cast<CPP_TYPE>(field_val);
+        } else {
+            cpp_val = static_cast<CPP_TYPE>(*value);
+        }
+
+        auto storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(cpp_val);
+        param->set_value(&storage_val);
+        result_param = std::move(param);
+        return Status::OK();
+    }
 
     static Status create_query_value(
-            const PrimitiveType& primitiveType, const void* value,
+            const PrimitiveType& primitiveType, const doris::vectorized::Field* value,
             std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
         switch (primitiveType) {
-#define M(TYPE)                                               \
-    case TYPE: {                                              \
-        return create_query_value<TYPE>(value, result_param); \
+#define M(TYPE)                                                                         \
+    case TYPE: {                                                                        \
+        return create_query_value<TYPE, doris::vectorized::Field>(value, result_param); \
     }
             M(PrimitiveType::TYPE_BOOLEAN)
             M(PrimitiveType::TYPE_TINYINT)

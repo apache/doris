@@ -657,7 +657,7 @@ public:
             return Status::OK();
         }
 
-        if (!segment_v2::IndexReaderHelper::is_bkd_index(iter->get_reader())) {
+        if (!segment_v2::IndexReaderHelper::has_bkd_index(iter)) {
             // Not support only bkd index
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, ip range reader can only support by bkd "
@@ -715,6 +715,7 @@ public:
                 param_type, &min_ip, query_param));
         segment_v2::InvertedIndexParam res_param;
         res_param.column_name = data_type_with_name.first;
+        res_param.column_type = data_type_with_name.second;
         res_param.query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
         res_param.query_value = query_param->get_value();
         res_param.num_rows = num_rows;
@@ -726,6 +727,7 @@ public:
                 param_type, &max_ip, query_param));
         segment_v2::InvertedIndexParam max_param;
         max_param.column_name = data_type_with_name.first;
+        max_param.column_type = data_type_with_name.second;
         max_param.query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
         max_param.query_value = query_param->get_value();
         max_param.num_rows = num_rows;

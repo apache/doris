@@ -138,7 +138,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (IndexReaderHelper::is_fulltext_index(iter->get_reader())) {
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             // parser is not none we can not make sure the result is correct in expr combination
             // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
             // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
@@ -167,6 +167,7 @@ public:
                                                                            query_param));
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_value = query_param->get_value();
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;

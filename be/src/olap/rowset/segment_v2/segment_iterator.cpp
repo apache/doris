@@ -826,13 +826,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
 
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
     if (PredicateTypeTraits::is_range(pred->type()) &&
-        _index_iterators[pred_column_id] != nullptr) {
-        auto reader = _index_iterators[pred_column_id]->get_reader();
-        if (reader->index_type() == IndexType::INVERTED) {
-            if (IndexReaderHelper::is_string_index(reader)) {
-                return false;
-            }
-        }
+        !IndexReaderHelper::has_bkd_index(_index_iterators[pred_column_id].get())) {
+        return false;
     }
 
     // Function filter no apply inverted index
@@ -908,16 +903,12 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
 }
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
-    if (_index_iterators[cid] == nullptr) {
-        return false;
-    }
+    bool has_fulltext_index =
+            _index_iterators[cid] != nullptr &&
+            _index_iterators[cid]->get_reader(InvertedIndexReaderType::FULLTEXT) &&
+            _index_iterators[cid]->get_reader(InvertedIndexReaderType::STRING_TYPE) == nullptr;
 
-    auto reader = _index_iterators[cid]->get_reader();
-    if (reader->index_type() != IndexType::INVERTED) {
-        return false;
-    }
-
-    return IndexReaderHelper::is_fulltext_index(reader);
+    return has_fulltext_index;
 }
 
 inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
@@ -1198,7 +1189,7 @@ Status SegmentIterator::_init_index_iterators() {
             }
             // If the column is not an extracted column, we can directly get the inverted index metadata from the tablet schema.
             else {
-                inverted_indexs = {_segment->_tablet_schema->inverted_index(column)};
+                inverted_indexs = {_segment->_tablet_schema->inverted_indexs(column)};
             }
             for (const auto& inverted_index : inverted_indexs) {
                 RETURN_IF_ERROR(_segment->new_index_iterator(column, inverted_index, _opts,

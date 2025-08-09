@@ -488,18 +488,7 @@ public:
         return false;
     }
     bool has_inverted_index_with_index_id(int64_t index_id) const;
-    // todo: remove this func
-    // Check whether this column supports inverted index
-    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
-    const TabletIndex* inverted_index(const TabletColumn& col) const;
 
-    // todo: remove this func
-    // Regardless of whether this column supports inverted index
-    // TabletIndex information will be returned as long as it exists.
-    const TabletIndex* inverted_index(int32_t col_unique_id,
-                                      const std::string& suffix_path = "") const;
-
-    // TODO(lihangyu): multi indexes
     void update_index(const TabletColumn& column, const IndexType& index_type,
                       std::vector<TabletIndex>&& indexes);
 

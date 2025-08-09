@@ -97,11 +97,9 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     if (segment_v2::IndexColumnWriter::check_support_inverted_index(column)) {
         auto init_opt_inverted_index = [&]() {
             DCHECK(!subcolumn_indexes.empty());
-            // TODO(lihangyu) multi indexes
-            // for (const auto& index : subcolumn_indexes) {
-            //     opt->inverted_indexs.push_back(index.get());
-            // }
-            opt->inverted_index = subcolumn_indexes.front().get();
+            for (const auto& index : subcolumn_indexes) {
+                opt->inverted_indexes.push_back(index.get());
+            }
             opt->need_inverted_index = true;
             DCHECK(inverted_index_file_writer != nullptr);
             opt->index_file_writer = inverted_index_file_writer;

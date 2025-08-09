@@ -1580,29 +1580,6 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
     return false;
 }
 
-const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
-                                                const std::string& suffix_path) const {
-    const std::string escaped_suffix = escape_for_path_name(suffix_path);
-    auto it = _col_id_suffix_to_index.find(
-            std::make_tuple(IndexType::INVERTED, col_unique_id, escaped_suffix));
-    if (it != _col_id_suffix_to_index.end() && !it->second.empty() &&
-        it->second[0] < _indexes.size()) {
-        return _indexes[it->second[0]].get();
-    }
-    return nullptr;
-}
-
-const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
-    // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
-    if (!segment_v2::IndexColumnWriter::check_support_inverted_index(col)) {
-        return nullptr;
-    }
-    // TODO use more efficient impl
-    // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
-    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    return inverted_index(col_unique_id, escape_for_path_name(col.suffix_path()));
-}
-
 std::vector<const TabletIndex*> TabletSchema::inverted_indexs(
         int32_t col_unique_id, const std::string& suffix_path) const {
     std::vector<const TabletIndex*> result;

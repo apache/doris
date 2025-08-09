@@ -34,18 +34,18 @@ class InvertedIndexQueryCacheHandle;
 
 struct InvertedIndexParam;
 using IndexParam = std::variant<InvertedIndexParam*>;
+using IndexReaderType = std::variant<InvertedIndexReaderType>;
 
 class IndexIterator {
 public:
     IndexIterator() = default;
     virtual ~IndexIterator() = default;
 
-    virtual IndexReaderPtr get_reader() = 0;
-
+    virtual IndexReaderPtr get_reader(IndexReaderType reader_type) const = 0;
     virtual Status read_from_index(const IndexParam& param) = 0;
 
     virtual Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) = 0;
-    virtual bool has_null() = 0;
+    virtual Result<bool> has_null() = 0;
 
     void set_context(const IndexQueryContextPtr& context) { _context = context; }
 
