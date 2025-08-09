@@ -125,7 +125,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             return false;
         }
         if (targetType.isTimeLikeType() && !(originalType.isIntegralType()
-                || originalType.isStringLikeType() || originalType.isFloatLikeType())) {
+                || originalType.isStringLikeType() || originalType.isFloatLikeType()
+                || originalType.isDateTimeType() || originalType.isDateTimeV2Type())) {
             return false;
         }
         return true;

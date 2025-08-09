@@ -22,6 +22,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/date_func.h"
+#include "vec/common/int_exp.h"
 #include "vec/data_types/data_type_time.h"
 
 namespace doris {
@@ -34,9 +35,42 @@ public:
     constexpr static int64_t ONE_HOUR_MICROSECONDS = 60 * ONE_MINUTE_MICROSECONDS;
     constexpr static int64_t ONE_MINUTE_SECONDS = 60;
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
+    constexpr static uint32_t MICROS_SCALE = 6;
+    constexpr static int64_t MAX_TIME =
+            3024000LL * ONE_SECOND_MICROSECONDS - 1; // 840:00:00 - 1ms -> 838:59:59.999999
 
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
     using ColumnTime = vectorized::DataTypeTimeV2::ColumnType;
+
+    static int64_t round_time(TimeType value, uint32_t scale) {
+        auto time = (int64_t)value;
+        DCHECK(scale <= MICROS_SCALE);
+        int64_t factor = common::exp10_i64(6 - scale);
+        int64_t rounded_value = (time >= 0) ? (time + factor / 2) / factor * factor
+                                            : (time - factor / 2) / factor * factor;
+        return rounded_value;
+    }
+
+    // Construct time based on hour/minute/second/microsecond
+    template <bool CHECK = false>
+    static TimeType make_time(int64_t hour, int64_t minute, int64_t second, int64_t microsecond = 0,
+                              bool negative = false) {
+        if constexpr (CHECK) {
+            // the max time value is 838:59:59.999999
+            if (std::abs(hour) > 838 || std::abs(minute) >= 60 || std::abs(second) >= 60 ||
+                std::abs(microsecond) >= 1000000) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Invalid time value: hour={}, minute={}, second={}, microsecond={}",
+                                hour, minute, second, microsecond);
+            }
+        }
+        DCHECK(hour >= 0 && minute >= 0 && second >= 0 && microsecond >= 0)
+                << "Hour, minute, second and microsecond must be non-negative but got " << hour
+                << ":" << minute << ":" << second << "." << microsecond;
+        int64_t value = (hour * ONE_HOUR_MICROSECONDS) + (minute * ONE_MINUTE_MICROSECONDS) +
+                        (second * ONE_SECOND_MICROSECONDS) + microsecond;
+        return static_cast<TimeType>(negative ? -value : value);
+    }
 
     // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
     // the time value between '-838:59:59' and '838:59:59'
@@ -66,6 +100,18 @@ public:
 
     static int32_t second(TimeType time) {
         return (check_over_max_time(time) / ONE_SECOND_MICROSECONDS) % ONE_MINUTE_SECONDS;
+    }
+
+    // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+    // the time value between '-838:59:59' and '838:59:59'
+    static TimeType limit_with_bound(TimeType time) {
+        if (time > MAX_TIME) {
+            return MAX_TIME;
+        }
+        if (time < -MAX_TIME) {
+            return -MAX_TIME;
+        }
+        return time;
     }
 };
 
