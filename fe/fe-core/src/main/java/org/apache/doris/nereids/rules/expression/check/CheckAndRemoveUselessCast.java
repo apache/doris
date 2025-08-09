@@ -68,8 +68,8 @@ import java.util.Set;
 /**
  * check cast valid
  */
-public class CheckCast implements ExpressionPatternRuleFactory {
-    public static CheckCast INSTANCE = new CheckCast();
+public class CheckAndRemoveUselessCast implements ExpressionPatternRuleFactory {
+    public static CheckAndRemoveUselessCast INSTANCE = new CheckAndRemoveUselessCast();
     private static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> strictCastWhiteList;
     private static final Map<Class<? extends DataType>, Set<Class<? extends DataType>>> unStrictCastWhiteList;
 
@@ -302,6 +302,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                     Cast cast = ctx.expr;
                     DataType originalType = cast.child().getDataType();
                     DataType targetType = cast.getDataType();
+                    if (originalType.equals(targetType)) {
+                        return cast.child();
+                    }
                     if (!check(originalType, targetType, ctx.cascadesContext.getConnectContext()
                             .getSessionVariable().enableStrictCast)) {
                         throw new AnalysisException("cannot cast " + originalType.toSql()

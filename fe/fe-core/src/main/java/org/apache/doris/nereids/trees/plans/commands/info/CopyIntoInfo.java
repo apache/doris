@@ -330,7 +330,7 @@ public class CopyIntoInfo {
         public Expr visitCast(Cast cast, PlanTranslatorContext context) {
             // left child of cast is target type, right child of cast is expression
             return new CastExpr(cast.getDataType().toCatalogDataType(),
-                    cast.child().accept(this, context), null);
+                    cast.child().accept(this, context), cast.nullable(), !cast.isExplicitType());
         }
     }
 
