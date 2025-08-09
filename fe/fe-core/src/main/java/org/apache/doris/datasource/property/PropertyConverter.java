@@ -46,6 +46,7 @@ import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
 import org.apache.hadoop.fs.obs.OBSConstants;
 import org.apache.hadoop.fs.obs.OBSFileSystem;
+import org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
@@ -318,6 +319,13 @@ public class PropertyConverter {
                     && !Strings.isNullOrEmpty(properties.get(S3Properties.EXTERNAL_ID))) {
                 LOG.warn("External ID is not supported for assumed role credential provider");
             }
+        } else if (Strings.isNullOrEmpty(credential.getAccessKey())
+                && Strings.isNullOrEmpty(credential.getSecretKey())) {
+            // if no access key and secret key, use anonymous credentials
+            s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, AnonymousAWSCredentialsProvider.class.getName());
+            // anonymous credentials should set max paging keys to avoid exceeding the default limit
+            // of 1000, which may cause issues with some S3-compatible services.
+            s3Properties.putIfAbsent(Constants.MAX_PAGING_KEYS, "1000");
         }
     }
 

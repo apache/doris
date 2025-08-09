@@ -74,7 +74,7 @@ public class S3Properties extends BaseProperties {
     public static final String VALIDITY_CHECK = "s3_validity_check";
     public static final String PROVIDER = "provider";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
-    public static final List<String> TVF_REQUIRED_FIELDS = Arrays.asList(ACCESS_KEY, SECRET_KEY);
+    public static final List<String> TVF_REQUIRED_FIELDS = Arrays.asList();
     public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN,
             ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
 
