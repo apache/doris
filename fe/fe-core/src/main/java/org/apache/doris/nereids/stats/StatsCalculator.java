@@ -258,8 +258,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             double rowCount = calculator.getTableRowCount(scan);
             // row count not available
             if (rowCount == -1) {
-                LOG.info("disable join reorder since row count not available: "
-                        + scan.getTable().getNameWithFullQualifiers());
+                try {
+                    ConnectContext.get().getSessionVariable()
+                            .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true");
+                    LOG.info("disable join reorder since row count not available: "
+                            + scan.getTable().getNameWithFullQualifiers());
+                } catch (Exception e) {
+                    LOG.info("disableNereidsJoinReorderOnce failed");
+                }
                 return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
             }
             if (scan instanceof OlapScan) {
