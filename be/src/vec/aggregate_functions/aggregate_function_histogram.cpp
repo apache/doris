@@ -39,10 +39,10 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
                                                          const bool result_is_nullable,
                                                          const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 1, 2);
-    using creator =
-            creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
-                                   TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32,
-                                   TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_VARCHAR>;
+    using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32,
+                                           TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256,
+                                           TYPE_VARCHAR, TYPE_DATEV2, TYPE_DATETIMEV2>;
     if (argument_types.size() == 2) {
         return creator::create<HistogramWithInputParam, AggregateFunctionHistogramData>(
                 argument_types, result_is_nullable, attr);
