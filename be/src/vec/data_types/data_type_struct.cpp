@@ -44,7 +44,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

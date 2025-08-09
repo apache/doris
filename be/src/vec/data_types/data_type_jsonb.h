@@ -41,7 +41,6 @@ namespace doris::vectorized {
 
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 class DataTypeJsonb final : public IDataType {
 public:

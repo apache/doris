@@ -42,7 +42,6 @@ class PColumnMeta;
 
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 } // namespace vectorized
 } // namespace doris

@@ -28,7 +28,6 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde_utils.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 // This test aim to make sense for text serde of data types.
@@ -524,7 +523,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 }
                 {
                     // from_string
-                    ReadBuffer rb(rand_str.data(), rand_str.size());
+                    StringRef rb(rand_str.data(), rand_str.size());
                     Status status = array_data_type_ptr->from_string(rb, col2.get());
                     EXPECT_EQ(status.ok(), true);
                     auto ser_col = ColumnString::create();
@@ -683,7 +682,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 }
                 // from_string
                 {
-                    ReadBuffer rb(rand_str.data(), rand_str.size());
+                    StringRef rb(rand_str.data(), rand_str.size());
                     std::cout << "from string rb: " << rb.to_string() << std::endl;
                     Status stat = map_data_type_ptr->from_string(rb, col2.get());
                     std::cout << stat.to_json() << std::endl;
@@ -854,7 +853,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                 }
                 {
                     // from_string
-                    ReadBuffer rb(rand_str.data(), rand_str.size());
+                    StringRef rb(rand_str.data(), rand_str.size());
                     auto col2 = array_data_type_ptr->create_column();
                     Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
@@ -1009,7 +1008,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                 }
                 {
                     // from_string
-                    ReadBuffer rb(rand_str.data(), rand_str.size());
+                    StringRef rb(rand_str.data(), rand_str.size());
                     auto col2 = array_data_type_ptr->create_column();
                     Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
@@ -1227,7 +1226,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                 }
                 {
                     // from_string
-                    ReadBuffer rb(rand_str.data(), rand_str.size());
+                    StringRef rb(rand_str.data(), rand_str.size());
                     auto col2 = map_data_type_ptr->create_column();
                     Status status = map_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
@@ -1368,7 +1367,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                 }
                 {
                     // from_string
-                    ReadBuffer rb(rand_str.data(), rand_str.size());
+                    StringRef rb(rand_str.data(), rand_str.size());
                     auto col2 = array_data_type_ptr->create_column();
                     Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {

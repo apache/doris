@@ -476,7 +476,7 @@ TEST_F(DataTypeStructTest, formString) {
     std::cout << "res_to_string: " << res_to_string << std::endl
               << "expect: {100, asd}" << std::endl;
     EXPECT_EQ(res_to_string, "{100, asd}");
-    ReadBuffer buffer(res_to_string.data(), res_to_string.size());
+    StringRef buffer(res_to_string.data(), res_to_string.size());
     auto status = st->from_string(buffer, res_column.get());
     EXPECT_EQ(status, Status::OK()) << "Failed to from_string: " << status;
     EXPECT_EQ(res_column->size(), 1) << "Failed to from_string, size is not 1";

@@ -26,7 +26,6 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized::CastWrapper {
 #include "common/compile_check_begin.h"
