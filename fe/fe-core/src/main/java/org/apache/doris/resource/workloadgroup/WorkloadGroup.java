@@ -316,7 +316,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
 
         if (maxCpuPercent < minCpuPercent) {
-            throw new DdlException(MAX_CPU_PERCENT + "'s value has to be great or equal than " + MIN_CPU_PERCENT);
+            throw new DdlException(MAX_CPU_PERCENT + "'s value " + maxCpuPercent
+                    + " has to be great or equal than "
+                    + MIN_CPU_PERCENT + " " + minCpuPercent);
         }
 
         int maxMemPercent = 0;
@@ -360,7 +362,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
 
         if (maxMemPercent < minMemPercent) {
-            throw new DdlException(MAX_MEMORY_PERCENT + "'s value has to be great or equal than " + MIN_MEMORY_PERCENT);
+            throw new DdlException(MAX_MEMORY_PERCENT + "'s value " + maxMemPercent
+                    + " has to be great or equal than "
+                    + MIN_MEMORY_PERCENT + " " + minMemPercent);
         }
 
         if (properties.containsKey(WRITE_BUFFER_RATIO)) {
