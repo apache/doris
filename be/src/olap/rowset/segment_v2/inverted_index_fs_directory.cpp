@@ -192,10 +192,6 @@ const void* DorisFSDirectory::FSIndexInput::getIoContext() {
     return &_io_ctx;
 }
 
-void DorisFSDirectory::FSIndexInput::setIndexFile(bool isIndexFile) {
-    _io_ctx.is_index_data = isIndexFile;
-}
-
 void DorisFSDirectory::FSIndexInput::seekInternal(const int64_t position) {
     CND_PRECONDITION(position >= 0 && position < _handle->_length, "Seeking out of range");
     _pos = position;
@@ -220,6 +216,12 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
         if (_handle->_fpos != _pos) {
             _handle->_fpos = _pos;
         }
+
+        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal::io_ctx_is_index_data", {
+            if (_io_ctx.is_index_data) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "io_ctx is_index_data is true");
+            }
+        })
 
         Slice result {b, (size_t)len};
         size_t bytes_read = 0;

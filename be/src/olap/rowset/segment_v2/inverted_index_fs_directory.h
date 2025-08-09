@@ -202,7 +202,6 @@ public:
     static const char* getClassName() { return "FSIndexInput"; }
     void setIoContext(const void* io_ctx) override;
     const void* getIoContext() override;
-    void setIndexFile(bool isIndexFile) override;
 
     std::mutex _this_lock;
 
