@@ -1180,6 +1180,14 @@ public class HMSTransaction implements Transaction {
             Table table = tableAndMore.getTable();
             String targetPath = table.getSd().getLocation();
             String writePath = tableAndMore.getCurrentLocation();
+            // Determine if a rename operation is required for the output file.
+            // In the BE (Backend) implementation, all object storage systems (e.g., AWS S3, MinIO, OSS, COS)
+            // are unified under the "s3" URI scheme, even if the actual underlying storage uses a different protocol.
+            // The method PathUtils.equalsIgnoreSchemeIfOneIsS3(...) compares two paths by ignoring the scheme
+            // if one of them uses the "s3" scheme, and only checks whether the bucket name and object key match.
+            // This prevents unnecessary rename operations when the scheme differs (e.g., "s3://" vs. "oss://")
+            // but the actual storage location is identical. If the paths differ after ignoring the scheme,
+            // a rename operation will be performed.
             boolean needRename = !PathUtils.equalsIgnoreSchemeIfOneIsS3(targetPath, writePath);
             if (needRename) {
                 wrapperAsyncRenameWithProfileSummary(
