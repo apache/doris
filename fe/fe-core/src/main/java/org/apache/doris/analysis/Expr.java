@@ -1564,6 +1564,10 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         nullableFromNereids = Optional.of(nullable);
     }
 
+    public Optional<Boolean> getNullableFromNereids() {
+        return nullableFromNereids;
+    }
+
     public void clearNullableFromNereids() {
         nullableFromNereids = Optional.empty();
     }
