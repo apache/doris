@@ -92,12 +92,12 @@ suite("test_crud_wlg") {
     sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '100');"
 
     // reset normal group property
-    sql "alter workload group normal $forComputeGroupStr properties ( 'cpu_share'='1024' );"
-    sql "alter workload group normal $forComputeGroupStr properties ( 'memory_limit'='50%' );"
+    sql "alter workload group normal $forComputeGroupStr properties ( 'min_cpu_percent'='20' );"
+    sql "alter workload group normal $forComputeGroupStr properties ( 'max_memory_percent'='50%' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'max_concurrency'='2147483647' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'max_queue_size'='0' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'queue_timeout'='0' );"
-    sql "alter workload group normal $forComputeGroupStr properties ( 'cpu_hard_limit'='1%' );"
+    sql "alter workload group normal $forComputeGroupStr properties ( 'max_cpu_percent'='1%' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'scan_thread_num'='-1' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'scan_thread_num'='-1' );"
     sql "alter workload group normal $forComputeGroupStr properties ( 'remote_read_bytes_per_second'='-1' );"
@@ -105,18 +105,18 @@ suite("test_crud_wlg") {
 
     sql "set workload_group=normal;"
 
-    // test cpu_share
-    qt_cpu_share """ select count(1) from ${table_name} """
+    // test min_cpu_percent
+    qt_min_cpu_percent """ select count(1) from ${table_name} """
 
     sql "alter workload group normal $forComputeGroupStr properties ( 'scan_thread_num'='16' );"
-    sql "alter workload group normal $forComputeGroupStr properties ( 'cpu_share'='20' );"
+    sql "alter workload group normal $forComputeGroupStr properties ( 'min_cpu_percent'='20' );"
 
-    qt_cpu_share_2 """ select count(1) from ${table_name} """
+    qt_min_cpu_percent_2 """ select count(1) from ${table_name} """
 
     test {
-        sql "alter workload group normal $forComputeGroupStr properties ( 'cpu_share'='-2' );"
+        sql "alter workload group normal $forComputeGroupStr properties ( 'min_cpu_percent'='-2' );"
 
-        exception "The allowed cpu_share value is -1 or a positive integer"
+        exception "The allowed min_cpu_percent value is -1 or a positive integer"
     }
 
     test {
@@ -130,12 +130,12 @@ suite("test_crud_wlg") {
     // test create group
     sql "create workload group if not exists test_group $forComputeGroupStr " +
             "properties ( " +
-            "    'cpu_share'='10', " +
-            "    'memory_limit'='10%', " +
+            "    'min_cpu_percent'='10', " +
+            "    'max_memory_percent'='10%', " +
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_1 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     def query_cg_result  = sql "select distinct compute_group from information_schema.workload_groups where name in ('normal','test_group')"
     String cg_name = query_cg_result[0][0]
@@ -145,22 +145,22 @@ suite("test_crud_wlg") {
     }
 
     // test drop workload group
-    sql "create workload group if not exists test_drop_wg $forComputeGroupStr properties ('cpu_share'='10')"
-    qt_show_del_wg_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    sql "create workload group if not exists test_drop_wg $forComputeGroupStr properties ('min_cpu_percent'='10')"
+    qt_show_del_wg_1 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
     sql "drop workload group test_drop_wg $forComputeGroupStr"
-    qt_show_del_wg_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    qt_show_del_wg_2 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
 
 
-    sql "alter workload group test_group $forComputeGroupStr properties ( 'memory_limit'='11%' );"
+    sql "alter workload group test_group $forComputeGroupStr properties ( 'max_memory_percent'='11%' );"
     qt_mem_limit_1 """ select count(1) from ${table_name} """
-    qt_mem_limit_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_mem_limit_2 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
 
-    sql "alter workload group test_group $forComputeGroupStr properties ( 'cpu_hard_limit'='99%' );"
+    sql "alter workload group test_group $forComputeGroupStr properties ( 'max_cpu_percent'='99%' );"
 
-    sql "alter workload group test_group $forComputeGroupStr properties ( 'cpu_hard_limit'='20%' );"
-    qt_cpu_hard_limit_1 """ select count(1) from ${table_name} """
-    qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    sql "alter workload group test_group $forComputeGroupStr properties ( 'max_cpu_percent'='20%' );"
+    qt_max_cpu_percent_1 """ select count(1) from ${table_name} """
+    qt_max_cpu_percent_2 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test query queue
     test {
@@ -205,18 +205,18 @@ suite("test_crud_wlg") {
     sql "alter workload group test_group $forComputeGroupStr properties('remote_read_bytes_per_second'='104857600')"
     sql "alter workload group test_group $forComputeGroupStr properties('read_bytes_per_second'='104857600')"
     qt_queue_1 """ select count(1) from ${table_name} """
-    qt_show_queue "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_queue "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test create group failed
-    // failed for cpu_share
+    // failed for min_cpu_percent
     test {
         sql "create workload group if not exists test_group2 $forComputeGroupStr " +
                 "properties ( " +
-                "    'cpu_share'='-2', " +
-                "    'memory_limit'='1%', " +
+                "    'min_cpu_percent'='-2', " +
+                "    'max_memory_percent'='1%', " +
                 ");"
 
-        exception "The allowed cpu_share value is -1 or a positive integer"
+        exception "The allowed min_cpu_percent value is -1 or a positive integer"
     }
 
 
@@ -224,16 +224,16 @@ suite("test_crud_wlg") {
     test {
         sql "create workload group if not exists test_group2 $forComputeGroupStr " +
                 "properties ( " +
-                "    'cpu_share'='10', " +
-                "    'memory_limit'='3%', " +
-                " 'cpu_hard_limit'='1%' " +
+                "    'min_cpu_percent'='10', " +
+                "    'max_memory_percent'='3%', " +
+                " 'max_cpu_percent'='1%' " +
                 ");"
 
         exception "must be true or false"
     }
 
     // test show workload groups
-    qt_select_tvf_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_select_tvf_1 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test auth
     sql """drop user if exists test_wlg_user"""
@@ -359,7 +359,7 @@ suite("test_crud_wlg") {
         exception "should bigger than memory_low_watermark"
     }
     sql "create workload group if not exists spill_group_test $forComputeGroupStr properties (  'memory_low_watermark'='10%','memory_high_watermark'='10%');"
-    qt_show_spill_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    qt_show_spill_1 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
 
     test {
         sql "create workload group if not exists spill_group_test $forComputeGroupStr properties (  'memory_low_watermark'='20%','memory_high_watermark'='10%');"
@@ -368,7 +368,7 @@ suite("test_crud_wlg") {
 
     // 2 alter low
     sql "alter workload group spill_group_test $forComputeGroupStr properties ( 'memory_low_watermark'='5%' );"
-    qt_show_spill_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    qt_show_spill_2 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
 
     test {
         sql "alter workload group spill_group_test $forComputeGroupStr properties ( 'memory_low_watermark'='20%' );"
@@ -397,7 +397,7 @@ suite("test_crud_wlg") {
 
     // 3 alter high
     sql "alter workload group spill_group_test $forComputeGroupStr properties ( 'memory_high_watermark'='40%' );"
-    qt_show_spill_3 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    qt_show_spill_3 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
     test {
         sql "alter workload group spill_group_test $forComputeGroupStr properties ( 'memory_high_watermark'='1%' );"
         exception "should bigger than memory_low_watermark"
@@ -484,7 +484,7 @@ suite("test_crud_wlg") {
     qt_select_remote_scan_num_6 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
 
     sql "drop workload group test_remote_scan_wg $forComputeGroupStr;"
-    sql "create workload group test_remote_scan_wg $forComputeGroupStr properties('cpu_share'='1024');"
+    sql "create workload group test_remote_scan_wg $forComputeGroupStr properties('min_cpu_percent'='1024');"
     test {
         sql "alter workload group test_remote_scan_wg $forComputeGroupStr properties('min_remote_scan_thread_num'='30')"
         exception "must be specified simultaneously"
@@ -511,7 +511,7 @@ suite("test_crud_wlg") {
     sql "drop role if exists test_wg_priv_role1"
     sql "drop workload group if exists test_wg_priv_g1 $forComputeGroupStr;"
     // 1 test grant user
-    sql "create workload group test_wg_priv_g1 $forComputeGroupStr properties('cpu_share'='1024')"
+    sql "create workload group test_wg_priv_g1 $forComputeGroupStr properties('min_cpu_percent'='1024')"
 
     sql "create user test_wg_priv_user1"
     qt_select_wgp_1 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
@@ -571,16 +571,16 @@ suite("test_crud_wlg") {
     // test default value
     sql "drop workload group if exists default_val_wg $forComputeGroupStr"
     sql "create workload group default_val_wg $forComputeGroupStr properties('max_concurrency'='10');"
-    qt_select_default_val_wg_1 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_1 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql """
             alter workload group default_val_wg $forComputeGroupStr properties(
-                'cpu_share'='1024',
-                'memory_limit'='1%',
+                'min_cpu_percent'='1024',
+                'max_memory_percent'='1%',
                 'max_concurrency'='100',
                 'max_queue_size'='1',
                 'queue_timeout'='123',
-                'cpu_hard_limit'='1%',
+                'max_cpu_percent'='1%',
                 'scan_thread_num'='1',
                 'max_remote_scan_thread_num'='12',
                 'min_remote_scan_thread_num'='10',
@@ -588,16 +588,16 @@ suite("test_crud_wlg") {
                 'remote_read_bytes_per_second'='10');
     """
 
-    qt_select_default_val_wg_2 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_2 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql """
        alter workload group default_val_wg $forComputeGroupStr properties(
-        'cpu_share'='-1',
-        'memory_limit'='-1',
+        'min_cpu_percent'='-1',
+        'max_memory_percent'='-1',
         'max_concurrency'='2147483647',
         'max_queue_size'='0',
         'queue_timeout'='0',
-        'cpu_hard_limit'='-1',
+        'max_cpu_percent'='-1',
         'scan_thread_num'='-1',
         'max_remote_scan_thread_num'='-1',
         'min_remote_scan_thread_num'='-1',
@@ -606,7 +606,7 @@ suite("test_crud_wlg") {
         );
     """
 
-    qt_select_default_val_wg_3 "select name,cpu_share,memory_limit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_3 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql "drop workload group if exists default_val_wg $forComputeGroupStr"
 
