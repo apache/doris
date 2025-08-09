@@ -261,13 +261,13 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
 
     // Check if we have colon format by looking ahead
     const char* temp = ptr;
-    PROPAGATE_FALSE(skip_any_digit(temp, end, params));
+    static_cast<void>(skip_any_digit(temp, end));
     bool colon_format = (temp < end && *temp == ':');
 
     if (colon_format) {
         // Parse hour
         const auto* start = ptr;
-        PROPAGATE_FALSE(skip_any_digit(ptr, end, params));
+        static_cast<void>(skip_any_digit(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr != end, "no digits in hour part");
 
         StringParser::ParseResult success;
@@ -277,12 +277,14 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                                  "invalid hour part in time string '{}'", std::string {start, ptr});
 
         // Check and consume colon
-        PROPAGATE_FALSE(assert_within_bound(ptr, end, 0, params));
+        SET_PARAMS_RET_FALSE_IFN(in_bound(ptr, end, 0), "expected ':' after hour but got nothing");
         SET_PARAMS_RET_FALSE_IFN(*ptr == ':', "expected ':' after hour but got {}", *ptr);
         ++ptr;
 
         // Parse minute (1 or 2 digits)
-        PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, minute, params)));
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<uint32_t, 1, 2>(ptr, end, minute)),
+                                 "failed to consume 1 or 2 digits for minute, got {}",
+                                 std::string {ptr, end});
         SET_PARAMS_RET_FALSE_IFN(minute < 60, "invalid minute {}", minute);
 
         // Check if we have seconds
@@ -290,7 +292,9 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
             ++ptr;
 
             // Parse second (1 or 2 digits)
-            PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, second, params)));
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<uint32_t, 1, 2>(ptr, end, second)),
+                                     "failed to consume 1 or 2 digits for second, got {}",
+                                     std::string {ptr, end});
             SET_PARAMS_RET_FALSE_IFN(second < 60, "invalid second {}", second);
 
             // Check if we have microseconds
@@ -298,7 +302,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                 ++ptr;
 
                 const auto* ms_start = ptr;
-                PROPAGATE_FALSE(skip_any_digit(ptr, end, params));
+                static_cast<void>(skip_any_digit(ptr, end));
                 auto length = ptr - ms_start;
 
                 if (length > 0) {
@@ -337,7 +341,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
     } else {
         // numeric-format
         const auto* start = ptr;
-        PROPAGATE_FALSE(skip_any_digit(ptr, end, params));
+        static_cast<void>(skip_any_digit(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr != start, "no digits in numeric time format");
 
         StringParser::ParseResult success;
@@ -371,7 +375,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
             ++ptr;
 
             const auto* ms_start = ptr;
-            PROPAGATE_FALSE(skip_any_digit(ptr, end, params));
+            static_cast<void>(skip_any_digit(ptr, end));
             auto length = ptr - ms_start;
 
             if (length > 0) {
@@ -445,7 +449,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
     const char* end = ptr + str.size;
 
     // skip leading whitespace
-    static_cast<void>(skip_any_whitespace(ptr, end, params));
+    static_cast<void>(skip_any_whitespace(ptr, end));
     SET_PARAMS_RET_FALSE_IFN(ptr != end, "empty time string");
 
     // check sign
@@ -465,13 +469,13 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
 
     // Check if we have colon format by looking ahead
     const char* temp = ptr;
-    static_cast<void>(skip_any_digit(temp, end, params));
+    static_cast<void>(skip_any_digit(temp, end));
     bool colon_format = (temp < end && *temp == ':');
 
     if (colon_format) {
         // Parse hour
         const auto* start = ptr;
-        static_cast<void>(skip_any_digit(ptr, end, params));
+        static_cast<void>(skip_any_digit(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr != start, "no digits in hour part");
 
         StringParser::ParseResult success;
@@ -481,12 +485,12 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
                                  "invalid hour part in time string '{}'", std::string {start, ptr});
 
         // Check and consume colon
-        PROPAGATE_FALSE(assert_within_bound(ptr, end, 0, params));
+        PROPAGATE_FALSE(in_bound(ptr, end, 0));
         SET_PARAMS_RET_FALSE_IFN(*ptr == ':', "expected ':' after hour but got {}", *ptr);
         ++ptr;
 
         // Parse minute (1 or 2 digits)
-        PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, minute, params)));
+        PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, minute)));
         SET_PARAMS_RET_FALSE_IFN(minute < 60, "invalid minute {}", minute);
 
         // Check if we have seconds
@@ -494,7 +498,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
             ++ptr;
 
             // Parse second (1 or 2 digits)
-            PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, second, params)));
+            PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, second)));
             SET_PARAMS_RET_FALSE_IFN(second < 60, "invalid second {}", second);
 
             // Check if we have microseconds
@@ -502,7 +506,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
                 ++ptr;
 
                 const auto* ms_start = ptr;
-                static_cast<void>(skip_any_digit(ptr, end, params));
+                static_cast<void>(skip_any_digit(ptr, end));
                 auto length = ptr - ms_start;
 
                 if (length > 0) {
@@ -541,7 +545,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
     } else {
         // numeric-format
         const auto* start = ptr;
-        static_cast<void>(skip_any_digit(ptr, end, params));
+        static_cast<void>(skip_any_digit(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr != start, "no digits in numeric time format");
 
         StringParser::ParseResult success;
@@ -575,7 +579,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
             ++ptr;
 
             const auto* ms_start = ptr;
-            static_cast<void>(skip_any_digit(ptr, end, params));
+            static_cast<void>(skip_any_digit(ptr, end));
             auto length = ptr - ms_start;
 
             if (length > 0) {
@@ -613,7 +617,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
     }
 
     // Skip trailing whitespace
-    static_cast<void>(skip_any_whitespace(ptr, end, params));
+    static_cast<void>(skip_any_whitespace(ptr, end));
     SET_PARAMS_RET_FALSE_IFN(ptr == end, "invalid time string '{}', extra characters after parsing",
                              std::string {ptr, end});
 

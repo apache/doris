@@ -21,9 +21,10 @@
 
 #include <type_traits>
 
-#include "cast_base.h"
+#include "cast_base.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/primitive_type.h"
+#include "util/asan_util.h"
 #include "util/string_parser.hpp"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h" // IWYU pragma: keep
@@ -262,6 +263,7 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
                                                   CastParameters& params) {
     const char* ptr = str.data;
     const char* end = ptr + str.size;
+    AsanPoisonDefer defer(end, 1);
 
     uint32_t part[4];
     bool has_second = false;
@@ -269,9 +271,15 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
     // special `date` and `time` part format: 14-length digits string. parse it as YYYYMMDDHHMMSS
     if (ptr + 13 < end && is_digit_range(ptr, ptr + 14)) {
         // if the string is all digits, treat it as a date in YYYYMMDD format.
-        PROPAGATE_FALSE((consume_digit<UInt32, 4>(ptr, end, part[0], params)));
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[1], params)));
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[2], params)));
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 4>(ptr, end, part[0])),
+                                 "failed to consume 4 digits for year, got {}",
+                                 std::string {ptr, end});
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[1])),
+                                 "failed to consume 2 digits for month, got {}",
+                                 std::string {ptr, end});
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[2])),
+                                 "failed to consume 2 digits for day, got {}",
+                                 std::string {ptr, end});
         if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
             SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0]), "invalid year {}",
                                      part[0]);
@@ -281,9 +289,15 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
                                      part[2]);
         }
 
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[0], params)));
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[1], params)));
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[2], params)));
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[0])),
+                                 "failed to consume 2 digits for hour, got {}",
+                                 std::string {ptr, end});
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[1])),
+                                 "failed to consume 2 digits for minute, got {}",
+                                 std::string {ptr, end});
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[2])),
+                                 "failed to consume 2 digits for second, got {}",
+                                 std::string {ptr, end});
         SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
                                  part[0]);
         SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(part[1]), "invalid minute {}",
@@ -299,15 +313,24 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
     }
 
     // date part
-    PROPAGATE_FALSE(assert_within_bound(ptr, end, 5, params));
+    SET_PARAMS_RET_FALSE_IFN(in_bound(ptr, end, 5), "too short date part, got '{}'",
+                             std::string {ptr, end});
     if (is_digit_range(ptr, ptr + 5)) {
         // no delimiter here.
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[0], params)));
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[1], params)));
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[2], params)));
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[0])),
+                                 "failed to consume 2 digits for year, got {}",
+                                 std::string {ptr, end});
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[1])),
+                                 "failed to consume 2 digits for year/month, got {}",
+                                 std::string {ptr, end});
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[2])),
+                                 "failed to consume 2 digits for month/day, got {}",
+                                 std::string {ptr, end});
         if (ptr < end && is_numeric_ascii(*ptr)) {
             // 4 digits year
-            PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[3], params)));
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[3])),
+                                     "failed to consume 2 digits for day, got {}",
+                                     std::string {ptr, end});
             if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
                 SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
                                          "invalid year {}", part[0] * 100 + part[1]);
@@ -329,14 +352,23 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
         }
     } else {
         // has delimiter here.
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[0], params)));
-        PROPAGATE_FALSE(assert_within_bound(ptr, end, 0, params));
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[0])),
+                                 "failed to consume 2 digits for year, got {}",
+                                 std::string {ptr, end});
+        SET_PARAMS_RET_FALSE_IFN(in_bound(ptr, end, 0), "too short date part, got '{}'",
+                                 std::string {ptr, end});
         if (*ptr == '-') {
             // 2 digits year
             ++ptr; // consume one bar
-            PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, part[1], params)));
-            PROPAGATE_FALSE((consume_one_bar(ptr, end, params)));
-            PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, part[2], params)));
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[1])),
+                                     "failed to consume 1 or 2 digits for month, got {}",
+                                     std::string {ptr, end});
+            SET_PARAMS_RET_FALSE_IFN((consume_one_bar(ptr, end)),
+                                     "failed to consume one bar after month, got {}",
+                                     std::string {ptr, end});
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[2])),
+                                     "failed to consume 1 or 2 digits for day, got {}",
+                                     std::string {ptr, end});
 
             if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
                 SET_PARAMS_RET_FALSE_IFN(
@@ -349,11 +381,21 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
             }
         } else {
             // 4 digits year
-            PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[1], params)));
-            PROPAGATE_FALSE((consume_one_bar(ptr, end, params)));
-            PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, part[2], params)));
-            PROPAGATE_FALSE((consume_one_bar(ptr, end, params)));
-            PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, part[3], params)));
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[1])),
+                                     "failed to consume 4 digits for year, got {}",
+                                     std::string {ptr, end});
+            SET_PARAMS_RET_FALSE_IFN((consume_one_bar(ptr, end)),
+                                     "failed to consume one bar after year, got {}",
+                                     std::string {ptr, end});
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[2])),
+                                     "failed to consume 1 or 2 digits for month, got {}",
+                                     std::string {ptr, end});
+            SET_PARAMS_RET_FALSE_IFN((consume_one_bar(ptr, end)),
+                                     "failed to consume one bar after month, got {}",
+                                     std::string {ptr, end});
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[3])),
+                                     "failed to consume 1 or 2 digits for day, got {}",
+                                     std::string {ptr, end});
 
             if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
                 SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
@@ -371,11 +413,15 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
         return true;
     }
 
-    PROPAGATE_FALSE(consume_one_delimiter(ptr, end, params));
+    SET_PARAMS_RET_FALSE_IFN(consume_one_delimiter(ptr, end),
+                             "failed to consume one delimiter after date, got {}",
+                             std::string {ptr, end});
 
     // time part.
     // hour
-    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, part[0], params)));
+    SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[0])),
+                             "failed to consume 1 or 2 digits for hour, got {}",
+                             std::string {ptr, end});
     SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::HOUR>(part[0]), "invalid hour {}",
                              part[0]);
     if (ptr == end) {
@@ -384,28 +430,36 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
     }
     if (*ptr == ':') {
         // with hour:minute:second
-        if (consume_one_colon(ptr, end, params)) { // minute
-            PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, part[1], params)));
+        if (consume_one_colon(ptr, end)) { // minute
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[1])),
+                                     "failed to consume 1 or 2 digits for minute, got {}",
+                                     std::string {ptr, end});
             SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(part[1]),
                                      "invalid minute {}", part[1]);
-            if (consume_one_colon(ptr, end, params)) { // second
+            if (consume_one_colon(ptr, end)) { // second
                 has_second = true;
-                PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, part[2], params)));
+                SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[2])),
+                                         "failed to consume 1 or 2 digits for second, got {}",
+                                         std::string {ptr, end});
                 SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::SECOND>(part[2]),
                                          "invalid second {}", part[2]);
             }
         }
     } else {
         // no ':'
-        if (consume_digit<UInt32, 2>(ptr, end, part[1], params)) {
+        if (in_bound(ptr, end, 1) && is_digit_range(ptr, ptr + 2)) {
+            part[1] = (ptr[0] - '0') * 10 + ptr[1] - '0';
             // has minute
             SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(part[1]),
                                      "invalid minute {}", part[1]);
-            if (consume_digit<UInt32, 2>(ptr, end, part[2], params)) {
+            ptr += 2;
+            if (in_bound(ptr, end, 1) && is_digit_range(ptr, ptr + 2)) {
+                part[2] = (ptr[0] - '0') * 10 + ptr[1] - '0';
                 // has second
                 has_second = true;
                 SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::SECOND>(part[2]),
                                          "invalid second {}", part[2]);
+                ptr += 2;
             }
         }
     }
@@ -414,11 +468,11 @@ FRAC:
     // fractional part
     if (has_second && ptr < end && *ptr == '.') {
         ++ptr;
-        static_cast<void>(skip_any_digit(ptr, end, params));
+        static_cast<void>(skip_any_digit(ptr, end));
     }
-    static_cast<void>(skip_any_digit(ptr, end, params));
+    static_cast<void>(skip_any_digit(ptr, end));
 
-    static_cast<void>(skip_any_whitespace(ptr, end, params));
+    static_cast<void>(skip_any_whitespace(ptr, end));
 
     // timezone part
     if (ptr != end) {
@@ -432,19 +486,22 @@ FRAC:
             uint32_t length = count_digits(ptr, end);
             // hour
             if (length == 1 || length == 3) {
-                PROPAGATE_FALSE((consume_digit<UInt32, 1>(ptr, end, part[0], params)));
+                SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1>(ptr, end, part[0])),
+                                         "invalid hour offset '{}'", std::string {ptr, end});
             } else {
-                PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[0], params)));
+                SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[0])),
+                                         "invalid hour offset '{}'", std::string {ptr, end});
             }
-            SET_PARAMS_RET_FALSE_IFN(part[0] <= 14, "invalid hour offset {}", part[0]);
+            SET_PARAMS_RET_FALSE_IFN(part[0] <= 14, "invalid hour offset '{}'", part[0]);
             if (ptr < end) {
                 if (*ptr == ':') {
                     ++ptr;
                 }
                 // minute
-                PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, part[1], params)));
+                SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[1])),
+                                         "invalid minute offset '{}'", std::string {ptr, end});
                 SET_PARAMS_RET_FALSE_IFN((part[1] == 0 || part[1] == 30 || part[1] == 45),
-                                         "invalid minute offset {}", part[1]);
+                                         "invalid minute offset '{}'", part[1]);
             }
             SET_PARAMS_RET_FALSE_IFN(part[0] != 14 || part[1] == 0, "invalid timezone offset '{}'",
                                      combine_tz_offset(sign, part[0], part[1]));
@@ -457,14 +514,15 @@ FRAC:
             // timezone name
             const auto* start = ptr;
             // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
-            PROPAGATE_FALSE(skip_tz_name_part(ptr, end, params));
+            SET_PARAMS_RET_FALSE_IFN(skip_tz_name_part(ptr, end), "invalid timezone name '{}'",
+                                     std::string {start, ptr});
 
             SET_PARAMS_RET_FALSE_IFN(
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
                     "invalid timezone name '{}'", std::string {start, ptr});
         }
 
-        static_cast<void>(skip_any_whitespace(ptr, end, params));
+        static_cast<void>(skip_any_whitespace(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr == end,
                                  "invalid date string '{}', extra characters after timezone",
                                  std::string {ptr, end});
@@ -521,20 +579,21 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
     constexpr bool IsStrict = false;
     const char* ptr = str.data;
     const char* end = ptr + str.size;
+    AsanPoisonDefer defer(end, 1);
 
     // skip leading whitespace
-    static_cast<void>(skip_any_whitespace(ptr, end, params));
+    static_cast<void>(skip_any_whitespace(ptr, end));
     SET_PARAMS_RET_FALSE_IFN(ptr != end, "empty date string");
 
     // date part
     uint32_t year, month, day;
 
     // read year
-    PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, year, params)));
+    PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, year)));
     if (is_digit_range(ptr, ptr + 1)) {
         // continue by digit, it must be a 4-digit year
         uint32_t year2;
-        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, year2, params)));
+        PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, year2)));
         year = year * 100 + year2;
     } else {
         // otherwise, it must be a 2-digit year
@@ -545,16 +604,16 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
     }
 
     // check for separator
-    PROPAGATE_FALSE(skip_one_non_alnum(ptr, end, params));
+    PROPAGATE_FALSE(skip_one_non_alnum(ptr, end));
 
     // read month
-    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, month, params)));
+    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, month)));
 
     // check for separator
-    PROPAGATE_FALSE(skip_one_non_alnum(ptr, end, params));
+    PROPAGATE_FALSE(skip_one_non_alnum(ptr, end));
 
     // read day
-    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, day, params)));
+    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, day)));
 
     if (!try_convert_set_zero_date(res, year, month, day)) {
         SET_PARAMS_RET_FALSE_IFN(res.set_time_unit<TimeUnit::YEAR>(year), "invalid year {}", year);
@@ -568,39 +627,39 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
         return true;
     }
 
-    PROPAGATE_FALSE(consume_one_delimiter(ptr, end, params));
+    PROPAGATE_FALSE(consume_one_delimiter(ptr, end));
 
     // time part
     uint32_t hour, minute, second;
 
     // hour
-    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, hour, params)));
+    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, hour)));
     SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::HOUR>(hour), "invalid hour {}", hour);
 
     // check for separator
-    PROPAGATE_FALSE(skip_one_non_alnum(ptr, end, params));
+    PROPAGATE_FALSE(skip_one_non_alnum(ptr, end));
 
     // minute
-    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, minute, params)));
+    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, minute)));
     SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::MINUTE>(minute), "invalid minute {}",
                              minute);
 
     // check for separator
-    PROPAGATE_FALSE(skip_one_non_alnum(ptr, end, params));
+    PROPAGATE_FALSE(skip_one_non_alnum(ptr, end));
 
     // second
-    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, second, params)));
+    PROPAGATE_FALSE((consume_digit<UInt32, 1, 2>(ptr, end, second)));
     SET_PARAMS_RET_FALSE_IFN(res.test_time_unit<TimeUnit::SECOND>(second), "invalid second {}",
                              second);
 
     // fractional part
     if (ptr < end && *ptr == '.') {
         ++ptr;
-        static_cast<void>(skip_any_digit(ptr, end, params));
+        static_cast<void>(skip_any_digit(ptr, end));
     }
 
     // skip any whitespace after time
-    static_cast<void>(skip_any_whitespace(ptr, end, params));
+    static_cast<void>(skip_any_whitespace(ptr, end));
 
     // timezone part (if any)
     if (ptr != end) {
@@ -614,9 +673,9 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
             uint32_t length = count_digits(ptr, end);
             // hour
             if (length == 1 || length == 3) {
-                PROPAGATE_FALSE((consume_digit<UInt32, 1>(ptr, end, hour_offset, params)));
+                PROPAGATE_FALSE((consume_digit<UInt32, 1>(ptr, end, hour_offset)));
             } else {
-                PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, hour_offset, params)));
+                PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, hour_offset)));
             }
             SET_PARAMS_RET_FALSE_IFN(hour_offset <= 14, "invalid hour offset {}", hour_offset);
             if (ptr < end) {
@@ -624,7 +683,7 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
                     ++ptr;
                 }
                 // minute
-                PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, minute_offset, params)));
+                PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, minute_offset)));
                 SET_PARAMS_RET_FALSE_IFN(
                         (minute_offset == 0 || minute_offset == 30 || minute_offset == 45),
                         "invalid minute offset {}", minute_offset);
@@ -642,7 +701,7 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
             // timezone name
             const auto* start = ptr;
             // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
-            PROPAGATE_FALSE(skip_tz_name_part(ptr, end, params));
+            PROPAGATE_FALSE(skip_tz_name_part(ptr, end));
 
             SET_PARAMS_RET_FALSE_IFN(
                     TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
@@ -651,7 +710,7 @@ inline bool CastToDateV2::from_string_non_strict_mode_impl(const StringRef& str,
     }
 
     // skip trailing whitespace
-    static_cast<void>(skip_any_whitespace(ptr, end, params));
+    static_cast<void>(skip_any_whitespace(ptr, end));
     SET_PARAMS_RET_FALSE_IFN(ptr == end, "invalid date string '{}', extra characters after parsing",
                              std::string {ptr, end});
 

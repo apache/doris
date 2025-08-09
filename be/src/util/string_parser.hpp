@@ -44,7 +44,6 @@
 #include "vec/common/string_utils/string_utils.h"
 #include "vec/core/extended_types.h"
 #include "vec/data_types/number_traits.h"
-#include "vec/functions/cast/cast_parameters.h"
 
 namespace doris {
 namespace vectorized {
@@ -105,12 +104,9 @@ bool range_suite(const char* s, const char* end) {
 inline auto is_digit_range = range_suite<is_numeric_ascii>;
 inline auto is_space_range = range_suite<is_whitespace_ascii>;
 
-inline bool assert_within_bound(const char* s, const char* end, size_t offset,
-                                vectorized::CastParameters& params) {
+// combine in_bound and range_suite is ok. won't lead to duplicated calculation.
+inline bool in_bound(const char* s, const char* end, size_t offset) {
     if (s + offset >= end) [[unlikely]] {
-        params.status = Status::InvalidArgument(
-                "StringParser: failed because we need at least {} but only got '{}'", offset,
-                std::string {s, end});
         return false;
     }
     return true;
@@ -119,7 +115,7 @@ inline bool assert_within_bound(const char* s, const char* end, size_t offset,
 // LEN = 0 means any length(include zero). LEN = 1 means only one character. so on. LEN = -x means x or more.
 // if need result, use StringRef{origin_s, s} outside
 template <int LEN, bool (*Pred)(char)>
-bool skip_qualified_char(const char*& s, const char* end, vectorized::CastParameters& params) {
+bool skip_qualified_char(const char*& s, const char* end) {
     if constexpr (LEN == 0) {
         // Consume any length of characters that match the predicate.
         while (s != end && Pred(*s)) {
@@ -129,9 +125,6 @@ bool skip_qualified_char(const char*& s, const char* end, vectorized::CastParame
         // Consume exactly LEN characters that match the predicate.
         for (int i = 0; i < LEN; ++i, ++s) {
             if (s == end || !Pred(*s)) [[unlikely]] {
-                params.status = Status::InvalidArgument(
-                        "StringParser: failed to consume {} characters, got '{}'", LEN - i,
-                        std::string {s, end});
                 return false;
             }
         }
@@ -143,9 +136,6 @@ bool skip_qualified_char(const char*& s, const char* end, vectorized::CastParame
             ++count;
         }
         if (count < -LEN) [[unlikely]] {
-            params.status = Status::InvalidArgument(
-                    "StringParser: failed to consume at least {} characters, got '{}'",
-                    -LEN - count, std::string {s, end});
             return false;
         }
     }
@@ -177,16 +167,13 @@ inline auto consume_one_colon = skip_qualified_char<1, is_colon>;
 // when has MAX_LEN > 0, do greedy match but at most MAX_LEN.
 // LEN = 0 means any length, otherwise(must > 0) it means exactly LEN digits.
 template <typename T, int LEN = 0, int MAX_LEN = -1>
-bool consume_digit(const char*& s, const char* end, T& out, vectorized::CastParameters& params) {
+bool consume_digit(const char*& s, const char* end, T& out) {
     static_assert(LEN >= 0);
     if constexpr (MAX_LEN > 0) {
         out = 0;
         for (int i = 0; i < MAX_LEN; ++i, ++s) {
-            if ((s == end || !is_numeric_ascii(*s))) [[unlikely]] {
+            if (s == end || !is_numeric_ascii(*s)) {
                 if (i < LEN) [[unlikely]] {
-                    params.status = Status::InvalidArgument(
-                            "StringParser: got \"{}\" before get at least {} digit",
-                            std::string {s, end}, LEN - i);
                     return false;
                 }
                 break; // stop consuming if we have consumed enough digits.
@@ -205,9 +192,6 @@ bool consume_digit(const char*& s, const char* end, T& out, vectorized::CastPara
         out = 0;
         for (int i = 0; i < LEN; ++i, ++s) {
             if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
-                params.status = Status::InvalidArgument(
-                        "StringParser: failed to consume {} digits, got '{}'", LEN - i,
-                        std::string {s, end});
                 return false;
             }
             out = out * 10 + (*s - '0');
@@ -218,13 +202,10 @@ bool consume_digit(const char*& s, const char* end, T& out, vectorized::CastPara
 
 // specialized version for 2 digits, which is used very often in date/time parsing.
 template <>
-inline bool consume_digit<uint32_t, 2, -1>(const char*& s, const char* end, uint32_t& out,
-                                           vectorized::CastParameters& params) {
+inline bool consume_digit<uint32_t, 2, -1>(const char*& s, const char* end, uint32_t& out) {
     out = 0;
     if (s == end || s + 1 == end || !is_numeric_ascii(*s) || !is_numeric_ascii(*(s + 1)))
             [[unlikely]] {
-        params.status = Status::InvalidArgument(
-                "StringParser: failed to consume 2 digits, got '{}'", std::string {s, end});
         return false;
     }
     out = (s[0] - '0') * 10 + (s[1] - '0');
@@ -234,12 +215,9 @@ inline bool consume_digit<uint32_t, 2, -1>(const char*& s, const char* end, uint
 
 // specialized version for 1 or 2 digits, which is used very often in date/time parsing.
 template <>
-inline bool consume_digit<uint32_t, 1, 2>(const char*& s, const char* end, uint32_t& out,
-                                          vectorized::CastParameters& params) {
+inline bool consume_digit<uint32_t, 1, 2>(const char*& s, const char* end, uint32_t& out) {
     out = 0;
     if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
-        params.status = Status::InvalidArgument(
-                "StringParser: failed to consume 1 or 2 digits, got '{}'", std::string {s, end});
         return false;
     } else if (s + 1 != end && is_numeric_ascii(*(s + 1))) {
         // consume 2 digits
