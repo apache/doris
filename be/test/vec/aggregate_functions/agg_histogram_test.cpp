@@ -231,7 +231,6 @@ TEST_F(VAggHistogramTest, test_with_data) {
     test_agg_histogram<DataTypeDateV2>(100, 5);
 
     test_agg_histogram<DataTypeDateTimeV2>(100, 5);
-
 }
 
 } // namespace doris::vectorized
