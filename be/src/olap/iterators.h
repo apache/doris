@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vexpr.h"
 
@@ -122,6 +123,7 @@ public:
     size_t topn_limit = 0;
 
     std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+    std::shared_ptr<vectorized::AnnTopNRuntime> ann_topn_runtime;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
 

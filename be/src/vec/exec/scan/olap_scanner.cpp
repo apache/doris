@@ -94,9 +94,11 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .vir_cid_to_idx_in_block {},
                                  .vir_col_idx_to_type {},
                                  .score_runtime {},
-                                 .collection_statistics {}}) {
+                                 .collection_statistics {},
+                                 .ann_topn_runtime {}}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _is_init = false;
+    _vector_search_params = params.state->get_vector_search_params();
 }
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
@@ -138,6 +140,7 @@ Status OlapScanner::init() {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
+        RETURN_IF_ERROR(context->prepare_ann_range_search(_vector_search_params));
     }
 
     for (auto pair : local_state->_slot_id_to_virtual_column_expr) {
@@ -150,6 +153,9 @@ Status OlapScanner::init() {
     _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
     _slot_id_to_col_type = local_state->_slot_id_to_col_type;
     _score_runtime = local_state->_score_runtime;
+
+    _score_runtime = local_state->_score_runtime;
+    _ann_topn_runtime = local_state->_ann_topn_runtime;
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -315,6 +321,7 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns =
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
+    _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
@@ -536,6 +543,7 @@ Status OlapScanner::_init_return_columns() {
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
+
     return Status::OK();
 }
 
@@ -785,6 +793,13 @@ void OlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_uncompressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
+
+    COUNTER_UPDATE(local_state->_ann_index_range_search_filter_counter,
+                   stats.rows_ann_index_range_filtered);
+    COUNTER_UPDATE(local_state->_ann_index_topn_filter_counter, stats.rows_ann_index_topn_filtered);
+    COUNTER_UPDATE(local_state->_ann_index_load_costs, stats.ann_index_load_ns);
+    COUNTER_UPDATE(local_state->_ann_index_range_search_costs, stats.ann_index_range_search_ns);
+    COUNTER_UPDATE(local_state->_ann_index_topn_costs, stats.ann_index_topn_ns);
 }
 
 } // namespace doris::vectorized

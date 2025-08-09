@@ -22,6 +22,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <ostream>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -35,9 +36,8 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
-
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 VirtualSlotRef::VirtualSlotRef(const doris::TExprNode& node)
         : VExpr(node),
           _column_id(-1),
@@ -218,4 +218,18 @@ bool VirtualSlotRef::equals(const VExpr& other) {
     return true;
 }
 
+Status VirtualSlotRef::evaluate_ann_range_search(
+        const RangeSearchRuntimeInfo& range_search_runtime,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
+    if (_virtual_column_expr != nullptr) {
+        return _virtual_column_expr->evaluate_ann_range_search(
+                range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
+                row_bitmap, ann_index_stats);
+    }
+    return Status::OK();
+}
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

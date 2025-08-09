@@ -32,11 +32,13 @@
 #include "olap/tablet_manager.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
+#include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/olap_scanner.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
@@ -57,6 +59,22 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
         _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
+    }
+
+    if (olap_scan_node.__isset.ann_sort_info || olap_scan_node.__isset.ann_sort_limit) {
+        DCHECK(olap_scan_node.__isset.ann_sort_info);
+        DCHECK(olap_scan_node.__isset.ann_sort_limit);
+        DCHECK(olap_scan_node.ann_sort_info.ordering_exprs.size() == 1);
+        const doris::TExpr& ordering_expr = olap_scan_node.ann_sort_info.ordering_exprs.front();
+        DCHECK(ordering_expr.nodes[0].__isset.slot_ref);
+        DCHECK(ordering_expr.nodes[0].slot_ref.is_virtual_slot);
+        DCHECK(olap_scan_node.ann_sort_info.is_asc_order.size() == 1);
+        const bool asc = olap_scan_node.ann_sort_info.is_asc_order[0];
+        const size_t limit = olap_scan_node.ann_sort_limit;
+        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _ann_topn_runtime =
+                vectorized::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
 
     RETURN_IF_ERROR(Base::init(state, info));
@@ -255,6 +273,23 @@ Status OlapScanLocalState::_init_profile() {
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+    /*
+    IndexFilter:
+        - AnnIndexLoadCosts: 57.470ms
+        - AnnIndexRangeSearchCosts: 0ns
+        - AnnIndexRangeSearchFiltered: 0
+        - AnnIndexTopNCosts: 171.332us
+        - AnnIndexTopNFiltered: 6
+    */
+    _ann_index_range_search_filter_counter =
+            ADD_COUNTER(_index_filter_profile, "AnnIndexRangeSearchFiltered", TUnit::UNIT);
+    _ann_index_topn_filter_counter =
+            ADD_COUNTER(_index_filter_profile, "AnnIndexTopNFiltered", TUnit::UNIT);
+
+    _ann_index_load_costs = ADD_TIMER(_index_filter_profile, "AnnIndexLoadCosts");
+
+    _ann_index_topn_costs = ADD_TIMER(_index_filter_profile, "AnnIndexTopNCosts");
+    _ann_index_range_search_costs = ADD_TIMER(_index_filter_profile, "AnnIndexRangeSearchCosts");
 
     return Status::OK();
 }
@@ -667,6 +702,10 @@ Status OlapScanLocalState::open(RuntimeState* state) {
 
     if (_score_runtime) {
         RETURN_IF_ERROR(_score_runtime->prepare(state, p.intermediate_row_desc()));
+    }
+
+    if (_ann_topn_runtime) {
+        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));

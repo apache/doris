@@ -744,8 +744,8 @@ Status Compaction::do_inverted_index_compaction() {
 
     // dest index files
     // format: rowsetId_segmentId
-    auto& inverted_index_file_writers = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())
-                                                ->inverted_index_file_writers();
+    auto& inverted_index_file_writers =
+            dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())->index_file_writers();
     DBUG_EXECUTE_IF(
             "Compaction::do_inverted_index_compaction_inverted_index_file_writers_size_error",
             { inverted_index_file_writers.clear(); })

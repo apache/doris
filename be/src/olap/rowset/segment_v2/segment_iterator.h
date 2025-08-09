@@ -52,6 +52,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -171,6 +172,8 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_index_iterators();
+
+    Status _apply_ann_topn_predicate();
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -485,6 +488,8 @@ private:
             _common_expr_inverted_index_status;
 
     std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+
+    std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
 
     // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;

@@ -21,3 +21,11 @@
 	path = contrib/apache-orc
 	url = https://github.com/apache/doris-thirdparty.git
 	branch = orc
+[submodule "doris-faiss"]
+	path = contrib/faiss
+	url = https://github.com/apache/doris-thirdparty.git
+	branch = faiss
+[submodule "doris-openblas"]
+	path = contrib/openblas
+	url = https://github.com/apache/doris-thirdparty.git
+	branch = openblas
