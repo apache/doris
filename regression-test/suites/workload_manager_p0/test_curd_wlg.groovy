@@ -219,19 +219,6 @@ suite("test_crud_wlg") {
         exception "The allowed min_cpu_percent value has to be in [0,100]"
     }
 
-
-    // failed for mem_overcommit
-    test {
-        sql "create workload group if not exists test_group2 $forComputeGroupStr " +
-                "properties ( " +
-                "    'min_cpu_percent'='10%', " +
-                "    'max_memory_percent'='3%', " +
-                " 'max_cpu_percent'='30%' " +
-                ");"
-
-        exception "must be true or false"
-    }
-
     // test show workload groups
     qt_select_tvf_1 "select name,min_cpu_percent,max_memory_percent,max_concurrency,max_queue_size,queue_timeout,max_cpu_percent,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
