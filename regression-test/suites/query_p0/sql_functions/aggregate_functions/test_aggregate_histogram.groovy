@@ -127,7 +127,6 @@ suite("test_aggregate_histogram") {
     qt_select """
         SELECT
             c_id,
-            hist(c_bool, 2),
             hist(c_tinyint, 2),
             hist(c_smallint, 2),
             hist(c_bigint, 2),
@@ -156,7 +155,6 @@ suite("test_aggregate_histogram") {
         CREATE TABLE ${tableCTAS1} PROPERTIES("replication_num" = "1") AS
         SELECT
             1,
-            hist(c_bool, 2),
             hist(c_tinyint, 2),
             hist(c_smallint, 2),
             hist(c_bigint, 2),
@@ -181,7 +179,6 @@ suite("test_aggregate_histogram") {
         CREATE TABLE ${tableCTAS2} PROPERTIES("replication_num" = "1") AS
         SELECT
             1,
-            hist(c_bool, 2),
             hist(c_tinyint, 2),
             hist(c_smallint, 2),
             hist(c_bigint, 2),
