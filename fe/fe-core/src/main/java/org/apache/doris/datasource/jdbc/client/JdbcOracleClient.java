@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
@@ -29,6 +30,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.List;
 import java.util.Set;
 
@@ -53,6 +55,9 @@ public class JdbcOracleClient extends JdbcClient {
         Connection conn = null;
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
+        Statement stmt = null;
+        ResultSet isSynonymRs = null;
+        ResultSet synonymInfoRs = null;
         try {
             conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
@@ -76,11 +81,28 @@ public class JdbcOracleClient extends JdbcClient {
                 }
                 tableSchema.add(new JdbcFieldSchema(rs));
             }
+            if (tableSchema.isEmpty()) {
+                // maybe the table is a synonym
+                stmt = conn.createStatement();
+                isSynonymRs = stmt.executeQuery(
+                        "SELECT OBJECT_TYPE FROM ALL_OBJECTS WHERE OBJECT_NAME = '" + remoteTableName
+                                + "' AND OWNER = '" + remoteDbName + "'");
+                if (isSynonymRs.next() && "SYNONYM".equalsIgnoreCase(isSynonymRs.getString("OBJECT_TYPE"))) {
+                    // if it is a synonym, get the actual table name and owner(database)
+                    String additionalTablesQuery = getAdditionalTablesQuery(remoteDbName, remoteTableName, null);
+                    synonymInfoRs = stmt.executeQuery(additionalTablesQuery);
+                    while (synonymInfoRs.next()) {
+                        String baseTableName = synonymInfoRs.getString("BASE_TABLE_NAME");
+                        String baseTableOwner = synonymInfoRs.getString("BASE_TABLE_OWNER");
+                        return getJdbcColumnsInfo(baseTableOwner, baseTableName);
+                    }
+                }
+            }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, remoteTableName,
                 Util.getRootCauseMessage(e));
         } finally {
-            close(rs, conn);
+            close(rs, conn, stmt, isSynonymRs, synonymInfoRs);
         }
         return tableSchema;
     }
@@ -107,6 +129,24 @@ public class JdbcOracleClient extends JdbcClient {
                 .add("xdb")
                 .add("xs$null")
                 .build();
+    }
+
+    @Override
+    protected String getAdditionalTablesQuery(String remoteDbName, String remoteTableName, String[] tableTypes) {
+        StringBuilder sb = new StringBuilder(
+                "SELECT SYNONYM_NAME as TABLE_NAME, TABLE_OWNER as BASE_TABLE_OWNER, TABLE_NAME as BASE_TABLE_NAME "
+                        + "FROM ALL_SYNONYMS");
+        List<String> conditions = Lists.newArrayList();
+        if (!Strings.isNullOrEmpty(remoteDbName)) {
+            conditions.add("OWNER = '" + remoteDbName + "'");
+        }
+        if (!Strings.isNullOrEmpty(remoteTableName)) {
+            conditions.add("SYNONYM_NAME = '" + remoteTableName + "'");
+        }
+        if (!conditions.isEmpty()) {
+            sb.append(" WHERE ").append(String.join(" AND ", conditions));
+        }
+        return sb.toString();
     }
 
     @Override
