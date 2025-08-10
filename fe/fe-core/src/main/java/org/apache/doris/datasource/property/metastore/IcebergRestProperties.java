@@ -58,11 +58,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The prefix of the iceberg rest catalog service.")
     private String icebergRestPrefix = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.warehouse", "warehouse"},
-            required = false,
-            description = "The warehouse of the iceberg rest catalog service.")
-    private String icebergRestWarehouse = "";
-
     @ConnectorProperty(names = {"iceberg.rest.security.type"},
             required = false,
             description = "The security type of the iceberg rest catalog service,"
@@ -221,8 +216,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put(PREFIX_PROPERTY, icebergRestPrefix);
         }
 
-        if (Strings.isNotBlank(icebergRestWarehouse)) {
-            icebergRestCatalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, icebergRestWarehouse);
+        if (Strings.isNotBlank(warehouse)) {
+            icebergRestCatalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         }
 
         if (isIcebergRestVendedCredentialsEnabled()) {
@@ -266,7 +261,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
      * This method handles all storage types (HDFS, S3, MinIO, etc.) and populates
      * the fileIOProperties map and Configuration object accordingly.
      *
-     * @param storagePropertiesMap Map of storage properties
+     * @param storagePropertiesList Map of storage properties
      * @param fileIOProperties Options map to be populated
      * @param conf Configuration object to be populated (for HDFS), will be created if null and HDFS is used
      */
