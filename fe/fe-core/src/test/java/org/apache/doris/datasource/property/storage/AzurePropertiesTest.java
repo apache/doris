@@ -162,7 +162,6 @@ public class AzurePropertiesTest {
         Assertions.assertEquals("azure", nativeProps.get("provider"));
         Assertions.assertEquals("false", nativeProps.get("use_path_style"));
     }
-
     // Test for force_parsing_by_standard_uri being false
     @Test
     public void testForceParsingByStandardUriFalse() {
