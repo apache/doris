@@ -262,9 +262,16 @@ int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compacti
         std::string recycle_key =
                 recycle_rowset_key({instance_id_, compaction_log.tablet_id(),
                                     recycle_rowset_pb.rowset_meta().rowset_id_v2()});
+        // Put recycle rowset key to track recycled rowset metadata
+        LOG_INFO("put recycle rowset key")
+                .tag("recycle_key", hex(recycle_key))
+                .tag("tablet_id", compaction_log.tablet_id())
+                .tag("rowset_id_v2", recycle_rowset_pb.rowset_meta().rowset_id_v2())
+                .tag("start_version", recycle_rowset_pb.rowset_meta().start_version())
+                .tag("end_version", recycle_rowset_pb.rowset_meta().end_version());
         kvs_.emplace_back(recycle_key, recycle_rowset_value);
 
-        // remove rowset compact key and rowset load key
+        // Remove rowset compact key and rowset load key for input rowsets
         std::string meta_rowset_compact_key = versioned::meta_rowset_compact_key(
                 {instance_id_, recycle_rowset_pb.rowset_meta().tablet_id(),
                  recycle_rowset_pb.rowset_meta().end_version()});
@@ -280,6 +287,12 @@ int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compacti
         }
         if (rowset_meta_cloud_pb.start_version() ==
             recycle_rowset_pb.rowset_meta().start_version()) {
+            // Remove meta rowset compact key for input rowset that was consumed in compaction
+            LOG_INFO("remove meta rowset compact key")
+                    .tag("compact_key", hex(meta_rowset_compact_key))
+                    .tag("tablet_id", recycle_rowset_pb.rowset_meta().tablet_id())
+                    .tag("start_version", recycle_rowset_pb.rowset_meta().start_version())
+                    .tag("end_version", recycle_rowset_pb.rowset_meta().end_version());
             versioned::document_remove<doris::RowsetMetaCloudPB>(txn.get(), meta_rowset_compact_key,
                                                                  version);
         }
@@ -287,6 +300,12 @@ int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compacti
                                       &version);
         if (rowset_meta_cloud_pb.start_version() ==
             recycle_rowset_pb.rowset_meta().start_version()) {
+            // Remove meta rowset load key for input rowset that was consumed in compaction
+            LOG_INFO("remove meta rowset load key")
+                    .tag("load_key", hex(meta_rowset_load_key))
+                    .tag("tablet_id", recycle_rowset_pb.rowset_meta().tablet_id())
+                    .tag("start_version", recycle_rowset_pb.rowset_meta().start_version())
+                    .tag("end_version", recycle_rowset_pb.rowset_meta().end_version());
             versioned::document_remove<doris::RowsetMetaCloudPB>(txn.get(), meta_rowset_load_key,
                                                                  version);
         }
@@ -309,12 +328,24 @@ int OperationLogRecycler::commit() {
     }
 
     std::string log_key = encode_versioned_key(versioned::log_key(instance_id_), log_version_);
+    // Remove the operation log entry itself after recycling its contents
+    LOG_INFO("remove operation log key")
+            .tag("log_key", hex(log_key))
+            .tag("log_version", log_version_.to_string());
     txn->remove(log_key);
+    
     for (const auto& key : keys_to_remove_) {
+        // Remove versioned keys that were replaced during operation log processing
+        LOG_INFO("remove versioned key")
+                .tag("key", hex(key));
         txn->remove(key);
     }
 
     for (const auto& [key, value] : kvs_) {
+        // Put recycled metadata entries (recycle partition, recycle index, recycle rowset, etc.)
+        LOG_INFO("put recycled metadata key")
+                .tag("key", hex(key))
+                .tag("value_size", value.size());
         txn->put(key, value);
     }
 

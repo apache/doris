@@ -1659,6 +1659,9 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         }
         if (is_multi_version) {
             for (auto& k : tablet_compact_stats_keys) {
+                // Remove all versions of tablet compact stats for recycled tablet
+                LOG_INFO("remove versioned tablet compact stats key")
+                        .tag("compact_stats_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
         }
