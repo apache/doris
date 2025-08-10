@@ -871,8 +871,8 @@ struct PackedUInt128 {
     uint128_t value;
 } __attribute__((packed));
 
-const char* parse_binary_from_sparse_column(FieldType type, const char* data, Field& res,
-                                            FieldInfo& info_res) {
+const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type, const char* data,
+                                                                  Field& res, FieldInfo& info_res) {
     info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
     const char* end = data;
     switch (type) {

@@ -465,6 +465,7 @@ class IndexCompactionUtils {
         if (custom_check) {
             custom_check(compaction, ctx);
         }
+        std::cout << "finish compaction" << std::endl;
 
         rowset_ptr = std::move(compaction._output_rowset);
         return Status::OK();
