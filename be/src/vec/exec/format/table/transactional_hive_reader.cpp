@@ -187,7 +187,7 @@ Status TransactionalHiveReader::init_row_filters() {
         delete_range.file_size = -1;
 
         OrcReader delete_reader(_profile, _state, _params, delete_range, _MIN_BATCH_SIZE,
-                                _state->timezone(), _io_ctx, false);
+                                _state->timezone(), _io_ctx, nullptr, false);
 
         auto acid_info_node = std::make_shared<StructNode>();
         for (auto idx = 0; idx < TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.size();

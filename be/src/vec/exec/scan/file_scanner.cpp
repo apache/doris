@@ -1054,7 +1054,10 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_ORC: {
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
-                    _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
+                    _state->timezone(), _io_ctx.get(),
+                    _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
+                                                     : nullptr,
+                    _state->query_options().enable_orc_lazy_mat);
             if (_row_id_column_iterator_pair.second != -1) {
                 RETURN_IF_ERROR(_create_row_id_column_iterator());
                 orc_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
@@ -1450,7 +1453,11 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                     std::unique_ptr<vectorized::OrcReader> orc_reader =
                             vectorized::OrcReader::create_unique(_profile, _state, *_params, range,
                                                                  1, _state->timezone(),
-                                                                 _io_ctx.get(), false);
+                                                                 _io_ctx.get(),
+                                                                 external_info.enable_file_meta_cache
+                                                                 ? ExecEnv::GetInstance()->file_meta_cache()
+                                                                 : nullptr,
+                                                                 false);
 
                     RETURN_IF_ERROR(orc_reader->set_read_lines_mode(row_ids));
                     RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader)));

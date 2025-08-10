@@ -168,7 +168,7 @@ void StripeStreamInputStream::read(void* buf, uint64_t length, uint64_t offset) 
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat)
+                     FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -178,6 +178,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _range_size(range.size),
           _ctz(ctz),
           _io_ctx(io_ctx),
+          _meta_cache(meta_cache),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
@@ -286,27 +287,52 @@ Status OrcReader::_create_file_reader() {
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
     }
+
     // create orc reader
-    try {
-        orc::ReaderOptions options;
-        options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
-        options.setReaderMetrics(&_reader_metrics);
-        _reader = orc::createReader(
-                std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
-    } catch (std::exception& e) {
-        // invoker maybe just skip Status.NotFound and continue
-        // so we need distinguish between it and other kinds of errors
-        std::string _err_msg = e.what();
-        if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
-            return Status::EndOfFile("stop");
+    orc::ReaderOptions options;
+    options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
+    options.setReaderMetrics(&_reader_metrics);
+
+    auto create_orc_reader = [&]() {
+        try {
+            _reader = orc::createReader(
+                    std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
+        } catch (std::exception& e) {
+            // invoker maybe just skip Status.NotFound and continue
+            // so we need distinguish between it and other kinds of errors
+            std::string _err_msg = e.what();
+            if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
+                return Status::EndOfFile("stop");
+            }
+            // one for fs, the other is for oss.
+            if (_err_msg.find("No such file or directory") != std::string::npos ||
+                _err_msg.find("NoSuchKey") != std::string::npos) {
+                return Status::NotFound(_err_msg);
+            }
+            return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
         }
-        // one for fs, the other is for oss.
-        if (_err_msg.find("No such file or directory") != std::string::npos ||
-            _err_msg.find("NoSuchKey") != std::string::npos) {
-            return Status::NotFound(_err_msg);
+        return Status::OK();
+    };
+
+    if (_meta_cache == nullptr) {
+        RETURN_IF_ERROR(create_orc_reader());
+    } else {
+        auto inner_file_reader = _file_input_stream->get_inner_reader();
+        const auto& file_meta_cache_key = FileMetaCache::get_key(inner_file_reader, _file_description);
+
+        // Local variables can be required because setSerializedFileTail is an assignment operation, not a reference.
+        ObjLRUCache::CacheHandle _meta_cache_handle;
+        if (_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
+            const std::string* footer_ptr = _meta_cache_handle.data<String>();
+            options.setSerializedFileTail(*footer_ptr);
+            RETURN_IF_ERROR(create_orc_reader());
+        } else {
+            RETURN_IF_ERROR(create_orc_reader());
+            std::string* footer_ptr = new std::string{_reader->getSerializedFileTail()};
+            _meta_cache->insert(file_meta_cache_key, footer_ptr, &_meta_cache_handle);
         }
-        return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
     }
+
     return Status::OK();
 }
 

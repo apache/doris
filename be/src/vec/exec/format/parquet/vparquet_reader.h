@@ -142,8 +142,6 @@ public:
 
     const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
-    // Only for iceberg reader to sanitize invalid column names
-    void iceberg_sanitize(const std::vector<std::string>& read_columns);
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -248,7 +246,7 @@ private:
     // after _file_reader. Otherwise, there may be heap-use-after-free bug.
     ObjLRUCache::CacheHandle _meta_cache_handle;
     std::unique_ptr<FileMetaData> _file_metadata_ptr;
-    FileMetaData* _file_metadata = nullptr;
+    const FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
     // _tracing_file_reader wraps _file_reader.
