@@ -174,15 +174,14 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         return null;
     }
 
-
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfPossible();
+        if (!isValidEndpoint(getEndpoint())) {
+            throw new IllegalArgumentException("Invalid endpoint: " + getEndpoint());
+        }
         setRegionIfPossible();
-        // if (StringUtils.isBlank(getRegion())) {
-        //     throw new IllegalArgumentException("region is required");
-        // }
     }
 
     /**
@@ -202,10 +201,25 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
      * @throws IllegalArgumentException if the endpoint format is invalid
      */
     protected void setEndpointIfPossible() {
-        setEndpointIfNotSet();
-        // if (!isValidEndpoint(getEndpoint())) {
-        //     throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
-        // }
+        if (StringUtils.isNotBlank(getEndpoint())) {
+            return;
+        }
+        String endpoint = null;
+        // 1. try getting endpoint from uri
+        try {
+            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
+        } catch (Exception e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Failed to construct endpoint from url: " + origProps, e);
+            }
+        }
+        // 2. try getting endpoint region
+        if (StringUtils.isBlank(endpoint)) {
+            endpoint = getEndpointFromRegion();
+        }
+        if (!StringUtils.isBlank(endpoint)) {
+            setEndpoint(endpoint);
+        }
     }
 
     private void setRegionIfPossible() {
@@ -214,15 +228,12 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         }
         String endpoint = getEndpoint();
         if (endpoint == null || endpoint.isEmpty()) {
-            // throw new IllegalArgumentException("endpoint is required");
             return;
         }
         Optional<String> regionOptional = extractRegion(endpoint);
         if (regionOptional.isPresent()) {
             setRegion(regionOptional.get());
-            return;
         }
-        // throw new IllegalArgumentException("Not a valid region, and cannot be parsed from endpoint: " + endpoint);
     }
 
     private Optional<String> extractRegion(String endpoint) {
@@ -249,7 +260,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     private boolean isValidEndpoint(String endpoint) {
         if (StringUtils.isBlank(endpoint)) {
-            return false;
+            // Endpoint is not required, so we consider it valid if empty.
+            return true;
         }
         for (Pattern pattern : endpointPatterns()) {
             Matcher matcher = pattern.matcher(endpoint.toLowerCase());
@@ -258,29 +270,6 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
             }
         }
         return false;
-    }
-
-    private void setEndpointIfNotSet() {
-        if (StringUtils.isNotBlank(getEndpoint())) {
-            return;
-        }
-        String endpoint = null;
-        // 1. try getting endpoint from uri
-        try {
-            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
-        } catch (Exception e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to construct endpoint from url: " + origProps, e);
-            }
-        }
-        // 2. try getting endpoint region
-        if (StringUtils.isBlank(endpoint)) {
-            endpoint = getEndpointFromRegion();
-        }
-        if (!StringUtils.isBlank(endpoint)) {
-            setEndpoint(endpoint);
-            // throw new IllegalArgumentException("endpoint is required. But failed to construct it from uri or region");
-        }
     }
 
     // This method should be overridden by subclasses to provide a default endpoint based on the region.
