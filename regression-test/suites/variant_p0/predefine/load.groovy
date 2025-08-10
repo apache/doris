@@ -55,7 +55,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     qt_sql """select * from test_predefine  where  v1['dt'] is not null order by id limit 10;"""
 
     sql """DROP TABLE IF EXISTS test_predefine1"""
-    sql """ set disable_variant_flatten_nested = false """
+    sql """ set enable_variant_flatten_nested = true """
     sql """
         CREATE TABLE `test_predefine1` (
             `id` bigint NOT NULL,
