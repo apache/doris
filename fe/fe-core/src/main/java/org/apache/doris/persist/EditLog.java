@@ -1438,8 +1438,8 @@ public class EditLog {
         } catch (Exception e) {
             short[] ignoreExceptionLogIds = Config.skip_operation_types_on_replay_exception;
             boolean skip = false;
-            for (short id : ignoreExceptionLogIds) {
-                if (id == opCode) {
+            for (short ignoreLogId : ignoreExceptionLogIds) {
+                if (ignoreLogId == opCode) {
                     skip = true;
                     break;
                 }
