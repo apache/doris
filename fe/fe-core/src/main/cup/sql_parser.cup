@@ -1693,11 +1693,6 @@ create_stmt ::=
     {:
         RESULT = new CreateEncryptKeyStmt(ifNotExists, keyName, keyString);
     :}
-    /* sql_block_rule */
-    | KW_CREATE KW_SQL_BLOCK_RULE opt_if_not_exists:ifNotExists ident:ruleName opt_properties:properties
-    {:
-        RESULT = new CreateSqlBlockRuleStmt(ifNotExists, ruleName, properties);
-    :}
     | KW_CREATE KW_INVERTED KW_INDEX KW_ANALYZER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
     {:
         RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.ANALYZER, properties);
