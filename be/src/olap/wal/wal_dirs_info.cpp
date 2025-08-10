@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"

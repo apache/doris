@@ -41,6 +41,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "http/http_client.h"
@@ -633,7 +634,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
     double copy_rate = 0.0;
     if (total_time_ms > 0) {
-        copy_rate = cast_set<double>(total_file_size) / ((double)total_time_ms) / 1000;
+        copy_rate = cast_set<double>(total_file_size) / cast_set<double>(total_time_ms) / 1000;
     }
     _copy_size = (int64_t)total_file_size;
     _copy_time_ms = (int64_t)total_time_ms;
@@ -710,7 +711,7 @@ Status EngineCloneTask::_batch_download_files(DataDir* data_dir, const std::stri
     total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
     double copy_rate = 0.0;
     if (total_time_ms > 0) {
-        copy_rate = cast_set<double>(total_file_size) / ((double)total_time_ms) / 1000;
+        copy_rate = cast_set<double>(total_file_size) / cast_set<double>(total_time_ms) / 1000;
     }
     _copy_size = (int64_t)total_file_size;
     _copy_time_ms = (int64_t)total_time_ms;

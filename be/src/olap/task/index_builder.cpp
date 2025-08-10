@@ -19,6 +19,7 @@
 
 #include <mutex>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
