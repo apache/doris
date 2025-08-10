@@ -22,6 +22,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using PBlockArray = std::vector<PBlock*>;
 extern const char* k_wal_magic;
@@ -50,4 +51,5 @@ private:
     io::FileWriterPtr _file_writer;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -44,6 +44,7 @@
 #include "util/threadpool.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
 
@@ -533,4 +534,5 @@ void AsyncTabletPublishTask::handle() {
               << (cost_us > 500 * 1000 ? _stats.to_string() : "");
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

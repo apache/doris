@@ -35,6 +35,7 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> wal_fail("group_commit_wal_fail");
 
@@ -340,4 +341,5 @@ Status WalTable::_read_wal_header(const std::string& wal_path, std::string& colu
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -73,6 +73,7 @@ using std::set;
 using std::stringstream;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -306,13 +307,13 @@ Status EngineCloneTask::_do_clone() {
         RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
                                                                       _clone_req.schema_hash,
                                                                       tablet_dir, false));
-        auto tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
-        if (!tablet) {
+        auto new_tablet = tablet_manager->get_tablet(_clone_req.tablet_id);
+        if (!new_tablet) {
             status = Status::NotFound("tablet not found, tablet_id={}", _clone_req.tablet_id);
             return status;
         }
         // MUST reset `replica_id` to request `replica_id` to keep consistent with FE
-        tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+        new_tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
         // clone success, delete .hdr file because tablet meta is stored in rocksdb
         std::string header_path =
                 TabletMeta::construct_header_file_path(tablet_dir, _clone_req.tablet_id);
@@ -632,7 +633,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
     double copy_rate = 0.0;
     if (total_time_ms > 0) {
-        copy_rate = total_file_size / ((double)total_time_ms) / 1000;
+        copy_rate = cast_set<double>(total_file_size) / ((double)total_time_ms) / 1000;
     }
     _copy_size = (int64_t)total_file_size;
     _copy_time_ms = (int64_t)total_time_ms;
@@ -709,7 +710,7 @@ Status EngineCloneTask::_batch_download_files(DataDir* data_dir, const std::stri
     total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
     double copy_rate = 0.0;
     if (total_time_ms > 0) {
-        copy_rate = total_file_size / ((double)total_time_ms) / 1000;
+        copy_rate = cast_set<double>(total_file_size) / ((double)total_time_ms) / 1000;
     }
     _copy_size = (int64_t)total_file_size;
     _copy_time_ms = (int64_t)total_time_ms;
@@ -899,11 +900,11 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
 
     // check missing versions exist in clone src
     std::vector<RowsetSharedPtr> rowsets_to_clone;
-    for (Version version : missed_versions) {
-        auto rs_meta = cloned_tablet_meta->acquire_rs_meta_by_version(version);
+    for (Version miss_version : missed_versions) {
+        auto rs_meta = cloned_tablet_meta->acquire_rs_meta_by_version(miss_version);
         if (rs_meta == nullptr) {
             return Status::InternalError("missed version {} is not found in cloned tablet meta",
-                                         version.to_string());
+                                         miss_version.to_string());
         }
         RowsetSharedPtr rs;
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
@@ -987,4 +988,5 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
 }
+#include "common/compile_check_end.h"
 } // namespace doris

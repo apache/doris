@@ -29,6 +29,7 @@
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 class IndexColumnWriter;
 class IndexFileWriter;
@@ -59,7 +60,7 @@ public:
     virtual void gc_output_rowset();
 
 private:
-    Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int32_t segment_idx,
+    Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, uint64_t segment_idx,
                                       vectorized::Block* block);
     Status _add_data(const std::string& column_name,
                      const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
@@ -92,4 +93,5 @@ private:
 
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;
 
+#include "common/compile_check_end.h"
 } // namespace doris

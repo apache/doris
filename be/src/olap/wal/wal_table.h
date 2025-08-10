@@ -30,6 +30,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class WalTable {
 public:
     WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id);
@@ -67,4 +68,5 @@ private:
     std::map<std::string, std::shared_ptr<WalInfo>> _replay_wal_map;
     std::list<std::shared_ptr<WalInfo>> _replaying_queue;
 };
+#include "common/compile_check_end.h"
 } // namespace doris

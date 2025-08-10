@@ -18,6 +18,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class WalInfo {
 public:
     WalInfo(int64_t wal_id, std::string wal_path, int32_t retry_num, int64_t start_time_ms);
@@ -35,4 +36,5 @@ private:
     int64_t _start_time_ms;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

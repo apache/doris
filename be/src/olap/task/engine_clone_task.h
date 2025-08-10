@@ -29,6 +29,7 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class DataDir;
 class TCloneReq;
 class TTabletInfo;
@@ -104,4 +105,5 @@ private:
     bool _is_new_tablet = false;
 }; // EngineTask
 
+#include "common/compile_check_end.h"
 } // namespace doris

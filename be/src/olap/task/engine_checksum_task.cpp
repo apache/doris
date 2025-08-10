@@ -39,6 +39,7 @@
 #include "vec/olap/block_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 EngineChecksumTask::EngineChecksumTask(StorageEngine& engine, TTabletId tablet_id,
                                        TSchemaHash schema_hash, TVersion version,
@@ -121,4 +122,5 @@ Status EngineChecksumTask::_compute_checksum() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

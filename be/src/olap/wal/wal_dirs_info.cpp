@@ -25,6 +25,7 @@
 #include "util/parse_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const std::string& WalDirInfo::get_wal_dir() const {
     return _wal_dir;
@@ -137,7 +138,8 @@ std::string WalDirsInfo::get_available_random_wal_dir() {
     } else {
         std::vector<std::string> available_wal_dirs;
         for (const auto& wal_dir_info : _wal_dirs_info_vec) {
-            if (wal_dir_info->available() > wal_dir_info->get_limit() * 0.2) {
+            if (cast_set<double>(wal_dir_info->available()) >
+                cast_set<double>(wal_dir_info->get_limit()) * 0.2) {
                 available_wal_dirs.emplace_back(wal_dir_info->get_wal_dir());
             }
         }
@@ -248,4 +250,5 @@ Status WalDirsInfo::get_wal_dir_info(const std::string& wal_dir,
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

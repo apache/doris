@@ -23,6 +23,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 EngineIndexChangeTask::EngineIndexChangeTask(
         StorageEngine& engine, const TAlterInvertedIndexReq& alter_inverted_index_request)
@@ -64,4 +65,5 @@ Status EngineIndexChangeTask::execute() {
     return res;
 } // execute
 
+#include "common/compile_check_end.h"
 } // namespace doris

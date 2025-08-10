@@ -34,6 +34,7 @@
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
                            const std::vector<TColumn>& columns,
@@ -148,7 +149,8 @@ Status IndexBuilder::update_inverted_index_info() {
                     return Status::Error<ErrorCode::INTERNAL_ERROR>(
                             "indexes count cannot be negative");
                 }
-                int32_t indexes_size = output_rs_tablet_schema->inverted_indexes().size();
+                int32_t indexes_size =
+                        cast_set<int32_t>(output_rs_tablet_schema->inverted_indexes().size());
                 if (indexes_count != indexes_size) {
                     return Status::Error<ErrorCode::INTERNAL_ERROR>(
                             "indexes count not equal to expected");
@@ -552,8 +554,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
     return Status::OK();
 }
 
-Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, int32_t segment_idx,
-                                                vectorized::Block* block) {
+Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema,
+                                                uint64_t segment_idx, vectorized::Block* block) {
     VLOG_DEBUG << "begin to write inverted index";
     // converter block data
     _olap_data_convertor->set_source_content(block, 0, block->rows());
@@ -648,7 +650,8 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         do {
             auto step = next_run_step();
             if (null_map[offset]) {
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(step));
+                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(
+                        cast_set<uint32_t>(step)));
             } else {
                 RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
                         column_name, *ptr, step));
@@ -869,4 +872,5 @@ void IndexBuilder::gc_output_rowset() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

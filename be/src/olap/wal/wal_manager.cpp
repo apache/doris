@@ -38,6 +38,7 @@
 #include "vec/exec/format/wal/wal_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Status<size_t> g_wal_total_count("wal_total_count", 0);
 
@@ -629,4 +630,5 @@ Status WalManager::rename_to_tmp_path(const std::string wal, int64_t table_id, i
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

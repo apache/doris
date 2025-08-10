@@ -43,6 +43,7 @@
 #include "util/threadpool.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
     struct ScanWalInfo {
@@ -156,4 +157,5 @@ private:
 // In doris 2.1.0, wal version is 0, now need to upgrade it to 1 to solve compatibility issues.
 // see https://github.com/apache/doris/pull/32299
 constexpr inline uint32_t WAL_VERSION = 1;
+#include "common/compile_check_end.h"
 } // namespace doris
