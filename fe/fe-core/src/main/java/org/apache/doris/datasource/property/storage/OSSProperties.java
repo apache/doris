@@ -120,6 +120,15 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             return (value.contains("aliyuncs.com"));
         }
 
+        value = Stream.of("oss.region")
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (StringUtils.isNotBlank(value)) {
+            return true;
+        }
+
         Optional<String> uriValue = origProps.entrySet().stream()
                 .filter(e -> URI_KEYWORDS.stream()
                         .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
