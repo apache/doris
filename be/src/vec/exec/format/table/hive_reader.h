@@ -30,9 +30,9 @@ class HiveReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     HiveReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                RuntimeState* state, const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               io::IOContext* io_ctx, const std::set<TSlotId>* is_file_slot)
+               io::IOContext* io_ctx, const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
             : TableFormatReader(std::move(file_format_reader), state, profile, params, range,
-                                io_ctx),
+                                io_ctx, meta_cache),
               _is_file_slot(is_file_slot) {};
 
     ~HiveReader() override = default;
@@ -52,9 +52,9 @@ public:
     HiveOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                   RuntimeState* state, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, io::IOContext* io_ctx,
-                  const std::set<TSlotId>* is_file_slot)
+                  const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
             : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                         is_file_slot) {};
+                         is_file_slot, meta_cache) {};
     ~HiveOrcReader() final = default;
 
     Status init_reader(
@@ -73,9 +73,9 @@ public:
     HiveParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                       RuntimeState* state, const TFileScanRangeParams& params,
                       const TFileRangeDesc& range, io::IOContext* io_ctx,
-                      const std::set<TSlotId>* is_file_slot)
+                      const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
             : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                         is_file_slot) {};
+                         is_file_slot, meta_cache) {};
     ~HiveParquetReader() final = default;
 
     Status init_reader(
