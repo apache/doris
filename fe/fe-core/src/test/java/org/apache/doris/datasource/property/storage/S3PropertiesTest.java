@@ -132,7 +132,7 @@ public class S3PropertiesTest {
 
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
                 "Invalid endpoint: https://cos.example.com", () -> {
-            StorageProperties.createAll(origProps).get(1);
+                    StorageProperties.createAll(origProps).get(1);
                 });
         origProps.put("s3.endpoint", "s3.us-west-1.amazonaws.com");
         S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(0);
