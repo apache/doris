@@ -194,7 +194,7 @@ public class PaimonVendedCredentialsProviderTest {
     public void testExtractVendedCredentialsFromTableWithNonRESTTokenFileIO() {
         Table table = Mockito.mock(Table.class);
         // fileIO returns null, which is not an instance of RESTTokenFileIO
-        Mockito.when(table.fileIO()).thenReturn(null);  
+        Mockito.when(table.fileIO()).thenReturn(null);
         Mockito.when(table.name()).thenReturn("test_table");
 
         Map<String, String> credentials = PaimonVendedCredentialsProvider

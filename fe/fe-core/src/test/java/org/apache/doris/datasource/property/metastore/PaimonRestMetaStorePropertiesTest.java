@@ -168,7 +168,7 @@ public class PaimonRestMetaStorePropertiesTest {
 
         // The error message should mention the required properties
         String errorMessage = exception.getMessage();
-        Assertions.assertTrue(errorMessage.contains("access-key-id") 
+        Assertions.assertTrue(errorMessage.contains("access-key-id")
                 && errorMessage.contains("access-key-secret"));
     }
 
@@ -253,7 +253,7 @@ public class PaimonRestMetaStorePropertiesTest {
         // Test: Token provider is required - should throw when missing
         Map<String, String> props1 = new HashMap<>();
         props1.put("paimon.rest.uri", "http://localhost:8080");
-        
+
         PaimonRestMetaStoreProperties restProps1 = new PaimonRestMetaStoreProperties(props1);
         IllegalArgumentException exception1 = Assertions.assertThrows(
                 IllegalArgumentException.class, restProps1::initNormalizeAndCheckProps);
@@ -263,7 +263,7 @@ public class PaimonRestMetaStorePropertiesTest {
         Map<String, String> props2 = new HashMap<>();
         props2.put("paimon.rest.uri", "http://localhost:8080");
         props2.put("paimon.rest.token.provider", "");
-        
+
         PaimonRestMetaStoreProperties restProps2 = new PaimonRestMetaStoreProperties(props2);
         IllegalArgumentException exception2 = Assertions.assertThrows(
                 IllegalArgumentException.class, restProps2::initNormalizeAndCheckProps);
@@ -292,7 +292,7 @@ public class PaimonRestMetaStorePropertiesTest {
 
         PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
         restProps.initNormalizeAndCheckProps(); // Should not throw
-        
+
         Assertions.assertEquals("dlf", restProps.getTokenProvider());
     }
 
@@ -379,7 +379,7 @@ public class PaimonRestMetaStorePropertiesTest {
         PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
-        
+
         String errorMessage = exception.getMessage();
         Assertions.assertTrue(errorMessage.contains("paimon.rest.token.provider"));
     }
@@ -393,7 +393,7 @@ public class PaimonRestMetaStorePropertiesTest {
         PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
-        
+
         String errorMessage = exception.getMessage();
         Assertions.assertTrue(errorMessage.contains("paimon.rest.token.provider"));
     }

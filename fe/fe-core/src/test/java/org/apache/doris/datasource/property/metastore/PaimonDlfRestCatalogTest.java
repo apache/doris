@@ -105,7 +105,7 @@ public class PaimonDlfRestCatalogTest {
                     for (Map.Entry<String, String> kv : tokens.entrySet()) {
                         System.out.println("test debug get token: " + kv.getKey() + ", " + kv.getValue());
                     }
-                    String accType = tokens.get("fs.oss.token.access.type");
+                    // String accType = tokens.get("fs.oss.token.access.type");
                     String tmpAk = tokens.get("fs.oss.accessKeyId");
                     String tmpSk = tokens.get("fs.oss.accessKeySecret");
                     String stsToken = tokens.get("fs.oss.securityToken");

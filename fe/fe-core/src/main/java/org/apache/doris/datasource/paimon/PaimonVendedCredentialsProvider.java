@@ -39,7 +39,7 @@ public class PaimonVendedCredentialsProvider {
     /**
      * Extract vended credentials from Paimon Table and convert to backend properties.
      *
-     * @param table the Iceberg table
+     * @param table the Paimon table
      * @return Map of backend properties with credentials
      */
     public static Map<String, String> extractVendedCredentialsFromTable(String tokenProvider, Table table) {
@@ -71,7 +71,7 @@ public class PaimonVendedCredentialsProvider {
 
     /**
      * Get backend location properties for Paimon catalog with optional vended credentials support.
-     * This method extracts the duplicate logic from PaimonScanNode
+     * Provides backend location properties for a Paimon catalog, including support for vended credentials
      *
      * @param storagePropertiesMap Map of storage properties
      * @param paimonTable Optional Paimon table for vended credentials extraction
