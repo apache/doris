@@ -651,9 +651,9 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
     """
 
     sql """ switch ${catalog_name};"""
-    sql """ drop database if exists iceberg_s3tables_glue_rest force"""
-    sql """ create database iceberg_s3tables_glue_rest"""
-    sql """ use iceberg_s3tables_glue_rest;""" 
+    sql """ drop database if exists iceberg_s3tables_glue_rest_master force"""
+    sql """ create database iceberg_s3tables_glue_rest_master"""
+    sql """ use iceberg_s3tables_glue_rest_master;""" 
     sql """ set enable_fallback_to_original_planner=false """
 
     try {
