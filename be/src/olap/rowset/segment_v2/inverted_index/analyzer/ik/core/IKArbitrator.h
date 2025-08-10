@@ -26,6 +26,7 @@
 #include "QuickSortSet.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class IKArbitrator {
 public:
@@ -46,4 +47,5 @@ private:
     void backPath(const Lexeme& lexeme, LexemePath* path_option);
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

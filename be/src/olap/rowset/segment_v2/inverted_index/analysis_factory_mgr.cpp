@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/standard/standard_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 void AnalysisFactoryMgr::initialise() {
     static std::once_flag once_flag;
@@ -72,4 +73,5 @@ template std::shared_ptr<TokenizerFactory> AnalysisFactoryMgr::create<TokenizerF
 template std::shared_ptr<TokenFilterFactory> AnalysisFactoryMgr::create<TokenFilterFactory>(
         const std::string&, const Settings&);
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

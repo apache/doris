@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class AbstractAnalysisFactory {
 public:
@@ -28,4 +29,5 @@ public:
 };
 using AbstractAnalysisFactoryPtr = std::shared_ptr<AbstractAnalysisFactory>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

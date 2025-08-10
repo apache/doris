@@ -22,6 +22,7 @@
 CL_NS_USE(index)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class PrefixQuery : public Query {
 public:
@@ -42,4 +43,5 @@ private:
     UnionTermIterPtr _lead1;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

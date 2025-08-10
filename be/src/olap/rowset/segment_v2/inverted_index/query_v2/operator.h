@@ -22,6 +22,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/node.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 enum class OperatorType { OP_AND = 0, OP_OR };
 
@@ -42,4 +43,5 @@ protected:
     std::vector<Node> _childrens;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::idx_query_v2

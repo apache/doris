@@ -21,6 +21,7 @@
 #include "token_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class ASCIIFoldingFilterFactory : public TokenFilterFactory {
 public:
@@ -39,4 +40,5 @@ private:
     bool _preserve_original = false;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

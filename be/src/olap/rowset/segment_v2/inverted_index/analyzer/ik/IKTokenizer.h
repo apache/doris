@@ -28,6 +28,7 @@
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class IKTokenizer : public Tokenizer {
 public:
@@ -47,4 +48,5 @@ private:
     std::unique_ptr<IKSegmenter> ik_segmenter_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

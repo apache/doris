@@ -20,6 +20,7 @@
 #include <unicode/utf8.h>
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 const std::vector<char> WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE = initializeDelimTable();
 
@@ -276,4 +277,5 @@ int32_t WordDelimiterIterator::char_type(UChar32 ch) const {
     return get_type(ch);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

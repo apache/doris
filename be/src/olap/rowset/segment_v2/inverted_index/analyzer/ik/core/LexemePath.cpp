@@ -18,6 +18,7 @@
 #include "LexemePath.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 LexemePath::LexemePath(vectorized::Arena& arena)
         : QuickSortSet(arena), path_begin_(-1), path_end_(-1), payload_length_(0) {}
@@ -163,4 +164,5 @@ bool LexemePath::operator==(const LexemePath& o) const {
            payload_length_ == o.payload_length_;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

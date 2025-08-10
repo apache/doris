@@ -21,6 +21,7 @@
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class TokenizerFactory : public AbstractAnalysisFactory {
 public:
@@ -31,4 +32,5 @@ public:
 };
 using TokenizerFactoryPtr = std::shared_ptr<TokenizerFactory>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

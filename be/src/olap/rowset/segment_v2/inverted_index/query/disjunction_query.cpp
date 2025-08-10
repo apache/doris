@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 DisjunctionQuery::DisjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)), _context(std::move(context)) {}
@@ -113,4 +114,5 @@ void DisjunctionQuery::search(roaring::Roaring& roaring) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

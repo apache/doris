@@ -32,6 +32,7 @@
 #include "unicode/utf8.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 using BreakIteratorPtr = std::unique_ptr<icu::BreakIterator>;
 
@@ -45,4 +46,5 @@ struct UTextDeleter {
 
 using UTextPtr = std::unique_ptr<UText, UTextDeleter>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -18,6 +18,7 @@
 #include "IKArbitrator.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 void IKArbitrator::process(AnalyzeContext& context, bool use_smart) {
     auto org_lexemes = context.getOrgLexemes();
@@ -103,4 +104,5 @@ void IKArbitrator::backPath(const Lexeme& lexeme, LexemePath* option) {
         option->removeTail();
     }
 }
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/cfg/Configuration.h"
 #include "vec/common/arena.h"
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class IKSegmenter {
 public:
@@ -48,4 +49,5 @@ private:
     std::vector<std::unique_ptr<ISegmenter>> segmenters_;
     IKArbitrator arbitrator_;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

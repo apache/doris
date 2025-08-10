@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
 namespace lucene {
+#include "common/compile_check_begin.h"
 namespace util {
 class Reader;
 }
@@ -50,4 +51,5 @@ public:
 
     static bool should_analyzer(const std::map<std::string, std::string>& properties);
 };
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

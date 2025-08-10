@@ -20,6 +20,7 @@
 #include "ngram_tokenizer.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class EdgeNGramTokenizer : public NGramTokenizer {
 public:
@@ -34,4 +35,5 @@ public:
     static constexpr int32_t DEFAULT_MIN_GRAM_SIZE = 1;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -22,6 +22,7 @@
 CL_NS_USE(index)
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 struct IOContext;
 } // namespace doris::io
 
@@ -64,4 +65,5 @@ private:
     TermPositions* term_poss_ = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

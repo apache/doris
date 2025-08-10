@@ -18,6 +18,7 @@
 #include "Dictionary.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 Dictionary::Dictionary(const Configuration& cfg, bool use_ext_dict)
         : main_dict_(std::make_unique<DictSegment>(0)),
@@ -171,4 +172,5 @@ bool Dictionary::isStopWord(const CharacterUtil::TypedRuneArray& typed_runes, si
     return result.isMatch();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

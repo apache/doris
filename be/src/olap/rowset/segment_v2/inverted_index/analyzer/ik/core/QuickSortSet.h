@@ -25,6 +25,7 @@
 #include "Lexeme.h"
 #include "vec/common/arena.h"
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class Cell {
 public:
@@ -86,4 +87,5 @@ private:
     void deallocateCell(Cell* cell);
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

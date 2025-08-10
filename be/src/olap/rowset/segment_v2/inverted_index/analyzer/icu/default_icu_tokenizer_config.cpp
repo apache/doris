@@ -25,6 +25,7 @@
 #include <string>
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 BreakIteratorPtr DefaultICUTokenizerConfig::cjk_break_iterator_;
 BreakIteratorPtr DefaultICUTokenizerConfig::default_break_iterator_;
@@ -125,4 +126,5 @@ void DefaultICUTokenizerConfig::read_break_iterator(BreakIteratorPtr& rbbi,
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 enum class QueryType { TERM_QUERY, PHRASE_QUERY, ROARING_QUERY };
 
@@ -49,4 +50,5 @@ public:
     virtual ~Query() = default;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::idx_query_v2

@@ -30,6 +30,7 @@
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class Settings {
 public:
@@ -133,4 +134,5 @@ private:
     std::unordered_map<std::string, std::string> _args;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

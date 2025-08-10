@@ -20,6 +20,7 @@
 #include "icu_tokenizer_config.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
 public:
@@ -41,4 +42,5 @@ private:
     bool myanmar_as_words_ = false;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -28,6 +28,7 @@ CL_NS_USE(index)
 CL_NS_USE(search)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 using namespace inverted_index;
 
@@ -80,4 +81,5 @@ private:
     std::vector<SimilarityPtr> _similarities;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

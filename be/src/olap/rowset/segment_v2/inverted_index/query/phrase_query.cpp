@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 PhraseQuery::PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)),
@@ -280,4 +281,5 @@ void PhraseQuery::parser_info(std::string& query,
             inverted_index::InvertedIndexAnalyzer::get_analyse_result(query, properties);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

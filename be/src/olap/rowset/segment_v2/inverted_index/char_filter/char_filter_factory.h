@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static const std::string INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE = "char_replace";
 
@@ -35,4 +36,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

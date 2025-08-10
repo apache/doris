@@ -18,6 +18,7 @@
 #include "DictSegment.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 DictSegment::DictSegment(int32_t key_char) : key_char_(key_char) {
     children_array_.reserve(ARRAY_LENGTH_LIMIT);
@@ -164,4 +165,5 @@ DictSegment* DictSegment::lookforSegment(int32_t keyChar, bool create) {
     return child;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

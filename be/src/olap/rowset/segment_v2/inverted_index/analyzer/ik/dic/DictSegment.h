@@ -32,6 +32,7 @@
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/dic/Hit.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class DictSegment : public std::enable_shared_from_this<DictSegment> {
 private:
@@ -61,4 +62,5 @@ public:
     void fillSegment(const char* text);
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

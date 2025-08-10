@@ -18,6 +18,7 @@
 #include "CharacterUtil.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 int32_t CharacterUtil::identifyCharType(int32_t rune) {
     if (rune >= '0' && rune <= '9') {
@@ -134,4 +135,5 @@ void CharacterUtil::regularizeString(std::string& input, bool use_lowercase) {
     }
     input = std::move(temp);
 }
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -20,6 +20,7 @@
 #include "CLucene/config/repl_wchar.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 PrefixQuery::PrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)), _context(std::move(context)) {}
@@ -107,4 +108,5 @@ void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& fiel
     });
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

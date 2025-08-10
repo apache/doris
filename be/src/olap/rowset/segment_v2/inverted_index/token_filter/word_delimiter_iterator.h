@@ -25,6 +25,7 @@
 #include <vector>
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class WordDelimiterIterator {
 public:
@@ -85,4 +86,5 @@ private:
 };
 using WordDelimiterIteratorPtr = std::unique_ptr<WordDelimiterIterator>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

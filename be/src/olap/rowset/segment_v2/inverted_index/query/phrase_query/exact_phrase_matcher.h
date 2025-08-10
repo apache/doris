@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/phrase_matcher.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class ExactPhraseMatcher : public PhraseMatcherBase<ExactPhraseMatcher> {
 public:
@@ -34,4 +35,5 @@ private:
     std::vector<PostingsAndPosition> _postings;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

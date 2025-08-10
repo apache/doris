@@ -23,6 +23,7 @@
 #include <vector>
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 template <typename Key, typename Value>
 class LinkedHashMap {
@@ -77,4 +78,5 @@ private:
     std::unordered_map<Key, std::pair<Value, typename std::list<Key>::iterator>> _map;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -22,6 +22,7 @@
 #include "icu_tokenizer.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class ICUAnalyzer : public Analyzer {
 public:
@@ -58,4 +59,5 @@ private:
     std::unique_ptr<ICUTokenizer> tokenizer_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

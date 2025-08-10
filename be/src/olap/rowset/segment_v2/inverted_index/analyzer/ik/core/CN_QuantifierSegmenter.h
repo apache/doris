@@ -24,6 +24,7 @@
 #include "AnalyzeContext.h"
 #include "ISegmenter.h"
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class CN_QuantifierSegmenter : public ISegmenter {
 public:
@@ -48,4 +49,5 @@ private:
     int number_end_;
     std::vector<Hit> count_hits_;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

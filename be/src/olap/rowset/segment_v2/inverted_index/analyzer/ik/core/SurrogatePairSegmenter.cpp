@@ -18,6 +18,7 @@
 #include "SurrogatePairSegmenter.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 void SurrogatePairSegmenter::analyze(AnalyzeContext& context) {
     const auto& current_char_type = context.getCurrentCharType();
@@ -34,4 +35,5 @@ void SurrogatePairSegmenter::analyze(AnalyzeContext& context) {
 
 void SurrogatePairSegmenter::reset() {}
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

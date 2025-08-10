@@ -23,6 +23,7 @@
 #include "word_delimiter_iterator.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class WordDelimiterConcatenation;
 using WordDelimiterConcatenationPtr = std::unique_ptr<WordDelimiterConcatenation>;
@@ -140,4 +141,5 @@ private:
     std::string _buffer;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

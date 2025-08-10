@@ -22,6 +22,7 @@
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class KeywordTokenizerFactory : public TokenizerFactory {
 public:
@@ -42,4 +43,5 @@ private:
     int32_t _buffer_size = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

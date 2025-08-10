@@ -19,6 +19,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/ordered_sloppy_phrase_matcher.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 OrderedSloppyPhraseMatcher::OrderedSloppyPhraseMatcher(std::vector<PostingsAndPosition> postings,
                                                        int32_t slop)
@@ -81,4 +82,5 @@ bool OrderedSloppyPhraseMatcher::advance_position(PostingsAndPosition& posting, 
     return true;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

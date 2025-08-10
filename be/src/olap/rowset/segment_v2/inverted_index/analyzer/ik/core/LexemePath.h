@@ -28,6 +28,7 @@
 #include "QuickSortSet.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class LexemePath : public QuickSortSet {
 public:
@@ -57,4 +58,5 @@ private:
     size_t payload_length_; // Effective byte length of the lexeme chain
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2
