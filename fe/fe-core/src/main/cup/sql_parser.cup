@@ -1269,11 +1269,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
-    | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
-    opt_properties:properties
-    {:
-        RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
-    :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
