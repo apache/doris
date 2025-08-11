@@ -48,6 +48,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/functions/array/function_array_index.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -288,6 +289,83 @@ public:
     }
 };
 
+class FunctionMapToEntries : public IFunction {
+public:
+    static constexpr auto name = "map_entries";
+    static FunctionPtr create() { return std::make_shared<FunctionMapToEntries>(); }
+
+    /// Get function name.
+    String get_name() const override { return name; }
+
+    bool is_variadic() const override { return false; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DataTypePtr datatype = arguments[0];
+        if (datatype->is_nullable()) {
+            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
+        }
+        DCHECK(datatype->get_primitive_type() == PrimitiveType::TYPE_MAP)
+                << "first argument for function: " << name << " should be DataTypeMap";
+        const auto* const datatype_map = static_cast<const DataTypeMap*>(datatype.get());
+
+        // Create struct type with named fields "key" and "value"
+        // key and value are always nullable
+        auto struct_type = std::make_shared<DataTypeStruct>(
+                DataTypes {make_nullable(datatype_map->get_key_type()),
+                           make_nullable(datatype_map->get_value_type())},
+                Strings {"key", "value"});
+
+        // Theoretically, the struct element will never be null,
+        // but FE expects the array element to be nullable
+        return std::make_shared<DataTypeArray>(make_nullable(struct_type));
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto left_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnMap* map_column = nullptr;
+        ColumnPtr nullmap_column = nullptr;
+
+        if (left_column->is_nullable()) {
+            const auto* nullable_column =
+                    reinterpret_cast<const ColumnNullable*>(left_column.get());
+            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            nullmap_column = nullable_column->get_null_map_column_ptr();
+        } else {
+            map_column = check_and_get_column<ColumnMap>(*left_column.get());
+        }
+
+        if (!map_column) {
+            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
+                                        block.get_by_position(arguments[0]).type->get_name());
+        }
+
+        auto struct_column = ColumnStruct::create(
+                Columns {map_column->get_keys_ptr(), map_column->get_values_ptr()});
+
+        // all struct elements are not null
+        auto struct_null_map = ColumnUInt8::create(struct_column->size(), 0);
+        auto nullable_struct_column =
+                ColumnNullable::create(std::move(struct_column), std::move(struct_null_map));
+
+        auto result_array_column = ColumnArray::create(std::move(nullable_struct_column),
+                                                       map_column->get_offsets_ptr());
+
+        // Handle nullable case for the whole array
+        if (nullmap_column) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(result_array_column), nullmap_column));
+        } else {
+            block.replace_by_position(result, std::move(result_array_column));
+        }
+
+        return Status::OK();
+    }
+};
+
 class FunctionStrToMap : public IFunction {
 public:
     static constexpr auto name = "str_to_map";
@@ -440,13 +518,409 @@ private:
     }
 };
 
+class FunctionMapContainsEntry : public IFunction {
+public:
+    static constexpr auto name = "map_contains_entry";
+    static FunctionPtr create() { return std::make_shared<FunctionMapContainsEntry>(); }
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DataTypePtr datatype = arguments[0];
+        if (datatype->is_nullable()) {
+            datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
+        }
+        DCHECK(datatype->get_primitive_type() == TYPE_MAP)
+                << "first argument for function: " << name << " should be DataTypeMap";
+
+        if (arguments[0]->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeBool>());
+        } else {
+            return std::make_shared<DataTypeBool>();
+        }
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        return _execute_type_check_and_dispatch(block, arguments, result, input_rows_count);
+    }
+
+private:
+    // real loop
+    template <typename KeyColumnType, typename ValueColumnType>
+    ColumnPtr _execute_all_rows(const ColumnMap* map_column, const UInt8* map_nullmap,
+                                const IColumn& key_column, const UInt8* key_nullmap,
+                                const IColumn& value_column, const UInt8* value_nullmap) const {
+        const auto& map_offsets = map_column->get_offsets();
+
+        // remove the nullable wrapper of map's key and value
+        const auto& map_keys_nullable =
+                reinterpret_cast<const ColumnNullable&>(map_column->get_keys());
+        const IColumn* map_keys_column = &map_keys_nullable.get_nested_column();
+        const auto& map_keys_nullmap = map_keys_nullable.get_null_map_column().get_data().data();
+
+        const auto& map_values_nullable =
+                reinterpret_cast<const ColumnNullable&>(map_column->get_values());
+        const IColumn* map_values_column = &map_values_nullable.get_nested_column();
+        const auto& map_values_nullmap =
+                map_values_nullable.get_null_map_column().get_data().data();
+
+        // create result column
+        auto result_column = ColumnUInt8::create(map_offsets.size(), 0);
+        auto& result_data = result_column->get_data();
+        auto result_nullmap = ColumnUInt8::create(map_offsets.size(), 0);
+        auto& result_nullmap_data = result_nullmap->get_data();
+
+        // iterate each row
+        for (size_t row = 0; row < map_offsets.size(); ++row) {
+            if (map_nullmap && map_nullmap[row]) {
+                result_nullmap_data[row] = true;
+                continue;
+            }
+
+            size_t map_start = row == 0 ? 0 : map_offsets[row - 1];
+            size_t map_end = map_offsets[row];
+
+            bool found = false;
+            for (size_t i = map_start; i < map_end && !found; ++i) {
+                bool key_match = compare_values<KeyColumnType>(
+                        *map_keys_column, i, map_keys_nullmap, key_column, row, key_nullmap);
+                bool value_match =
+                        compare_values<ValueColumnType>(*map_values_column, i, map_values_nullmap,
+                                                        value_column, row, value_nullmap);
+
+                if (key_match && value_match) {
+                    found = true;
+                }
+            }
+            result_data[row] = found;
+        }
+
+        if (map_nullmap == nullptr) {
+            return result_column;
+        }
+        return ColumnNullable::create(std::move(result_column), std::move(result_nullmap));
+    }
+
+    // value type dispatch
+    template <typename KeyColumnType>
+    ColumnPtr _execute_dispatch_value(PrimitiveType value_type, const ColumnMap* map_column,
+                                      const IColumn& key_column, const UInt8* key_nullmap,
+                                      const IColumn& value_column, const UInt8* value_nullmap,
+                                      const UInt8* map_nullmap) const {
+        switch (value_type) {
+        case TYPE_BOOLEAN:
+            return _execute_all_rows<KeyColumnType, ColumnUInt8>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_TINYINT:
+            return _execute_all_rows<KeyColumnType, ColumnInt8>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_SMALLINT:
+            return _execute_all_rows<KeyColumnType, ColumnInt16>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_INT:
+            return _execute_all_rows<KeyColumnType, ColumnInt32>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_BIGINT:
+            return _execute_all_rows<KeyColumnType, ColumnInt64>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_LARGEINT:
+            return _execute_all_rows<KeyColumnType, ColumnInt128>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_FLOAT:
+            return _execute_all_rows<KeyColumnType, ColumnFloat32>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DOUBLE:
+            return _execute_all_rows<KeyColumnType, ColumnFloat64>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DECIMAL32:
+            return _execute_all_rows<KeyColumnType, ColumnDecimal32>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DECIMAL64:
+            return _execute_all_rows<KeyColumnType, ColumnDecimal64>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DECIMAL128I:
+            return _execute_all_rows<KeyColumnType, ColumnDecimal128V3>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DECIMALV2:
+            return _execute_all_rows<KeyColumnType, ColumnDecimal128V2>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DECIMAL256:
+            return _execute_all_rows<KeyColumnType, ColumnDecimal256>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+            return _execute_all_rows<KeyColumnType, ColumnString>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DATE:
+            return _execute_all_rows<KeyColumnType, ColumnDate>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DATETIME:
+            return _execute_all_rows<KeyColumnType, ColumnDateTime>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DATEV2:
+            return _execute_all_rows<KeyColumnType, ColumnDateV2>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_DATETIMEV2:
+            return _execute_all_rows<KeyColumnType, ColumnDateTimeV2>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        case TYPE_TIMEV2:
+            return _execute_all_rows<KeyColumnType, ColumnTimeV2>(
+                    map_column, map_nullmap, key_column, key_nullmap, value_column, value_nullmap);
+        default:
+            return nullptr;
+        }
+    }
+
+    ColumnPtr _execute_dispatch_key(PrimitiveType key_type, PrimitiveType value_type,
+                                    const ColumnMap* map_column, const UInt8* map_nullmap,
+                                    const IColumn& key_column, const UInt8* key_nullmap,
+                                    const IColumn& value_column, const UInt8* value_nullmap) const {
+        switch (key_type) {
+        case TYPE_BOOLEAN:
+            return _execute_dispatch_value<ColumnUInt8>(value_type, map_column, key_column,
+                                                        key_nullmap, value_column, value_nullmap,
+                                                        map_nullmap);
+        case TYPE_TINYINT:
+            return _execute_dispatch_value<ColumnInt8>(value_type, map_column, key_column,
+                                                       key_nullmap, value_column, value_nullmap,
+                                                       map_nullmap);
+        case TYPE_SMALLINT:
+            return _execute_dispatch_value<ColumnInt16>(value_type, map_column, key_column,
+                                                        key_nullmap, value_column, value_nullmap,
+                                                        map_nullmap);
+        case TYPE_INT:
+            return _execute_dispatch_value<ColumnInt32>(value_type, map_column, key_column,
+                                                        key_nullmap, value_column, value_nullmap,
+                                                        map_nullmap);
+        case TYPE_BIGINT:
+            return _execute_dispatch_value<ColumnInt64>(value_type, map_column, key_column,
+                                                        key_nullmap, value_column, value_nullmap,
+                                                        map_nullmap);
+        case TYPE_LARGEINT:
+            return _execute_dispatch_value<ColumnInt128>(value_type, map_column, key_column,
+                                                         key_nullmap, value_column, value_nullmap,
+                                                         map_nullmap);
+        case TYPE_FLOAT:
+            return _execute_dispatch_value<ColumnFloat32>(value_type, map_column, key_column,
+                                                          key_nullmap, value_column, value_nullmap,
+                                                          map_nullmap);
+        case TYPE_DOUBLE:
+            return _execute_dispatch_value<ColumnFloat64>(value_type, map_column, key_column,
+                                                          key_nullmap, value_column, value_nullmap,
+                                                          map_nullmap);
+        case TYPE_DECIMAL32:
+            return _execute_dispatch_value<ColumnDecimal32>(value_type, map_column, key_column,
+                                                            key_nullmap, value_column,
+                                                            value_nullmap, map_nullmap);
+        case TYPE_DECIMAL64:
+            return _execute_dispatch_value<ColumnDecimal64>(value_type, map_column, key_column,
+                                                            key_nullmap, value_column,
+                                                            value_nullmap, map_nullmap);
+        case TYPE_DECIMAL128I:
+            return _execute_dispatch_value<ColumnDecimal128V3>(value_type, map_column, key_column,
+                                                               key_nullmap, value_column,
+                                                               value_nullmap, map_nullmap);
+        case TYPE_DECIMALV2:
+            return _execute_dispatch_value<ColumnDecimal128V2>(value_type, map_column, key_column,
+                                                               key_nullmap, value_column,
+                                                               value_nullmap, map_nullmap);
+        case TYPE_DECIMAL256:
+            return _execute_dispatch_value<ColumnDecimal256>(value_type, map_column, key_column,
+                                                             key_nullmap, value_column,
+                                                             value_nullmap, map_nullmap);
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+            return _execute_dispatch_value<ColumnString>(value_type, map_column, key_column,
+                                                         key_nullmap, value_column, value_nullmap,
+                                                         map_nullmap);
+        case TYPE_DATE:
+            return _execute_dispatch_value<ColumnDate>(value_type, map_column, key_column,
+                                                       key_nullmap, value_column, value_nullmap,
+                                                       map_nullmap);
+        case TYPE_DATETIME:
+            return _execute_dispatch_value<ColumnDateTime>(value_type, map_column, key_column,
+                                                           key_nullmap, value_column, value_nullmap,
+                                                           map_nullmap);
+        case TYPE_DATEV2:
+            return _execute_dispatch_value<ColumnDateV2>(value_type, map_column, key_column,
+                                                         key_nullmap, value_column, value_nullmap,
+                                                         map_nullmap);
+        case TYPE_DATETIMEV2:
+            return _execute_dispatch_value<ColumnDateTimeV2>(value_type, map_column, key_column,
+                                                             key_nullmap, value_column,
+                                                             value_nullmap, map_nullmap);
+        case TYPE_TIMEV2:
+            return _execute_dispatch_value<ColumnTimeV2>(value_type, map_column, key_column,
+                                                         key_nullmap, value_column, value_nullmap,
+                                                         map_nullmap);
+        default:
+            return nullptr;
+        }
+    }
+
+    // type comparability check and dispatch
+    Status _execute_type_check_and_dispatch(Block& block, const ColumnNumbers& arguments,
+                                            uint32_t result, size_t input_rows_count) const {
+        // extract map column
+        auto map_column_ptr =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnMap* map_column = nullptr;
+        const UInt8* map_nullmap = nullptr;
+        if (map_column_ptr->is_nullable()) {
+            const auto* nullable_column =
+                    reinterpret_cast<const ColumnNullable*>(map_column_ptr.get());
+            map_column = check_and_get_column<ColumnMap>(nullable_column->get_nested_column());
+            map_nullmap = nullable_column->get_null_map_column().get_data().data();
+        } else {
+            map_column = check_and_get_column<ColumnMap>(*map_column_ptr.get());
+        }
+        if (!map_column) {
+            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
+                                        block.get_by_position(arguments[0]).type->get_name());
+        }
+
+        // extract (search) key and value columns
+        auto key_column_ptr =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto value_column_ptr =
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+
+        const IColumn* key_column = nullptr;
+        const IColumn* value_column = nullptr;
+        const UInt8* key_nullmap = nullptr;
+        const UInt8* value_nullmap = nullptr;
+
+        if (key_column_ptr->is_nullable()) {
+            const auto* nullable_column = assert_cast<const ColumnNullable*>(key_column_ptr.get());
+            key_column = &nullable_column->get_nested_column();
+            key_nullmap = nullable_column->get_null_map_column().get_data().data();
+        } else {
+            key_column = key_column_ptr.get();
+        }
+
+        if (value_column_ptr->is_nullable()) {
+            const auto* nullable_column =
+                    assert_cast<const ColumnNullable*>(value_column_ptr.get());
+            value_column = &nullable_column->get_nested_column();
+            value_nullmap = nullable_column->get_null_map_column().get_data().data();
+        } else {
+            value_column = value_column_ptr.get();
+        }
+
+        // get type information
+        auto map_type = remove_nullable(block.get_by_position(arguments[0]).type);
+        const auto* map_datatype = assert_cast<const DataTypeMap*>(map_type.get());
+        auto map_key_type = remove_nullable(map_datatype->get_key_type());
+        auto map_value_type = remove_nullable(map_datatype->get_value_type());
+        auto search_key_type = remove_nullable(block.get_by_position(arguments[1]).type);
+        auto search_value_type = remove_nullable(block.get_by_position(arguments[2]).type);
+
+        bool key_types_comparable = type_comparable(map_key_type->get_primitive_type(),
+                                                    search_key_type->get_primitive_type());
+        bool value_types_comparable = type_comparable(map_value_type->get_primitive_type(),
+                                                      search_value_type->get_primitive_type());
+
+        // if types are not comparable, return error
+        if (!key_types_comparable || !value_types_comparable) {
+            return Status::RuntimeError(
+                    "Type mismatch for function {}. "
+                    "Map key type: {}, search key type: {}. "
+                    "Map value type: {}, search value type: {}.",
+                    get_name(), map_key_type->get_name(), search_key_type->get_name(),
+                    map_value_type->get_name(), search_value_type->get_name());
+        }
+
+        ColumnPtr return_column = _execute_dispatch_key(
+                map_key_type->get_primitive_type(), map_value_type->get_primitive_type(),
+                map_column, map_nullmap, *key_column, key_nullmap, *value_column, value_nullmap);
+
+        if (return_column) {
+            block.replace_by_position(result, std::move(return_column));
+            return Status::OK();
+        }
+
+        return Status::RuntimeError(
+                "execute failed or unsupported types for function {}({}, {}, {})", get_name(),
+                block.get_by_position(arguments[0]).type->get_name(),
+                block.get_by_position(arguments[1]).type->get_name(),
+                block.get_by_position(arguments[2]).type->get_name());
+    }
+
+    // generic type-specialized comparison function
+    template <typename ColumnType>
+    bool compare_values(const IColumn& left_col, size_t left_idx, const UInt8* left_nullmap,
+                        const IColumn& right_col, size_t right_idx,
+                        const UInt8* right_nullmap) const {
+        // handle null values
+        bool left_is_null = left_nullmap && left_nullmap[left_idx];
+        bool right_is_null = right_nullmap && right_nullmap[right_idx];
+
+        if (left_is_null && right_is_null) {
+            return true;
+        }
+        if (left_is_null || right_is_null) {
+            return false;
+        }
+
+        // type-specialized handling
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            // string comparison
+            const auto& left_str = reinterpret_cast<const ColumnString&>(left_col);
+            const auto& right_str = reinterpret_cast<const ColumnString&>(right_col);
+
+            const auto& left_offs = left_str.get_offsets();
+            const auto& left_chars = left_str.get_chars();
+            const auto& right_offs = right_str.get_offsets();
+            const auto& right_chars = right_str.get_chars();
+
+            size_t left_pos = left_idx == 0 ? 0 : left_offs[left_idx - 1];
+            size_t left_len = left_offs[left_idx] - left_pos;
+            size_t right_pos = right_idx == 0 ? 0 : right_offs[right_idx - 1];
+            size_t right_len = right_offs[right_idx] - right_pos;
+
+            const char* left_raw = reinterpret_cast<const char*>(&left_chars[left_pos]);
+            const char* right_raw = reinterpret_cast<const char*>(&right_chars[right_pos]);
+
+            return StringRef(left_raw, left_len) == StringRef(right_raw, right_len);
+        } else {
+            // numeric type comparison
+            // boolean, integer, float, double, decimal and date/time all go through here
+            const auto& left_data = reinterpret_cast<const ColumnType&>(left_col).get_data();
+            const auto& right_data = reinterpret_cast<const ColumnType&>(right_col).get_data();
+            return left_data[left_idx] == right_data[right_idx];
+        }
+    }
+
+    // type compatibility check (copy from array_contains)
+    bool type_comparable(PrimitiveType left_type, PrimitiveType right_type) const {
+        if (is_string_type(left_type) && is_string_type(right_type)) {
+            return true;
+        } else if (is_number(left_type) && is_number(right_type)) {
+            return true;
+        } else if ((is_date_or_datetime(left_type) || is_date_v2_or_datetime_v2(left_type) ||
+                    left_type == TYPE_TIMEV2) &&
+                   (is_date_or_datetime(right_type) || is_date_v2_or_datetime_v2(right_type) ||
+                    right_type == TYPE_TIMEV2)) {
+            return true;
+        }
+        return false;
+    }
+};
+
 void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapContains<true>>();
     factory.register_function<FunctionMapContains<false>>();
     factory.register_function<FunctionMapEntries<true>>();
     factory.register_function<FunctionMapEntries<false>>();
+    factory.register_function<FunctionMapToEntries>();
     factory.register_function<FunctionStrToMap>();
+    factory.register_function<FunctionMapContainsEntry>();
 }
 
 } // namespace doris::vectorized
