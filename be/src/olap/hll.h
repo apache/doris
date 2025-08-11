@@ -29,8 +29,6 @@
 
 #ifdef __ARM_FEATURE_SVE
 #include <arm_sve.h>
-#elif defined(__ARM_NEON)
-#include <arm_neon.h>
 #endif
 
 #include "vec/common/hash_table/phmap_fwd_decl.h"
@@ -305,17 +303,6 @@ private:
             svst1(pg, dst, svmax_u8_x(pg, xa, xb));
             src += byte_len;
             dst += byte_len;
-        }
-#elif defined(__ARM_NEON)
-        int loop = HLL_REGISTERS_COUNT / 16;
-        uint8_t* dst = _registers;
-        const uint8_t* src = other_registers;
-        for (int i = 0; i < loop; i++) {
-            uint8x16_t va = vld1q_u8(dst);
-            uint8x16_t vb = vld1q_u8(src);
-            vst1q_u8(dst, vmaxq_u8(va, vb));
-            src += 16;
-            dst += 16;
         }
 #else
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
