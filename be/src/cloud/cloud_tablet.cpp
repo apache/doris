@@ -354,7 +354,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                             download_idx_file(idx_path, index_size_map[index->index_id()]);
                         }
                     } else {
-                        if (schema_ptr->has_inverted_index()) {
+                        if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                             auto&& inverted_index_info =
                                     rowset_meta->inverted_index_file_info(seg_id);
                             int64_t idx_size = 0;

@@ -277,7 +277,7 @@ void CloudWarmUpManager::handle_jobs() {
                                                   expiration_time, wait, true);
                         }
                     } else {
-                        if (schema_ptr->has_inverted_index()) {
+                        if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                             auto idx_path =
                                     storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
                             file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
@@ -556,14 +556,13 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
 
         // update metrics
         auto schema_ptr = rs_meta.tablet_schema();
-        bool has_inverted_index = schema_ptr->has_inverted_index();
         auto idx_version = schema_ptr->get_inverted_index_storage_format();
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
             g_file_cache_event_driven_warm_up_requested_segment_num << 1;
             g_file_cache_event_driven_warm_up_requested_segment_size
                     << rs_meta.segment_file_size(segment_id);
 
-            if (has_inverted_index) {
+            if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
                     auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
                     if (inverted_index_info.index_info().empty()) {
