@@ -23,10 +23,12 @@ import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSimilarity;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
@@ -2447,6 +2449,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(llmSentiment, context);
     }
 
+    default R visitLLMFilter(LLMFilter llmFilter, C context) {
+        return visitScalarFunction(llmFilter, context);
+    }
+
     default R visitLLMFixGrammar(LLMFixGrammar llmFixGrammar, C context) {
         return visitScalarFunction(llmFixGrammar, context);
     }
@@ -2469,5 +2475,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLLMSummarize(LLMSummarize llmSummarize, C context) {
         return visitScalarFunction(llmSummarize, context);
+    }
+
+    default R visitLLMSimilarity(LLMSimilarity llmSimilarity, C context) {
+        return visitScalarFunction(llmSimilarity, context);
     }
 }
