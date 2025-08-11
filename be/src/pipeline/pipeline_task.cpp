@@ -72,7 +72,6 @@ PipelineTask::PipelineTask(
           _sink(pipeline->sink_shared_pointer()),
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
-          _execution_dep(state->get_query_ctx()->get_execution_dependency()),
           _pipeline_name(_pipeline->name()) {
     _pipeline_task_watcher.start();
     _execution_dependencies.push_back(state->get_query_ctx()->get_execution_dependency());
