@@ -1693,7 +1693,14 @@ Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t v
     rs_meta->set_tablet_schema(prev_rowset_meta->tablet_schema());
     rs_meta->set_rowset_type(prev_rowset_meta->rowset_type());
     rs_meta->set_tablet_schema_hash(prev_rowset_meta->tablet_schema_hash());
-    rs_meta->set_resource_id(prev_rowset_meta->resource_id());
+    std::string resource_id = prev_rowset_meta->resource_id();
+    if (resource_id.empty()) {
+        CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+        resource_id = engine.latest_fs()->id();
+    }
+    rs_meta->set_resource_id(resource_id);
+    LOG(INFO) << "create_empty_rowset_for_hole, tablet_id: " << tablet->tablet_id()
+              << ", version: " << version << ", resource_id: " << resource_id;
 
     // Set as empty rowset - override size and segment information
     rs_meta->set_num_rows(0);
