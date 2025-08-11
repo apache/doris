@@ -1,0 +1,119 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
+
+    def testQuery = { String catalogProperties, String prefix ->
+        def catalog_name = "test_paimon_on_hms_${prefix}_catalog"
+        sql """
+            DROP CATALOG IF EXISTS ${catalog_name};
+        """
+        sql """
+            CREATE CATALOG IF NOT EXISTS ${catalog_name} PROPERTIES (
+                ${catalogProperties}
+            );
+        """
+        sql """
+            switch ${catalog_name};
+        """
+        def db_name = prefix + "_db"
+        sql """
+            use ${db_name};
+        """
+        sql """set force_jni_scanner=false"""
+        "order_qt_${prefix}" """
+            SELECT * FROM external_test_table;
+        """
+        // need put jars on BE
+        // sql """set force_jni_scanner=true"""
+        // "order_qt_${prefix}" """
+        //    SELECT * FROM external_test_table;
+        //"""
+
+    }
+    String enabled = context.config.otherConfigs.get("enablePaimonTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        return
+    }
+    String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
+    String extHiveHmsPort = context.config.otherConfigs.get("hive3HmsPort")
+    String extHiveHdfsHost = context.config.otherConfigs.get("hive3HdfsPort")
+
+    /****************OSS*******************/
+    String oss_ak = context.config.otherConfigs.get("aliYunAk")
+    String oss_sk = context.config.otherConfigs.get("aliYunSk")
+    String oss_endpoint = "oss-cn-beijing.aliyuncs.com"
+    String oss_warehouse = "oss://doris-regression-bj/regression/paimon_warehouse"
+    String oss_warehouse_properties = """
+        'warehouse' = '${oss_warehouse}',
+    """
+    String oss_storage_properties = """
+      'oss.access_key' = '${oss_ak}',
+      'oss.secret_key' = '${oss_sk}',
+      'oss.endpoint' = '${oss_endpoint}'
+    """
+    /****************COS*******************/
+    String cos_ak = context.config.otherConfigs.get("txYunAk")
+    String cos_sk = context.config.otherConfigs.get("txYunSk")
+    String cos_endpoint = "cos.ap-beijing.myqcloud.com"
+    String cos_region = "ap-beijing"
+    String cos_warehouse = "cosn://sdb-qa-datalake-test-1308700295/paimon_warehouse"
+    String cos_warehouse_properties = """
+        'warehouse' = '${cos_warehouse}',
+    """
+
+    String cos_storage_properties = """
+      'cos.access_key' = '${cos_ak}',
+      'cos.secret_key' = '${cos_sk}',
+      'cos.endpoint' = '${cos_endpoint}'
+    """
+
+    /****************OBS*******************/
+    String obs_ak = context.config.otherConfigs.get("hwYunAk")
+    String obs_sk = context.config.otherConfigs.get("hwYunSk")
+    String obs_endpoint = "obs.cn-north-4.myhuaweicloud.com"
+    String obs_warehouse = "obs://doris-build/regression/paimon_warehouse"
+    String obs_warehouse_properties = """
+        'warehouse' = '${obs_warehouse}',
+    """
+
+    String obs_storage_properties = """
+      'obs.access_key' = '${obs_ak}',
+      'obs.secret_key' = '${obs_sk}',
+      'obs.endpoint' = '${obs_endpoint}'
+    """
+    /****************HDFS*******************/
+    String hdfs_warehouse = "hdfs://${extHiveHmsHost}:${extHiveHdfsHost}/user/hive/warehouse"
+    String hdfs_warehouse_properties = """
+        'warehouse' = '${hdfs_warehouse}',
+    """
+    String hdfs_storage_properties = """
+      'fs.defaultFS' = 'hdfs://${extHiveHmsHost}:${extHiveHdfsHost}'
+    """
+
+    /*--------HMS START -----------*/
+    String paimon_hms_catalog_properties = """
+     'type'='paimon',
+     'paimon.catalog.type'='hms',
+     'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
+    """
+    testQuery(paimon_hms_catalog_properties + hdfs_warehouse_properties + hdfs_storage_properties, "hdfs")
+    testQuery(paimon_hms_catalog_properties + oss_warehouse_properties + oss_storage_properties, "ali")
+    testQuery(paimon_hms_catalog_properties + obs_warehouse_properties + obs_storage_properties, "hw")
+    testQuery(paimon_hms_catalog_properties + cos_warehouse_properties + cos_storage_properties, "tx")
+}
+

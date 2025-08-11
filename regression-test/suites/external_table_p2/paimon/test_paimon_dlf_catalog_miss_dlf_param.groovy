@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_remote_paimon,new_catalog_property") {
+suite("test_paimon_dlf_catalog_miss_dlf_param", "p2,external,paimon,external_remote,external_remote_paimon,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
     }
 
     try {
-        String catalog = "test_paimon_dlf_catalog"
+        String catalog = "test_paimon_dlf_catalog_miss_dlf_param"
         String uid = context.config.otherConfigs.get("dlf_uid")
         String region = context.config.otherConfigs.get("dlf_region")
         String catalog_id = context.config.otherConfigs.get("dlf_catalog_id")
@@ -41,7 +41,10 @@ suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_re
             "dlf.region" = "${region}",
             "dlf.catalog.id" = "${catalog_id}",
             "dlf.access_key" = "${access_key}",
-            "dlf.secret_key" = "${secret_key}"
+            "dlf.secret_key" = "${secret_key}",
+            "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
+            "oss.access_key" = "${access_key}",
+            "oss.secret_key" = "${secret_key}"
             );
         """
         sql """ switch ${catalog} """
