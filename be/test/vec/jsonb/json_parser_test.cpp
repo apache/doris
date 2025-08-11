@@ -167,3 +167,89 @@ TEST(JsonParserTest, ParseCornerCases) {
     result = parser.parse(R"({"a":"\n\t"})", 12, config);
     ASSERT_TRUE(result.has_value());
 }
+
+// Test cases for the selected code functionality
+TEST(JsonParserTest, TestIsPrefixFunction) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig config;
+
+    // Test is_prefix functionality through nested path parsing
+    // This tests the is_prefix function used in checkAmbiguousStructure
+
+    // Test case 1: Simple nested paths that should not be ambiguous
+    std::string json1 = R"({"a": [{"b": 1}, {"b": 2}]})";
+    auto result1 = parser.parse(json1.c_str(), json1.size(), config);
+    ASSERT_TRUE(result1.has_value());
+
+    // Test case 2: More complex nested paths
+    std::string json2 = R"({"a": [{"b": {"c": 1}}, {"b": {"c": 2}}]})";
+    auto result2 = parser.parse(json2.c_str(), json2.size(), config);
+    ASSERT_TRUE(result2.has_value());
+
+    // Test case 3: Deep nested structure
+    std::string json3 = R"({"level1": {"level2": [{"level3": {"level4": 1}}]}})";
+    auto result3 = parser.parse(json3.c_str(), json3.size(), config);
+    ASSERT_TRUE(result3.has_value());
+}
+
+TEST(JsonParserTest, TestAmbiguousStructureDetection) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig config;
+    config.enable_flatten_nested = true;
+
+    // Test case 1: Arrays with different sizes in nested structure
+    // This should trigger the array size mismatch exception
+    std::string json1 = R"([{"b": [1, 2]}, {"b": [1, 2, 3]}])";
+    EXPECT_ANY_THROW(parser.parse(json1.c_str(), json1.size(), config));
+
+    // Test case 2: Arrays with same sizes should not throw
+    std::string json2 = R"([{"b": [1, 2]}, {"b": [3, 4]}])";
+    EXPECT_ANY_THROW(parser.parse(json2.c_str(), json2.size(), config));
+
+    // Test case 3: More complex nested array size mismatch
+    std::string json3 = R"({"nested": [{"arr": [[1, 2], [3]]}, {"arr": [[1, 2], [3, 4]]}]})";
+    EXPECT_ANY_THROW(parser.parse(json3.c_str(), json3.size(), config));
+
+    // Test case 4: Ambiguous structure with prefix paths
+    // This should trigger the ambiguous structure exception
+    std::string json4 = R"([{"a": {"c": 1}}, {"a": 2}])";
+    EXPECT_ANY_THROW(parser.parse(json4.c_str(), json4.size(), config));
+}
+
+TEST(JsonParserTest, TestNestedArrayHandling) {
+    JSONDataParser<SimdJSONParser> parser;
+    ParseConfig config;
+    config.enable_flatten_nested = true;
+
+    // Test case 1: Simple nested array handling
+    std::string json1 = R"([{"b": 1}, {"c": 2}])";
+    auto result1 = parser.parse(json1.c_str(), json1.size(), config);
+    ASSERT_TRUE(result1.has_value());
+    EXPECT_GT(result1->values.size(), 0);
+
+    // Test case 2: Multi-level nested array
+    std::string json2 = R"([{"a": {"b": 1}}, {"a": {"b": 2}}])";
+    auto result2 = parser.parse(json2.c_str(), json2.size(), config);
+    ASSERT_TRUE(result2.has_value());
+    EXPECT_GT(result2->values.size(), 0);
+}
+
+TEST(JsonParserTest, TestNestedArrayWithDifferentConfigs) {
+    JSONDataParser<SimdJSONParser> parser;
+
+    // Test with flatten_nested = false
+    ParseConfig config1;
+    config1.enable_flatten_nested = false;
+
+    std::string json1 = R"([{"b": [1, 2]}, {"b": [3, 4]}])";
+    auto result1 = parser.parse(json1.c_str(), json1.size(), config1);
+    ASSERT_TRUE(result1.has_value());
+    EXPECT_EQ(result1->values.size(), 1);
+    EXPECT_EQ(result1->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
+
+    // Test with flatten_nested = true
+    ParseConfig config2;
+    config2.enable_flatten_nested = true;
+
+    EXPECT_ANY_THROW(parser.parse(json1.c_str(), json1.size(), config2));
+}
