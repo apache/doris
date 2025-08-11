@@ -348,7 +348,7 @@ public:
                     // e.g. scale reduce to 4, means we need to round the last 2 digits
                     // 999956: 56 > 100/2, then round up to 1000000
                     uint32_t microseconds = TimeValue::microsecond(time);
-                    uint32_t divisor = common::exp10_i64(6 - to_scale);
+                    auto divisor = (uint32_t)common::exp10_i64(6 - to_scale);
                     uint32_t remainder = microseconds % divisor;
 
                     if (remainder >= divisor / 2) { // need to round up
