@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CopyFromParam;
 import org.apache.doris.analysis.CopyIntoProperties;
-import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LabelName;
@@ -33,7 +32,9 @@ import org.apache.doris.analysis.StageProperties;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
@@ -72,6 +73,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -91,6 +93,17 @@ import java.util.Map;
 public class CopyIntoInfo {
     private static final Logger LOG = LogManager.getLogger(CopyIntoInfo.class);
 
+    private static final ShowResultSetMetaData COPY_INTO_META_DATA =
+            ShowResultSetMetaData.builder()
+                .addColumn(new Column("id", ScalarType.createVarchar(64)))
+                .addColumn(new Column("state", ScalarType.createVarchar(64)))
+                .addColumn(new Column("type", ScalarType.createVarchar(64)))
+                .addColumn(new Column("msg", ScalarType.createVarchar(128)))
+                .addColumn(new Column("loadedRows", ScalarType.createVarchar(64)))
+                .addColumn(new Column("filterRows", ScalarType.createVarchar(64)))
+                .addColumn(new Column("unselectRows", ScalarType.createVarchar(64)))
+                .addColumn(new Column("url", ScalarType.createVarchar(128)))
+                .build();
     private static final String S3_BUCKET = "bucket";
     private static final String S3_PREFIX = "prefix";
 
@@ -113,6 +126,8 @@ public class CopyIntoInfo {
     private RemoteBase.ObjectInfo objectInfo;
     private String userName;
     private TableName tableName;
+
+    private OriginStatement originStmt;
 
     /**
      * copy into informations
@@ -357,8 +372,75 @@ public class CopyIntoInfo {
         this.copyIntoProperties.analyze();
     }
 
-    public CopyStmt toLegacyStatement(OriginStatement originStmt) {
-        return new CopyStmt(tableName, legacyCopyFromParam, copyIntoProperties, optHints, label, stageId, stageType,
-            stagePrefix, objectInfo, userName, brokerProperties, properties, dataDescription, brokerDesc, originStmt);
+    public ShowResultSetMetaData getMetaData() {
+        return COPY_INTO_META_DATA;
+    }
+
+    public String getDbName() {
+        return label.getDbName();
+    }
+
+    public BrokerDesc getBrokerDesc() {
+        return brokerDesc;
+    }
+
+    public List<DataDescription> getDataDescriptions() {
+        return Lists.newArrayList(dataDescription);
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public LabelName getLabel() {
+        return label;
+    }
+
+    public OriginStatement getOriginStmt() {
+        return originStmt;
+    }
+
+    public void setOriginStmt(OriginStatement originStmt) {
+        this.originStmt = originStmt;
+    }
+
+    public String getStage() {
+        return stage;
+    }
+
+    public String getStageId() {
+        return stageId;
+    }
+
+    public StageType getStageType() {
+        return stageType;
+    }
+
+    public String getStagePrefix() {
+        return stagePrefix;
+    }
+
+    public long getSizeLimit() {
+        return this.copyIntoProperties.getSizeLimit();
+    }
+
+    public boolean isAsync() {
+        return this.copyIntoProperties.isAsync();
+    }
+
+    public boolean isForce() {
+        return this.copyIntoProperties.isForce();
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public RemoteBase.ObjectInfo getObjectInfo() {
+        return objectInfo;
+    }
+
+    public String getPattern() {
+        return this.legacyCopyFromParam.getStageAndPattern().getPattern();
     }
 }

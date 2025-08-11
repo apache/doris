@@ -237,7 +237,7 @@ TEST_F(SchemaUtilTest, inherit_column_attributes) {
     construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_STRING, 1, "v1.b", &subcolumns);
     construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_INT, 1, "v1.c", &subcolumns);
 
-    construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_ARRAY, 3, "v3.d", &subcolumns);
+    construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_DOUBLE, 3, "v3.d", &subcolumns);
     construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_FLOAT, 3, "v3.a", &subcolumns);
 
     schema_util::inherit_column_attributes(tablet_schema);
@@ -247,8 +247,7 @@ TEST_F(SchemaUtilTest, inherit_column_attributes) {
             EXPECT_EQ(tablet_schema->inverted_indexs(col).size(), 1);
             break;
         case 3:
-            // TODO(lihangyu): uncomment, since double is not supported in inverted index now
-            EXPECT_EQ(tablet_schema->inverted_indexs(col).size(), 0);
+            EXPECT_EQ(tablet_schema->inverted_indexs(col).size(), 1);
             break;
         default:
             EXPECT_TRUE(false);

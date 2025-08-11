@@ -293,7 +293,7 @@ private:
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
-    IndexReaderPtr _index_reader;
+    std::unordered_map<int64_t, IndexReaderPtr> _index_readers;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 

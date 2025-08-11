@@ -708,7 +708,6 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_CHAR>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_STRING>;
-
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TINYINT>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_SMALLINT>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_INT>;
@@ -727,5 +726,7 @@ template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL256>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_BOOL>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV4>;
 template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV6>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_FLOAT>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DOUBLE>;
 
 } // namespace doris::segment_v2
