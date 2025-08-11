@@ -3664,10 +3664,6 @@ cancel_param ::=
     {:
         RESULT = new CancelLoadStmt(db, parser.where);
     :}
-    | KW_EXPORT opt_db:db opt_wild_where
-    {:
-        RESULT = new CancelExportStmt(db, parser.where);
-    :}
     ;
 
 opt_detailed ::=
