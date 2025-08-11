@@ -95,12 +95,11 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private void clearStats(OlapTable statsTbl, boolean isTableColumnStats) {
         ExpiredStats expiredStats;
-        long offset = 0;
         do {
             expiredStats = new ExpiredStats();
-            offset = findExpiredStats(statsTbl, expiredStats, offset, isTableColumnStats);
+            findExpiredStats(statsTbl, expiredStats, 0, isTableColumnStats);
             deleteExpiredStats(expiredStats, statsTbl.getName(), isTableColumnStats);
-        } while (!expiredStats.isEmpty());
+        } while (expiredStats.isFull());
     }
 
     private void clearTableStats() {
@@ -325,6 +324,9 @@ public class StatisticsCleaner extends MasterDaemon {
                 }
             }
             this.yieldForOtherTask();
+            if (expiredStats.isFull()) {
+                LOG.info("expiredStats is full.");
+            }
         }
         return pos;
     }

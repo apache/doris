@@ -33,53 +33,33 @@ public class WorkloadGroupTest {
     @Test
     public void testCreateNormal() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(WorkloadGroup.CPU_SHARE, "10");
-        properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+        properties1.put(WorkloadGroup.MAX_CPU_PERCENT, "20");
+        properties1.put(WorkloadGroup.MAX_MEMORY_PERCENT, "30%");
         properties1.put(WorkloadGroup.COMPUTE_GROUP, "default");
         String name1 = "g1";
         WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
         Assert.assertEquals(name1, group1.getName());
-        Assert.assertTrue(group1.getProperties().containsKey(WorkloadGroup.CPU_SHARE));
-        Assert.assertTrue(Math.abs(group1.getMemoryLimitPercent() - 30) < 1e-6);
+        Assert.assertTrue(group1.getProperties().containsKey(WorkloadGroup.MIN_CPU_PERCENT));
+        Assert.assertTrue(group1.getMaxMemoryPercent() == 30);
     }
 
     @Test(expected = DdlException.class)
     public void testNotSupportProperty() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(WorkloadGroup.CPU_SHARE, "10");
-        properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+        properties1.put(WorkloadGroup.MAX_MEMORY_PERCENT, "30%");
         properties1.put("share", "10");
         String name1 = "g1";
         WorkloadGroup.create(name1, properties1);
     }
 
     @Test
-    public void testCpuShareValue() {
-        Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(WorkloadGroup.CPU_SHARE, "0");
-        properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
-        String name1 = "g1";
-        try {
-            WorkloadGroup.create(name1, properties1);
-            Assert.fail();
-        } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("value is -1 or a positive integer"));
-        }
-
-        properties1.put(WorkloadGroup.CPU_SHARE, "cpu");
-        try {
-            WorkloadGroup.create(name1, properties1);
-            Assert.fail();
-        } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("value is -1 or a positive integer"));
-        }
-    }
-
-    @Test
     public void testGetProcNodeData() throws DdlException {
         Map<String, String> properties1 = Maps.newHashMap();
-        properties1.put(WorkloadGroup.CPU_SHARE, "10");
-        properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.MIN_CPU_PERCENT, "10");
+        properties1.put(WorkloadGroup.MAX_CPU_PERCENT, "20");
+        properties1.put(WorkloadGroup.MAX_MEMORY_PERCENT, "30%");
         properties1.put(WorkloadGroup.COMPUTE_GROUP, "default");
         String name1 = "g1";
         WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
@@ -88,6 +68,7 @@ public class WorkloadGroupTest {
         group1.getProcNodeData(result);
         List<List<String>> rows = result.getRows();
         Assert.assertEquals(1, rows.size());
+        // TODO check proc data with system table
     }
 
     @Test

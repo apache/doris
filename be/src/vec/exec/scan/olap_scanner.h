@@ -117,6 +117,7 @@ public:
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
     // The idx of vir_col in block to its data type.
     std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
+    std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
 };
 } // namespace vectorized
 } // namespace doris

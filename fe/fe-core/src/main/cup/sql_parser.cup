@@ -1269,14 +1269,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
-    | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
-    {:
-        RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
-    :}
-    | KW_ALTER KW_WORKLOAD KW_POLICY ident_or_text:policyName opt_properties:properties
-    {:
-        RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
-    :}
     | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
     opt_properties:properties
     {:
@@ -1286,10 +1278,6 @@ alter_stmt ::=
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
-    :}
-    | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
-    {:
-        RESULT = new AlterRepositoryStmt(repoName, properties);
     :}
     ;
 
@@ -1699,11 +1687,6 @@ create_stmt ::=
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
-    :}
-    /* workload schedule policy */
-    | KW_CREATE KW_WORKLOAD KW_POLICY opt_if_not_exists:ifNotExists ident_or_text:workloadPolicyName opt_conditions:conditions opt_actions:actions opt_properties:properties
-    {:
-        RESULT = new CreateWorkloadSchedPolicyStmt(ifNotExists, workloadPolicyName, conditions, actions, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -2414,26 +2397,7 @@ create_job_stmt ::=
      {:  
           RESULT = endTime;  
      :}
-     ;        
-pause_job_stmt ::=
-    KW_PAUSE KW_JOB opt_wild_where
-    {:
-       RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.PAUSED);
-    :}
-    ;
-
-stop_job_stmt ::=
-    KW_DROP KW_JOB opt_if_exists:ifExists opt_wild_where 
-    {:
-      RESULT = new AlterJobStatusStmt(parser.where,true,ifExists);
-    :}
-    ;    
-resume_job_stmt ::=
-    KW_RESUME KW_JOB  opt_wild_where
-    {:
-        RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.RUNNING);
-    :}
-    ;                          
+     ;
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -2496,13 +2460,6 @@ load_property ::=
     :}
     ;
 
-show_create_load_stmt ::=
-    KW_SHOW KW_CREATE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowCreateLoadStmt(jobLabel);
-    :}
-    ;
-
 tbl_pattern ::=
     ident_or_star:db
     {:
@@ -2553,13 +2510,8 @@ ident_or_star ::=
 
 // Drop statement
 drop_stmt ::=
-    /* Catalog */
-    KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
-    {:
-        RESULT = new DropCatalogStmt(ifExists, catalogName);
-    :}
     /* Table */
-    | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
+    KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
     {:
         RESULT = new DropTableStmt(ifExists, name, force);
     :}

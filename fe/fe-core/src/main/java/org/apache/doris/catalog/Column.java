@@ -946,6 +946,18 @@ public class Column implements GsonPostProcessable {
         if (generatedColumnInfo != null || other.getGeneratedColumnInfo() != null) {
             throw new DdlException("Not supporting alter table modify generated columns.");
         }
+
+        if (type.isVariantType() && other.type.isVariantType()) {
+            if (this.getVariantMaxSubcolumnsCount() != other.getVariantMaxSubcolumnsCount()) {
+                throw new DdlException("Can not change variant max subcolumns count");
+            }
+            if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
+                throw new DdlException("Can not change variant enable typed paths to sparse");
+            }
+            if (!this.getChildren().isEmpty() || !other.getChildren().isEmpty()) {
+                throw new DdlException("Can not change variant schema templates");
+            }
+        }
     }
 
     public boolean nameEquals(String otherColName, boolean ignorePrefix) {

@@ -36,10 +36,6 @@ fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
-TARGET_SYSTEM="$(uname -s)"
-TARGET_ARCH="$(uname -m)"
-echo "Target system: ${TARGET_SYSTEM}; Target arch: ${TARGET_ARCH}"
-
 . "${DORIS_HOME}/env.sh"
 
 # Check args
@@ -462,7 +458,7 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" || "${TARGET_SYSTEM}" == 'Darwin' ]]; then
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
     BUILD_AZURE='OFF'
 fi
 

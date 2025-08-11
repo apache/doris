@@ -466,6 +466,22 @@ suite("regression_test_variant", "p0"){
                 exception("errCode = 2, detailMessage = Variant type rely on light schema change")
             }
         }
+
+        table_name = "variant_type_test"
+        sql """ DROP TABLE IF EXISTS ${table_name} """
+        sql """
+            CREATE TABLE ${table_name} (
+                k int,
+                v variant NULL
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        sql """ insert into ${table_name} values (1, '{"a": 1122323232313223, "b": 1.2, "c" : "ddddd", "d" : {"e": 1.2, "f": "ggggg"}}'), (2, NULL) """
+        qt_sql """ select variant_type(v) from ${table_name} """
     } finally {
         // reset flags
     }

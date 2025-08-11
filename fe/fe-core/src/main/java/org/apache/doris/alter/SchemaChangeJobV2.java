@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -58,7 +59,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -440,12 +440,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         for (long shadowIdxId : indexIdMap.keySet()) {
+            MaterializedIndexMeta originalIndexMeta = tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId));
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
                     indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
-                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)),
-                    indexChange ? indexes : tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId)).getIndexes());
+                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)), originalIndexMeta.getDefineStmt(),
+                    indexChange ? indexes : originalIndexMeta.getIndexes());
+            MaterializedIndexMeta shadowIndexMeta = tbl.getIndexMetaByIndexId(shadowIdxId);
+            shadowIndexMeta.setWhereClause(originalIndexMeta.getWhereClause());
         }
 
         tbl.rebuildFullSchema();
@@ -589,19 +592,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
-                int maxFailedTimes = 0;
-                if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
-                    if (task.getErrorCode() != null && task.getErrorCode()
-                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
-                        maxFailedTimes = Config.schema_change_max_retry_time;
-                    }
-                }
+                int maxFailedTimes = getRetryTimes(task);
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
                     if (!FeConstants.runningUnitTest) {
                         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                        LOG.warn("schema change task failed, failedTimes: {}, maxFailedTimes: {}, err: {}",
-                                task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
+                        LOG.warn("schema change task failed, job: {}, failedTimes: {}, maxFailedTimes: {}, err: {}",
+                                 jobId, task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
                         List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                         if (failedBackends == null) {
                             failedBackends = Lists.newArrayList();

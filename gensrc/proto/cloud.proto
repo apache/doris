@@ -442,6 +442,7 @@ message TxnInfoPB {
     repeated int64 sub_txn_ids = 18;
     // TODO: There are more fields TBD
     optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
+    optional bool versioned_read = 20;  // whether to read versioned keys
 }
 
 // For check txn conflict and txn timeout

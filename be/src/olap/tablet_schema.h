@@ -206,9 +206,21 @@ public:
         return Status::OK();
     }
 
+    void set_precision(int precision) {
+        _precision = precision;
+        _is_decimal = true;
+    }
+
+    void set_frac(int frac) { _frac = frac; }
+
     void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
         _variant_max_subcolumns_count = variant_max_subcolumns_count;
     }
+
+    void set_variant_enable_typed_paths_to_sparse(bool enable) {
+        _variant_enable_typed_paths_to_sparse = enable;
+    }
+
     int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
@@ -216,6 +228,8 @@ public:
     bool variant_enable_typed_paths_to_sparse() const {
         return _variant_enable_typed_paths_to_sparse;
     }
+
+    bool is_decimal() const { return _is_decimal; }
 
 private:
     int32_t _unique_id = -1;
@@ -474,18 +488,7 @@ public:
         return false;
     }
     bool has_inverted_index_with_index_id(int64_t index_id) const;
-    // todo: remove this func
-    // Check whether this column supports inverted index
-    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
-    const TabletIndex* inverted_index(const TabletColumn& col) const;
 
-    // todo: remove this func
-    // Regardless of whether this column supports inverted index
-    // TabletIndex information will be returned as long as it exists.
-    const TabletIndex* inverted_index(int32_t col_unique_id,
-                                      const std::string& suffix_path = "") const;
-
-    // TODO(lihangyu): multi indexes
     void update_index(const TabletColumn& column, const IndexType& index_type,
                       std::vector<TabletIndex>&& indexes);
 

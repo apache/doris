@@ -36,6 +36,13 @@ struct ConvertImplGenericFromJsonb {
                           uint32_t result, size_t input_rows_count,
                           const NullMap::value_type* null_map = nullptr) {
         auto data_type_to = block.get_by_position(result).type;
+        auto data_type_serde_to = data_type_to->get_serde();
+
+        DataTypeSerDe::FormatOptions options;
+        options.converted_from_string = true;
+        options.escape_char = '\\';
+        options.timezone = &context->state()->timezone_obj();
+
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
@@ -94,8 +101,8 @@ struct ConvertImplGenericFromJsonb {
                     (*vec_null_map_to)[i] = 1;
                     continue;
                 }
-                ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
-                st = data_type_to->from_string(read_buffer, col_to.get());
+                StringRef read_buffer((char*)(input_str.data()), input_str.size());
+                st = data_type_serde_to->from_string(read_buffer, *col_to, options);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
                 if (!st.ok()) {

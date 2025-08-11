@@ -151,7 +151,7 @@ Status IndexFileWriter::add_into_searcher_cache() {
         size_t reader_size = 0;
         auto index_searcher_builder = DORIS_TRY(_construct_index_searcher_builder(dir.get()));
         RETURN_IF_ERROR(InvertedIndexReader::create_index_searcher(
-                index_searcher_builder.get(), dir.release(), &searcher, reader_size));
+                index_searcher_builder.get(), dir.get(), &searcher, reader_size));
         auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher),
                                                                        reader_size, UnixMillis());
         InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
