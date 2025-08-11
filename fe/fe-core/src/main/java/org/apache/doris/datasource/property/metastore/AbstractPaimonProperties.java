@@ -19,7 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Getter;
@@ -75,8 +75,9 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
      */
     protected void appendS3PropertiesIsNeeded(List<StorageProperties> storagePropertiesList) {
 
-        S3Properties s3Properties = (S3Properties) storagePropertiesList.stream()
-                .filter(storageProperties -> storageProperties.getType() == StorageProperties.Type.S3)
+        AbstractS3CompatibleProperties s3Properties = (AbstractS3CompatibleProperties) storagePropertiesList.stream()
+                .filter(storageProperties -> storageProperties.getType() == StorageProperties.Type.S3
+                        || storageProperties.getType() == StorageProperties.Type.MINIO)
                 .findFirst()
                 .orElse(null);
         if (s3Properties != null) {
