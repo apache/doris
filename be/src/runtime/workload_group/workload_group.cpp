@@ -56,7 +56,6 @@ const static int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 80;
 const static int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 95;
 // This is a invalid value, and should ignore this value during usage
 const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
-const static int LOAD_BUFFER_RATIO_DEFAULT_VALUE = 20;
 
 WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info)
         : _id(wg_info.id),
@@ -69,7 +68,6 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info)
           _max_memory_percent(wg_info.max_memory_percent),
           _memory_low_watermark(wg_info.memory_low_watermark),
           _memory_high_watermark(wg_info.memory_high_watermark),
-          _load_buffer_ratio(wg_info.write_buffer_ratio),
           _scan_thread_num(wg_info.scan_thread_num),
           _max_remote_scan_thread_num(wg_info.max_remote_scan_thread_num),
           _min_remote_scan_thread_num(wg_info.min_remote_scan_thread_num),
@@ -82,6 +80,13 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info)
         _scan_io_throttle_map[data_dir.path] = std::make_shared<IOThrottle>(data_dir.metric_name);
     }
     _remote_scan_io_throttle = std::make_shared<IOThrottle>();
+    if (_max_memory_percent > 0) {
+        std::cout << _max_memory_percent << std::endl;
+        std::cout << _min_memory_percent << std::endl;
+        _min_memory_limit = static_cast<int64_t>(
+                static_cast<double>(_memory_limit * _min_memory_percent) / _max_memory_percent);
+        std::cout << _min_memory_limit << std::endl;
+    }
 
     _wg_metrics = std::make_shared<WorkloadGroupMetrics>(this);
 }
@@ -125,20 +130,15 @@ std::string WorkloadGroup::_memory_debug_string() const {
     auto mem_used_ratio_int = (int64_t)(mem_used_ratio * 100 + 0.5);
     mem_used_ratio = (double)mem_used_ratio_int / 100;
     return fmt::format(
-            "min_memory_percent = {}% , max_memory_percent = {}% , memory_limit = {}B, "
+            "min_memory_percent = {}% , max_memory_percent = {}% , memory_limit = {}B, " // add a blackspace after % to avoid log4j format bugs
             "slot_memory_policy = {}, total_query_slot_count = {}, "
             "memory_low_watermark = {}, memory_high_watermark = {}, "
-            "enable_write_buffer_limit = {}, write_buffer_ratio = {}% , " // add a blackspace after % to avoid log4j format bugs
-            "write_buffer_limit = {}, "
-            "mem_used_ratio = {}, total_mem_used = {}(write_buffer_size = {}, "
+            "mem_used_ratio = {}, total_mem_used = {}, "
             "wg_refresh_interval_memory_growth = {}",
             _min_memory_percent, _max_memory_percent,
             PrettyPrinter::print(_memory_limit, TUnit::BYTES), to_string(_slot_mem_policy),
-            _total_query_slot_count, _memory_low_watermark, _memory_high_watermark,
-            _enable_write_buffer_limit, _load_buffer_ratio,
-            PrettyPrinter::print(write_buffer_limit(), TUnit::BYTES), mem_used_ratio,
+            _total_query_slot_count, _memory_low_watermark, _memory_high_watermark, mem_used_ratio,
             PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
-            PrettyPrinter::print(_write_buffer_size.load(), TUnit::BYTES),
             PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES));
 }
 
@@ -177,8 +177,12 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
             _scan_bytes_per_second = wg_info.read_bytes_per_second;
             _remote_scan_bytes_per_second = wg_info.remote_read_bytes_per_second;
             _total_query_slot_count = wg_info.total_query_slot_count;
-            _load_buffer_ratio = wg_info.write_buffer_ratio;
             _slot_mem_policy = wg_info.slot_mem_policy;
+            if (_max_memory_percent > 0) {
+                _min_memory_limit = static_cast<int64_t>(
+                        static_cast<double>(_memory_limit * _min_memory_percent) /
+                        _max_memory_percent);
+            }
         } else {
             return;
         }
@@ -188,7 +192,6 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
 // MemtrackerLimiter is not removed during query context release, so that should remove it here.
 int64_t WorkloadGroup::refresh_memory_usage() {
     int64_t fragment_used_memory = 0;
-    int64_t write_buffer_size = 0;
     {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         for (const auto& pair : _resource_ctxs) {
@@ -198,13 +201,11 @@ int64_t WorkloadGroup::refresh_memory_usage() {
             }
             DCHECK(resource_ctx->memory_context()->mem_tracker() != nullptr);
             fragment_used_memory += resource_ctx->memory_context()->current_memory_bytes();
-            write_buffer_size += resource_ctx->memory_context()->mem_tracker()->write_buffer_size();
         }
     }
 
-    _total_mem_used = fragment_used_memory + write_buffer_size;
+    _total_mem_used = fragment_used_memory;
     _wg_metrics->update_memory_used_bytes(_total_mem_used);
-    _write_buffer_size = write_buffer_size;
     // reserve memory is recorded in the query mem tracker
     // and _total_mem_used already contains all the current reserve memory.
     // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
@@ -227,6 +228,21 @@ void WorkloadGroup::do_sweep() {
         }
     }
 }
+
+#ifdef BE_TEST
+void WorkloadGroup::clear_cancelled_resource_ctx() {
+    // Clear resource context that is registered during add_resource_ctx
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
+    for (auto iter = _resource_ctxs.begin(); iter != _resource_ctxs.end();) {
+        auto ctx = iter->second.lock();
+        if (ctx != nullptr && ctx->task_controller()->is_cancelled()) {
+            iter = _resource_ctxs.erase(iter);
+        } else {
+            iter++;
+        }
+    }
+}
+#endif
 
 int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& revoke_reason,
                                      RuntimeProfile* profile) {
@@ -447,12 +463,6 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         total_query_slot_count = tworkload_group_info.total_query_slot_count;
     }
 
-    // 17 load buffer memory limit
-    int write_buffer_ratio = LOAD_BUFFER_RATIO_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.write_buffer_ratio) {
-        write_buffer_ratio = tworkload_group_info.write_buffer_ratio;
-    }
-
     // 18 slot memory policy
     TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::NONE;
     if (tworkload_group_info.__isset.slot_memory_policy) {
@@ -476,7 +486,6 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
             .remote_read_bytes_per_second = remote_read_bytes_per_second,
             .total_query_slot_count = total_query_slot_count,
             .slot_mem_policy = slot_mem_policy,
-            .write_buffer_ratio = write_buffer_ratio,
             .pipeline_exec_thread_num = exec_thread_num,
             .max_flush_thread_num = max_flush_thread_num,
             .min_flush_thread_num = min_flush_thread_num};
