@@ -577,4 +577,74 @@ TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
     LOG(INFO) << "GetRowsetMetas test completed successfully";
 }
 
+TEST(MetaServiceVersionedReadTest, UpdateTablet) {
+    auto service = get_meta_service(false);
+    std::string instance_id = "test_cloud_instance_id";
+    std::string cloud_unique_id = fmt::format("1:{}:1", instance_id);
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(service.get(), instance_id);
+
+    constexpr auto table_id = 11231, index_id = 11232, partition_id = 11233, tablet_id1 = 11234,
+                   tablet_id2 = 21234;
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(service.get(), table_id, index_id, partition_id, tablet_id1));
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(service.get(), table_id, index_id, partition_id, tablet_id2));
+    auto get_and_check_tablet_meta = [&](int tablet_id, int64_t ttl_seconds, bool in_memory,
+                                         bool is_persistent) {
+        brpc::Controller cntl;
+        GetTabletRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_tablet_id(tablet_id);
+        GetTabletResponse resp;
+        service->get_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << tablet_id;
+        EXPECT_EQ(resp.tablet_meta().ttl_seconds(), ttl_seconds);
+        EXPECT_EQ(resp.tablet_meta().is_in_memory(), in_memory);
+        EXPECT_EQ(resp.tablet_meta().is_persistent(), is_persistent);
+    };
+    get_and_check_tablet_meta(tablet_id1, 0, false, false);
+    get_and_check_tablet_meta(tablet_id2, 0, false, false);
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        TabletMetaInfoPB* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        tablet_meta_info->set_ttl_seconds(300);
+        tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id2);
+        tablet_meta_info->set_ttl_seconds(3000);
+        service->update_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+    get_and_check_tablet_meta(tablet_id1, 300, false, false);
+    get_and_check_tablet_meta(tablet_id2, 3000, false, false);
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        TabletMetaInfoPB* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        tablet_meta_info->set_is_in_memory(true);
+        service->update_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        TabletMetaInfoPB* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        tablet_meta_info->set_is_persistent(true);
+        service->update_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+    get_and_check_tablet_meta(tablet_id1, 300, true, true);
+}
+
 } // namespace doris::cloud

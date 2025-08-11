@@ -1006,6 +1006,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
     UpdateTabletLogPB update_tablet_log;
     bool is_versioned_write = is_version_write_enabled(instance_id);
     bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader reader(instance_id, txn_kv_.get());
     for (const TabletMetaInfoPB& tablet_meta_info : request->tablet_meta_infos()) {
         doris::TabletMetaCloudPB tablet_meta;
         if (!is_versioned_read) {
@@ -1015,7 +1016,13 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 return;
             }
         } else {
-            CHECK(false) << "versioned read is not supported yet";
+            TxnErrorCode err =
+                    reader.get_tablet_meta(tablet_meta_info.tablet_id(), &tablet_meta, nullptr);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get versioned tablet meta, err={}", err);
+                return;
+            }
         }
         if (tablet_meta_info.has_is_in_memory()) { // deprecate after 3.0.0
             tablet_meta.set_is_in_memory(tablet_meta_info.is_in_memory());
