@@ -1821,7 +1821,23 @@ TEST(MetaServiceOperationLogTest, CompactionLogFirstTimeTabletStats) {
     constexpr int64_t tablet_id = 60004;
 
     {
-        // write instance with versioned write enabled
+        // Create instance without multi-version settings first
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+    }
+
+    {
+        // Create tablet first
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+    }
+
+    {
+        // Now enable versioned write after tablet creation
         InstanceInfoPB instance_info;
         instance_info.set_instance_id(instance_id);
         instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
@@ -1832,11 +1848,6 @@ TEST(MetaServiceOperationLogTest, CompactionLogFirstTimeTabletStats) {
 
         meta_service->resource_mgr()->refresh_instance(instance_id);
         ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
-    }
-
-    {
-        // Create tablet first
-        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
     }
 
     // Create input rowset for compaction (version 2)
