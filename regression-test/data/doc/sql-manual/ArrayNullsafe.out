@@ -125,13 +125,6 @@ false
 []
 \N
 
--- !sql_array_difference2 --
-[0, 1, 1]
-[0, null, null]
-[0, 0, 1]
-[]
-\N
-
 -- !sql_array_difference3 --
 [null, null, null, null, null]
 [null, null, null, null, null]
@@ -223,6 +216,433 @@ false
 []
 \N
 
+-- !sql_array_enumerate_uniq1 --
+[1, 1, 1, 1, 1]
+[1, 1, 1, 2, 1]
+[1, 2, 1, 2, 3, 1, 3, 1]
+[]
+\N
+
+-- !sql_array_enumerate_uniq2 --
+[1, 1, 1, 1, 1]
+[1, 1, 1, 2, 1]
+[1, 2, 1, 2, 1]
+[]
+\N
+
+-- !sql_array_enumerate_uniq3 --
+[1, 1]
+[1, 1, 1]
+[1, 2, 1]
+[]
+\N
+
+-- !sql_array_enumerate_uniq4 --
+[1, 1]
+[1, 1, 1]
+[1, 2, 1]
+[]
+\N
+
+-- !sql_array_enumerate1 --
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4, 5, 6, 7, 8]
+[]
+\N
+
+-- !sql_array_enumerate2 --
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4, 5]
+[]
+\N
+
+-- !sql_array_enumerate3 --
+[1, 2]
+[1, 2, 3]
+[1, 2, 3]
+[]
+\N
+
+-- !sql_array_enumerate4 --
+[1, 2]
+[1, 2, 3]
+[1, 2, 3]
+[]
+\N
+
+-- !sql_array_exists1 --
+[0, 0, 0, 0, 0]
+[0, 1, 0, 1, 0]
+[0, 0, 0, 0, 0, 0, 0, 0]
+[]
+\N
+
+-- !sql_array_exists2 --
+[0, 0, 0, 0, 0]
+[0, 1, 0, 1, 0]
+[0, 0, 0, 0, 0]
+[]
+\N
+
+-- !sql_array_exists3 --
+[0, 0, 0, 0, 0]
+[0, 1, 0, 1, 0]
+[0, 0, 0, 0, 0, 0, 0, 0]
+[]
+\N
+
+-- !sql_array_exists4 --
+[0, 0, 0]
+[0, 1, 0]
+[0, 0, 0]
+[]
+\N
+
+-- !sql_array_exists5 --
+[0, 0]
+[0, 1, 0]
+[0, 0, 0]
+[]
+\N
+
+-- !sql_array_exists6 --
+[0, 0]
+[0, 1, 0]
+[0, 0, 0]
+[]
+\N
+
+-- !sql_array_first1 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_first2 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_first3 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_first4 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_first5 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_first6 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_last1 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_last2 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_last3 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_last4 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_last5 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_last6 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_first_index1 --
+0
+2
+0
+0
+0
+
+-- !sql_array_first_index2 --
+0
+2
+0
+0
+0
+
+-- !sql_array_first_index3 --
+0
+2
+0
+0
+0
+
+-- !sql_array_first_index4 --
+0
+2
+0
+0
+0
+
+-- !sql_array_first_index5 --
+0
+2
+0
+0
+0
+
+-- !sql_array_first_index6 --
+0
+2
+0
+0
+0
+
+-- !sql_array_last_index1 --
+0
+4
+0
+0
+0
+
+-- !sql_array_last_index2 --
+0
+4
+0
+0
+0
+
+-- !sql_array_last_index3 --
+0
+4
+0
+0
+0
+
+-- !sql_array_last_index4 --
+0
+2
+0
+0
+0
+
+-- !sql_array_last_index5 --
+0
+2
+0
+0
+0
+
+-- !sql_array_last_index6 --
+0
+2
+0
+0
+0
+
+-- !sql_array_intersect1 --
+[4, 2]
+[]
+[4, 2]
+[]
+\N
+
+-- !sql_array_intersect2 --
+[null]
+[null]
+[null]
+[]
+\N
+
+-- !sql_array_intersect3 --
+[]
+[]
+[]
+[]
+\N
+
+-- !sql_array_intersect4 --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_map1 --
+[2, 3, 4, 5, 6]
+[2, null, 4, null, 6]
+[2, 2, 3, 3, 3, 4, 2, 5]
+[]
+\N
+
+-- !sql_array_map2 --
+[null, null, null, null, null]
+[null, null, null, null, null]
+[null, null, null, null, null]
+[]
+\N
+
+-- !sql_array_map3 --
+[2.1, 3.2, 4.3, 5.4, 6.5]
+[2.1, null, 4.3, null, 6.5]
+[2.1, 2.1, 3.2, 3.2, 3.2, 4.3, 2.1, 5.4]
+[]
+\N
+
+-- !sql_array_map4 --
+[20230102, 20230103, 20230104]
+[20230102, null, 20230104]
+[20230102, 20230102, 20230103]
+[]
+\N
+
+-- !sql_array_map5 --
+["::ffff:192.168.1.1", "::ffff:192.168.1.2"]
+["::ffff:192.168.1.1", null, "::ffff:192.168.1.3"]
+["::ffff:192.168.1.1", "::ffff:192.168.1.1", "::ffff:192.168.1.2"]
+[]
+\N
+
+-- !sql_array_map6 --
+["2001:db8::1", "2001:db8::2"]
+["2001:db8::1", null, "2001:db8::3"]
+["2001:db8::1", "2001:db8::1", "2001:db8::2"]
+[]
+\N
+
+-- !sql_array_map7 --
+[0, 0, 0, 0, 0]
+[0, 1, 0, 1, 0]
+[0, 0, 0, 0, 0, 0, 0, 0]
+[]
+\N
+
+-- !sql_array_map8 --
+[0, 0, 0, 0, 0]
+[0, 1, 0, 1, 0]
+[0, 0, 0, 0, 0]
+[]
+\N
+
+-- !sql_array_map9 --
+[0, 0, 0, 0, 0]
+[0, 1, 0, 1, 0]
+[0, 0, 0, 0, 0, 0, 0, 0]
+[]
+\N
+
+-- !sql_array_map10 --
+[0, 0, 0]
+[0, 1, 0]
+[0, 0, 0]
+[]
+\N
+
+-- !sql_array_map11 --
+[0, 0]
+[0, 1, 0]
+[0, 0, 0]
+[]
+\N
+
+-- !sql_array_map12 --
+[0, 0]
+[0, 1, 0]
+[0, 0, 0]
+[]
+\N
+
+-- !sql_array_position1 --
+2
+0
+3
+0
+\N
+
+-- !sql_array_position2 --
+3
+3
+5
+0
+\N
+
+-- !sql_array_position3 --
+2
+0
+3
+0
+\N
+
+-- !sql_array_position4 --
+2
+0
+3
+0
+\N
+
+-- !sql_array_position5 --
+2
+0
+3
+0
+\N
+
+-- !sql_array_position6 --
+1
+1
+1
+0
+\N
+
+-- !sql_array_position7 --
+0
+2
+0
+0
+\N
+
 -- !sql_literal_array_apply --
 [3]
 
@@ -289,4 +709,130 @@ true
 false
 false
 \N
+
+-- !sql_array_avg --
+3.0
+3.0
+2.0
+\N
+\N
+
+-- !sql_array_avg --
+3.3
+3.3000000000000003
+2.2
+\N
+\N
+
+-- !sql_array_avg --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_avg --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_avg --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_avg --
+1.5
+1.5
+1.5
+1.5
+1.5
+
+-- !sql_array_max --
+5
+5
+4
+\N
+\N
+
+-- !sql_array_max --
+5.5
+5.5
+4.4
+\N
+\N
+
+-- !sql_array_max --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_max --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_max --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_max --
+2
+2
+2
+2
+2
+
+-- !sql_array_min --
+1
+1
+1
+\N
+\N
+
+-- !sql_array_min --
+1.1
+1.1
+1.1
+\N
+\N
+
+-- !sql_array_min --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_min --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_min --
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_min --
+1
+1
+1
+1
+1
 

@@ -25,6 +25,8 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_avg.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
@@ -237,6 +239,15 @@ struct ArrayAggregateImpl {
         const IColumn* data = array.get_data_ptr().get();
 
         const auto& offsets = array.get_offsets();
+        if constexpr (operation == AggregateOperation::MAX || operation == AggregateOperation::MIN) {
+            // min/max can only be applied on ip type
+            if (execute_type<TYPE_IPV4>(res, type, data, offsets) ||
+                execute_type<TYPE_IPV6>(res, type, data, offsets)) {
+                block.replace_by_position(result, std::move(res));
+                return Status::OK();
+            }
+        }
+
         if (execute_type<TYPE_BOOLEAN>(res, type, data, offsets) ||
             execute_type<TYPE_TINYINT>(res, type, data, offsets) ||
             execute_type<TYPE_SMALLINT>(res, type, data, offsets) ||
