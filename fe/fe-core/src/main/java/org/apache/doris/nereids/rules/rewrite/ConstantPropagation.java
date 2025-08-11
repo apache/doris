@@ -34,8 +34,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -356,8 +354,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
 
         // PushProjectThroughUnion require projection is a slot reference, or like (cast slot reference as xx);
         // TODO: if PushProjectThroughUnion support projection like  `literal as xx`, then delete this check.
-        if (ExpressionUtils.getExpressionCoveredByCast(expr.child(0)) instanceof SlotReference
-                || expr.child(0) instanceof Nullable || expr.child(0) instanceof NonNullable) {
+        if (ExpressionUtils.getExpressionCoveredByCast(expr.child(0)) instanceof SlotReference) {
             return expr;
         }
 

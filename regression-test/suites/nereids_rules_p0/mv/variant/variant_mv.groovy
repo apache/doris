@@ -565,7 +565,8 @@ suite("variant_mv") {
     where g2.actor['id'] > 34259300 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
     """
     order_qt_query3_4_before "${query3_4}"
-    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
+    async_mv_rewrite_success_without_check_chosen(db, mv3_4, query3_4, "mv3_4", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4", [NOT_IN_RBO])
     order_qt_query3_4_after "${query3_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
 
