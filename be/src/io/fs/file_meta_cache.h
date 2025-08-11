@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/obj_lru_cache.h"
-#include "io/file_factory.h"
 
 namespace doris {
 
@@ -35,22 +35,22 @@ public:
 
     ObjLRUCache& cache() { return _cache; }
 
-    static std::string get_key(const std::string file_name, int64_t modification_time, int64_t file_size);
+    static std::string get_key(const std::string file_name, int64_t modification_time,
+                               int64_t file_size);
 
-    static std::string get_key(io::FileReaderSPtr file_reader, const io::FileDescription& _file_description);
+    static std::string get_key(io::FileReaderSPtr file_reader,
+                               const io::FileDescription& _file_description);
 
     bool lookup(const std::string& key, ObjLRUCache::CacheHandle* handle) {
         return _cache.lookup({key}, handle);
     }
 
-    template<typename T>
+    template <typename T>
     void insert(const std::string& key, T* value, ObjLRUCache::CacheHandle* handle) {
         _cache.insert({key}, value, handle);
     }
 
-    bool enabled() const {
-        return _cache.enabled();
-    }
+    bool enabled() const { return _cache.enabled(); }
 
 private:
     ObjLRUCache _cache;

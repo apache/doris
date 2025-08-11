@@ -178,7 +178,6 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _range_size(range.size),
           _ctz(ctz),
           _io_ctx(io_ctx),
-          _meta_cache(meta_cache),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
@@ -187,13 +186,15 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
     _offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
+    _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
     _init_file_description();
 }
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat)
+                     const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache,
+                     bool enable_lazy_mat)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
@@ -203,6 +204,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
+    _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
 }
@@ -318,7 +320,8 @@ Status OrcReader::_create_file_reader() {
         RETURN_IF_ERROR(create_orc_reader());
     } else {
         auto inner_file_reader = _file_input_stream->get_inner_reader();
-        const auto& file_meta_cache_key = FileMetaCache::get_key(inner_file_reader, _file_description);
+        const auto& file_meta_cache_key =
+                FileMetaCache::get_key(inner_file_reader, _file_description);
 
         // Local variables can be required because setSerializedFileTail is an assignment operation, not a reference.
         ObjLRUCache::CacheHandle _meta_cache_handle;
@@ -328,7 +331,7 @@ Status OrcReader::_create_file_reader() {
             RETURN_IF_ERROR(create_orc_reader());
         } else {
             RETURN_IF_ERROR(create_orc_reader());
-            std::string* footer_ptr = new std::string{_reader->getSerializedFileTail()};
+            std::string* footer_ptr = new std::string {_reader->getSerializedFileTail()};
             _meta_cache->insert(file_meta_cache_key, footer_ptr, &_meta_cache_handle);
         }
     }

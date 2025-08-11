@@ -1163,11 +1163,13 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
     const TFileRangeDesc& range = _current_range;
     Status init_status = Status::OK();
 
+    auto* file_meta_cache_ptr =
+            _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache() : nullptr;
     if (range.__isset.table_format_params &&
         range.table_format_params.table_format_type == "iceberg") {
-        std::unique_ptr<IcebergParquetReader> iceberg_reader =
-                IcebergParquetReader::create_unique(std::move(parquet_reader), _profile, _state,
-                                                    *_params, range, _kv_cache, _io_ctx.get());
+        std::unique_ptr<IcebergParquetReader> iceberg_reader = IcebergParquetReader::create_unique(
+                std::move(parquet_reader), _profile, _state, *_params, range, _kv_cache,
+                _io_ctx.get(), file_meta_cache_ptr);
         init_status = iceberg_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
@@ -1176,7 +1178,8 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "paimon") {
         std::unique_ptr<PaimonParquetReader> paimon_reader = PaimonParquetReader::create_unique(
-                std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get());
+                std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get(),
+                file_meta_cache_ptr);
         init_status = paimon_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
@@ -1186,7 +1189,8 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hudi") {
         std::unique_ptr<HudiParquetReader> hudi_reader = HudiParquetReader::create_unique(
-                std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get());
+                std::move(parquet_reader), _profile, _state, *_params, range, _io_ctx.get(),
+                file_meta_cache_ptr);
         init_status = hudi_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
@@ -1194,7 +1198,8 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         _cur_reader = std::move(hudi_reader);
     } else if (range.table_format_params.table_format_type == "hive") {
         auto hive_reader = HiveParquetReader::create_unique(std::move(parquet_reader), _profile,
-                                                            _state, *_params, range, _io_ctx.get());
+                                                            _state, *_params, range, _io_ctx.get(),
+                                                            file_meta_cache_ptr);
         init_status = hive_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
@@ -1255,11 +1260,15 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader) {
     const TFileRangeDesc& range = _current_range;
     Status init_status = Status::OK();
 
+    auto* file_meta_cache_ptr =
+            _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache() : nullptr;
+
     if (range.__isset.table_format_params &&
         range.table_format_params.table_format_type == "transactional_hive") {
         std::unique_ptr<TransactionalHiveReader> tran_orc_reader =
                 TransactionalHiveReader::create_unique(std::move(orc_reader), _profile, _state,
-                                                       *_params, range, _io_ctx.get());
+                                                       *_params, range, _io_ctx.get(),
+                                                       file_meta_cache_ptr);
         init_status = tran_orc_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), &_not_single_slot_filter_conjuncts,
@@ -1269,7 +1278,8 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader) {
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "iceberg") {
         std::unique_ptr<IcebergOrcReader> iceberg_reader = IcebergOrcReader::create_unique(
-                std::move(orc_reader), _profile, _state, *_params, range, _kv_cache, _io_ctx.get());
+                std::move(orc_reader), _profile, _state, *_params, range, _kv_cache, _io_ctx.get(),
+                file_meta_cache_ptr);
 
         init_status = iceberg_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
@@ -1278,8 +1288,9 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader) {
         _cur_reader = std::move(iceberg_reader);
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "paimon") {
-        std::unique_ptr<PaimonOrcReader> paimon_reader = PaimonOrcReader::create_unique(
-                std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+        std::unique_ptr<PaimonOrcReader> paimon_reader =
+                PaimonOrcReader::create_unique(std::move(orc_reader), _profile, _state, *_params,
+                                               range, _io_ctx.get(), file_meta_cache_ptr);
 
         init_status = paimon_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
@@ -1289,8 +1300,9 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader) {
         _cur_reader = std::move(paimon_reader);
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hudi") {
-        std::unique_ptr<HudiOrcReader> hudi_reader = HudiOrcReader::create_unique(
-                std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+        std::unique_ptr<HudiOrcReader> hudi_reader =
+                HudiOrcReader::create_unique(std::move(orc_reader), _profile, _state, *_params,
+                                             range, _io_ctx.get(), file_meta_cache_ptr);
 
         init_status = hudi_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
@@ -1299,8 +1311,9 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader) {
         _cur_reader = std::move(hudi_reader);
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hive") {
-        std::unique_ptr<HiveOrcReader> hive_reader = HiveOrcReader::create_unique(
-                std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+        std::unique_ptr<HiveOrcReader> hive_reader =
+                HiveOrcReader::create_unique(std::move(orc_reader), _profile, _state, *_params,
+                                             range, _io_ctx.get(), file_meta_cache_ptr);
 
         init_status = hive_reader->init_reader(
                 _file_col_names, _colname_to_value_range, _push_down_conjuncts, _real_tuple_desc,
@@ -1451,13 +1464,13 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                 }
                 case TFileFormatType::FORMAT_ORC: {
                     std::unique_ptr<vectorized::OrcReader> orc_reader =
-                            vectorized::OrcReader::create_unique(_profile, _state, *_params, range,
-                                                                 1, _state->timezone(),
-                                                                 _io_ctx.get(),
-                                                                 external_info.enable_file_meta_cache
-                                                                 ? ExecEnv::GetInstance()->file_meta_cache()
-                                                                 : nullptr,
-                                                                 false);
+                            vectorized::OrcReader::create_unique(
+                                    _profile, _state, *_params, range, 1, _state->timezone(),
+                                    _io_ctx.get(),
+                                    external_info.enable_file_meta_cache
+                                            ? ExecEnv::GetInstance()->file_meta_cache()
+                                            : nullptr,
+                                    false);
 
                     RETURN_IF_ERROR(orc_reader->set_read_lines_mode(row_ids));
                     RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader)));

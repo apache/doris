@@ -101,7 +101,8 @@ public:
                   bool enable_lazy_mat = true);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
+                  io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
+                  bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
     // for unit test
@@ -141,7 +142,6 @@ public:
     Statistics& statistics() { return _statistics; }
 
     const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
-
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -296,9 +296,6 @@ private:
     bool _closed = false;
     io::IOContext* _io_ctx = nullptr;
     RuntimeState* _state = nullptr;
-    // Cache to save some common part such as file footer.
-    // Maybe null if not used
-    FileMetaCache* _meta_cache = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
     const TupleDescriptor* _tuple_descriptor = nullptr;

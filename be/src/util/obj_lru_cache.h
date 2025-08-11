@@ -99,7 +99,8 @@ public:
                                                   CachePriority::NORMAL);
             *cache_handle = CacheHandle {this, handle};
         } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "ObjLRUCache disable, can not insert.");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ObjLRUCache disable, can not insert.");
         }
     }
 
@@ -107,9 +108,8 @@ public:
 
     bool exceed_prune_limit() override;
 
-    bool enabled() const {
-        return _enabled;
-    }
+    bool enabled() const { return _enabled; }
+
 private:
     const bool _enabled;
 };
