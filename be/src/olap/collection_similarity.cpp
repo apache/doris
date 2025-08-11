@@ -27,6 +27,31 @@ void CollectionSimilarity::collect(segment_v2::rowid_t row_id, float score) {
     _bm25_scores[row_id] += score;
 }
 
+void CollectionSimilarity::get_bm25_scores(roaring::Roaring* row_bitmap,
+                                           vectorized::IColumn::MutablePtr& scores,
+                                           std::unique_ptr<std::vector<uint64_t>>& row_ids) const {
+    size_t num_results = row_bitmap->cardinality();
+    auto score_column = vectorized::ColumnFloat32::create(num_results);
+    auto& score_data = score_column->get_data();
+
+    row_ids->resize(num_results);
+
+    int32_t i = 0;
+    for (uint32_t row_id : *row_bitmap) {
+        (*row_ids)[i] = row_id;
+        auto it = _bm25_scores.find(row_id);
+        if (it != _bm25_scores.end()) {
+            score_data[i] = it->second;
+        } else {
+            score_data[i] = 0.0;
+        }
+        i++;
+    }
+
+    auto null_map = vectorized::ColumnUInt8::create(num_results, 0);
+    scores = vectorized::ColumnNullable::create(std::move(score_column), std::move(null_map));
+}
+
 void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
                                                 vectorized::IColumn::MutablePtr& scores,
                                                 std::unique_ptr<std::vector<uint64_t>>& row_ids,
