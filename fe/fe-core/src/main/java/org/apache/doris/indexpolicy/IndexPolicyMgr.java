@@ -17,7 +17,6 @@
 
 package org.apache.doris.indexpolicy;
 
-import org.apache.doris.analysis.CreateIndexPolicyStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.catalog.Database;
@@ -137,15 +136,6 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             writeUnlock();
         }
         LOG.info("Created index policy successfully: {}", indexPolicy);
-    }
-
-    public void createIndexPolicy(CreateIndexPolicyStmt stmt) throws UserException {
-        boolean isIfNotExists = stmt.isIfNotExists();
-        String policyName = stmt.getName();
-        IndexPolicyTypeEnum type = stmt.getType();
-        Map<String, String> properties = stmt.getProperties();
-
-        createIndexPolicy(isIfNotExists, policyName, type, properties);
     }
 
     public IndexPolicy getPolicyByName(String name) {
