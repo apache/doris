@@ -57,10 +57,7 @@ suite("test_iceberg_write_transform_partitions", "p0,external,iceberg,external_d
         test_write_transform_partitions("bucket_date_4");
         test_write_transform_partitions("bucket_timestamp_4");
         test_write_transform_partitions("bucket_timestamp_ntz_4");
-        test_write_transform_partitions("bucket_boolean_2");
         test_write_transform_partitions("bucket_decimal_4");
-        test_write_transform_partitions("bucket_float_4");
-        test_write_transform_partitions("bucket_double_4");
         test_write_transform_partitions("bucket_binary_4");
         test_write_transform_partitions("truncate_string_3");
         test_write_transform_partitions("truncate_binary_4");

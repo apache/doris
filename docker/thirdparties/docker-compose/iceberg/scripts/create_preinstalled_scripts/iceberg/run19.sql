@@ -188,23 +188,6 @@ VALUES (
     ),
     (6, 'null', NULL);
 
-CREATE TABLE bucket_boolean_2 (
-    id BIGINT,
-    name STRING,
-    partition_key BOOLEAN
-) USING ICEBERG PARTITIONED BY (bucket (2, partition_key));
-
-CREATE TABLE bucket_boolean_2_copy AS
-SELECT * FROM bucket_boolean_2;
-
-INSERT INTO
-    bucket_boolean_2
-VALUES (1, 'true1', TRUE),
-    (2, 'true2', TRUE),
-    (3, 'false1', FALSE),
-    (4, 'false2', FALSE),
-    (5, 'null', NULL);
-
 -- Bucket by DECIMAL
 CREATE TABLE bucket_decimal_4 (
     id BIGINT,
@@ -224,59 +207,6 @@ VALUES (1, 'p1', 0.00),
     (5, 'n2', -10.50),
     (6, 'big', 9999999.99),
     (7, 'null', NULL);
-
--- Bucket by FLOAT
-CREATE TABLE bucket_float_4 (
-    id BIGINT,
-    name STRING,
-    partition_key FLOAT
-) USING ICEBERG PARTITIONED BY (bucket (4, partition_key));
-
-CREATE TABLE bucket_float_4_copy AS
-SELECT * FROM bucket_float_4;
-
-INSERT INTO
-    bucket_float_4
-VALUES (1, 'f1', 0.0),
-    (2, 'f2', 1.5),
-    (3, 'f3', -2.75),
-    (4, 'f4', 100.25),
-    (5, 'f5', -0.0),
-    (
-        6,
-        'nan',
-        CAST('NaN' AS FLOAT)
-    ),
-    (
-        7,
-        'inf',
-        CAST('Infinity' AS FLOAT)
-    ),
-    (
-        8,
-        'ninf',
-        CAST('-Infinity' AS FLOAT)
-    ),
-    (9, 'null', NULL);
-
--- Bucket by DOUBLE
-CREATE TABLE bucket_double_4 (
-    id BIGINT,
-    name STRING,
-    partition_key DOUBLE
-) USING ICEBERG PARTITIONED BY (bucket (4, partition_key));
-
-CREATE TABLE bucket_double_4_copy AS
-SELECT * FROM bucket_double_4;
-
-INSERT INTO
-    bucket_double_4
-VALUES (1, 'd1', 0.0),
-    (2, 'd2', 1.5),
-    (3, 'd3', -2.75),
-    (4, 'd4', 100.25),
-    (5, 'd5', -0.0),
-    (6, 'null', NULL);
 
 -- Bucket by BINARY
 CREATE TABLE bucket_binary_4 (

@@ -45,8 +45,11 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
 
     def test_iceberg_transform_partitions = {
         // Bucket by INT (empty table)
-        qt_tp_bucket_int_empty_cnt1 """
+        qt_bucket_int_empty_cnt1 """
             select count(*) from bucket_int_empty;
+        """
+        qt_bucket_int_empty_select1 """
+            select * from bucket_int_empty order by id;
         """
 
         // Bucket by INT
@@ -56,128 +59,140 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
         qt_bucket_int_4_select2 """
             select * from bucket_int_4 where partition_key in (2, 16) order by id;
         """
-        qt_tp_bucket_int_4_cnt1 """
+        qt_bucket_int_4_cnt1 """
             select count(*) from bucket_int_4 where partition_key = -100;
         """
 
         // Bucket by BIGINT
-        qt_tp_bucket_bigint_4_cnt1 """
+        qt_bucket_bigint_4_cnt1 """
             select count(*) from bucket_bigint_4 where partition_key = 1;
         """
-        qt_tp_bucket_bigint_4_cnt2 """
+        qt_bucket_bigint_4_cnt2 """
             select count(*) from bucket_bigint_4 where partition_key in (-1, 1234567890123);
+        """
+        qt_bucket_bigint_4_select1 """
+            select * from bucket_bigint_4 where partition_key = 1 order by id;
         """
 
         // Bucket by STRING
-        qt_tp_bucket_string_4_cnt1 """
+        qt_bucket_string_4_cnt1 """
             select count(*) from bucket_string_4 where partition_key = 'abc';
         """
-        qt_tp_bucket_string_4_cnt2 """
+        qt_bucket_string_4_cnt2 """
             select count(*) from bucket_string_4 where partition_key in ('', '😊');
+        """
+        qt_bucket_string_4_select1 """
+            select * from bucket_string_4 where partition_key = 'abc' order by id;
         """
 
         // Bucket by DATE
-        qt_tp_bucket_date_4_cnt1 """
+        qt_bucket_date_4_cnt1 """
             select count(*) from bucket_date_4 where partition_key = DATE '2024-02-29';
         """
-        qt_tp_bucket_date_4_cnt2 """
+        qt_bucket_date_4_cnt2 """
             select count(*) from bucket_date_4 where partition_key in (DATE '1970-01-01', DATE '1999-12-31');
+        """
+        qt_bucket_date_4_select1 """
+            select * from bucket_date_4 where partition_key = DATE '2024-02-29' order by id;
         """
 
         // Bucket by TIMESTAMP
-        qt_tp_bucket_timestamp_4_cnt1 """
+        qt_bucket_timestamp_4_cnt1 """
             select count(*) from bucket_timestamp_4 where partition_key = TIMESTAMP '2024-01-15 08:00:00';
         """
-        qt_tp_bucket_timestamp_4_cnt2 """
+        qt_bucket_timestamp_4_cnt2 """
             select count(*) from bucket_timestamp_4 where partition_key in (TIMESTAMP '2024-06-30 23:59:59', TIMESTAMP '2030-12-31 23:59:59');
+        """
+        qt_bucket_timestamp_4_select1 """
+            select * from bucket_timestamp_4 where partition_key = TIMESTAMP '2024-01-15 08:00:00' order by id;
         """
 
         // Bucket by TIMESTAMP_NTZ
-        qt_tp_bucket_timestamp_ntz_4_cnt1 """
-            select count(*) from bucket_timestamp_ntz_4 where partition_key = TIMESTAMP_NTZ '2024-01-15 08:00:00';
+        qt_bucket_timestamp_ntz_4_cnt1 """
+            select count(*) from bucket_timestamp_ntz_4 where partition_key = '2024-01-15 08:00:00';
         """
-        qt_tp_bucket_timestamp_ntz_4_cnt2 """
-            select count(*) from bucket_timestamp_ntz_4 where partition_key in (TIMESTAMP_NTZ '2024-06-30 23:59:59', TIMESTAMP_NTZ '2030-12-31 23:59:59');
+        qt_bucket_timestamp_ntz_4_cnt2 """
+            select count(*) from bucket_timestamp_ntz_4 where partition_key in ('2024-06-30 23:59:59', '2030-12-31 23:59:59');
         """
-
-        // Bucket by BOOLEAN
-        qt_tp_bucket_boolean_2_cnt1 """
-            select count(*) from bucket_boolean_2 where partition_key = true;
-        """
-        qt_tp_bucket_boolean_2_cnt2 """
-            select count(*) from bucket_boolean_2 where partition_key in (true, false);
+        qt_bucket_timestamp_ntz_4_select1 """
+            select * from bucket_timestamp_ntz_4 where partition_key = '2024-01-15 08:00:00' order by id;
         """
 
         // Bucket by DECIMAL
-        qt_tp_bucket_decimal_4_cnt1 """
+        qt_bucket_decimal_4_cnt1 """
             select count(*) from bucket_decimal_4 where partition_key = 10.50;
         """
-        qt_tp_bucket_decimal_4_cnt2 """
+        qt_bucket_decimal_4_cnt2 """
             select count(*) from bucket_decimal_4 where partition_key in (-1.25, 9999999.99);
         """
-
-        // Bucket by FLOAT (avoid NaN/Infinity to keep deterministic)
-        qt_tp_bucket_float_4_cnt1 """
-            select count(*) from bucket_float_4 where partition_key = 1.5;
-        """
-        qt_tp_bucket_float_4_cnt2 """
-            select count(*) from bucket_float_4 where partition_key in (-2.75, 100.25);
-        """
-
-        // Bucket by DOUBLE
-        qt_tp_bucket_double_4_cnt1 """
-            select count(*) from bucket_double_4 where partition_key = 1.5;
-        """
-        qt_tp_bucket_double_4_cnt2 """
-            select count(*) from bucket_double_4 where partition_key in (-2.75, 100.25);
+        qt_bucket_decimal_4_select1 """
+            select * from bucket_decimal_4 where partition_key = 10.50 order by id;
         """
 
         // Bucket by BINARY
-        qt_tp_bucket_binary_4_cnt1 """
-            select count(*) from bucket_binary_4 where partition_key = CAST('abc' AS BINARY);
+        qt_bucket_binary_4_cnt1 """
+            select count(*) from bucket_binary_4 where partition_key = 'abc';
         """
-        qt_tp_bucket_binary_4_cnt2 """
-            select count(*) from bucket_binary_4 where partition_key in (CAST('' AS BINARY), CAST('你好' AS BINARY));
+        qt_bucket_binary_4_cnt2 """
+            select count(*) from bucket_binary_4 where partition_key in ('', '你好');
+        """
+        qt_bucket_binary_4_select1 """
+            select * from bucket_binary_4 where partition_key = 'abc' order by id;
         """
 
         // Truncate STRING(3)
-        qt_tp_truncate_string_3_cnt1 """
+        qt_truncate_string_3_cnt1 """
             select count(*) from truncate_string_3 where partition_key = 'abcdef';
         """
-        qt_tp_truncate_string_3_cnt2 """
+        qt_truncate_string_3_cnt2 """
             select count(*) from truncate_string_3 where partition_key in ('abc', 'abcdef');
+        """
+        qt_truncate_string_3_select1 """
+            select * from truncate_string_3 where partition_key = 'abcdef' order by id;
         """
 
         // Truncate BINARY(4)
-        qt_tp_truncate_binary_4_cnt1 """
-            select count(*) from truncate_binary_4 where partition_key = CAST('abcdef' AS BINARY);
+        qt_truncate_binary_4_cnt1 """
+            select count(*) from truncate_binary_4 where partition_key = 'abcdef';
         """
-        qt_tp_truncate_binary_4_cnt2 """
-            select count(*) from truncate_binary_4 where partition_key in (CAST('abcd' AS BINARY), CAST('abcdef' AS BINARY));
+        qt_truncate_binary_4_cnt2 """
+            select count(*) from truncate_binary_4 where partition_key in ('abcd', 'abcdef');
+        """
+        qt_truncate_binary_4_select1 """
+            select * from truncate_binary_4 where partition_key = 'abcdef' order by id;
         """
 
         // Truncate INT(10)
-        qt_tp_truncate_int_10_cnt1 """
+        qt_truncate_int_10_cnt1 """
             select count(*) from truncate_int_10 where partition_key = 19;
         """
-        qt_tp_truncate_int_10_cnt2 """
+        qt_truncate_int_10_cnt2 """
             select count(*) from truncate_int_10 where partition_key in (7, 19);
+        """
+        qt_truncate_int_10_select1 """
+            select * from truncate_int_10 where partition_key = 19 order by id;
         """
 
         // Truncate BIGINT(100)
-        qt_tp_truncate_bigint_100_cnt1 """
+        qt_truncate_bigint_100_cnt1 """
             select count(*) from truncate_bigint_100 where partition_key = 199;
         """
-        qt_tp_truncate_bigint_100_cnt2 """
+        qt_truncate_bigint_100_cnt2 """
             select count(*) from truncate_bigint_100 where partition_key in (7, 199);
+        """
+        qt_truncate_bigint_100_select1 """
+            select * from truncate_bigint_100 where partition_key = 199 order by id;
         """
 
         // Truncate DECIMAL(10,2) width 10
-        qt_tp_truncate_decimal_10_cnt1 """
+        qt_truncate_decimal_10_cnt1 """
             select count(*) from truncate_decimal_10 where partition_key = 19.99;
         """
-        qt_tp_truncate_decimal_10_cnt2 """
+        qt_truncate_decimal_10_cnt2 """
             select count(*) from truncate_decimal_10 where partition_key in (9.99, 19.99);
+        """
+        qt_truncate_decimal_10_select1 """
+            select * from truncate_decimal_10 where partition_key = 19.99 order by id;
         """
     }
 

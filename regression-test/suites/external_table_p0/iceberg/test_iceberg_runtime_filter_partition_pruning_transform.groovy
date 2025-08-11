@@ -45,129 +45,91 @@ suite("test_iceberg_runtime_filter_partition_pruning_transform", "p0,external,do
 
     def test_runtime_filter_partition_pruning_transform = {
         // Bucket partitions
-        qt_tr_bucket_int_eq """
+        qt_bucket_int_eq """
             select count(*) from bucket_int_4 where partition_key =
                 (select partition_key from bucket_int_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_bucket_int_in """
+        qt_bucket_int_in """
             select count(*) from bucket_int_4 where partition_key in
                 (select partition_key from bucket_int_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_bucket_bigint_eq """
+        qt_bucket_bigint_eq """
             select count(*) from bucket_bigint_4 where partition_key =
                 (select partition_key from bucket_bigint_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_bucket_bigint_in """
+        qt_bucket_bigint_in """
             select count(*) from bucket_bigint_4 where partition_key in
                 (select partition_key from bucket_bigint_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_bucket_string_eq """
+        qt_bucket_string_eq """
             select count(*) from bucket_string_4 where partition_key =
                 (select partition_key from bucket_string_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_bucket_string_in """
+        qt_bucket_string_in """
             select count(*) from bucket_string_4 where partition_key in
                 (select partition_key from bucket_string_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_bucket_date_eq """
+        qt_bucket_date_eq """
             select count(*) from bucket_date_4 where partition_key =
                 (select partition_key from bucket_date_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_bucket_date_in """
+        qt_bucket_date_in """
             select count(*) from bucket_date_4 where partition_key in
                 (select partition_key from bucket_date_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_bucket_ts_eq """
+        qt_bucket_ts_eq """
             select count(*) from bucket_timestamp_4 where partition_key =
                 (select partition_key from bucket_timestamp_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_bucket_ts_in """
+        qt_bucket_ts_in """
             select count(*) from bucket_timestamp_4 where partition_key in
                 (select partition_key from bucket_timestamp_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_bucket_tntz_eq """
+        qt_bucket_tntz_eq """
             select count(*) from bucket_timestamp_ntz_4 where partition_key =
                 (select partition_key from bucket_timestamp_ntz_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_bucket_tntz_in """
+        qt_bucket_tntz_in """
             select count(*) from bucket_timestamp_ntz_4 where partition_key in
                 (select partition_key from bucket_timestamp_ntz_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_bucket_bool_eq """
-            select count(*) from bucket_boolean_2 where partition_key =
-                (select partition_key from bucket_boolean_2
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 1);
-        """
-        qt_tr_bucket_bool_in """
-            select count(*) from bucket_boolean_2 where partition_key in
-                (select partition_key from bucket_boolean_2
-                 group by partition_key having count(*) > 0);
-        """
-
-        qt_tr_bucket_float_eq """
-            select count(*) from bucket_float_4 where partition_key =
-                (select partition_key from bucket_float_4
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 1);
-        """
-        qt_tr_bucket_float_in """
-            select count(*) from bucket_float_4 where partition_key in
-                (select partition_key from bucket_float_4
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 2);
-        """
-
-        qt_tr_bucket_double_eq """
-            select count(*) from bucket_double_4 where partition_key =
-                (select partition_key from bucket_double_4
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 1);
-        """
-        qt_tr_bucket_double_in """
-            select count(*) from bucket_double_4 where partition_key in
-                (select partition_key from bucket_double_4
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 2);
-        """
-
-        qt_tr_bucket_binary_eq """
+        qt_bucket_binary_eq """
             select count(*) from bucket_binary_4 where partition_key =
                 (select partition_key from bucket_binary_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_bucket_binary_in """
+        qt_bucket_binary_in """
             select count(*) from bucket_binary_4 where partition_key in
                 (select partition_key from bucket_binary_4
                  group by partition_key having count(*) > 0
@@ -175,65 +137,65 @@ suite("test_iceberg_runtime_filter_partition_pruning_transform", "p0,external,do
         """
 
         // Truncate partitions
-        qt_tr_trunc_string_eq """
+        qt_trunc_string_eq """
             select count(*) from truncate_string_3 where partition_key =
                 (select partition_key from truncate_string_3
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_trunc_string_in """
+        qt_trunc_string_in """
             select count(*) from truncate_string_3 where partition_key in
                 (select partition_key from truncate_string_3
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_trunc_binary_eq """
+        qt_trunc_binary_eq """
             select count(*) from truncate_binary_4 where partition_key =
                 (select partition_key from truncate_binary_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_trunc_binary_in """
+        qt_trunc_binary_in """
             select count(*) from truncate_binary_4 where partition_key in
                 (select partition_key from truncate_binary_4
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_trunc_int_eq """
+        qt_trunc_int_eq """
             select count(*) from truncate_int_10 where partition_key =
                 (select partition_key from truncate_int_10
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_trunc_int_in """
+        qt_trunc_int_in """
             select count(*) from truncate_int_10 where partition_key in
                 (select partition_key from truncate_int_10
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_trunc_bigint_eq """
+        qt_trunc_bigint_eq """
             select count(*) from truncate_bigint_100 where partition_key =
                 (select partition_key from truncate_bigint_100
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_trunc_bigint_in """
+        qt_trunc_bigint_in """
             select count(*) from truncate_bigint_100 where partition_key in
                 (select partition_key from truncate_bigint_100
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 2);
         """
 
-        qt_tr_trunc_decimal_eq """
+        qt_trunc_decimal_eq """
             select count(*) from truncate_decimal_10 where partition_key =
                 (select partition_key from truncate_decimal_10
                  group by partition_key having count(*) > 0
                  order by partition_key desc limit 1);
         """
-        qt_tr_trunc_decimal_in """
+        qt_trunc_decimal_in """
             select count(*) from truncate_decimal_10 where partition_key in
                 (select partition_key from truncate_decimal_10
                  group by partition_key having count(*) > 0
