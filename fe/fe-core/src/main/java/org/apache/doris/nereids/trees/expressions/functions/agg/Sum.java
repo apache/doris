@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindow
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -59,8 +58,7 @@ public class Sum extends NullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
@@ -100,9 +98,8 @@ public class Sum extends NullableAggregateFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
-        if (!argType.isNumericType() && !argType.isBooleanType()
-                && !argType.isNullType() && !argType.isStringLikeType()) {
-            throw new AnalysisException("sum requires a numeric, boolean or string parameter: " + this.toSql());
+        if (!argType.isNumericType() && !argType.isNullType() && !argType.isStringLikeType()) {
+            throw new AnalysisException("sum requires a numeric or string parameter: " + this.toSql());
         }
     }
 
