@@ -4725,6 +4725,8 @@ private:
 
             res_offsets.push_back(res_size);
         }
+        DCHECK_GE(res_chars.capacity(), res_size);
+        res_chars.resize(res_size);
     }
 
     void static build_translate_map_ascii(AsciiMap& map, const StringRef& from_str,
