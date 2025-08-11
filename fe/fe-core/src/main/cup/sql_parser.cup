@@ -3409,11 +3409,6 @@ show_param ::=
     {:
         RESULT = new ShowProcedureStmt();
     :}
-    /* engines */
-    | opt_storage KW_ENGINES
-    {:
-        RESULT = new ShowEnginesStmt();
-    :}
     /* Show alter table statement: used to show process of alter table statement */
     | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
