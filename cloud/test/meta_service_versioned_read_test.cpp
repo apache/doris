@@ -349,6 +349,41 @@ TEST(MetaServiceVersionedReadTest, BatchGetVersionFallback) {
     ASSERT_EQ(resp.versions_size(), N);
 }
 
+TEST(MetaServiceVersionedReadTest, GetTablet) {
+    auto service = get_meta_service(false);
+    std::string instance_id = "test_cloud_instance_id";
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(service.get(), instance_id);
+
+    int64_t table_id = 2;
+    int64_t index_id = 3;
+    int64_t partition_id = 4;
+    int64_t tablet_id = 5;
+
+    // Create tablet
+    create_tablet(service.get(), table_id, index_id, partition_id, tablet_id);
+
+    {
+        // Get the tablet meta
+        brpc::Controller cntl;
+        GetTabletRequest req;
+        req.set_cloud_unique_id(fmt::format("1:{}:1", instance_id));
+        req.set_tablet_id(tablet_id);
+        GetTabletResponse resp;
+        service->get_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+                << " status is " << resp.status().DebugString();
+        ASSERT_EQ(resp.tablet_meta().table_id(), table_id);
+        ASSERT_EQ(resp.tablet_meta().index_id(), index_id);
+        ASSERT_EQ(resp.tablet_meta().partition_id(), partition_id);
+        ASSERT_EQ(resp.tablet_meta().tablet_id(), tablet_id);
+
+        // Verify the tablet schema
+        ASSERT_TRUE(resp.tablet_meta().has_schema());
+    }
+}
+
 TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
     auto service = get_meta_service(false);
     std::string instance_id = "test_cloud_instance_id";
