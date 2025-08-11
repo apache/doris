@@ -749,6 +749,7 @@ public abstract class ConnectProcessor {
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
+            result.setAffectedRows(ctx.getState().getAffectedRows());
         } else {
             ErrorCode errorCode = ctx.getState().getErrorCode();
             if (errorCode != null) {
