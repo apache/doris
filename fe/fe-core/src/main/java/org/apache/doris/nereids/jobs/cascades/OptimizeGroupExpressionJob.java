@@ -22,9 +22,9 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.exploration.SplitAgg;
-import org.apache.doris.nereids.rules.exploration.SplitAggMultiPhase;
-import org.apache.doris.nereids.rules.exploration.SplitAggMultiPhaseWithoutGbyKey;
+import org.apache.doris.nereids.rules.implementation.SplitAgg;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 
 import com.google.common.collect.ImmutableList;
 

@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -52,6 +54,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -93,27 +96,27 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
 
     Plan splitToFourPhase(LogicalAggregate<? extends Plan> aggregate) {
         Map<AggregateFunction, Alias> localAggFuncToAlias = new LinkedHashMap<>();
-        LogicalAggregate<? extends Plan> secondAgg = splitDeduplicateTwoPhase(aggregate, localAggFuncToAlias,
+        Plan secondAgg = splitDeduplicateTwoPhase(aggregate, localAggFuncToAlias,
                 Utils.fastToImmutableList(aggregate.getDistinctArguments()), (Set) aggregate.getDistinctArguments());
         return splitDistinctTwoPhase(aggregate, localAggFuncToAlias, secondAgg);
     }
 
     Plan splitToThreePhase(LogicalAggregate<? extends Plan> aggregate) {
-        AggregateParam inputToResult = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
+        AggregateParam inputToResult = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
         AggregateParam paramForAggFunc = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> localAggFuncToAlias = new LinkedHashMap<>();
         Set<NamedExpression> keySet = getAllKeySet(aggregate);
-        LogicalAggregate<? extends Plan> localAgg = splitDeduplicateOnePhase(aggregate, keySet, inputToResult,
+        Plan localAgg = splitDeduplicateOnePhase(aggregate, keySet, inputToResult,
                 paramForAggFunc, localAggFuncToAlias, aggregate.child(), Utils.fastToImmutableList(keySet));
         return splitDistinctTwoPhase(aggregate, localAggFuncToAlias, localAgg);
     }
 
     // 如果是sum/count等场景,可以使用
-    private LogicalAggregate<? extends Plan> twoPhaseAggregateWithFinalMultiDistinct(
+    private PhysicalHashAggregate<? extends Plan> twoPhaseAggregateWithFinalMultiDistinct(
             LogicalAggregate<? extends Plan> logicalAgg) {
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
 
-        AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
+        AggregateParam inputToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
 
         Map<AggregateFunction, Alias> originFuncToAliasPhase1 = new HashMap<>();
         for (AggregateFunction function : aggregateFunctions) {
@@ -125,11 +128,12 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(originFuncToAliasPhase1.values())
                 .build();
-        LogicalAggregate<? extends Plan> anyLocalAgg = logicalAgg.withAggParam(localAggOutput,
-                logicalAgg.getGroupByExpressions(), inputToResultParam, null,
-                Utils.fastToImmutableList(logicalAgg.getDistinctArguments()), logicalAgg.child());
+        Plan anyLocalAgg = new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), localAggOutput,
+                Optional.of(Utils.fastToImmutableList(logicalAgg.getDistinctArguments())), inputToResultParam,
+                AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), inputToResultParam),
+                null, null, logicalAgg.child());
 
-        AggregateParam param = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false, false);
+        AggregateParam param = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
         // 如果是普通聚合函数，那么就正常处理
         // 如果是distinct聚合函数，count_distinct -> 上层变成sum0; sum_distinct -> 上层还是sum;
         // group_concat_distinct -> 上层还是group_concat 。
@@ -163,11 +167,12 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
                         return outputChild;
                     }
                 });
-        return logicalAgg.withAggParam(globalOutput, logicalAgg.getGroupByExpressions(),
-                param, logicalAgg.getLogicalProperties(), null, anyLocalAgg);
+        return new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), globalOutput, param,
+                AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), param),
+                logicalAgg.getLogicalProperties(), null, anyLocalAgg);
     }
 
-    private boolean canUseFinalMultiDistinct(LogicalAggregate<? extends Plan> agg) {
+    private boolean canUseFinalMultiDistinct(Aggregate<? extends Plan> agg) {
         for (AggregateFunction aggFunc : agg.getAggregateFunctions()) {
             if (aggFunc.isDistinct()) {
                 if (!finalMultiDistinctSupportFunc.contains(aggFunc.getClass())) {

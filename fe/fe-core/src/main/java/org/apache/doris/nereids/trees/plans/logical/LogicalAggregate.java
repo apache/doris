@@ -367,14 +367,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 partitionExpressions, normalizedChild);
     }
 
-    public LogicalAggregate<? extends Plan> withAggParam(List<NamedExpression> newOutput, List<Expression> groupBy,
-            AggregateParam aggregateParam, LogicalProperties logicalProperties,
-            List<Expression> partitionExpressions, Plan newChild) {
-        return new LogicalAggregate<>(groupBy, newOutput, true, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.ofNullable(logicalProperties),
-                aggregateParam, Optional.ofNullable(partitionExpressions), newChild);
-    }
-
     private boolean isUniqueGroupByUnique(NamedExpression namedExpression) {
         if (namedExpression.children().size() != 1) {
             return false;

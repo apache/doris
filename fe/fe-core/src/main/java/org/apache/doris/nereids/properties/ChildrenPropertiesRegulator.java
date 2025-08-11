@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -163,8 +163,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     private boolean shouldBanOnePhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
         return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
                 && children.get(0).getPlan() instanceof PhysicalDistribute
-                && !(children.get(0).children().get(0).getLogicalExpressions().get(0).getPlan()
-                instanceof LogicalCTEConsumer)
+                && !(children.get(0).children().get(0).getPhysicalExpressions().get(0).getPlan()
+                instanceof PhysicalCTEConsumer)
                 // agg(group by x)-union all(A, B)
                 // no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
                 // and hence we forbid one phase agg

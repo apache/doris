@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -37,12 +39,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**SplitAggRule*/
 public abstract class SplitAggRule {
-    protected LogicalAggregate<? extends Plan> splitDeduplicateOnePhase(LogicalAggregate<? extends Plan> aggregate,
+    protected PhysicalHashAggregate<? extends Plan> splitDeduplicateOnePhase(LogicalAggregate<? extends Plan> aggregate,
             Set<NamedExpression> localAggGroupBySet, AggregateParam inputToBufferParam, AggregateParam paramForAggFunc,
             Map<AggregateFunction, Alias> localAggFunctionToAlias, Plan child, List<Expression> partitionExpressions) {
         aggregate.getAggregateFunctions().stream()
@@ -61,18 +64,18 @@ public abstract class SplitAggRule {
                 .addAll(localAggFunctionToAlias.values())
                 .build();
         List<Expression> localAggGroupBy = Utils.fastToImmutableList(localAggGroupBySet);
-
-        return aggregate.withAggParam(localAggOutput, localAggGroupBy,
-                inputToBufferParam, null, partitionExpressions, child);
+        return new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput, Optional.ofNullable(partitionExpressions),
+                inputToBufferParam, AggregateUtils.maybeUsingStreamAgg(localAggGroupBy, inputToBufferParam),
+                null, null, child);
     }
 
-    protected LogicalAggregate<? extends Plan> splitDeduplicateTwoPhase(LogicalAggregate<? extends Plan> aggregate,
+    protected PhysicalHashAggregate<? extends Plan> splitDeduplicateTwoPhase(LogicalAggregate<? extends Plan> aggregate,
             Map<AggregateFunction, Alias> middleAggFunctionToAlias, List<Expression> partitionExpressions,
             Set<NamedExpression> localAggGroupBySet) {
         // first phase
         AggregateParam inputToBufferParam = AggregateParam.LOCAL_BUFFER;
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new LinkedHashMap<>();
-        LogicalAggregate<? extends Plan> localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet,
+        PhysicalHashAggregate<? extends Plan> localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet,
                 inputToBufferParam, inputToBufferParam, localAggFunctionToAlias, aggregate.child(), ImmutableList.of());
 
         // second phase
@@ -91,8 +94,10 @@ public abstract class SplitAggRule {
                 .addAll(localAggGroupBySet)
                 .addAll(middleAggFunctionToAlias.values())
                 .build();
-        return aggregate.withAggParam(middleAggOutput, localAgg.getGroupByExpressions(),
-                bufferToBufferParam, null, partitionExpressions, localAgg);
+        return new PhysicalHashAggregate<>(localAgg.getGroupByExpressions(), middleAggOutput,
+                Optional.ofNullable(partitionExpressions), bufferToBufferParam,
+                AggregateUtils.maybeUsingStreamAgg(localAgg.getGroupByExpressions(), bufferToBufferParam),
+                null, null, localAgg);
     }
 
     protected Set<NamedExpression> getAllKeySet(LogicalAggregate<? extends Plan> aggregate) {
@@ -103,7 +108,7 @@ public abstract class SplitAggRule {
                 .build();
     }
 
-    protected LogicalAggregate<? extends Plan> splitDistinctTwoPhase(LogicalAggregate<? extends Plan> aggregate,
+    protected PhysicalHashAggregate<? extends Plan> splitDistinctTwoPhase(LogicalAggregate<? extends Plan> aggregate,
             Map<AggregateFunction, Alias> middleAggFunctionToAlias, Plan child) {
         AggregateParam thirdParam = new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> aggFuncToAliasThird = new LinkedHashMap<>();
@@ -127,8 +132,8 @@ public abstract class SplitAggRule {
                 .addAll((List) aggregate.getGroupByExpressions())
                 .addAll(aggFuncToAliasThird.values())
                 .build();
-        LogicalAggregate<? extends Plan> thirdAgg = aggregate.withAggParam(thirdAggOutput,
-                aggregate.getGroupByExpressions(), thirdParam, null, null, child);
+        Plan thirdAgg = new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), thirdAggOutput, thirdParam,
+                AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), thirdParam), null, null, child);
 
         // fourth phase
         AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT);
@@ -150,7 +155,9 @@ public abstract class SplitAggRule {
                     return expr;
                 }
         );
-        return aggregate.withAggParam(globalOutput, aggregate.getGroupByExpressions(),
-                fourthParam, aggregate.getLogicalProperties(), aggregate.getGroupByExpressions(), thirdAgg);
+        return new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), globalOutput,
+                Optional.ofNullable(aggregate.getGroupByExpressions()), fourthParam,
+                AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), fourthParam),
+                aggregate.getLogicalProperties(), null, thirdAgg);
     }
 }

@@ -19,6 +19,9 @@ package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.IntersectReorder;
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
+import org.apache.doris.nereids.rules.implementation.SplitAgg;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLeftAssociateProject;
@@ -47,7 +50,6 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilt
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
-import org.apache.doris.nereids.rules.implementation.LogicalAggregateToPhysicalHashAggregate;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumerToPhysicalCTEConsumer;
@@ -201,6 +203,9 @@ public class RuleSet {
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
             // .add(new AggregateStrategies())
+            .add(SplitAgg.INSTANCE)
+            .add(SplitAggMultiPhase.INSTANCE)
+            .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
             .add(new LogicalUnionToPhysicalUnion())
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())
@@ -213,7 +218,6 @@ public class RuleSet {
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .add(new LogicalDictionarySinkToPhysicalDictionarySink())
-            .add(new LogicalAggregateToPhysicalHashAggregate())
             .build();
 
     // left-zig-zag tree is used when column stats are not available.

@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -29,7 +30,10 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -46,14 +50,36 @@ public class SplitAgg extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate()
-                .when(agg -> agg.getAggregateParam().needSplit)
                 .whenNot(Aggregate::hasDistinctFunc)
-                .thenApply(ctx -> rewrite(ctx.root))
+                .thenApplyMulti(ctx -> rewrite(ctx.root))
                 .toRule(RuleType.SPLIT_AGG);
     }
 
-    private Plan rewrite(LogicalAggregate<? extends Plan> aggregate) {
-        // 如果认为什么条件下不需要拆分,使用一阶段AGG更快,那么可以在这里进行判断.
+    private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
+        return ImmutableList.of(splitTwoPhase(aggregate), implementOnePhase(aggregate));
+    }
+
+    private PhysicalHashAggregate<? extends Plan> implementOnePhase(LogicalAggregate<? extends Plan> logicalAgg) {
+        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+        boolean changed = false;
+        for (NamedExpression expr : logicalAgg.getOutputExpressions()) {
+            if (expr instanceof Alias && expr.child(0) instanceof AggregateFunction) {
+                Alias alias = (Alias) expr;
+                AggregateExpression aggExpr = new AggregateExpression((AggregateFunction) expr.child(0),
+                        logicalAgg.getAggregateParam());
+                builder.add(alias.withChildren(ImmutableList.of(aggExpr)));
+                changed = true;
+            } else {
+                builder.add(expr);
+            }
+        }
+        List<NamedExpression> aggOutput = changed ? builder.build() : logicalAgg.getOutputExpressions();
+        return new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), aggOutput, AggregateParam.GLOBAL_RESULT,
+                AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), AggregateParam.GLOBAL_RESULT),
+                null, null, logicalAgg.child());
+    }
+
+    private PhysicalHashAggregate<? extends Plan> splitTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
         Map<AggregateFunction, Alias> aggFunctionToAlias = aggregate.getAggregateFunctions().stream()
                 .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
@@ -65,8 +91,10 @@ public class SplitAgg extends OneExplorationRuleFactory {
                 .addAll(aggFunctionToAlias.values())
                 .build();
 
-        LogicalAggregate<? extends Plan> localAgg = aggregate.withAggParam(localAggOutput,
-                aggregate.getGroupByExpressions(), inputToBufferParam, null, null, aggregate.child());
+        PhysicalHashAggregate<? extends Plan> localAgg = new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(),
+                localAggOutput, inputToBufferParam,
+                AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), inputToBufferParam),
+                null, null, aggregate.child());
 
         //global agg做final聚合
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
@@ -82,7 +110,17 @@ public class SplitAgg extends OneExplorationRuleFactory {
                     AggregateFunction aggFunc = (AggregateFunction) expr;
                     return new AggregateExpression(aggFunc, bufferToResultParam, alias.toSlot());
                 });
-        return aggregate.withAggParam(globalAggOutput, aggregate.getGroupByExpressions(),
-                bufferToResultParam, aggregate.getLogicalProperties(), null, localAgg);
+        return new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), globalAggOutput, bufferToResultParam,
+                AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), bufferToResultParam),
+                aggregate.getLogicalProperties(), null, localAgg);
+    }
+
+    private boolean shouldUseLocalAgg(LogicalAggregate<? extends Plan> aggregate) {
+        Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
+        Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
+        // 如果ndv高的话，就不进行local agg了
+        double rows = aggChildStats.getRowCount();
+        double gbyNdv = aggStats.getRowCount();
+        return gbyNdv * 10 < rows;
     }
 }

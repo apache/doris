@@ -31,7 +31,6 @@ public class AggregateParam {
 
     public final AggPhase aggPhase;
     public final AggMode aggMode;
-    public final boolean needSplit;
     // TODO: this is a short-term plan to process count(distinct a, b) correctly
     public final boolean canBeBanned;
 
@@ -41,12 +40,7 @@ public class AggregateParam {
     }
 
     /** AggregateParam */
-    public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean needSplit) {
-        this(aggPhase, aggMode, true, needSplit);
-    }
-
-    /** AggregateParam */
-    public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean canBeBanned, boolean needSplit) {
+    public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean canBeBanned) {
         this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
         this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
         this.canBeBanned = canBeBanned;
@@ -54,7 +48,7 @@ public class AggregateParam {
         // 如果指定了false,那么不拆分, 如果指定了true,不代表需要拆分,
         // 需要同时满足(!aggMode.productAggregateBuffer && !aggMode.consumeAggregateBuffer)
         // needSplit && (!aggMode.productAggregateBuffer && !aggMode.consumeAggregateBuffer) 才需要拆分
-        this.needSplit = needSplit && (!aggMode.productAggregateBuffer && !aggMode.consumeAggregateBuffer);
+        // this.needSplit = needSplit && (!aggMode.productAggregateBuffer && !aggMode.consumeAggregateBuffer);
     }
 
     @Override
@@ -67,8 +61,7 @@ public class AggregateParam {
         }
         AggregateParam that = (AggregateParam) o;
         return Objects.equals(aggPhase, that.aggPhase)
-                && Objects.equals(aggMode, that.aggMode)
-                && needSplit == that.needSplit;
+                && Objects.equals(aggMode, that.aggMode);
     }
 
     @Override
@@ -81,7 +74,7 @@ public class AggregateParam {
         return "AggregateParam{"
                 + "aggPhase=" + aggPhase
                 + ", aggMode=" + aggMode
-                + ", needSplit=" + needSplit
+                // + ", needSplit=" + needSplit
                 + '}';
     }
 }

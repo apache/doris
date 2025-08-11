@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
@@ -82,6 +83,13 @@ public class AggregateUtils {
                 && logicalAggregate.getAggregateParam().aggPhase.isLocal();
     }
 
+    public static boolean maybeUsingStreamAgg(List<Expression> groupExpressions, AggregateParam param) {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && !ctx.getSessionVariable().disableStreamPreaggregations
+                && !groupExpressions.isEmpty()
+                && param.aggPhase.isLocal();
+    }
+
     /**hasUnknownStatistics*/
     public static boolean hasUnknownStatistics(Aggregate<? extends Plan> aggregate,
             Statistics inputStatistics) {
@@ -97,10 +105,15 @@ public class AggregateUtils {
         return false;
     }
 
+    /**
+     * agg(count(distinct a) group by b)
+     * ->
+     * agg(count(a) group by b) -> gbyNdv是group by b的ndv数量
+     *   +--agg(group by a,b) -> rows是group by a,b的ndv数量
+     * */
     public static boolean shouldUseLocalAgg(Statistics aggStats, Statistics aggChildStats,
             Set<? extends Expression> childGroupByExprs) {
         double gbyNdv = aggStats.getRowCount();
-        // 根据childGroupByExprs和aggChildStats估算rows
         double rows = StatsCalculator.estimateGroupByRowCount(Utils.fastToImmutableList(childGroupByExprs),
                 aggChildStats);
         return gbyNdv * 10 < rows;
