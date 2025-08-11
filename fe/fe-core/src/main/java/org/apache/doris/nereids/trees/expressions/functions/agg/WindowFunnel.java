@@ -97,7 +97,7 @@ public class WindowFunnel extends NullableAggregateFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         FunctionSignature functionSignature = super.computeSignature(signature);
-       if (functionSignature.getArgType(2) instanceof DateV2Type) {
+        if (functionSignature.getArgType(2) instanceof DateV2Type) {
             return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->
                     (index == 2) ? DateTimeV2Type.SYSTEM_DEFAULT : originType
             );
