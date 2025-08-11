@@ -21,6 +21,8 @@
 
 #include <vector>
 
+#include "vec/common/string_ref.h"
+
 using doris::vectorized::JSONDataParser;
 using doris::vectorized::SimdJSONParser;
 using doris::vectorized::ParseConfig;
@@ -252,4 +254,91 @@ TEST(JsonParserTest, TestNestedArrayWithDifferentConfigs) {
     config2.enable_flatten_nested = true;
 
     EXPECT_ANY_THROW(parser.parse(json1.c_str(), json1.size(), config2));
+}
+
+// Test case for directly calling handleNewPath to cover the if (!nested_key.empty()) branch
+TEST(JsonParserTest, TestHandleNewPathDirectCall) {
+    JSONDataParser<SimdJSONParser> parser;
+
+    // Create a ParseArrayContext
+    JSONDataParser<SimdJSONParser>::ParseArrayContext ctx;
+    ctx.current_size = 1;
+    ctx.total_size = 2;
+    ctx.has_nested_in_flatten = true;
+    ctx.is_top_array = true;
+
+    // Create a path with nested parts
+    doris::vectorized::PathInData::Parts path;
+    // Create a nested part (is_nested = true)
+    path.emplace_back("nested_key", true, 0); // is_nested = true
+    path.emplace_back("inner_key", false, 0); // is_nested = false
+
+    // Create a Field with array type (required for getNameOfNested to return non-empty)
+    doris::vectorized::Array array_data;
+    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(1));
+    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(2));
+    doris::vectorized::Field value =
+            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
+
+    // Create hash for the path
+    UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
+
+    // Call handleNewPath directly
+    // This should trigger the if (!nested_key.empty()) branch
+    parser.handleNewPath(hash, path, value, ctx);
+
+    // Verify that the nested_sizes_by_key was populated
+    EXPECT_EQ(ctx.nested_sizes_by_key.size(), 1);
+
+    // Verify that the arrays_by_path was populated
+    EXPECT_EQ(ctx.arrays_by_path.size(), 1);
+    EXPECT_TRUE(ctx.arrays_by_path.find(hash) != ctx.arrays_by_path.end());
+}
+
+// Test case for testing the else branch in handleNewPath (when nested_sizes is not empty)
+TEST(JsonParserTest, TestHandleNewPathElseBranch) {
+    JSONDataParser<SimdJSONParser> parser;
+
+    // Create a ParseArrayContext
+    JSONDataParser<SimdJSONParser>::ParseArrayContext ctx;
+    ctx.current_size = 2; // Start with size 2
+    ctx.total_size = 3;
+    ctx.has_nested_in_flatten = true;
+    ctx.is_top_array = true;
+
+    // Create a path with nested parts
+    doris::vectorized::PathInData::Parts path;
+    path.emplace_back("nested_key", true, 0);
+    path.emplace_back("inner_key", false, 0);
+
+    // Create a Field with array type
+    doris::vectorized::Array array_data;
+    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(1));
+    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(2));
+    doris::vectorized::Field value =
+            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
+
+    // Create hash for the path
+    UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
+
+    // First call to populate nested_sizes_by_key
+    parser.handleNewPath(hash, path, value, ctx);
+
+    // Verify nested_sizes_by_key was populated
+    EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key")).size(), 3);
+    EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key"))[0], 0);
+
+    // Create another array with same size
+    doris::vectorized::Array array_data2;
+    array_data2.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(3));
+    array_data2.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(4));
+    doris::vectorized::Field value2 =
+            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data2));
+
+    // Second call should trigger the else branch (nested_sizes is not empty)
+    parser.handleNewPath(hash, path, value2, ctx);
+
+    // Verify nested_sizes_by_key was updated
+    EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key")).size(), 2);
+    EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key"))[1], 2);
 }
