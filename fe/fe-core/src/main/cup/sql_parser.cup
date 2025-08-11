@@ -3660,11 +3660,7 @@ job_id_list ::=
     ;
 
 cancel_param ::=
-    KW_LOAD opt_db:db opt_wild_where
-    {:
-        RESULT = new CancelLoadStmt(db, parser.where);
-    :}
-    | KW_EXPORT opt_db:db opt_wild_where
+    KW_EXPORT opt_db:db opt_wild_where
     {:
         RESULT = new CancelExportStmt(db, parser.where);
     :}
