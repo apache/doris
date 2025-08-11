@@ -290,6 +290,8 @@ public:
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
 
+    // For each given rowset not in active use, clears its file cache and returns its
+    // ID, segment count, and index file names as RecycledRowsets entries.
     static std::vector<RecycledRowsets> recycle_cached_data(
             const std::vector<RowsetSharedPtr>& rowsets);
 
