@@ -24,6 +24,7 @@
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <google/protobuf/repeated_ptr_field.h>
 #include <google/protobuf/util/json_util.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/schema.h>
@@ -779,6 +780,9 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     TabletStatsPB stats_pb;
     stats_pb.set_num_rowsets(1);
     stats_pb.set_num_segments(0);
+    if (request->has_db_id()) {
+        stats_pb.mutable_idx()->set_db_id(request->db_id());
+    }
     stats_pb.mutable_idx()->set_table_id(table_id);
     stats_pb.mutable_idx()->set_index_id(index_id);
     stats_pb.mutable_idx()->set_partition_id(partition_id);
@@ -792,16 +796,25 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     txn->put(stats_key, stats_val);
     LOG(INFO) << "put tablet stats, tablet_id=" << tablet_id << " key=" << hex(stats_key);
     if (is_versioned_write) {
-        std::string versioned_stats_key =
-                versioned::tablet_load_stats_key({instance_id, tablet_id});
-        if (!versioned::document_put(txn.get(), versioned_stats_key, std::move(stats_pb))) {
+        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+        TabletStatsPB stats_pb_copy(stats_pb);
+        if (!versioned::document_put(txn.get(), load_stats_key, std::move(stats_pb_copy))) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
             msg = fmt::format("failed to serialize versioned tablet stats, key={}",
-                              hex(versioned_stats_key));
+                              hex(load_stats_key));
             return;
         }
-        LOG(INFO) << "put versioned tablet stats, tablet_id=" << tablet_id
-                  << " key=" << hex(stats_key);
+        std::string compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        if (!versioned::document_put(txn.get(), compact_stats_key, std::move(stats_pb))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize versioned tablet compact stats, key={}",
+                              hex(compact_stats_key));
+            return;
+        }
+        LOG(INFO) << "put versioned tablet load and compact stats, tablet_id=" << tablet_id
+                  << " load_stats_key=" << hex(stats_key)
+                  << " compact_stats_key=" << hex(compact_stats_key);
     }
 
     err = txn->commit();
@@ -2670,6 +2683,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
     int64_t req_cp = request->cumulative_point();
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader reader(instance_id, txn_kv_.get());
     do {
         TEST_SYNC_POINT_CALLBACK("get_rowset:begin", &tablet_id);
         std::unique_ptr<Transaction> txn;
@@ -2693,7 +2707,14 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 return;
             }
         } else {
-            CHECK(false) << "versioned read is not supported yet";
+            err = reader.get_tablet_index(txn.get(), tablet_id, &idx);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get versioned tablet index, err={}, tablet_id={}", err,
+                                  tablet_id);
+                LOG(WARNING) << msg;
+                return;
+            }
         }
         DCHECK(request->has_idx());
 
@@ -2709,7 +2730,17 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     return;
                 }
             } else {
-                CHECK(false) << "versioned read is not supported yet";
+                err = reader.get_partition_pending_txn_id(txn.get(), idx.partition_id(),
+                                                          &first_txn_id);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format(
+                            "failed to get versioned partition pending txn id, err={}, "
+                            "partition_id={}, tablet_id={}",
+                            err, idx.partition_id(), tablet_id);
+                    LOG(WARNING) << msg;
+                    return;
+                }
             }
             if (first_txn_id >= 0) {
                 stats.get_bytes += txn->get_bytes();
@@ -2736,7 +2767,14 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat);
             if (code != MetaServiceCode::OK) return;
         } else {
-            CHECK(false) << "versioned read is not supported yet";
+            err = reader.get_tablet_compact_stats(txn.get(), tablet_id, &tablet_stat, nullptr);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet compact stats, err={}, tablet_id={}", err,
+                                  tablet_id);
+                LOG(WARNING) << msg;
+                return;
+            }
         }
         VLOG_DEBUG << "tablet_id=" << tablet_id << " stats=" << proto_to_json(tablet_stat);
 
@@ -2773,7 +2811,23 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 }
             }
         } else {
-            CHECK(false) << "versioned read is not supported yet";
+            for (auto [start, end] : versions) {
+                std::vector<RowsetMetaCloudPB> rowset_metas;
+                TxnErrorCode err =
+                        reader.get_rowset_metas(txn.get(), tablet_id, start, end, &rowset_metas);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format(
+                            "failed to get versioned rowset, err={}, tablet_id={}, version=[{}-{}]",
+                            err, tablet_id, start, end);
+                    LOG(WARNING) << msg;
+                    return;
+                }
+
+                std::move(rowset_metas.begin(), rowset_metas.end(),
+                          google::protobuf::RepeatedPtrFieldBackInserter(
+                                  response->mutable_rowset_meta()));
+            }
         }
 
         // get referenced schema
@@ -2816,7 +2870,10 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                         return;
                     }
                 } else {
-                    CHECK(false) << "versioned read is not supported yet";
+                    // TODO: support versioned write schema
+                    if (!try_fetch_and_parse_schema(txn.get(), rowset_meta, key, code, msg)) {
+                        return;
+                    }
                 }
                 version_to_schema.emplace(rowset_meta.schema_version(),
                                           rowset_meta.mutable_tablet_schema());

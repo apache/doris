@@ -91,21 +91,25 @@ Status CollectionStatistics::extract_collect_info(
                         static_cast<vectorized::VLiteral*>(expr->children()[1].get());
                 auto column_idx = tablet_schema->field_index(left_slot_ref->column_name());
                 auto column = tablet_schema->column(column_idx);
-                const auto* index_meta = tablet_schema->inverted_index(column);
+                auto index_metas = tablet_schema->inverted_indexs(column);
+                for (const auto* index_meta : index_metas) {
+                    if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
+                        continue;
+                    }
+                    auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
+                            right_slot_ref->value(), index_meta->properties());
 
-                auto term_infos = InvertedIndexAnalyzer::get_analyse_result(
-                        right_slot_ref->value(), index_meta->properties());
-
-                std::string field_name = std::to_string(column.unique_id());
-                std::wstring ws_field_name = StringHelper::to_wstring(field_name);
-                auto iter = collect_infos->find(ws_field_name);
-                if (iter == collect_infos->end()) {
-                    CollectInfo collect_info;
-                    collect_info.term_infos.insert(term_infos.begin(), term_infos.end());
-                    collect_info.index_meta = index_meta;
-                    (*collect_infos)[ws_field_name] = std::move(collect_info);
-                } else {
-                    iter->second.term_infos.insert(term_infos.begin(), term_infos.end());
+                    std::string field_name = std::to_string(column.unique_id());
+                    std::wstring ws_field_name = StringHelper::to_wstring(field_name);
+                    auto iter = collect_infos->find(ws_field_name);
+                    if (iter == collect_infos->end()) {
+                        CollectInfo collect_info;
+                        collect_info.term_infos.insert(term_infos.begin(), term_infos.end());
+                        collect_info.index_meta = index_meta;
+                        (*collect_infos)[ws_field_name] = std::move(collect_info);
+                    } else {
+                        iter->second.term_infos.insert(term_infos.begin(), term_infos.end());
+                    }
                 }
             }
 

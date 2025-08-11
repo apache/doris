@@ -898,7 +898,7 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
     data_files.push_back(data_file2);
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
-    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 3); };
+    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
     IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
             _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
             custom_check_build_rowsets);
@@ -923,11 +923,9 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
             _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
-    // index 10002 cannot be found in idx file
+    // index 10002 can be found in idx file
     auto dir_idx_compaction = inverted_index_file_reader_index->_open(10002, "");
-    EXPECT_TRUE(!dir_idx_compaction.has_value()) << dir_idx_compaction.error();
-    EXPECT_THAT(dir_idx_compaction.error().to_string(),
-                testing::HasSubstr("No index with id 10002 found"));
+    EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
 }
 
 TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {

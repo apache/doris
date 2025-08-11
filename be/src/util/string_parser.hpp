@@ -23,6 +23,7 @@
 #include <fast_float/fast_float.h>
 #include <fast_float/parse_number.h>
 #include <glog/logging.h>
+#include <sys/types.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -60,19 +61,6 @@ struct Decimal;
             }                                                         \
             return false;                                             \
         }                                                             \
-    } while (false)
-#endif
-
-#ifndef SET_PARAMS_RET_FALSE_IF_ERR
-#define SET_PARAMS_RET_FALSE_IF_ERR(stmt)            \
-    do {                                             \
-        Status _status_ = (stmt);                    \
-        if (!_status_.ok()) [[unlikely]] {           \
-            if constexpr (IsStrict) {                \
-                params.status = std::move(_status_); \
-            }                                        \
-            return false;                            \
-        }                                            \
     } while (false)
 #endif
 
@@ -116,19 +104,18 @@ bool range_suite(const char* s, const char* end) {
 inline auto is_digit_range = range_suite<is_numeric_ascii>;
 inline auto is_space_range = range_suite<is_whitespace_ascii>;
 
-inline Status assert_within_bound(const char* s, const char* end, size_t offset) {
+// combine in_bound and range_suite is ok. won't lead to duplicated calculation.
+inline bool in_bound(const char* s, const char* end, size_t offset) {
     if (s + offset >= end) [[unlikely]] {
-        return Status::InvalidArgument(
-                "StringParser: failed because we need at least {} but only got '{}'", offset,
-                std::string {s, end});
+        return false;
     }
-    return Status::OK();
+    return true;
 }
 
 // LEN = 0 means any length(include zero). LEN = 1 means only one character. so on. LEN = -x means x or more.
 // if need result, use StringRef{origin_s, s} outside
 template <int LEN, bool (*Pred)(char)>
-Status skip_qualified_char(const char*& s, const char* end) {
+bool skip_qualified_char(const char*& s, const char* end) {
     if constexpr (LEN == 0) {
         // Consume any length of characters that match the predicate.
         while (s != end && Pred(*s)) {
@@ -138,9 +125,7 @@ Status skip_qualified_char(const char*& s, const char* end) {
         // Consume exactly LEN characters that match the predicate.
         for (int i = 0; i < LEN; ++i, ++s) {
             if (s == end || !Pred(*s)) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "StringParser: failed to consume {} characters, got '{}'", LEN - i,
-                        std::string {s, end});
+                return false;
             }
         }
     } else { // LEN < 0
@@ -151,12 +136,10 @@ Status skip_qualified_char(const char*& s, const char* end) {
             ++count;
         }
         if (count < -LEN) [[unlikely]] {
-            return Status::InvalidArgument(
-                    "StringParser: failed to consume at least {} characters, got '{}'",
-                    -LEN - count, std::string {s, end});
+            return false;
         }
     }
-    return Status::OK();
+    return true;
 }
 
 inline auto skip_any_whitespace = skip_qualified_char<0, is_whitespace_ascii>;
@@ -184,16 +167,14 @@ inline auto consume_one_colon = skip_qualified_char<1, is_colon>;
 // when has MAX_LEN > 0, do greedy match but at most MAX_LEN.
 // LEN = 0 means any length, otherwise(must > 0) it means exactly LEN digits.
 template <typename T, int LEN = 0, int MAX_LEN = -1>
-Status consume_digit(const char*& s, const char* end, T& out) {
+bool consume_digit(const char*& s, const char* end, T& out) {
     static_assert(LEN >= 0);
     if constexpr (MAX_LEN > 0) {
         out = 0;
         for (int i = 0; i < MAX_LEN; ++i, ++s) {
-            if ((s == end || !is_numeric_ascii(*s))) [[unlikely]] {
+            if (s == end || !is_numeric_ascii(*s)) {
                 if (i < LEN) [[unlikely]] {
-                    return Status::InvalidArgument(
-                            "StringParser: got \"{}\" before get at least {} digit",
-                            std::string {s, end}, LEN - i);
+                    return false;
                 }
                 break; // stop consuming if we have consumed enough digits.
             }
@@ -211,14 +192,43 @@ Status consume_digit(const char*& s, const char* end, T& out) {
         out = 0;
         for (int i = 0; i < LEN; ++i, ++s) {
             if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "StringParser: failed to consume {} digits, got '{}'", LEN - i,
-                        std::string {s, end});
+                return false;
             }
             out = out * 10 + (*s - '0');
         }
     }
-    return Status::OK();
+    return true;
+}
+
+// specialized version for 2 digits, which is used very often in date/time parsing.
+template <>
+inline bool consume_digit<uint32_t, 2, -1>(const char*& s, const char* end, uint32_t& out) {
+    out = 0;
+    if (s == end || s + 1 == end || !is_numeric_ascii(*s) || !is_numeric_ascii(*(s + 1)))
+            [[unlikely]] {
+        return false;
+    }
+    out = (s[0] - '0') * 10 + (s[1] - '0');
+    s += 2; // consume 2 digits
+    return true;
+}
+
+// specialized version for 1 or 2 digits, which is used very often in date/time parsing.
+template <>
+inline bool consume_digit<uint32_t, 1, 2>(const char*& s, const char* end, uint32_t& out) {
+    out = 0;
+    if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
+        return false;
+    } else if (s + 1 != end && is_numeric_ascii(*(s + 1))) {
+        // consume 2 digits
+        out = (*s - '0') * 10 + (*(s + 1) - '0');
+        s += 2;
+    } else {
+        // consume 1 digit
+        out = *s - '0';
+        ++s;
+    }
+    return true;
 }
 
 template <bool (*Pred)(char)>
