@@ -174,9 +174,9 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (segment_v2::IndexReaderHelper::is_fulltext_index(iter->get_reader())) {
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, FULLTEXT reader can not support "
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
                     "array_overlap");
         }
         // in arrays_overlap param is array Field and const Field
@@ -213,6 +213,7 @@ public:
 
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         for (auto nested_query_val : query_val) {
