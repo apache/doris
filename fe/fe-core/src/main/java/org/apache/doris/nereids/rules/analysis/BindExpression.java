@@ -64,7 +64,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -686,9 +685,7 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private List<NamedExpression> adjustProjectionAggNullable(List<NamedExpression> expressions) {
-        boolean hasAggregation = expressions.stream()
-                .anyMatch(expr -> expr.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
-        if (!hasAggregation) {
+        if (!ExpressionUtils.hasNonWindowAggregateFunction(expressions)) {
             return expressions;
         }
         boolean hasOnlyFullGroupBy = SqlModeHelper.hasOnlyFullGroupBy();
