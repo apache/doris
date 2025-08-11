@@ -42,8 +42,8 @@ suite ("nereids_k123p") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    create_sync_mv(db, "d_table", "k123p1w","""select k1 as a1,k2+k3 from d_table where k1 = 1;""")
-    create_sync_mv (db, "d_table", "k123p4w","""select k1 as a2,k2+k3 from d_table where k4 = "b";""")
+    create_sync_mv(db, "d_table", "k123p1w","""select k1 as a1,k2+k3 as sum_1 from d_table where k1 = 1;""")
+    create_sync_mv (db, "d_table", "k123p4w","""select k1 as a2,k2+k3 as sum_2 from d_table where k4 = "b";""")
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"
