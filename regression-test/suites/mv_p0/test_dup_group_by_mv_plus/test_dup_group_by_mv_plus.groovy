@@ -69,7 +69,7 @@ suite ("test_dup_group_by_mv_plus") {
 
     sql """drop materialized view k12sp on d_table"""
     create_sync_mv(db, "d_table", "k12sp_multi",
-            "select k1,sum(k2+1), sum(k2+2) from d_table group by k1;")
+            "select k1 as a1,sum(k2+1), sum(k2+2) from d_table group by k1;")
 
     mv_rewrite_success("select k1,sum(k2+1), sum(k2+2) from d_table group by k1;", "k12sp_multi",
             true, [TRY_IN_RBO, FORCE_IN_RBO])
