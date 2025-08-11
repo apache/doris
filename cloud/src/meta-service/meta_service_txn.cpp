@@ -21,6 +21,8 @@
 #include <chrono>
 #include <cstdint>
 #include <limits>
+#include <ranges>
+#include <tuple>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -53,6 +55,11 @@ struct TableStats {
         return ss.str();
     }
 };
+
+template <typename Container, typename Range>
+static Container to_container(Range&& r) {
+    return Container(r.begin(), r.end());
+}
 
 static void get_pb_from_tablestats(TableStats& stats, TableStatsPB* stats_pb) {
     stats_pb->set_updated_row_count(stats.updated_row_count);
@@ -1013,6 +1020,108 @@ void process_mow_when_commit_txn(
     lock_values.clear();
 }
 
+std::pair<MetaServiceCode, std::string> get_tablet_indexes(
+        Transaction* txn, std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
+        std::string_view instance_id, const std::vector<int64_t>& tablet_ids,
+        bool snapshot = false) {
+    std::vector<std::string> tablet_idx_keys;
+    std::vector<std::optional<std::string>> tablet_idx_values;
+    tablet_idx_keys.reserve(tablet_ids.size());
+    tablet_idx_values.resize(tablet_idx_keys.size());
+
+    for (int64_t tablet_id : tablet_ids) {
+        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, tablet_id}));
+    }
+
+    TxnErrorCode err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
+                                      Transaction::BatchGetOptions(false));
+    if (err != TxnErrorCode::TXN_OK) {
+        auto msg = fmt::format("failed to get tablet table index ids, err={}", err);
+        LOG_WARNING(msg);
+        return {cast_as<ErrCategory::READ>(err), msg};
+    }
+
+    size_t total_tablets = tablet_idx_values.size();
+    for (size_t i = 0; i < total_tablets; i++) {
+        int64_t tablet_id = tablet_ids[i];
+        if (!tablet_idx_values[i].has_value()) [[unlikely]] {
+            // The value must existed
+            auto msg = fmt::format(
+                    "failed to get tablet table index ids, err=not found tablet_id={} ", tablet_id);
+            LOG_WARNING(msg).tag("err", err).tag("key", hex(tablet_idx_keys[i]));
+            return {MetaServiceCode::KV_TXN_GET_ERR, msg};
+        }
+
+        TabletIndexPB tablet_index;
+        if (!tablet_index.ParseFromString(tablet_idx_values[i].value())) [[unlikely]] {
+            auto msg = fmt::format("malformed tablet index value tablet_id={} snapshot={}",
+                                   tablet_id, snapshot);
+            LOG_WARNING(msg).tag("key", hex(tablet_idx_keys[i]));
+            return {MetaServiceCode::PROTOBUF_PARSE_ERR, msg};
+        }
+
+        VLOG_DEBUG << "tablet_id:" << tablet_id << " value:" << tablet_index.ShortDebugString();
+        tablet_indexes->emplace(tablet_id, std::move(tablet_index));
+    }
+
+    return {MetaServiceCode::OK, ""};
+}
+
+std::pair<MetaServiceCode, std::string> get_partition_versions(
+        Transaction* txn, std::unordered_map<int64_t, int64_t>* versions,
+        int64_t* last_pending_txn_id, std::string_view instance_id,
+        std::unordered_map<int64_t, std::tuple<int64_t, int64_t>>& partition_indexes) {
+    std::vector<int64_t> partition_ids;
+    std::vector<std::string> version_keys;
+    std::vector<std::optional<std::string>> version_values;
+    partition_ids.reserve(partition_indexes.size());
+    version_keys.reserve(partition_indexes.size());
+    version_values.reserve(partition_indexes.size());
+
+    for (auto&& [partition_id, db_and_table] : partition_indexes) {
+        auto [db_id, table_id] = db_and_table;
+        std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
+        version_keys.push_back(std::move(ver_key));
+        partition_ids.push_back(partition_id);
+    }
+
+    TxnErrorCode err = txn->batch_get(&version_values, version_keys);
+    if (err != TxnErrorCode::TXN_OK) {
+        auto msg = fmt::format("failed to get partition versions, err={}", err);
+        LOG_WARNING(msg);
+        return {cast_as<ErrCategory::READ>(err), msg};
+    }
+
+    size_t total_versions = version_keys.size();
+    for (size_t i = 0; i < total_versions; i++) {
+        int64_t version;
+        if (version_values[i].has_value()) {
+            VersionPB version_pb;
+            if (!version_pb.ParseFromString(version_values[i].value())) {
+                auto msg = fmt::format("malformed version value, key={}", hex(version_keys[i]));
+                LOG_WARNING(msg);
+                return {MetaServiceCode::PROTOBUF_PARSE_ERR, msg};
+            }
+            if (version_pb.pending_txn_ids_size() > 0) {
+                DCHECK(version_pb.pending_txn_ids_size() == 1);
+                *last_pending_txn_id = version_pb.pending_txn_ids(0);
+                DCHECK(*last_pending_txn_id > 0);
+                return {MetaServiceCode::OK, ""};
+            }
+            version = version_pb.version();
+        } else {
+            version = 1;
+        }
+        VLOG_DEBUG << "get partition version, partition_id=" << partition_ids[i]
+                   << " version=" << version << " key=" << hex(version_keys[i])
+                   << " has_value=" << version_values[i].has_value();
+        versions->emplace(partition_ids[i], version);
+        last_pending_txn_id = 0;
+    }
+
+    return {MetaServiceCode::OK, ""};
+}
+
 /**
  * 0. Extract txn_id from request
  * 1. Get db id from TxnKv with txn_id
@@ -1123,104 +1232,35 @@ void MetaServiceImpl::commit_txn_immediately(
         LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
         // Prepare rowset meta and new_versions
-        // Read tablet indexes in batch.
-        std::vector<std::string> tablet_idx_keys;
-        for (auto& [_, i] : tmp_rowsets_meta) {
-            tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, i.tablet_id()}));
-        }
-        std::vector<std::optional<std::string>> tablet_idx_values;
-        err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
-                             Transaction::BatchGetOptions(false));
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "failed to get tablet table index ids, err=" << err;
-            msg = ss.str();
-            LOG(WARNING) << msg << " txn_id=" << txn_id;
-            return;
-        }
-
-        size_t total_rowsets = tmp_rowsets_meta.size();
-        // tablet_id -> {table/index/partition}_id
+        AnnotateTag txn_tag("txn_id", txn_id);
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
-        // table_id -> tablets_ids
-        std::unordered_map<int64_t, std::vector<int64_t>> table_id_tablet_ids;
-        for (size_t i = 0; i < total_rowsets; i++) {
-            uint64_t tablet_id = tmp_rowsets_meta[i].second.tablet_id();
-            if (!tablet_idx_values[i].has_value()) [[unlikely]] {
-                // The value must existed
-                code = MetaServiceCode::KV_TXN_GET_ERR;
-                ss << "failed to get tablet table index ids, err=not found"
-                   << " tablet_id=" << tablet_id << " key=" << hex(tablet_idx_keys[i]);
-                msg = ss.str();
-                LOG(WARNING) << msg << " err=" << err << " txn_id=" << txn_id;
+        {
+            auto acquired_tablet_ids = to_container<std::vector<int64_t>>(
+                    std::ranges::ref_view(tmp_rowsets_meta) |
+                    std::ranges::views::transform(
+                            [](const auto& pair) { return pair.second.tablet_id(); }));
+            std::tie(code, msg) =
+                    get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
+            if (code != MetaServiceCode::OK) {
                 return;
             }
-            if (!tablet_ids[tablet_id].ParseFromString(tablet_idx_values[i].value())) [[unlikely]] {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "malformed tablet index value tablet_id=" << tablet_id
-                   << " txn_id=" << txn_id;
-                msg = ss.str();
-                LOG(WARNING) << msg;
-                return;
-            }
-            table_id_tablet_ids[tablet_ids[tablet_id].table_id()].push_back(tablet_id);
-            VLOG_DEBUG << "tablet_id:" << tablet_id
-                       << " value:" << tablet_ids[tablet_id].ShortDebugString();
         }
 
-        tablet_idx_keys.clear();
-        tablet_idx_values.clear();
-
-        // {table/partition} -> version
-        std::unordered_map<std::string, uint64_t> new_versions;
-        std::vector<std::string> version_keys;
+        std::unordered_map<int64_t, std::tuple<int64_t, int64_t>> partition_indexes;
         for (auto& [_, i] : tmp_rowsets_meta) {
             int64_t tablet_id = i.tablet_id();
             int64_t table_id = tablet_ids[tablet_id].table_id();
             int64_t partition_id = i.partition_id();
-            std::string ver_key =
-                    partition_version_key({instance_id, db_id, table_id, partition_id});
-            if (new_versions.count(ver_key) == 0) {
-                new_versions.insert({ver_key, 0});
-                version_keys.push_back(std::move(ver_key));
-            }
+            partition_indexes.insert({partition_id, {db_id, table_id}});
         }
-        std::vector<std::optional<std::string>> version_values;
-        err = txn->batch_get(&version_values, version_keys);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "failed to get partition versions, err=" << err;
-            msg = ss.str();
-            LOG(WARNING) << msg << " txn_id=" << txn_id;
+
+        // {table/partition} -> version
+        std::unordered_map<int64_t, int64_t> versions;
+        std::tie(code, msg) = get_partition_versions(txn.get(), &versions, &last_pending_txn_id,
+                                                     instance_id, partition_indexes);
+        if (code != MetaServiceCode::OK) {
             return;
         }
-        size_t total_versions = version_keys.size();
-        for (size_t i = 0; i < total_versions; i++) {
-            int64_t version;
-            if (version_values[i].has_value()) {
-                VersionPB version_pb;
-                if (!version_pb.ParseFromString(version_values[i].value())) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    ss << "failed to parse version pb txn_id=" << txn_id
-                       << " key=" << hex(version_keys[i]);
-                    msg = ss.str();
-                    return;
-                }
-                if (version_pb.pending_txn_ids_size() > 0) {
-                    DCHECK(version_pb.pending_txn_ids_size() == 1);
-                    last_pending_txn_id = version_pb.pending_txn_ids(0);
-                    DCHECK(last_pending_txn_id > 0);
-                    break;
-                }
-                version = version_pb.version();
-            } else {
-                version = 1;
-            }
-            new_versions[version_keys[i]] = version + 1;
-            last_pending_txn_id = 0;
-        }
-        version_keys.clear();
-        version_values.clear();
 
         if (last_pending_txn_id > 0) {
             stats.get_bytes += txn->get_bytes();
@@ -1251,23 +1291,20 @@ void MetaServiceImpl::commit_txn_immediately(
         rowsets.reserve(tmp_rowsets_meta.size());
         for (auto& [_, i] : tmp_rowsets_meta) {
             int64_t tablet_id = i.tablet_id();
-            int64_t table_id = tablet_ids[tablet_id].table_id();
             int64_t partition_id = i.partition_id();
-            std::string ver_key =
-                    partition_version_key({instance_id, db_id, table_id, partition_id});
-            if (new_versions[ver_key] == 0) [[unlikely]] {
+            if (!versions.contains(partition_id)) [[unlikely]] {
                 // it is impossible.
                 code = MetaServiceCode::UNDEFINED_ERR;
                 ss << "failed to get partition version key, the target version not exists in "
-                      "new_versions."
-                   << " txn_id=" << txn_id;
+                      "versions."
+                   << " txn_id=" << txn_id << " partition_id=" << partition_id;
                 msg = ss.str();
                 LOG(ERROR) << msg;
                 return;
             }
 
             // Update rowset version
-            int64_t new_version = new_versions[ver_key];
+            int64_t new_version = versions[partition_id] + 1;
             i.set_start_version(new_version);
             i.set_end_version(new_version);
 
@@ -1286,6 +1323,11 @@ void MetaServiceImpl::commit_txn_immediately(
             rowsets.emplace_back(std::make_tuple(tablet_id, i.end_version()), i);
         } // for tmp_rowsets_meta
 
+        std::unordered_map<int64_t, std::vector<int64_t>> table_id_tablet_ids;
+        for (auto& [tablet_id, tablet_index] : tablet_ids) {
+            int64_t table_id = tablet_index.table_id();
+            table_id_tablet_ids[table_id].push_back(tablet_id);
+        }
         process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
         if (code != MetaServiceCode::OK) {
             LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
@@ -1333,10 +1375,11 @@ void MetaServiceImpl::commit_txn_immediately(
         int64_t version_update_time_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         response->set_version_update_time_ms(version_update_time_ms);
-        for (auto& i : new_versions) {
+        for (auto& [partition_id, version] : versions) {
+            int64_t new_version = version + 1;
             std::string ver_val;
             VersionPB version_pb;
-            version_pb.set_version(i.second);
+            version_pb.set_version(new_version);
             version_pb.set_update_time_ms(version_update_time_ms);
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1345,26 +1388,14 @@ void MetaServiceImpl::commit_txn_immediately(
                 return;
             }
 
-            txn->put(i.first, ver_val);
-            LOG(INFO) << "xxx put partition_version_key=" << hex(i.first) << " version:" << i.second
-                      << " txn_id=" << txn_id << " update_time=" << version_update_time_ms;
+            auto [db_id, table_id] = partition_indexes[partition_id];
+            auto version_key = partition_version_key({instance_id, db_id, table_id, partition_id});
+            txn->put(version_key, ver_val);
+            LOG(INFO) << "put partition_version_key=" << hex(version_key)
+                      << " version:" << new_version << " txn_id=" << txn_id
+                      << " partition_id=" << partition_id
+                      << " update_time=" << version_update_time_ms;
 
-            std::string_view ver_key = i.first;
-            ver_key.remove_prefix(1); // Remove key space
-            // PartitionVersionKeyInfo  {instance_id, db_id, table_id, partition_id}
-            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-            int ret = decode_key(&ver_key, &out);
-            if (ret != 0) [[unlikely]] {
-                // decode version key error means this is something wrong,
-                // we can not continue this txn
-                LOG(WARNING) << "failed to decode key, ret=" << ret << " key=" << hex(ver_key);
-                code = MetaServiceCode::UNDEFINED_ERR;
-                msg = "decode version key error";
-                return;
-            }
-
-            int64_t table_id = std::get<int64_t>(std::get<0>(out[4]));
-            int64_t partition_id = std::get<int64_t>(std::get<0>(out[5]));
             VLOG_DEBUG << " table_id=" << table_id << " partition_id=" << partition_id;
 
             if (is_versioned_write) {
@@ -1377,7 +1408,7 @@ void MetaServiceImpl::commit_txn_immediately(
 
             response->add_table_ids(table_id);
             response->add_partition_ids(partition_id);
-            response->add_versions(i.second);
+            response->add_versions(new_version);
         }
 
         // Save table versions
@@ -1418,7 +1449,7 @@ void MetaServiceImpl::commit_txn_immediately(
             return;
         }
         txn->put(info_key, info_val);
-        LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
+        LOG(INFO) << "put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
         // Update stats of affected tablet
         for (auto& [tablet_id, stats] : tablet_stats) {
@@ -1455,11 +1486,11 @@ void MetaServiceImpl::commit_txn_immediately(
         // Remove tmp rowset meta
         for (auto& [k, _] : tmp_rowsets_meta) {
             txn->remove(k);
-            LOG(INFO) << "xxx remove tmp_rowset_key=" << hex(k) << " txn_id=" << txn_id;
+            LOG(INFO) << "remove tmp_rowset_key=" << hex(k) << " txn_id=" << txn_id;
         }
 
         const std::string running_key = txn_running_key({instance_id, db_id, txn_id});
-        LOG(INFO) << "xxx remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
+        LOG(INFO) << "remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
         txn->remove(running_key);
 
         std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
@@ -1539,60 +1570,6 @@ void MetaServiceImpl::commit_txn_immediately(
         break;
     } while (true);
 } // end commit_txn_immediately
-
-void get_tablet_indexes(
-        const std::string& instance_id, int64_t txn_id,
-        const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
-        std::unique_ptr<Transaction>& txn, MetaServiceCode& code, std::string& msg,
-        std::unordered_map<int64_t, TabletIndexPB>* tablet_ids,
-        std::unordered_map<int64_t, std::vector<int64_t>>* table_id_tablet_ids,
-        bool* need_repair_tablet_idx) {
-    // Read tablet indexes in batch.
-    std::stringstream ss;
-    std::vector<std::string> tablet_idx_keys;
-    for (auto& [_, i] : tmp_rowsets_meta) {
-        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, i.tablet_id()}));
-    }
-    std::vector<std::optional<std::string>> tablet_idx_values;
-    TxnErrorCode err =
-            txn->batch_get(&tablet_idx_values, tablet_idx_keys, Transaction::BatchGetOptions(true));
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        ss << "failed to get tablet table index ids, err=" << err;
-        msg = ss.str();
-        LOG(WARNING) << msg << " txn_id=" << txn_id;
-        return;
-    }
-
-    for (size_t i = 0; i < tmp_rowsets_meta.size(); i++) {
-        uint64_t tablet_id = tmp_rowsets_meta[i].second.tablet_id();
-        if (!tablet_idx_values[i].has_value()) [[unlikely]] {
-            // The value must existed
-            code = MetaServiceCode::KV_TXN_GET_ERR;
-            ss << "failed to get tablet table index ids, err=not found"
-               << " tablet_id=" << tablet_id << " key=" << hex(tablet_idx_keys[i]);
-            msg = ss.str();
-            LOG(WARNING) << msg << " err=" << err << " txn_id=" << txn_id;
-            return;
-        }
-        if (!(*tablet_ids)[tablet_id].ParseFromString(tablet_idx_values[i].value())) [[unlikely]] {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            ss << "malformed tablet index value tablet_id=" << tablet_id << " txn_id=" << txn_id;
-            msg = ss.str();
-            LOG(WARNING) << msg;
-            return;
-        }
-        if (!(*tablet_ids)[tablet_id].has_db_id()) {
-            *need_repair_tablet_idx = true;
-        }
-        (*table_id_tablet_ids)[(*tablet_ids)[tablet_id].table_id()].push_back(tablet_id);
-        VLOG_DEBUG << "tablet_id:" << tablet_id
-                   << " value:" << (*tablet_ids)[tablet_id].ShortDebugString();
-    }
-
-    tablet_idx_keys.clear();
-    tablet_idx_values.clear();
-}
 
 // rewrite TabletIndexPB for fill db_id, in case of historical reasons
 // TabletIndexPB missing db_id
@@ -1724,17 +1701,25 @@ void MetaServiceImpl::commit_txn_eventually(
             stats.del_counter += txn->num_del_keys();
         };
 
+        AnnotateTag txn_tag("txn_id", txn_id);
+
         // tablet_id -> {table/index/partition}_id
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
-        // table_id -> tablets_ids
-        std::unordered_map<int64_t, std::vector<int64_t>> table_id_tablet_ids;
-        bool need_repair_tablet_idx = false;
-        get_tablet_indexes(instance_id, txn_id, tmp_rowsets_meta, txn, code, msg, &tablet_ids,
-                           &table_id_tablet_ids, &need_repair_tablet_idx);
-        if (code != MetaServiceCode::OK) {
-            LOG(WARNING) << "get_tablet_indexes failed, txn_id=" << txn_id << " code=" << code;
-            return;
+        {
+            auto acquired_tablet_ids = to_container<std::vector<int64_t>>(
+                    std::ranges::ref_view(tmp_rowsets_meta) |
+                    std::ranges::views::transform(
+                            [](const auto& pair) { return pair.second.tablet_id(); }));
+            std::tie(code, msg) =
+                    get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
+            if (code != MetaServiceCode::OK) {
+                return;
+            }
         }
+
+        bool need_repair_tablet_idx =
+                std::any_of(tablet_ids.begin(), tablet_ids.end(),
+                            [](const auto& pair) { return !pair.second.has_db_id(); });
 
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::need_repair_tablet_idx",
                                  &need_repair_tablet_idx);
@@ -1755,56 +1740,22 @@ void MetaServiceImpl::commit_txn_eventually(
         commit_txn_log.set_db_id(db_id);
 
         // <partition_version_key, version>
-        std::unordered_map<std::string, int64_t> new_versions;
-        std::vector<std::string> version_keys;
+        std::unordered_map<int64_t, std::tuple<int64_t, int64_t>> partition_indexes;
         for (auto& [_, i] : tmp_rowsets_meta) {
             int64_t tablet_id = i.tablet_id();
             int64_t table_id = tablet_ids[tablet_id].table_id();
             int64_t partition_id = i.partition_id();
-            std::string ver_key =
-                    partition_version_key({instance_id, db_id, table_id, partition_id});
-            if (new_versions.count(ver_key) == 0) {
-                new_versions.insert({ver_key, 0});
-                version_keys.push_back(std::move(ver_key));
-            }
-
+            partition_indexes.insert({partition_id, {db_id, table_id}});
             commit_txn_log.mutable_tablet_to_partition_map()->insert({tablet_id, partition_id});
         }
 
-        std::vector<std::optional<std::string>> version_values;
-        err = txn->batch_get(&version_values, version_keys);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "failed to get partition versions, err=" << err;
-            msg = ss.str();
-            LOG(WARNING) << msg << " txn_id=" << txn_id;
+        std::unordered_map<int64_t, int64_t> versions;
+        std::tie(code, msg) = get_partition_versions(txn.get(), &versions, &last_pending_txn_id,
+                                                     instance_id, partition_indexes);
+        if (code != MetaServiceCode::OK) {
             return;
         }
 
-        for (size_t i = 0; i < version_keys.size(); i++) {
-            int64_t version;
-            if (version_values[i].has_value()) {
-                VersionPB version_pb;
-                if (!version_pb.ParseFromString(version_values[i].value())) {
-                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                    ss << "failed to parse version pb txn_id=" << txn_id
-                       << " key=" << hex(version_keys[i]);
-                    msg = ss.str();
-                    return;
-                }
-                if (version_pb.pending_txn_ids_size() > 0) {
-                    DCHECK(version_pb.pending_txn_ids_size() == 1);
-                    last_pending_txn_id = version_pb.pending_txn_ids(0);
-                    DCHECK(last_pending_txn_id > 0);
-                    break;
-                }
-                version = version_pb.version();
-            } else {
-                version = 1;
-            }
-            new_versions[version_keys[i]] = version;
-            last_pending_txn_id = 0;
-        }
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::last_pending_txn_id",
                                  &last_pending_txn_id);
 
@@ -1935,45 +1886,34 @@ void MetaServiceImpl::commit_txn_eventually(
         int64_t version_update_time_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         response->set_version_update_time_ms(version_update_time_ms);
-        for (auto& i : new_versions) {
+        for (auto& [partition_id, version] : versions) {
             std::string ver_val;
             VersionPB version_pb;
             version_pb.add_pending_txn_ids(txn_id);
             version_pb.set_update_time_ms(version_update_time_ms);
-            if (i.second > 1) {
-                version_pb.set_version(i.second);
+            if (version > 1) {
+                version_pb.set_version(version);
             }
 
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize version_pb when saving, txn_id=" << txn_id
-                   << " partiton_key=" << hex(i.first);
+                   << " partition_id=" << partition_id;
                 msg = ss.str();
                 return;
             }
 
-            txn->put(i.first, ver_val);
-            LOG(INFO) << "put partition_version_key=" << hex(i.first) << " version:" << i.second
-                      << " txn_id=" << txn_id << " update_time=" << version_update_time_ms;
+            auto [db_id, table_id] = partition_indexes[partition_id];
+            std::string version_key =
+                    partition_version_key({instance_id, db_id, table_id, partition_id});
 
-            std::string_view ver_key = i.first;
-            ver_key.remove_prefix(1); // Remove key space
-            // PartitionVersionKeyInfo  {instance_id, db_id, table_id, partition_id}
-            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-            int ret = decode_key(&ver_key, &out);
-            if (ret != 0) [[unlikely]] {
-                // decode version key error means this is something wrong,
-                // we can not continue this txn
-                LOG(WARNING) << "failed to decode key, ret=" << ret << " key=" << hex(ver_key);
-                code = MetaServiceCode::UNDEFINED_ERR;
-                msg = "decode version key error";
-                return;
-            }
+            txn->put(version_key, ver_val);
+            LOG(INFO) << "put partition_version_key=" << hex(version_key) << " version:" << version
+                      << " txn_id=" << txn_id << " partition_id=" << partition_id
+                      << " update_time=" << version_update_time_ms;
 
-            int64_t table_id = std::get<int64_t>(std::get<0>(out[4]));
-            int64_t partition_id = std::get<int64_t>(std::get<0>(out[5]));
             VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
-                       << " partition_id=" << partition_id << " version=" << i.second;
+                       << " partition_id=" << partition_id << " version=" << version;
 
             if (is_versioned_write) {
                 std::string partition_version_key =
@@ -1982,13 +1922,20 @@ void MetaServiceImpl::commit_txn_eventually(
                 LOG(INFO) << "put versioned partition key=" << hex(partition_version_key)
                           << ", txn_id=" << txn_id;
             }
-            commit_txn_log.mutable_partition_version_map()->insert({partition_id, i.second + 1});
+
+            int64_t new_version = version + 1;
+            commit_txn_log.mutable_partition_version_map()->insert({partition_id, new_version});
 
             response->add_table_ids(table_id);
             response->add_partition_ids(partition_id);
-            response->add_versions(i.second + 1);
+            response->add_versions(new_version);
         }
 
+        // table_id -> tablets_ids
+        std::unordered_map<int64_t, std::vector<int64_t>> table_id_tablet_ids;
+        for (auto& [tablet_id, tablet_idx] : tablet_ids) {
+            table_id_tablet_ids[tablet_idx.table_id()].push_back(tablet_id);
+        }
         process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
         if (code != MetaServiceCode::OK) {
             LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
@@ -2283,108 +2230,41 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
     LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
+    AnnotateTag txn_tag("txn_id", txn_id);
+
     // Prepare rowset meta and new_versions
-    // Read tablet indexes in batch.
-    std::map<int64_t, int64_t> tablet_id_to_idx;
-    std::vector<std::string> tablet_idx_keys;
-    std::vector<int64_t> partition_ids;
-    auto idx = 0;
-    for (auto& [_, tmp_rowsets_meta] : sub_txn_to_tmp_rowsets_meta) {
-        for (auto& [_, i] : tmp_rowsets_meta) {
-            auto tablet_id = i.tablet_id();
-            if (tablet_id_to_idx.count(tablet_id) == 0) {
-                tablet_id_to_idx.emplace(tablet_id, idx);
-                tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, i.tablet_id()}));
-                partition_ids.push_back(i.partition_id());
-                idx++;
+    std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
+    {
+        // Read tablet indexes in batch.
+        std::vector<int64_t> acquired_tablet_ids;
+        for (const auto& [_, tmp_rowsets_meta] : sub_txn_to_tmp_rowsets_meta) {
+            for (const auto& [_, i] : tmp_rowsets_meta) {
+                acquired_tablet_ids.push_back(i.tablet_id());
             }
         }
-    }
-    std::vector<std::optional<std::string>> tablet_idx_values;
-    err = txn->batch_get(&tablet_idx_values, tablet_idx_keys, Transaction::BatchGetOptions(false));
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        ss << "failed to get tablet table index ids, err=" << err;
-        msg = ss.str();
-        LOG(WARNING) << msg << " txn_id=" << txn_id;
-        return;
-    }
-
-    // tablet_id -> {table/index/partition}_id
-    std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
-    // table_id -> tablets_ids
-    std::unordered_map<int64_t, std::vector<int64_t>> table_id_tablet_ids;
-    for (auto [tablet_id, i] : tablet_id_to_idx) {
-        if (!tablet_idx_values[i].has_value()) [[unlikely]] {
-            // The value must existed
-            code = MetaServiceCode::KV_TXN_GET_ERR;
-            ss << "failed to get tablet table index ids, err=not found"
-               << " tablet_id=" << tablet_id << " key=" << hex(tablet_idx_keys[i]);
-            msg = ss.str();
-            LOG(WARNING) << msg << " err=" << err << " txn_id=" << txn_id;
+        std::tie(code, msg) =
+                get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
+        if (code != MetaServiceCode::OK) {
             return;
         }
-        if (!tablet_ids[tablet_id].ParseFromString(tablet_idx_values[i].value())) [[unlikely]] {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            ss << "malformed tablet index value tablet_id=" << tablet_id << " txn_id=" << txn_id;
-            msg = ss.str();
-            LOG(WARNING) << msg;
-            return;
-        }
-        table_id_tablet_ids[tablet_ids[tablet_id].table_id()].push_back(tablet_id);
-        VLOG_DEBUG << "tablet_id:" << tablet_id
-                   << " value:" << tablet_ids[tablet_id].ShortDebugString();
     }
-
-    tablet_idx_keys.clear();
-    tablet_idx_values.clear();
 
     // {table/partition} -> version
-    std::unordered_map<std::string, int64_t> new_versions;
-    std::vector<std::string> version_keys;
-    for (auto& [tablet_id, i] : tablet_id_to_idx) {
-        int64_t table_id = tablet_ids[tablet_id].table_id();
-        int64_t partition_id = partition_ids[i];
-        std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
-        if (new_versions.count(ver_key) == 0) {
-            new_versions.insert({ver_key, 0});
-            LOG(INFO) << "xxx add a partition_version_key=" << hex(ver_key) << " txn_id=" << txn_id
-                      << ", db_id=" << db_id << ", table_id=" << table_id
-                      << ", partition_id=" << partition_id;
-            version_keys.push_back(std::move(ver_key));
-        }
+    std::unordered_map<int64_t, int64_t> new_versions;
+    std::unordered_map<int64_t, std::tuple<int64_t, int64_t>> partition_indexes;
+    for (auto& [tablet_id, tablet_idx] : tablet_ids) {
+        int64_t table_id = tablet_idx.table_id();
+        int64_t partition_id = tablet_idx.partition_id();
+        partition_indexes.insert({partition_id, {db_id, table_id}});
     }
-    std::vector<std::optional<std::string>> version_values;
-    err = txn->batch_get(&version_values, version_keys);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        ss << "failed to get partition versions, err=" << err;
-        msg = ss.str();
-        LOG(WARNING) << msg << " txn_id=" << txn_id;
+
+    // FIXME: handle pengding txn id in commit_txn_with_sub_txn.
+    int64_t last_pending_txn_id = 0;
+    std::tie(code, msg) = get_partition_versions(txn.get(), &new_versions, &last_pending_txn_id,
+                                                 instance_id, partition_indexes);
+    if (code != MetaServiceCode::OK) {
         return;
     }
-    size_t total_versions = version_keys.size();
-    for (size_t i = 0; i < total_versions; i++) {
-        int64_t version;
-        if (version_values[i].has_value()) {
-            VersionPB version_pb;
-            if (!version_pb.ParseFromString(version_values[i].value())) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "failed to parse version pb txn_id=" << txn_id
-                   << " key=" << hex(version_keys[i]);
-                msg = ss.str();
-                return;
-            }
-            version = version_pb.version();
-        } else {
-            version = 1;
-        }
-        new_versions[version_keys[i]] = version;
-        LOG(INFO) << "xxx get partition_version_key=" << hex(version_keys[i])
-                  << " version:" << version << " txn_id=" << txn_id;
-    }
-    version_keys.clear();
-    version_values.clear();
 
     CommitTxnLogPB commit_txn_log;
     commit_txn_log.set_txn_id(txn_id);
@@ -2402,9 +2282,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             int64_t tablet_id = i.tablet_id();
             int64_t table_id = tablet_ids[tablet_id].table_id();
             int64_t partition_id = i.partition_id();
-            std::string ver_key =
-                    partition_version_key({instance_id, db_id, table_id, partition_id});
-            if (new_versions.count(ver_key) == 0) [[unlikely]] {
+            if (new_versions.count(partition_id) == 0) [[unlikely]] {
                 // it is impossible.
                 code = MetaServiceCode::UNDEFINED_ERR;
                 ss << "failed to get partition version key, the target version not exists in "
@@ -2417,10 +2295,10 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             }
 
             // Update rowset version
-            int64_t new_version = new_versions[ver_key];
+            int64_t new_version = new_versions[partition_id];
             if (partition_id_to_version.count(partition_id) == 0) {
-                new_versions[ver_key] = new_version + 1;
-                new_version = new_versions[ver_key];
+                new_versions[partition_id] = new_version + 1;
+                new_version = new_versions[partition_id];
                 partition_id_to_version[partition_id] = new_version;
             }
             i.set_start_version(new_version);
@@ -2444,6 +2322,11 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         } // for tmp_rowsets_meta
     }
 
+    std::unordered_map<int64_t, std::vector<int64_t>> table_id_tablet_ids;
+    for (auto& [tablet_id, tablet_idx] : tablet_ids) {
+        int64_t table_id = tablet_idx.table_id();
+        table_id_tablet_ids[table_id].push_back(tablet_id);
+    }
     process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
     if (code != MetaServiceCode::OK) {
         LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
@@ -2486,10 +2369,10 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
     }
 
     // Save versions
-    for (auto& i : new_versions) {
+    for (auto& [partition_id, new_version] : new_versions) {
         std::string ver_val;
         VersionPB version_pb;
-        version_pb.set_version(i.second);
+        version_pb.set_version(new_version);
         if (!version_pb.SerializeToString(&ver_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
             ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;
@@ -2497,28 +2380,15 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             return;
         }
 
-        txn->put(i.first, ver_val);
-        LOG(INFO) << "xxx put partition_version_key=" << hex(i.first) << " version:" << i.second
-                  << " txn_id=" << txn_id;
+        auto [db_id, table_id] = partition_indexes[partition_id];
+        std::string version_key =
+                partition_version_key({instance_id, db_id, table_id, partition_id});
+        txn->put(version_key, ver_val);
+        LOG(INFO) << "put partition_version_key=" << hex(version_key) << " version:" << new_version
+                  << " txn_id=" << txn_id << " partition_id=" << partition_id;
 
-        std::string_view ver_key = i.first;
-        ver_key.remove_prefix(1); // Remove key space
-        // PartitionVersionKeyInfo  {instance_id, db_id, table_id, partition_id}
-        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-        int ret = decode_key(&ver_key, &out);
-        if (ret != 0) [[unlikely]] {
-            // decode version key error means this is something wrong,
-            // we can not continue this txn
-            LOG(WARNING) << "failed to decode key, ret=" << ret << " key=" << hex(ver_key);
-            code = MetaServiceCode::UNDEFINED_ERR;
-            msg = "decode version key error";
-            return;
-        }
-
-        int64_t table_id = std::get<int64_t>(std::get<0>(out[4]));
-        int64_t partition_id = std::get<int64_t>(std::get<0>(out[5]));
         VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
-                   << " partition_id=" << partition_id << " version=" << i.second;
+                   << " partition_id=" << partition_id << " version=" << new_version;
 
         if (is_versioned_write) {
             std::string partition_version_key =
@@ -2527,11 +2397,11 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             LOG(INFO) << "put versioned partition key=" << hex(partition_version_key)
                       << ", txn_id=" << txn_id;
         }
-        commit_txn_log.mutable_partition_version_map()->insert({partition_id, i.second});
+        commit_txn_log.mutable_partition_version_map()->insert({partition_id, new_version});
 
         response->add_table_ids(table_id);
         response->add_partition_ids(partition_id);
-        response->add_versions(i.second);
+        response->add_versions(new_version);
     }
 
     // Save table versions
@@ -2574,67 +2444,12 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
     LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
     // Update stats of affected tablet
-    std::deque<std::string> kv_pool;
-    std::function<void(const StatsTabletKeyInfo&, const TabletStats&)> update_tablet_stats;
-    if (config::split_tablet_stats) {
-        update_tablet_stats = [&](const StatsTabletKeyInfo& info, const TabletStats& stats) {
-            if (stats.num_segs > 0) {
-                auto& data_size_key = kv_pool.emplace_back();
-                stats_tablet_data_size_key(info, &data_size_key);
-                txn->atomic_add(data_size_key, stats.data_size);
-                auto& num_rows_key = kv_pool.emplace_back();
-                stats_tablet_num_rows_key(info, &num_rows_key);
-                txn->atomic_add(num_rows_key, stats.num_rows);
-                auto& num_segs_key = kv_pool.emplace_back();
-                stats_tablet_num_segs_key(info, &num_segs_key);
-                txn->atomic_add(num_segs_key, stats.num_segs);
-                auto& index_size_key = kv_pool.emplace_back();
-                stats_tablet_index_size_key(info, &index_size_key);
-                txn->atomic_add(index_size_key, stats.index_size);
-                auto& segment_size_key = kv_pool.emplace_back();
-                stats_tablet_segment_size_key(info, &segment_size_key);
-                txn->atomic_add(segment_size_key, stats.segment_size);
-            }
-            auto& num_rowsets_key = kv_pool.emplace_back();
-            stats_tablet_num_rowsets_key(info, &num_rowsets_key);
-            txn->atomic_add(num_rowsets_key, stats.num_rowsets);
-        };
-    } else {
-        update_tablet_stats = [&](const StatsTabletKeyInfo& info, const TabletStats& stats) {
-            auto& key = kv_pool.emplace_back();
-            stats_tablet_key(info, &key);
-            auto& val = kv_pool.emplace_back();
-            TxnErrorCode err = txn->get(key, &val);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
-                                                              : cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
-                                  std::get<4>(info));
-                return;
-            }
-            TabletStatsPB stats_pb;
-            if (!stats_pb.ParseFromString(val)) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = fmt::format("malformed tablet stats value, key={}", hex(key));
-                return;
-            }
-            stats_pb.set_data_size(stats_pb.data_size() + stats.data_size);
-            stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
-            stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
-            stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
-            stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
-            stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
-            stats_pb.SerializeToString(&val);
-            txn->put(key, val);
-            LOG(INFO) << "put stats_tablet_key, key=" << hex(key);
-        };
-    }
     for (auto& [tablet_id, stats] : tablet_stats) {
         DCHECK(tablet_ids.count(tablet_id));
         auto& tablet_idx = tablet_ids[tablet_id];
         StatsTabletKeyInfo info {instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
                                  tablet_idx.partition_id(), tablet_id};
-        update_tablet_stats(info, stats);
+        update_tablet_stats(info, stats, txn, code, msg);
         if (code != MetaServiceCode::OK) return;
 
         if (is_versioned_write) {

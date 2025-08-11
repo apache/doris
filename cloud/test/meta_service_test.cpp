@@ -1752,6 +1752,10 @@ TEST(MetaServiceTest, PrecommitTxnTest2) {
 
 TEST(MetaServiceTest, CommitTxnTest) {
     auto meta_service = get_meta_service();
+    int64_t table_id = 1234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
     // case: first version of rowset
     {
         int64_t txn_id = -1;
@@ -1776,8 +1780,8 @@ TEST(MetaServiceTest, CommitTxnTest) {
         // mock rowset and tablet
         int64_t tablet_id_base = 1103;
         for (int i = 0; i < 5; ++i) {
-            create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
-            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1849,6 +1853,10 @@ TEST(MetaServiceTest, CommitTxnTest) {
 TEST(MetaServiceTest, CommitTxnExpiredTest) {
     auto meta_service = get_meta_service();
 
+    int64_t table_id = 1234789234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
     // case: first version of rowset
     {
         int64_t txn_id = -1;
@@ -1874,8 +1882,8 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
         // mock rowset and tablet
         int64_t tablet_id_base = 1103;
         for (int i = 0; i < 5; ++i) {
-            create_tablet(meta_service.get(), 1234789234, 1235, 1236, tablet_id_base + i);
-            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -2050,8 +2058,8 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         ASSERT_EQ(res.versions()[1], 2);
 
         ASSERT_EQ(res.table_ids()[2], t1);
-        ASSERT_EQ(res.partition_ids()[2], t1_p1);
-        ASSERT_EQ(res.versions()[2], 3);
+        ASSERT_EQ(res.partition_ids()[2], t1_p1) << res.ShortDebugString();
+        ASSERT_EQ(res.versions()[2], 3) << res.ShortDebugString();
     }
 
     // doubly commit txn
@@ -6993,23 +7001,25 @@ TEST(MetaServiceTest, BatchGetVersion) {
                 insert_rowsets;
     };
 
+    // table ids: 2, 3, 4, 5
+    // partition ids: 6, 7, 8, 9
     std::vector<TestCase> cases = {
             // all version are missing
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {-1, -1, -1, -1}, {}},
-            // update table 1, partition 1
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, -1, -1, -1}, {{1, 1, 1}}},
-            // update table 2, partition 1
-            // update table 3, partition 2
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, -1, 2, 2}, {{2, 1, 3}, {3, 2, 4}}},
-            // update table 1, partition 2 twice
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, 3, 2, 2}, {{1, 2, 2}, {1, 2, 2}}},
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {-1, -1, -1, -1}, {}},
+            // update table 1, partition 6
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, -1, -1, -1}, {{1, 6, 1}}},
+            // update table 2, partition 6
+            // update table 3, partition 7
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, -1, 2, 2}, {{3, 8, 3}, {4, 9, 4}}},
+            // update table 1, partition 7 twice
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, 3, 2, 2}, {{2, 7, 2}, {2, 7, 2}}},
     };
 
     auto service = get_meta_service();
-    create_tablet(service.get(), 1, 1, 1, 1);
-    create_tablet(service.get(), 1, 1, 2, 2);
-    create_tablet(service.get(), 2, 1, 1, 3);
-    create_tablet(service.get(), 3, 1, 2, 4);
+    create_tablet(service.get(), 1, 1, 6, 1);
+    create_tablet(service.get(), 2, 1, 7, 2);
+    create_tablet(service.get(), 3, 1, 8, 3);
+    create_tablet(service.get(), 4, 1, 9, 4);
 
     size_t num_cases = cases.size();
     size_t label_index = 0;
@@ -7017,7 +7027,7 @@ TEST(MetaServiceTest, BatchGetVersion) {
         auto& [table_ids, partition_ids, expected_versions, insert_rowsets] = cases[i];
         for (auto [table_id, partition_id, tablet_id] : insert_rowsets) {
             LOG(INFO) << "insert rowset for table " << table_id << " partition " << partition_id
-                      << " table_id " << tablet_id;
+                      << " tablet_id " << tablet_id;
             insert_rowset(service.get(), 1, std::to_string(++label_index), table_id, partition_id,
                           tablet_id);
         }

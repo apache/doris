@@ -794,7 +794,9 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     stats_val = stats_pb.SerializeAsString();
     DCHECK(!stats_val.empty());
     txn->put(stats_key, stats_val);
-    LOG(INFO) << "put tablet stats, tablet_id=" << tablet_id << " key=" << hex(stats_key);
+    LOG(INFO) << "put tablet stats, tablet_id=" << tablet_id << " table_id=" << table_id
+              << " index_id=" << index_id << " partition_id=" << partition_id
+              << " key=" << hex(stats_key);
     if (is_versioned_write) {
         std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
         TabletStatsPB stats_pb_copy(stats_pb);
