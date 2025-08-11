@@ -43,6 +43,7 @@ public class AliyunDLFBaseProperties {
     protected String dlfSessionToken = "";
 
     @ConnectorProperty(names = {"dlf.region"},
+            required = false,
             description = "The region of the Aliyun DLF.")
     protected String dlfRegion = "";
 

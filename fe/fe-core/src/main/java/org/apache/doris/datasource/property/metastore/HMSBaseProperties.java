@@ -144,6 +144,10 @@ public class HMSBaseProperties {
         if (StringUtils.isNotBlank(hiveMetastoreServicePrincipal)) {
             hiveConf.set("hive.metastore.kerberos.principal", hiveMetastoreServicePrincipal);
         }
+        if (StringUtils.isNotBlank(origProps.get(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL))) {
+            hiveConf.set(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL,
+                    origProps.get(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL));
+        }
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
             hiveConf.set("hadoop.security.authentication", "kerberos");
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
