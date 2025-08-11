@@ -37,7 +37,7 @@ suite ("agg_have_dup_base") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV( "create materialized view k12s3m as select k1,sum(k2),max(k2) from d_table group by k1;")
+    createMV( "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select -4,-4,-4,'d';"

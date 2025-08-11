@@ -105,7 +105,7 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb) {
     Arena pool;
     jsonb_writer.writeStartObject();
     datatype_agg_state_serde_count->write_one_cell_to_jsonb(*column_fixed_length, jsonb_writer,
-                                                            &pool, 0, 0);
+                                                            pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();
@@ -132,7 +132,7 @@ TEST_F(AggStateSerdeTest, writeOneCellToJsonb2) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    datatype_agg_state_serde_hll_union->write_one_cell_to_jsonb(*column_string, jsonb_writer, &pool,
+    datatype_agg_state_serde_hll_union->write_one_cell_to_jsonb(*column_string, jsonb_writer, pool,
                                                                 0, 0);
     jsonb_writer.writeEndObject();
 

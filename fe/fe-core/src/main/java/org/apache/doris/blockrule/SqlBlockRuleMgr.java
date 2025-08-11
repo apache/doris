@@ -46,6 +46,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -173,6 +174,7 @@ public class SqlBlockRuleMgr implements Writable {
             if (sqlBlockRule.getEnable() == null) {
                 sqlBlockRule.setEnable(originRule.getEnable());
             }
+            sqlBlockRule.setSqlPattern(Pattern.compile(sqlBlockRule.getSql()));
             verifyLimitations(sqlBlockRule);
             SqlBlockUtil.checkAlterValidate(sqlBlockRule);
 

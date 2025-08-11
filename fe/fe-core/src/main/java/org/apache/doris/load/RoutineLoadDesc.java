@@ -17,7 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
@@ -97,7 +96,7 @@ public class RoutineLoadDesc {
         return !Strings.isNullOrEmpty(sequenceColName);
     }
 
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
             throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }

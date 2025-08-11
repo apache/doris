@@ -19,6 +19,7 @@
 
 #include "orc/MemoryPool.hh"
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

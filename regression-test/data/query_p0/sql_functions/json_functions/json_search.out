@@ -137,3 +137,12 @@
 8	["A",[{"B":"1"}],{"C":"AB"},{"D":"BC"}]	All	\N	\N
 9	["A",[{"B":"1"}],{"C":"AB"},{"D":"BC"}]	All	X	\N
 
+-- !search1 --
+"$.\\"one potato\\""
+
+-- !search2 --
+"$.\\"one \\\\\\"potato\\""
+
+-- !search3 --
+"fool"
+

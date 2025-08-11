@@ -89,6 +89,8 @@ CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
+// The worker pool size for http api `statistics_recycle` worker pool
+CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
 // s3_producer_pool recycle_tablet_pool, delete single object in this pool
@@ -97,9 +99,6 @@ CONF_Int32(recycle_pool_parallelism, "40");
 CONF_Bool(enable_inverted_check, "false");
 // Currently only used for recycler test
 CONF_Bool(enable_delete_bitmap_inverted_check, "false");
-// checks if https://github.com/apache/doris/pull/40204 works as expected
-CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
-CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
 CONF_Bool(enable_delete_bitmap_storage_optimize_v2_check, "false");
 CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5min
 // interval for scanning instances to do checks and inspections
@@ -107,7 +106,7 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 // enable recycler metrics statistics
-CONF_Bool(enable_recycler_metrics, "false");
+CONF_Bool(enable_recycler_stats_metrics, "false");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
@@ -119,6 +118,8 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+
+CONF_mBool(enable_checker_for_meta_key_check, "false");
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
@@ -282,6 +283,7 @@ CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
+CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
 
 CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
 
@@ -341,5 +343,6 @@ CONF_mString(ca_cert_file_paths,
 
 CONF_Bool(enable_split_rowset_meta_pb, "false");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 
 } // namespace doris::cloud::config

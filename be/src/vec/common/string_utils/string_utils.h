@@ -24,6 +24,8 @@
 #include <cstring>
 #include <string>
 
+#include "common/compiler_util.h"
+
 /// More efficient than libc, because doesn't respect locale. But for some functions table implementation could be better.
 
 inline bool is_ascii(char c) {
@@ -51,4 +53,26 @@ inline bool is_word_char_ascii(char c) {
 
 inline bool is_valid_identifier_begin(char c) {
     return is_alpha_ascii(c) || c == '_';
+}
+
+inline bool is_non_alnum(char c) {
+    return !is_alpha_numeric_ascii(c);
+}
+
+inline bool is_tz_name_part_ascii(char c) {
+    return is_alpha_ascii(c) || c == '_';
+}
+
+inline bool is_slash_ascii(char c) {
+    return c == '/';
+}
+
+// Our own definition of "isspace" that optimize on the ' ' branch.
+inline bool is_whitespace_ascii(char c) {
+    return LIKELY(c == ' ') ||
+           UNLIKELY(c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r');
+}
+
+inline bool is_not_whitespace_ascii(char c) {
+    return !is_whitespace_ascii(c);
 }

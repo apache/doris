@@ -35,11 +35,32 @@ void register_function_round(SimpleFunctionFactory& factory) {
             FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();      \
     factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,      \
                                                TieBreakingMode::Bankers>>();
-
-    REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
-    REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)
     REGISTER_ROUND_FUNCTIONS(DoubleRoundOneImpl)
     REGISTER_ROUND_FUNCTIONS(DoubleRoundTwoImpl)
+#undef REGISTER_ROUND_FUNCTIONS
+
+#define REGISTER_ROUND_FUNCTIONS_IMPL(IMPL, TYPE)                                                 \
+    factory.register_function<FunctionRounding<IMPL<TruncateName, TYPE>, RoundingMode::Trunc,     \
+                                               TieBreakingMode::Auto>>();                         \
+    factory.register_function<FunctionRounding<IMPL<FloorName, TYPE>, RoundingMode::Floor,        \
+                                               TieBreakingMode::Auto>>();                         \
+    factory.register_function<FunctionRounding<IMPL<RoundName, TYPE>, RoundingMode::Round,        \
+                                               TieBreakingMode::Auto>>();                         \
+    factory.register_function<                                                                    \
+            FunctionRounding<IMPL<CeilName, TYPE>, RoundingMode::Ceil, TieBreakingMode::Auto>>(); \
+    factory.register_function<FunctionRounding<IMPL<RoundBankersName, TYPE>, RoundingMode::Round, \
+                                               TieBreakingMode::Bankers>>();
+
+#define REGISTER_ROUND_FUNCTIONS(IMPL)                    \
+    REGISTER_ROUND_FUNCTIONS_IMPL(IMPL, TYPE_DECIMAL32)   \
+    REGISTER_ROUND_FUNCTIONS_IMPL(IMPL, TYPE_DECIMAL64)   \
+    REGISTER_ROUND_FUNCTIONS_IMPL(IMPL, TYPE_DECIMAL128I) \
+    REGISTER_ROUND_FUNCTIONS_IMPL(IMPL, TYPE_DECIMALV2)   \
+    REGISTER_ROUND_FUNCTIONS_IMPL(IMPL, TYPE_DECIMAL256)
+    REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
+    REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)
+#undef REGISTER_ROUND_FUNCTIONS
+#undef REGISTER_ROUND_FUNCTIONS_IMPL
 
     factory.register_alias("ceil", "dceil");
     factory.register_alias("ceil", "ceiling");

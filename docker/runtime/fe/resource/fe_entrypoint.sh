@@ -405,7 +405,7 @@ start_fe_with_meta()
 print_vlsn()
 {
     local doris_meta_path=`parse_confval_from_fe_conf "meta_dir"`
-    if [[ "xdoris_meta_path" == "x" ]] ; then
+    if [[ "x$doris_meta_path" == "x" ]] ; then
         doris_meta_path="/opt/apache-doris/fe/doris-meta"
     fi
 

@@ -302,7 +302,7 @@ public:
     * If alloc 4G memory, 128M each time, then only one 128M chunk will be reserved after clearing,
     * and only 128M can be reused when you apply for 4G memory again.
     */
-    void clear() {
+    void clear(bool delete_head = false) {
         if (head == nullptr) {
             return;
         }
@@ -311,8 +311,14 @@ public:
             delete head->prev;
             head->prev = nullptr;
         }
-        head->pos = head->begin;
-        size_in_bytes = head->size();
+        if (delete_head) {
+            delete head;
+            head = nullptr;
+            size_in_bytes = 0;
+        } else {
+            head->pos = head->begin;
+            size_in_bytes = head->size();
+        }
         _used_size_no_head = 0;
     }
 

@@ -188,7 +188,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         }
     }
 
-    const size_t rows = in_block->rows();
+    const uint32_t rows = (uint32_t)in_block->rows();
     _distinct_row.clear();
 
     if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg && low_memory_mode()) {
@@ -282,7 +282,7 @@ void DistinctStreamingAggLocalState::_make_nullable_output_key(vectorized::Block
 
 void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
         vectorized::IColumn::Selector& distinct_row, vectorized::ColumnRawPtrs& key_columns,
-        const size_t num_rows) {
+        const uint32_t num_rows) {
     std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> void {

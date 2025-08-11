@@ -122,23 +122,12 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 "PushHandler::_do_streaming_ingestion input tablet is nullptr");
     }
 
-    std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
-    DBUG_EXECUTE_IF("PushHandler::_do_streaming_ingestion.try_lock_fail", {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "PushHandler::_do_streaming_ingestion get lock failed");
-    })
-    if (!base_migration_rlock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "PushHandler::_do_streaming_ingestion get lock failed");
-    }
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    {
-        std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-        RETURN_IF_ERROR(_engine.txn_manager()->prepare_txn(request.partition_id, *tablet,
-                                                           request.transaction_id, load_id));
-    }
+
+    RETURN_IF_ERROR(
+            tablet->prepare_txn(request.partition_id, request.transaction_id, load_id, false));
 
     // not call validate request here, because realtime load does not
     // contain version info
@@ -177,7 +166,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 tablet->version_count(), max_version_config, tablet->tablet_id());
     }
 
-    int version_count = tablet->version_count() + tablet->stale_version_count();
+    auto version_count = tablet->version_count() + tablet->stale_version_count();
     if (tablet->avg_rs_meta_serialize_size() * version_count >
         config::tablet_meta_serialize_size_limit) {
         return Status::Error<TOO_MANY_VERSION>(
@@ -516,7 +505,9 @@ Status PushBrokerReader::_cast_to_input_block() {
                     {vectorized::DataTypeString().create_column_const(
                              arg.column->size(),
                              vectorized::Field::create_field<TYPE_STRING>(
-                                     remove_nullable(return_type)->get_family_name())),
+                                     is_decimal(return_type->get_primitive_type())
+                                             ? "Decimal"
+                                             : remove_nullable(return_type)->get_family_name())),
                      std::make_shared<vectorized::DataTypeString>(), ""}};
             auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
                     "CAST", arguments, return_type);

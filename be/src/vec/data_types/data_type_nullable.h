@@ -75,6 +75,7 @@ public:
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
@@ -111,20 +112,22 @@ public:
     }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
+    using SerDeType = DataTypeNullableSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level),
-                                                       nesting_level);
+        return std::make_shared<SerDeType>(nested_data_type->get_serde(nesting_level),
+                                           nesting_level);
     }
     UInt32 get_precision() const override { return nested_data_type->get_precision(); }
     UInt32 get_scale() const override { return nested_data_type->get_scale(); }
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         nested_data_type->to_protobuf(ptype, node, scalar_type);
     }
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
         nested_data_type->to_thrift(thrift_type, node);

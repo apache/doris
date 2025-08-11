@@ -47,13 +47,18 @@ public class Time extends ScalarFunction
         super("time", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Time(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Time withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Time(children.get(0));
+        return new Time(getFunctionParams(children));
     }
 
     @Override

@@ -41,8 +41,8 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -154,7 +154,7 @@ public:
 
     virtual bool is_literal() const { return false; }
 
-    TExprNodeType::type node_type() const { return _node_type; }
+    MOCK_FUNCTION TExprNodeType::type node_type() const { return _node_type; }
 
     TExprOpcode::type op() const { return _opcode; }
 

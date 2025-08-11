@@ -22,7 +22,10 @@
 #include <functional>
 #include <limits>
 
+#include "common/cast_set.h"
+
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 class PriorityQueue {
@@ -89,7 +92,7 @@ public:
         return update_top();
     }
 
-    int32_t size() { return _size; }
+    int32_t size() { return cast_set<int32_t>(_size); }
 
     void clear() {
         for (size_t i = 1; i <= _size; i++) {
@@ -156,3 +159,4 @@ private:
 };
 
 } // namespace doris::segment_v2::inverted_index
+#include "common/compile_check_end.h"

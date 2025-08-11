@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 public class WorkloadGroupMgrTest {
 
@@ -161,19 +162,13 @@ public class WorkloadGroupMgrTest {
         Assert.assertTrue(idToRG.containsKey(group2.getId()));
         Assert.assertTrue(key2.getComputeGroup().equals(wg2.getComputeGroup()));
 
-        // 3 test memory limit exceeds
+        // 3 test memory limit exceeds, it will success
         Map<String, String> properties3 = Maps.newHashMap();
         properties3.put(WorkloadGroup.CPU_SHARE, "20");
         properties3.put(WorkloadGroup.MEMORY_LIMIT, "90%");
         properties3.put(WorkloadGroup.COMPUTE_GROUP, cg1);
         String wgName3 = "wg3";
         long wgId3 = 3;
-        try {
-            workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(wgId3, wgName3, properties3), false);
-            Assert.fail();
-        } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("can not be greater"));
-        }
         properties3.put(WorkloadGroup.MEMORY_LIMIT, "1%");
         workloadGroupMgr.createWorkloadGroup(cg1, new WorkloadGroup(wgId3, wgName3, properties3), false);
 
@@ -222,7 +217,10 @@ public class WorkloadGroupMgrTest {
         ConnectContext ctx = new ConnectContext();
         // 1.1 not set wg, get normal
         ctx.setComputeGroup(new ComputeGroup(cgName1, cgName1, null));
-        List<TPipelineWorkloadGroup> ret = workloadGroupMgr.getWorkloadGroup(ctx);
+        List<TPipelineWorkloadGroup> ret = workloadGroupMgr.getWorkloadGroup(ctx)
+                .stream()
+                .map(e -> e.toThrift())
+                .collect(Collectors.toList());
         Assert.assertTrue(ret.get(0).getId() == 100);
 
         ctx.setComputeGroup(new ComputeGroup(cgName2, cgName2, null));
@@ -247,7 +245,10 @@ public class WorkloadGroupMgrTest {
         Map<String, String> prop3 = Maps.newHashMap();
         prop3.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
         workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(wgId3, wgName2, prop3), false);
-        List<TPipelineWorkloadGroup> tPipWgList = workloadGroupMgr.getWorkloadGroup(ctx);
+        List<TPipelineWorkloadGroup> tPipWgList = workloadGroupMgr.getWorkloadGroup(ctx)
+                .stream()
+                .map(e -> e.toThrift())
+                .collect(Collectors.toList());
         Set<Long> idSet = Sets.newHashSet();
         for (TPipelineWorkloadGroup tpip : tPipWgList) {
             idSet.add(tpip.getId());
@@ -260,7 +261,9 @@ public class WorkloadGroupMgrTest {
         // 1.5 test get failed
         ctx.getSessionVariable().setWorkloadGroup("abc");
         try {
-            workloadGroupMgr.getWorkloadGroup(ctx);
+            workloadGroupMgr.getWorkloadGroup(ctx)
+                .stream()
+                .map(e -> e.toThrift()).collect(Collectors.toList());
             Assert.fail();
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
@@ -336,7 +339,6 @@ public class WorkloadGroupMgrTest {
         WorkloadGroup wg1 = new WorkloadGroup(wgId1, wgName1, prop1);
         wgMgr.getIdToWorkloadGroup().put(wgId1, wg1);
         wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName1), wg1);
-        wgMgr.getIdToQueryQueue().put(wgId1, new QueryQueue(0, 0, 0, 0, 0));
 
         long wgId2 = 2;
         String wgName2 = "wg2";
@@ -345,7 +347,6 @@ public class WorkloadGroupMgrTest {
         WorkloadGroup wg2 = new WorkloadGroup(wgId2, wgName2, prop2);
         wgMgr.getIdToWorkloadGroup().put(wgId2, wg2);
         wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName2), wg2);
-        wgMgr.getIdToQueryQueue().put(wgId2, new QueryQueue(0, 0, 0, 0, 0));
 
         long wgId3 = 3;
         String wgName3 = "wg3";
@@ -354,7 +355,6 @@ public class WorkloadGroupMgrTest {
         WorkloadGroup wg3 = new WorkloadGroup(wgId3, wgName3, prop3);
         wgMgr.getIdToWorkloadGroup().put(wgId3, wg3);
         wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName3), wg3);
-        wgMgr.getIdToQueryQueue().put(wgId3, new QueryQueue(0, 0, 0, 0, 0));
 
 
         // create a duplicate wg3 which binds to a compute group
@@ -367,12 +367,10 @@ public class WorkloadGroupMgrTest {
         prop4.put(WorkloadGroup.COMPUTE_GROUP, cg1);
         WorkloadGroup wg4 = new WorkloadGroup(wgId4, wgName4, prop4);
         wgMgr.createWorkloadGroup(cg1, wg4, false);
-        wgMgr.getIdToQueryQueue().put(wgId4, new QueryQueue(0, 0, 0, 0, 0));
 
 
         Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 4);
         Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 4);
-        Assert.assertTrue(wgMgr.getIdToQueryQueue().size() == 4);
         Assert.assertTrue(wgMgr.getOldWorkloadGroup().size() == 3);
 
         String cg2 = "cg2";
@@ -386,7 +384,6 @@ public class WorkloadGroupMgrTest {
 
         Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 6);
         Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 6);
-        Assert.assertTrue(wgMgr.getIdToQueryQueue().size() == 1);
         Assert.assertTrue(wgMgr.getOldWorkloadGroup().size() == 0);
         Assert.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId1) == null);
         Assert.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId2) == null);
@@ -445,29 +442,8 @@ public class WorkloadGroupMgrTest {
             String wgName12 = "wg2";
             Map<String, String> prop3 = Maps.newHashMap();
             prop3.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
-            prop3.put(propName, "71%");
-            try {
-                workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(3, wgName12, prop3), false);
-                Assert.fail();
-            } catch (DdlException e) {
-                Assert.assertTrue(e.getMessage().contains("can not be greater"));
-            }
-
-            // reset limit, then create should succ
             prop3.put(propName, "70%");
             workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(3, wgName12, prop3), false);
-
-            // create cg1.wg3, it should be failed and sum value should be 100
-            String wgName13 = "wg3";
-            Map<String, String> prop4 = Maps.newHashMap();
-            prop4.put(WorkloadGroup.COMPUTE_GROUP, cgName1);
-            prop4.put(propName, "1%");
-            try {
-                workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(4, wgName13, prop4), false);
-                Assert.fail();
-            } catch (DdlException e) {
-                Assert.assertTrue(e.getMessage().contains("current sum val:101"));
-            }
 
             // create cg2.wg2 with limit 20%, it should be succ.
             String wgName22 = "wg2";
@@ -475,18 +451,6 @@ public class WorkloadGroupMgrTest {
             prop5.put(WorkloadGroup.COMPUTE_GROUP, cgName2);
             prop5.put(propName, "9%");
             workloadGroupMgr.createWorkloadGroup(cgName2, new WorkloadGroup(5, wgName22, prop5), false);
-
-            // create cg2.wg3 with limit 60, it should be failed.
-            String wgName23 = "wg3";
-            Map<String, String> prop6 = Maps.newHashMap();
-            prop6.put(WorkloadGroup.COMPUTE_GROUP, cgName2);
-            prop6.put(propName, "30%");
-            try {
-                workloadGroupMgr.createWorkloadGroup(cgName2, new WorkloadGroup(6, wgName23, prop6), false);
-            } catch (DdlException e) {
-                Assert.assertTrue(e.getMessage().contains("current sum val:110"));
-            }
-
         }
     }
 

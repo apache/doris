@@ -50,6 +50,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,
@@ -192,12 +193,13 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
                                                     : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
             .cache_base_path = "",
-            .file_size = _rowset_meta->segment_file_size(seg_id),
+            .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
     };
 
-    auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id, rowset_id(),
-                                       _schema, reader_options, segment,
-                                       _rowset_meta->inverted_index_file_info(seg_id), stats);
+    auto s = segment_v2::Segment::open(
+            fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
+            _schema, reader_options, segment,
+            _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
@@ -868,5 +870,5 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     rowset_value->AddMember("segments", segments, allocator);
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

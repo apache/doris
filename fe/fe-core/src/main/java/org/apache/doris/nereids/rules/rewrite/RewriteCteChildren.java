@@ -88,8 +88,8 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
                     Optional.empty(), cascadesContext, cteAnchor.child(1),
                     cascadesContext.getCurrentJobContext().getRequiredProperties());
             AtomicReference<LogicalPlan> outerResult = new AtomicReference<>();
-            StatsDerive statsDerive = new StatsDerive();
-            cteAnchor.child(0).accept(statsDerive, null);
+            StatsDerive statsDerive = new StatsDerive(false);
+            cteAnchor.child(0).accept(statsDerive, new StatsDerive.DeriveContext());
             outerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
                 outerResult.set((LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx));
             });

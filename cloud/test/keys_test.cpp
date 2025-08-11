@@ -1212,15 +1212,14 @@ TEST(KeysTest, VersionedPartitionInvertedIndexKeyTest) {
     std::string instance_id = "instance_id";
     int64_t db_id = 123;
     int64_t table_id = 456;
-    int64_t index_id = 789;
     int64_t partition_id = 999;
 
     {
         // test partition_inverted_index_key
 
-        // 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${index_id} ${partition} -> ${empty_value}
+        // 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition} -> ${empty_value}
         PartitionInvertedIndexKeyInfo partition_inverted_index_info {instance_id, db_id, table_id,
-                                                                     index_id, partition_id};
+                                                                     partition_id};
         std::string encoded_partition_inverted_index_key;
         partition_inverted_index_key(partition_inverted_index_info,
                                      &encoded_partition_inverted_index_key);
@@ -1230,7 +1229,6 @@ TEST(KeysTest, VersionedPartitionInvertedIndexKeyTest) {
         std::string decoded_partition_inverted_prefix;
         int64_t decoded_db_id;
         int64_t decoded_table_id;
-        int64_t decoded_index_id;
         int64_t decoded_partition_id;
 
         std::string_view key_sv(encoded_partition_inverted_index_key);
@@ -1240,7 +1238,6 @@ TEST(KeysTest, VersionedPartitionInvertedIndexKeyTest) {
         ASSERT_EQ(decode_bytes(&key_sv, &decoded_partition_inverted_prefix), 0);
         ASSERT_EQ(decode_int64(&key_sv, &decoded_db_id), 0);
         ASSERT_EQ(decode_int64(&key_sv, &decoded_table_id), 0);
-        ASSERT_EQ(decode_int64(&key_sv, &decoded_index_id), 0);
         ASSERT_EQ(decode_int64(&key_sv, &decoded_partition_id), 0);
         ASSERT_TRUE(key_sv.empty());
 
@@ -1249,7 +1246,6 @@ TEST(KeysTest, VersionedPartitionInvertedIndexKeyTest) {
         EXPECT_EQ("partition_inverted", decoded_partition_inverted_prefix);
         EXPECT_EQ(db_id, decoded_db_id);
         EXPECT_EQ(table_id, decoded_table_id);
-        EXPECT_EQ(index_id, decoded_index_id);
         EXPECT_EQ(partition_id, decoded_partition_id);
     }
 }
@@ -1862,5 +1858,77 @@ TEST(KeysTest, VersionedLogKeyTest) {
 
         EXPECT_EQ("log", decoded_log_prefix);
         EXPECT_EQ(instance_id, decoded_instance_id);
+    }
+}
+
+TEST(KeysTest, RestoreJobKeysTest) {
+    using namespace doris::cloud;
+    std::string instance_id = "instance_id_deadbeef";
+
+    // 0x01 "job" ${instance_id} "restore_tablet" ${tablet_id}
+    {
+        int64_t tablet_id = 10086;
+        JobRestoreTabletKeyInfo tablet_key {instance_id, tablet_id};
+        std::string encoded_key;
+        job_restore_tablet_key(tablet_key, &encoded_key);
+        std::cout << hex(encoded_key) << std::endl;
+
+        std::string dec_job_prefix;
+        std::string dec_instance_id;
+        int64_t dec_tablet_id = 0;
+        std::string dec_restore_tablet_infix;
+
+        std::string_view key_sv(encoded_key);
+
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_restore_tablet_infix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_tablet_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("job", dec_job_prefix);
+        EXPECT_EQ("restore_tablet", dec_restore_tablet_infix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(tablet_id, dec_tablet_id);
+    }
+
+    // 0x01 "job" ${instance_id} "restore_rowset" ${tablet_id} ${version}
+    {
+        int64_t tablet_id = 10086;
+        int64_t version = 100;
+        JobRestoreRowsetKeyInfo rowset_key {instance_id, tablet_id, version};
+        std::string encoded_key;
+        job_restore_rowset_key(rowset_key, &encoded_key);
+        std::cout << hex(encoded_key) << std::endl;
+
+        std::string dec_job_prefix;
+        std::string dec_instance_id;
+        std::string dec_restore_rowset_infix;
+        int64_t dec_tablet_id = 0;
+        int64_t dec_version = 0;
+
+        std::string_view key_sv(encoded_key);
+
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_restore_rowset_infix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_tablet_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_version), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("job", dec_job_prefix);
+        EXPECT_EQ("restore_rowset", dec_restore_rowset_infix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(tablet_id, dec_tablet_id);
+        EXPECT_EQ(version, dec_version);
+
+        std::get<2>(rowset_key) = version + 1;
+        std::string encoded_key1;
+        job_restore_rowset_key(rowset_key, &encoded_key1);
+        std::cout << hex(encoded_key1) << std::endl;
+
+        ASSERT_GT(encoded_key1, encoded_key);
     }
 }

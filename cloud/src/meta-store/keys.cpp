@@ -17,6 +17,8 @@
 
 #include "meta-store/keys.h"
 
+#include <set>
+
 #include "meta-store/codec.h"
 
 namespace doris::cloud {
@@ -62,6 +64,8 @@ static const char* STATS_KEY_INFIX_TABLET               = "tablet";
 
 static const char* JOB_KEY_INFIX_TABLET                 = "tablet";
 static const char* JOB_KEY_INFIX_RL_PROGRESS            = "routine_load_progress";
+static const char* JOB_KEY_INFIX_RESTORE_TABLET         = "restore_tablet";
+static const char* JOB_KEY_INFIX_RESTORE_ROWSET         = "restore_rowset";
 
 static const char* COPY_JOB_KEY_INFIX                   = "job";
 static const char* COPY_FILE_KEY_INFIX                  = "loading_file";
@@ -139,7 +143,7 @@ static void encode_prefix(const T& t, std::string* key) {
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
-        StatsTabletKeyInfo, TableVersionKeyInfo,
+        StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
         MowTabletJobInfo>);
@@ -184,6 +188,9 @@ static void encode_prefix(const T& t, std::string* key) {
         encode_bytes(COPY_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(VAULT_KEY_PREFIX, key);
+    } else if constexpr (std::is_same_v<T, JobRestoreTabletKeyInfo>
+                      || std::is_same_v<T, JobRestoreRowsetKeyInfo>) {
+        encode_bytes(JOB_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
         // prevent missing branch match.
@@ -456,6 +463,19 @@ void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out) 
     encode_int64(std::get<2>(in), out);           // job_id
 }
 
+void job_restore_tablet_key(const JobRestoreTabletKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                          // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_RESTORE_TABLET, out); // "restore_tablet"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+}
+
+void job_restore_rowset_key(const JobRestoreRowsetKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                          // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_RESTORE_ROWSET, out); // "restore_rowset"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_int64(std::get<2>(in), out);              // version
+}
+
 //==============================================================================
 // Copy keys
 //==============================================================================
@@ -571,8 +591,7 @@ void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::
     encode_bytes(PARTITION_INVERTED_INDEX_KEY_INFIX, out); // "partition_inverted"
     encode_int64(std::get<1>(in), out);                    // db_id
     encode_int64(std::get<2>(in), out);                    // table_id
-    encode_int64(std::get<3>(in), out);                    // index_id
-    encode_int64(std::get<4>(in), out);                    // partition_id
+    encode_int64(std::get<3>(in), out);                    // partition_id
 }
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out) {
@@ -757,5 +776,20 @@ int decode_key(std::string_view* in,
     }
     return 0;
 }
-
+//==================================================================================
+// Key Prefix Map
+//==================================================================================
+std::set<std::string> get_key_prefix_contants() {
+    std::set<std::string> key_prefix_set;
+    key_prefix_set.insert(INSTANCE_KEY_PREFIX);
+    key_prefix_set.insert(TXN_KEY_PREFIX);
+    key_prefix_set.insert(VERSION_KEY_PREFIX);
+    key_prefix_set.insert(META_KEY_PREFIX);
+    key_prefix_set.insert(RECYCLE_KEY_PREFIX);
+    key_prefix_set.insert(STATS_KEY_PREFIX);
+    key_prefix_set.insert(JOB_KEY_PREFIX);
+    key_prefix_set.insert(COPY_KEY_PREFIX);
+    key_prefix_set.insert(VAULT_KEY_PREFIX);
+    return key_prefix_set;
+}
 } // namespace doris::cloud

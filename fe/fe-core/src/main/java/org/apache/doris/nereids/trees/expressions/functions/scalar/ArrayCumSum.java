@@ -66,13 +66,18 @@ public class ArrayCumSum extends ScalarFunction
         super("array_cum_sum", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayCumSum(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayCumSum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayCumSum(children.get(0));
+        return new ArrayCumSum(getFunctionParams(children));
     }
 
     @Override

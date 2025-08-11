@@ -25,6 +25,7 @@
 #include <memory>
 
 #include "common/cast_set.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -32,9 +33,9 @@
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/endian.h"
 #include "vec/common/format_ip.h"
 #include "vec/common/ipv6_to_binary.h"
-#include "vec/common/unaligned.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -151,10 +152,8 @@ ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_ma
         vec_null_map_to = &col_null_map_to->get_data();
     }
 
-    auto col_res = ToColumn::create();
-
+    auto col_res = ToColumn::create(column_size, 0);
     auto& vec_res = col_res->get_data();
-    vec_res.resize(column_size);
 
     const ColumnString::Chars& vec_src = column_string->get_chars();
     const ColumnString::Offsets& offsets_src = column_string->get_offsets();
@@ -658,7 +657,7 @@ public:
             return Status::OK();
         }
 
-        if (!iter->get_reader()->is_bkd_index()) {
+        if (!segment_v2::IndexReaderHelper::is_bkd_index(iter->get_reader())) {
             // Not support only bkd index
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, ip range reader can only support by bkd "
@@ -1028,9 +1027,8 @@ public:
 
 private:
     static bool is_ipv4_compat(const UInt8* address) {
-        return (unaligned_load_little_endian<UInt64>(address) == 0) &&
-               (unaligned_load_little_endian<UInt32>(address + 8) == 0) &&
-               (unaligned_load_little_endian<UInt32>(address + 12) != 0);
+        return (LittleEndian::Load64(address) == 0) && (LittleEndian::Load32(address + 8) == 0) &&
+               (LittleEndian::Load32(address + 12) != 0);
     }
 };
 
@@ -1069,8 +1067,8 @@ public:
 
 private:
     static bool is_ipv4_mapped(const UInt8* address) {
-        return (unaligned_load_little_endian<UInt64>(address) == 0) &&
-               ((unaligned_load_little_endian<UInt64>(address + 8) & 0x00000000FFFFFFFFULL) ==
+        return (LittleEndian::Load64(address) == 0) &&
+               ((LittleEndian::Load64(address + 8) & 0x00000000FFFFFFFFULL) ==
                 0x00000000FFFF0000ULL);
     }
 };
@@ -1325,9 +1323,8 @@ public:
 
 private:
     static bool is_ipv4_mapped(const UInt8* address) {
-        return (unaligned_load_little_endian<UInt64>(address + 8) == 0) &&
-               ((unaligned_load_little_endian<UInt64>(address) & 0xFFFFFFFF00000000ULL) ==
-                0x0000FFFF00000000ULL);
+        return (LittleEndian::Load64(address + 8) == 0) &&
+               ((LittleEndian::Load64(address) & 0xFFFFFFFF00000000ULL) == 0x0000FFFF00000000ULL);
     }
 
     static void cut_address(unsigned char* address, char*& dst, UInt8 zeroed_tail_bytes_count) {

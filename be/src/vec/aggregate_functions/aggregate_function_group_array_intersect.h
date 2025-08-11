@@ -18,23 +18,17 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionGroupArrayIntersect.cpp
 // and modified by Doris
 
-#include <cassert>
 #include <memory>
 
 #include "exprs/hybrid_set.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
-#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/io/io_helper.h"
-#include "vec/io/var_int.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -153,7 +147,7 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
 
@@ -175,7 +169,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
@@ -236,7 +230,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         auto& data = this->data(place);
         bool is_set_contain_null;
 
@@ -351,7 +345,7 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         auto& data = this->data(place);
         auto& init = data.init;
         auto& set = data.value;
@@ -387,10 +381,10 @@ public:
                 src = nested_column_data->get_data_at(offset + i);
             } else {
                 const char* begin = nullptr;
-                src = nested_column_data->serialize_value_into_arena(offset + i, *arena, begin);
+                src = nested_column_data->serialize_value_into_arena(offset + i, arena, begin);
             }
 
-            src.data = is_null_element ? nullptr : arena->insert(src.data, src.size);
+            src.data = is_null_element ? nullptr : arena.insert(src.data, src.size);
             return src;
         };
 
@@ -415,7 +409,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
@@ -474,7 +468,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena& arena) const override {
         auto& data = this->data(place);
         bool is_set_contain_null;
 
@@ -486,7 +480,7 @@ public:
 
         StringRef element;
         for (UInt64 i = 0; i < size; ++i) {
-            element = read_binary_into(*arena, buf);
+            element = buf.read_binary_into(arena);
             data.value->insert((void*)element.data, element.size);
         }
     }

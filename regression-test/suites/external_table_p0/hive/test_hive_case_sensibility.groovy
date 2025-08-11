@@ -267,7 +267,11 @@ suite("test_hive_case_sensibility", "p0,external,doris,external_docker,external_
                 } else {
                     sql """truncate table CASE_TBL12;"""
                 }
+                // before truncate, see in show tables
+                qt_before_truncate_show_table """show tables like "%case_tbl12%""""
                 sql """truncate table case_tbl12;"""
+                // after truncate, should also see in show tables
+                qt_after_truncate_show_table """show tables like "%case_tbl12%""""
                 qt_sql20 """select * from case_tbl12;""" // empty
 
                 // 6. drop table

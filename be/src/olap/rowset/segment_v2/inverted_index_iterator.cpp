@@ -19,17 +19,14 @@
 
 #include <memory>
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::segment_v2 {
 
-InvertedIndexIterator::InvertedIndexIterator(const io::IOContext& io_ctx,
-                                             OlapReaderStatistics* stats,
-                                             RuntimeState* runtime_state,
-                                             const IndexReaderPtr& reader)
-        : IndexIterator(io_ctx, stats, runtime_state) {
-    _index_reader = std::static_pointer_cast<InvertedIndexReader>(reader);
+InvertedIndexIterator::InvertedIndexIterator(const IndexReaderPtr& reader) {
+    _reader = std::static_pointer_cast<InvertedIndexReader>(reader);
 }
 
 Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
@@ -40,16 +37,18 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     DBUG_EXECUTE_IF("return_inverted_index_bypass", {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("inverted index bypass");
     });
-    if (UNLIKELY(_index_reader == nullptr)) {
-        throw CLuceneError(CL_ERR_NullPointer, "bkd index reader is null", false);
+    if (UNLIKELY(_reader == nullptr)) {
+        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "index reader is null");
     }
-    if (!i_param->skip_try && _index_reader->type() == InvertedIndexReaderType::BKD) {
-        if (_runtime_state != nullptr &&
-            _runtime_state->query_options().inverted_index_skip_threshold > 0 &&
-            _runtime_state->query_options().inverted_index_skip_threshold < 100) {
+
+    auto* runtime_state = _context->runtime_state;
+    if (!i_param->skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
+        if (runtime_state != nullptr &&
+            runtime_state->query_options().inverted_index_skip_threshold > 0 &&
+            runtime_state->query_options().inverted_index_skip_threshold < 100) {
             auto query_bkd_limit_percent =
-                    _runtime_state->query_options().inverted_index_skip_threshold;
-            uint32_t hit_count = 0;
+                    runtime_state->query_options().inverted_index_skip_threshold;
+            size_t hit_count = 0;
             RETURN_IF_ERROR(try_read_from_inverted_index(i_param->column_name, i_param->query_value,
                                                          i_param->query_type, &hit_count));
             if (hit_count > i_param->num_rows * query_bkd_limit_percent / 100) {
@@ -62,11 +61,11 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     }
 
     auto execute_query = [&]() {
-        return _index_reader->query(&_io_ctx, _stats, _runtime_state, i_param->column_name,
-                                    i_param->query_value, i_param->query_type, i_param->roaring);
+        return _reader->query(_context, i_param->column_name, i_param->query_value,
+                              i_param->query_type, i_param->roaring);
     };
 
-    if (_runtime_state->query_options().enable_profile) {
+    if (runtime_state->query_options().enable_profile) {
         InvertedIndexQueryStatistics query_stats;
         {
             SCOPED_RAW_TIMER(&query_stats.exec_time);
@@ -74,7 +73,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         }
         query_stats.column_name = i_param->column_name;
         query_stats.hit_rows = i_param->roaring->cardinality();
-        _stats->inverted_index_stats.stats.emplace_back(query_stats);
+        _context->stats->inverted_index_stats.stats.emplace_back(query_stats);
     } else {
         RETURN_IF_ERROR(execute_query());
     }
@@ -83,25 +82,24 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 }
 
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
-    return _index_reader->read_null_bitmap(&_io_ctx, _stats, cache_handle, nullptr);
+    return _reader->read_null_bitmap(_context, cache_handle, nullptr);
 }
 
 bool InvertedIndexIterator::has_null() {
-    return _index_reader->has_null();
+    return _reader->has_null();
 }
 
 Status InvertedIndexIterator::try_read_from_inverted_index(const std::string& column_name,
                                                            const void* query_value,
                                                            InvertedIndexQueryType query_type,
-                                                           uint32_t* count) {
+                                                           size_t* count) {
     // NOTE: only bkd index support try read now.
     if (query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
         query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
         query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY ||
         query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
         query_type == InvertedIndexQueryType::EQUAL_QUERY) {
-        RETURN_IF_ERROR(_index_reader->try_query(&_io_ctx, _stats, _runtime_state, column_name,
-                                                 query_value, query_type, count));
+        RETURN_IF_ERROR(_reader->try_query(_context, column_name, query_value, query_type, count));
     }
     return Status::OK();
 }

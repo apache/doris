@@ -18,15 +18,22 @@
 #include "data_type_datev2_serde.h"
 
 #include <arrow/builder.h>
+#include <cctz/time_zone.h>
+#include <fmt/core.h>
 
 #include <cstdint>
-#include <type_traits>
 
+#include "io/io_common.h"
 #include "vec/columns/column_const.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/functions/cast/cast_base.h"
+#include "vec/functions/cast/cast_to_datev2_impl.hpp"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/vdatetime_value.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 // This number represents the number of days from 0000-01-01 to 1970-01-01
 static const int32_t date_threshold = 719528;
@@ -161,7 +168,7 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     const auto& col_data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
     for (size_t row_id = start; row_id < end; row_id++) {
@@ -204,5 +211,294 @@ void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& colum
     col.insert_many_vals(val, times);
 }
 
-} // namespace vectorized
-} // namespace doris
+void DataTypeDateV2SerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                   ColumnString::Chars& chars,
+                                                   int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_DATEV2);
+    const auto& data_ref =
+            assert_cast<const ColumnVector<TYPE_DATEV2>&>(src_column).get_data_at(row_num);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
+}
+
+// NOLINTBEGIN(readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, ColumnNullable& col_res,
+                                              const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(col_res.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    size_t row = col_str.size();
+    col_res.resize(row);
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    for (size_t i = 0; i < row; ++i) {
+        auto str = col_str.get_data_at(i);
+        DateV2Value<DateV2ValueType> res;
+        // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+        // then we rely on return value to check success.
+        // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+        // Exception!
+        if (!CastToDateV2::from_string_non_strict_mode(str, res, options.timezone, params))
+                [[unlikely]] {
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(MIN_DATE_V2);
+        } else {
+            col_nullmap.get_data()[i] = false;
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res);
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
+        const ColumnString& col_str, IColumn& col_res, const FormatOptions& options,
+        const NullMap::value_type* null_map) const {
+    size_t row = col_str.size();
+    col_res.resize(row);
+    auto& col_data = assert_cast<ColumnDateV2&>(col_res);
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+    for (size_t i = 0; i < row; ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
+        auto str = col_str.get_data_at(i);
+        DateV2Value<DateV2ValueType> res;
+        CastToDateV2::from_string_strict_mode<true>(str, res, options.timezone, params);
+        // only after we called something with `IS_STRICT = true`, params.status will be set
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(fmt::format("parse {} to date failed: ", str.to_string_view()));
+            return params.status;
+        }
+
+        col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res);
+    }
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::from_string(StringRef& str, IColumn& column,
+                                        const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(column);
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    DateV2Value<DateV2ValueType> res;
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    if (!CastToDateV2::from_string_non_strict_mode(str, res, options.timezone, params))
+            [[unlikely]] {
+        return Status::InvalidArgument("parse datev2 fail, string: '{}'", str.to_string());
+    }
+    col_data.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res));
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                    const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(column);
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+
+    DateV2Value<DateV2ValueType> res;
+    CastToDateV2::from_string_strict_mode<true>(str, res, options.timezone, params);
+    // only after we called something with `IS_STRICT = true`, params.status will be set
+    if (!params.status.ok()) [[unlikely]] {
+        params.status.prepend(fmt::format("parse {} to date failed: ", str.to_string_view()));
+        return params.status;
+    }
+
+    col_data.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res));
+    return Status::OK();
+}
+
+template <typename IntDataType>
+Status DataTypeDateV2SerDe::from_int_batch(const IntDataType::ColumnType& int_col,
+                                           ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(int_col.size());
+    col_nullmap.resize(int_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    for (size_t i = 0; i < int_col.size(); ++i) {
+        DateV2Value<DateV2ValueType> val;
+        if (CastToDateV2::from_integer<false>(int_col.get_element(i), val, params)) [[likely]] {
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
+            col_nullmap.get_data()[i] = false;
+        } else {
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(MIN_DATE_V2);
+        }
+    }
+    return Status::OK();
+}
+
+template <typename IntDataType>
+Status DataTypeDateV2SerDe::from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
+                                                       IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(target_col);
+    col_data.resize(int_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+    for (size_t i = 0; i < int_col.size(); ++i) {
+        DateV2Value<DateV2ValueType> val;
+        CastToDateV2::from_integer<true>(int_col.get_element(i), val, params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(fmt::format("parse {} to date failed: ", int_col.get_element(i)));
+            return params.status;
+        }
+
+        col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
+    }
+    return Status::OK();
+}
+
+template <typename FloatDataType>
+Status DataTypeDateV2SerDe::from_float_batch(const FloatDataType::ColumnType& float_col,
+                                             ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(float_col.size());
+    col_nullmap.resize(float_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    for (size_t i = 0; i < float_col.size(); ++i) {
+        DateV2Value<DateV2ValueType> val;
+        if (CastToDateV2::from_float<false>(float_col.get_data()[i], val, params)) [[likely]] {
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
+            col_nullmap.get_data()[i] = false;
+        } else {
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(MIN_DATE_V2);
+        }
+    }
+    return Status::OK();
+}
+
+template <typename FloatDataType>
+Status DataTypeDateV2SerDe::from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
+                                                         IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(target_col);
+    col_data.resize(float_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+    for (size_t i = 0; i < float_col.size(); ++i) {
+        DateV2Value<DateV2ValueType> val;
+        CastToDateV2::from_float<true>(float_col.get_data()[i], val, params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to date failed: ", float_col.get_data()[i]));
+            return params.status;
+        }
+
+        col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
+    }
+    return Status::OK();
+}
+
+template <typename DecimalDataType>
+Status DataTypeDateV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
+                                               ColumnNullable& target_col) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(target_col.get_nested_column());
+    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    col_data.resize(decimal_col.size());
+    col_nullmap.resize(decimal_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+    for (size_t i = 0; i < decimal_col.size(); ++i) {
+        DateV2Value<DateV2ValueType> val;
+        if (CastToDateV2::from_decimal<true>(decimal_col.get_intergral_part(i),
+                                             decimal_col.get_scale(), val, params)) [[likely]] {
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
+            col_nullmap.get_data()[i] = false;
+        } else {
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(MIN_DATE_V2);
+        }
+    }
+    return Status::OK();
+}
+
+template <typename DecimalDataType>
+Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
+        const DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+    auto& col_data = assert_cast<ColumnDateV2&>(target_col);
+    col_data.resize(decimal_col.size());
+
+    CastParameters params {.status = Status::OK(), .is_strict = true};
+    for (size_t i = 0; i < decimal_col.size(); ++i) {
+        DateV2Value<DateV2ValueType> val;
+        CastToDateV2::from_decimal<true>(decimal_col.get_intergral_part(i), decimal_col.get_scale(),
+                                         val, params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {}.{} to date failed: ", decimal_col.get_intergral_part(i),
+                                decimal_col.get_fractional_part(i)));
+            return params.status;
+        }
+
+        col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
+    }
+    return Status::OK();
+}
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-size)
+
+// instantiation of template functions
+template Status DataTypeDateV2SerDe::from_int_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt8>(
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt16>(
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt32>(
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt64>(
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_int_strict_mode_batch<DataTypeInt128>(
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_float_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_float_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_float_strict_mode_batch<DataTypeFloat32>(
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_float_strict_mode_batch<DataTypeFloat64>(
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal32>(
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal64>(
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal128>(
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+
+} // namespace doris::vectorized

@@ -115,6 +115,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     range.__isset.table_format_params = true;
 
     io::IOContext io_ctx;
+    io::FileReaderStats file_reader_stats;
+    io_ctx.file_reader_stats = &file_reader_stats;
     std::string time_zone = "CST";
     auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
                                            time_zone, &io_ctx, true);
@@ -188,12 +190,12 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     auto vf = FileScanner::create_unique(runtime_state.get(), runtime_profile.get(), &params,
                                          &colname_to_slot_id, tuple_desc);
-    EXPECT_TRUE(vf->prepare_for_read_one_line(range).ok());
+    EXPECT_TRUE(vf->prepare_for_read_lines(range).ok());
     ExternalFileMappingInfo external_info(0, range, false);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
-    auto st = vf->read_one_line_from_range(range, line, block.get(), external_info, &init_reader_ms,
-                                           &get_block_ms);
+    auto st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
+                                        &get_block_ms);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(block->dump_data(1), block_dump);
 }

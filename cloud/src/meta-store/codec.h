@@ -30,6 +30,7 @@ struct EncodingTag {
         NEGATIVE_FIXED_INT_TAG = 0x11,
         POSITIVE_FIXED_INT_TAG = 0x12,
         VERSIONSTAMP_TAG = 0x13,
+        VERSIONSTAMP_END_TAG = 0xFF,
     };
 
     // Magic value used for encoding
@@ -94,6 +95,31 @@ int decode_versionstamp(std::string_view* in, Versionstamp* vs);
  * @return 0 for success, otherwise error
  */
 int decode_tailing_versionstamp(std::string_view* in, Versionstamp* vs);
+
+/**
+ * Encodes the end of a versionstamp sequence.
+ * This is used to mark the end of a versionstamp in a byte stream.
+ *
+ * @param b Output string where the encoded end marker will be appended
+ */
+void encode_versionstamp_end(std::string* b);
+
+/**
+ * Decodes the end of a versionstamp sequence.
+ * This is used to mark the end of a versionstamp in a byte stream.
+ *
+ * @param in Input string view containing the encoded end marker
+ * @return 0 for success, otherwise error
+ */
+int decode_versionstamp_end(std::string_view* in);
+
+/**
+ * Decodes the end of a versionstamp sequence from the tailing of the input string.
+ *
+ * @param in Input string view containing the encoded end marker
+ * @return 0 for success, otherwise error
+ */
+int decode_tailing_versionstamp_end(std::string_view* in);
 
 /**
  * Encodes int64 to 8-byte big endian

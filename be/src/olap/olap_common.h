@@ -27,6 +27,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -35,18 +36,20 @@
 #include <unordered_set>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "io/io_common.h"
 #include "olap/inverted_index_stats.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
+#include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
@@ -337,7 +340,7 @@ struct OlapReaderStatistics {
     int64_t rows_stats_filtered = 0;
     int64_t rows_stats_rp_filtered = 0;
     int64_t rows_bf_filtered = 0;
-    int64_t rows_dict_filtered = 0;
+    int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
@@ -462,7 +465,7 @@ struct RowsetId {
     void init(int64_t rowset_id) { init(1, rowset_id, 0, 0); }
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
-        version = id_version;
+        version = cast_set<int8_t>(id_version);
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
             throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
         }
@@ -535,6 +538,30 @@ inline RowsetId extract_rowset_id(std::string_view filename) {
 }
 
 class DeleteBitmap;
+
+struct CalcDeleteBitmapTask {
+    std::mutex m;
+    Status status {Status::OK()};
+    CountDownLatch latch {1};
+
+    void set_status(Status st) {
+        {
+            std::unique_lock l(m);
+            status = std::move(st);
+        }
+        latch.count_down(1);
+    }
+
+    Status get_status() {
+        if (!latch.wait_for(
+                    std::chrono::seconds(config::segcompaction_wait_for_dbm_task_timeout_s))) {
+            return Status::InternalError<false>("wait for calc delete bitmap task timeout");
+        };
+        std::unique_lock l(m);
+        return status;
+    }
+};
+
 // merge on write context
 struct MowContext {
     MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
@@ -544,11 +571,21 @@ struct MowContext {
               rowset_ids(ids),
               rowset_ptrs(std::move(rowset_ptrs)),
               delete_bitmap(std::move(db)) {}
+
+    CalcDeleteBitmapTask* get_calc_dbm_task(int32_t segment_id) {
+        std::lock_guard l(m);
+        return &calc_dbm_tasks[segment_id];
+    }
+
     int64_t max_version;
     int64_t txn_id;
     const RowsetIdUnorderedSet& rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
+
+    std::mutex m;
+    // status of calc delete bitmap task in flush phase
+    std::unordered_map<int32_t /* origin seg id*/, CalcDeleteBitmapTask> calc_dbm_tasks;
 };
 
 // used for controll compaction
@@ -569,7 +606,7 @@ struct VersionWithTime {
         }
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris
 
 // This intended to be a "good" hash function.  It may change from time to time.

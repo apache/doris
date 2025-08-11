@@ -65,3 +65,95 @@ v31
 -- !array_last3 --
 4	4
 
+-- !test_col_vector_vector --
+"v31"
+1234.56
+null
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !test_col_scalar_vector --
+"v1"
+\N
+2
+333
+\N
+\N
+\N
+\N
+"v1"
+\N
+2
+333
+
+-- !test_col_vector_scalar --
+"v31"
+"v31"
+"v31"
+"v31"
+"v31"
+"v31"
+"v31"
+"v31"
+\N
+\N
+\N
+\N
+
+-- !test_col_vector_scalar_2 --
+{"k1":"v31","k2":300}	["v31",300]
+{"k1":"v31","k2":{"sub_key":1234.56}}	["v31",{"sub_key":1234.56}]
+{"k1":"v31","k2":null}	["v31",null]
+{"k1":"v31","k2":300}	["v31",300]
+{"k1":"v31","k2":300}	["v31",300]
+{"k1":"v31","k2":{"sub_key":1234.56}}	["v31",{"sub_key":1234.56}]
+{"k1":"v31","k2":null}	["v31",null]
+{"k1":"v31","k2":300}	["v31",300]
+\N	\N
+\N	\N
+\N	\N
+\N	\N
+
+-- !example1 --
+"v31"
+
+-- !example2 --
+\N
+
+-- !example3 --
+\N
+
+-- !example4 --
+1234.56
+
+-- !example5 --
+"2025-06-05 14:47:01"
+
+-- !example6 --
+\N
+
+-- !example7_1 --
+["doris",123]
+
+-- !example7_2 --
+["doris"]
+
+-- !example7_3 --
+\N
+
+-- !example8_1 --
+[1,2,3,4,5]
+
+-- !example8_2 --
+[[1,2,3,4,5],"abc",{"k4":"v4"},"v4"]
+
+-- !example9 --
+null	false
+

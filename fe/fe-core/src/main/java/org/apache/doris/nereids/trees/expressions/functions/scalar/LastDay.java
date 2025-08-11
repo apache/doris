@@ -54,13 +54,18 @@ public class LastDay extends ScalarFunction
         super("last_day", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private LastDay(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public LastDay withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LastDay(children.get(0));
+        return new LastDay(getFunctionParams(children));
     }
 
     @Override

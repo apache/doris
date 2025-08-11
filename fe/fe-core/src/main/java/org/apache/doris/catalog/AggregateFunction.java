@@ -17,9 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -637,23 +637,23 @@ public class AggregateFunction extends Function {
     @Override
     public String getProperties() {
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateFunctionStmt.OBJECT_FILE_KEY, getLocation() == null ? "" : getLocation().toString());
-        properties.put(CreateFunctionStmt.MD5_CHECKSUM, checksum);
-        properties.put(CreateFunctionStmt.INIT_KEY, initFnSymbol);
-        properties.put(CreateFunctionStmt.UPDATE_KEY, updateFnSymbol);
-        properties.put(CreateFunctionStmt.MERGE_KEY, mergeFnSymbol);
-        properties.put(CreateFunctionStmt.SERIALIZE_KEY, serializeFnSymbol);
-        properties.put(CreateFunctionStmt.FINALIZE_KEY, finalizeFnSymbol);
+        properties.put(CreateFunctionCommand.OBJECT_FILE_KEY, getLocation() == null ? "" : getLocation().toString());
+        properties.put(CreateFunctionCommand.MD5_CHECKSUM, checksum);
+        properties.put(CreateFunctionCommand.INIT_KEY, initFnSymbol);
+        properties.put(CreateFunctionCommand.UPDATE_KEY, updateFnSymbol);
+        properties.put(CreateFunctionCommand.MERGE_KEY, mergeFnSymbol);
+        properties.put(CreateFunctionCommand.SERIALIZE_KEY, serializeFnSymbol);
+        properties.put(CreateFunctionCommand.FINALIZE_KEY, finalizeFnSymbol);
 
         // getValueFn and removeFn may be null if not analytic agg
         if (getValueFnSymbol != null) {
-            properties.put(CreateFunctionStmt.GET_VALUE_KEY, getValueFnSymbol);
+            properties.put(CreateFunctionCommand.GET_VALUE_KEY, getValueFnSymbol);
         }
         if (removeFnSymbol != null) {
-            properties.put(CreateFunctionStmt.REMOVE_KEY, removeFnSymbol);
+            properties.put(CreateFunctionCommand.REMOVE_KEY, removeFnSymbol);
         }
         if (symbolName != null) {
-            properties.put(CreateFunctionStmt.SYMBOL_KEY, symbolName);
+            properties.put(CreateFunctionCommand.SYMBOL_KEY, symbolName);
         }
         return new Gson().toJson(properties);
     }

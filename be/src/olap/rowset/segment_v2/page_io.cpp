@@ -47,6 +47,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                   const std::vector<Slice>& body, OwnedSlice* compressed_body) {
@@ -54,7 +55,8 @@ Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space
     if (codec != nullptr && !codec->exceed_max_compress_len(uncompressed_size)) {
         faststring buf;
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(body, uncompressed_size, &buf));
-        double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
+        double space_saving =
+                1.0 - (cast_set<double>(buf.size()) / cast_set<double>(uncompressed_size));
         // return compressed body only when it saves more than min_space_saving
         if (space_saving > 0 && space_saving >= min_space_saving) {
             // shrink the buf to fit the len size to avoid taking
@@ -109,7 +111,7 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     RETURN_IF_ERROR(writer->appendv(&page[0], page.size()));
 
     result->offset = offset;
-    result->size = writer->bytes_appended() - offset;
+    result->size = cast_set<uint32_t>(writer->bytes_appended() - offset);
     return Status::OK();
 }
 
@@ -193,7 +195,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                                   opts.file_reader->path().native());
     }
 
-    uint32_t body_size = page_slice.size - 4 - footer_size;
+    auto body_size = cast_set<uint32_t>(page_slice.size - 4 - footer_size);
     if (body_size != footer->uncompressed_size()) { // need decompress body
         if (opts.codec == nullptr) {
             return Status::Corruption(
@@ -220,9 +222,6 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         // free memory of compressed page
         page = std::move(decompressed_page);
         page_slice = Slice(page->data(), footer->uncompressed_size() + footer_size + 4);
-        opts.stats->uncompressed_bytes_read += page_slice.size;
-    } else {
-        opts.stats->uncompressed_bytes_read += body_size;
     }
 
     if (opts.pre_decode && opts.encoding_info) {
@@ -236,6 +235,10 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
 
     *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
     page->reset_size(page_slice.size);
+    // Uncompressed has 2 meanings: uncompress and decode. The buffer in pagecache maybe
+    // uncompressed or decoded. So that should update the uncompressed_bytes_read counter
+    // just before add it to pagecache, it will be consistency with reading data from page cache.
+    opts.stats->uncompressed_bytes_read += body->size;
     if (opts.use_page_cache && cache) {
         // insert this page into cache and return the cache handle
         cache->insert(cache_key, page.get(), &cache_handle, opts.type, opts.kept_in_memory);
@@ -297,5 +300,6 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     return st;
 }
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

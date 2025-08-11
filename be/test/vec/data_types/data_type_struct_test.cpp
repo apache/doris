@@ -448,17 +448,10 @@ TEST_F(DataTypeStructTest, writeColumnToOrc) {
     MutableColumnPtr struct_column = st->create_column();
     struct_column->insert(Field::create_field<TYPE_STRUCT>(test_data));
 
-    std::vector<StringRef> buffer_list;
-    Defer defer {[&]() {
-        for (auto& bufferRef : buffer_list) {
-            if (bufferRef.data) {
-                free(const_cast<char*>(bufferRef.data));
-            }
-        }
-    }};
+    vectorized::Arena arena;
 
-    Status status = serde->write_column_to_orc("UTC", *struct_column, nullptr, &structBatch, 0, 1,
-                                               buffer_list);
+    Status status =
+            serde->write_column_to_orc("UTC", *struct_column, nullptr, &structBatch, 0, 1, arena);
 
     EXPECT_EQ(status, Status::OK()) << "Failed to write column to orc: " << status;
     EXPECT_EQ(structBatch.numElements, 1);
@@ -496,19 +489,6 @@ TEST_F(DataTypeStructTest, formString) {
     block.insert(type_and_name1);
     block.insert(type_and_name2);
     std::cout << "block: " << block.dump_data() << std::endl;
-}
-
-TEST_F(DataTypeStructTest, ConvertNull) {
-    rapidjson::Value jsonValue;
-    rapidjson::Document doc;
-    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
-    DataTypeSerDe::convert_field_to_rapidjson(vectorized::Field(), jsonValue, allocator);
-    EXPECT_TRUE(jsonValue.IsNull());
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    jsonValue.Accept(writer);
-    // Expect the string representation of the JSON value to be "null"
-    EXPECT_EQ(std::string(buffer.GetString()), "null");
 }
 
 TEST_F(DataTypeStructTest, insertColumnLastValueMultipleTimes) {

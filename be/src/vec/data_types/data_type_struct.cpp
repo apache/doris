@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -101,125 +102,6 @@ std::string DataTypeStruct::do_get_name() const {
     return s.str();
 }
 
-Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
-    DCHECK(!rb.eof());
-    auto* struct_column = assert_cast<ColumnStruct*>(column);
-
-    if (*rb.position() != '{') {
-        return Status::InvalidArgument("Struct does not start with '{}' character, found '{}'", "{",
-                                       *rb.position());
-    }
-    if (*(rb.end() - 1) != '}') {
-        return Status::InvalidArgument("Struct does not end with '{}' character, found '{}'", "}",
-                                       *(rb.end() - 1));
-    }
-
-    // here need handle the empty struct '{}'
-    if (rb.count() == 2) {
-        for (size_t i = 0; i < struct_column->tuple_size(); ++i) {
-            struct_column->get_column(i).insert_default();
-        }
-        return Status::OK();
-    }
-
-    ++rb.position();
-
-    bool is_explicit_names = false;
-    std::vector<std::string> field_names;
-    std::vector<ReadBuffer> field_rbs;
-    std::vector<size_t> field_pos;
-
-    while (!rb.eof()) {
-        StringRef slot(rb.position(), rb.count());
-        bool has_quota = false;
-        bool is_name = false;
-        if (!DataTypeStructSerDe::next_slot_from_string(rb, slot, is_name, has_quota)) {
-            return Status::InvalidArgument("Cannot read struct field from text '{}'",
-                                           slot.to_string());
-        }
-        if (is_name) {
-            std::string name = slot.to_string();
-            if (!DataTypeStructSerDe::next_slot_from_string(rb, slot, is_name, has_quota)) {
-                return Status::InvalidArgument("Cannot read struct field from text '{}'",
-                                               slot.to_string());
-            }
-            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
-            field_names.push_back(name);
-            field_rbs.push_back(field_rb);
-
-            if (!is_explicit_names) {
-                is_explicit_names = true;
-            }
-        } else {
-            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
-            field_rbs.push_back(field_rb);
-        }
-    }
-
-    // TODO: should we support insert default field value when actual field number is less than
-    // schema field number?
-    if (field_rbs.size() != elems.size()) {
-        std::string cmp_str = field_rbs.size() > elems.size() ? "more" : "less";
-        return Status::InvalidArgument(
-                "Actual struct field number {} is {} than schema field number {}.",
-                field_rbs.size(), cmp_str, elems.size());
-    }
-
-    if (is_explicit_names) {
-        if (field_names.size() != field_rbs.size()) {
-            return Status::InvalidArgument(
-                    "Struct field name number {} is not equal to field number {}.",
-                    field_names.size(), field_rbs.size());
-        }
-        std::unordered_set<std::string> name_set;
-        for (size_t i = 0; i < field_names.size(); i++) {
-            // check duplicate fields
-            auto ret = name_set.insert(field_names[i]);
-            if (!ret.second) {
-                return Status::InvalidArgument("Struct field name {} is duplicate with others.",
-                                               field_names[i]);
-            }
-            // check name valid
-            auto idx = try_get_position_by_name(field_names[i]);
-            if (idx == std::nullopt) {
-                return Status::InvalidArgument("Cannot find struct field name {} in schema.",
-                                               field_names[i]);
-            }
-            field_pos.push_back(idx.value());
-        }
-    } else {
-        for (size_t i = 0; i < field_rbs.size(); i++) {
-            field_pos.push_back(i);
-        }
-    }
-
-    for (size_t idx = 0; idx < elems.size(); idx++) {
-        auto field_rb = field_rbs[field_pos[idx]];
-        // handle empty element
-        if (field_rb.count() == 0) {
-            struct_column->get_column(idx).insert_default();
-            continue;
-        }
-        // handle null element
-        if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
-            auto& nested_null_col =
-                    reinterpret_cast<ColumnNullable&>(struct_column->get_column(idx));
-            nested_null_col.insert_default();
-            continue;
-        }
-        auto st = elems[idx]->from_string(field_rb, &struct_column->get_column(idx));
-        if (!st.ok()) {
-            // we should do column revert if error
-            for (size_t j = 0; j < idx; j++) {
-                struct_column->get_column(j).pop_back(1);
-            }
-            return st;
-        }
-    }
-
-    return Status::OK();
-}
-
 std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -262,6 +144,21 @@ MutableColumnPtr DataTypeStruct::create_column() const {
         tuple_columns[i] = elems[i]->create_column();
     }
     return ColumnStruct::create(std::move(tuple_columns));
+}
+
+Status DataTypeStruct::check_column(const IColumn& column) const {
+    const auto* column_struct = DORIS_TRY(check_column_nested_type<ColumnStruct>(column));
+    if (elems.size() != column_struct->tuple_size()) {
+        return Status::InvalidArgument(
+                "ColumnStruct has {} elements, but DataTypeStruct has {} elements",
+                column_struct->tuple_size(), elems.size());
+    }
+    for (size_t i = 0; i < elems.size(); ++i) {
+        const auto& elem = elems[i];
+        const auto& child_column = column_struct->get_column(i);
+        RETURN_IF_ERROR(elem->check_column(child_column));
+    }
+    return Status::OK();
 }
 
 Field DataTypeStruct::get_default() const {

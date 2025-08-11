@@ -28,6 +28,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde_utils.h"

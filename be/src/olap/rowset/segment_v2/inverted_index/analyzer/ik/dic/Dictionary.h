@@ -149,7 +149,7 @@ public:
                         size_t length);
     Hit matchInQuantifierDict(const CharacterUtil::TypedRuneArray& typed_runes,
                               size_t unicode_offset, size_t length);
-    void matchWithHit(const CharacterUtil::TypedRuneArray& typed_runes, int current_index,
+    void matchWithHit(const CharacterUtil::TypedRuneArray& typed_runes, size_t current_index,
                       Hit& hit);
     bool isStopWord(const CharacterUtil::TypedRuneArray& typed_runes, size_t unicode_offset,
                     size_t length);

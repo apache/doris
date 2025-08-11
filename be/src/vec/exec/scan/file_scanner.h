@@ -62,6 +62,10 @@ class FileScanner : public Scanner {
 public:
     static constexpr const char* NAME = "FileScanner";
 
+    // sub profile name (for parquet/orc)
+    static const std::string FileReadBytesProfile;
+    static const std::string FileReadTimeProfile;
+
     FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
@@ -89,12 +93,13 @@ public:
               _col_name_to_slot_id(colname_to_slot_id),
               _real_tuple_desc(tuple_desc) {};
 
-    Status read_one_line_from_range(const TFileRangeDesc& range, const segment_v2::rowid_t rowid,
-                                    Block* result_block,
-                                    const ExternalFileMappingInfo& external_info,
-                                    int64_t* init_reader_ms, int64_t* get_block_ms);
+    Status read_lines_from_range(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
+                                 Block* result_block, const ExternalFileMappingInfo& external_info,
+                                 int64_t* init_reader_ms, int64_t* get_block_ms);
 
-    Status prepare_for_read_one_line(const TFileRangeDesc& range);
+    Status prepare_for_read_lines(const TFileRangeDesc& range);
+
+    void update_realtime_counters() override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -119,7 +124,7 @@ protected:
     TFileRangeDesc _current_range;
 
     std::unique_ptr<GenericReader> _cur_reader;
-    bool _cur_reader_eof;
+    bool _cur_reader_eof = false;
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
@@ -180,10 +185,14 @@ protected:
     Block _runtime_filter_partition_prune_block;
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<io::FileReaderStats> _file_reader_stats;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    // Whether to fill partition columns from path, default is true.
+    bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
+    std::unordered_map<std::string, bool> _partition_value_is_null;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
     // idx of skip_bitmap_col in _input_tuple_desc
@@ -201,6 +210,9 @@ private:
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
+    RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
+    RuntimeProfile::Counter* _file_read_time_counter = nullptr;
     RuntimeProfile::Counter* _runtime_filter_partition_pruned_range_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
@@ -232,7 +244,7 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
-    Status _generate_parititon_columns();
+    Status _generate_partition_columns();
     Status _generate_missing_columns();
     bool _check_partition_prune_expr(const VExprSPtr& expr);
     void _init_runtime_filter_partition_prune_ctxs();

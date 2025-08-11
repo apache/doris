@@ -60,7 +60,14 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
-        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        if (child->is_literal()) {
+            // For some functions, he needs some literal columns to derive the return type.
+            auto literal_node = std::dynamic_pointer_cast<VLiteral>(child);
+            argument_template.emplace_back(literal_node->get_column_ptr(), child->data_type(),
+                                           child->expr_name());
+        } else {
+            argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        }
     }
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
@@ -203,6 +210,7 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
+    RETURN_IF_ERROR(block->check_type_and_column());
     return Status::OK();
 }
 

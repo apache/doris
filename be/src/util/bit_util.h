@@ -22,13 +22,12 @@
 
 #include <type_traits>
 
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #ifndef __APPLE__
 #include <endian.h>
 #endif
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "gutil/endian.h"
 #include "util/cpu_info.h"
 #include "util/sse_util.hpp"
 

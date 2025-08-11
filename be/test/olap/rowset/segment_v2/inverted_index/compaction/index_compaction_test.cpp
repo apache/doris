@@ -59,7 +59,7 @@ protected:
 
         // set config
         config::inverted_index_dict_path =
-                _current_dir + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
+                _current_dir + "/contrib/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
         config::enable_segcompaction = false;
         config::enable_ordered_data_compaction = false;
         config::total_permits_for_compaction_score = 200000;
@@ -702,7 +702,8 @@ protected:
                 EXPECT_TRUE(st.ok()) << st.to_string();
             } else {
                 // check index file terms for multiple segments
-                std::vector<std::unique_ptr<DorisCompoundReader>> dirs_idx(num_segments_idx);
+                std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_idx(
+                        num_segments_idx);
                 for (int i = 0; i < num_segments_idx; i++) {
                     const auto& seg_path = output_rowset_index->segment_path(i);
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
@@ -714,7 +715,8 @@ protected:
                     EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
                     dirs_idx[i] = std::move(dir_idx.value());
                 }
-                std::vector<std::unique_ptr<DorisCompoundReader>> dirs_normal(num_segments_normal);
+                std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_normal(
+                        num_segments_normal);
                 for (int i = 0; i < num_segments_normal; i++) {
                     const auto& seg_path = output_rowset_normal->segment_path(i);
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();

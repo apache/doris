@@ -49,7 +49,7 @@ suite("recover_with_schema_change") {
 
         if (i == 3 || i == 4) {
             // create mv
-            createMV """ create materialized view mv_${table} as select name from ${table}; """
+            createMV """ create materialized view mv_${table} as select name as a1 from ${table}; """
         }
 
         // drop partition
@@ -80,7 +80,7 @@ suite("recover_with_schema_change") {
             }
         } else if (i == 2) {
             // create mv
-            createMV """ create materialized view mv_${table} as select name from ${table}; """
+            createMV """ create materialized view mv_${table} as select name as a2 from ${table}; """
 
             // recover partition should fail
             test {
@@ -101,7 +101,7 @@ suite("recover_with_schema_change") {
             sql """ drop materialized view mv_${table} on ${table}; """
 
             // create mv
-            createMV """ create materialized view mv_${table} as select name from ${table}; """
+            createMV """ create materialized view mv_${table} as select name as a3 from ${table}; """
 
             // recover partition should fail
             test {

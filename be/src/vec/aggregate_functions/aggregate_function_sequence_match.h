@@ -30,7 +30,6 @@
 #include <functional>
 #include <iterator>
 #include <memory>
-#include <ostream>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -602,7 +601,7 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, const ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         std::string pattern =
                 assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(columns[0])
                         ->get_data_at(0)
@@ -627,7 +626,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         const std::string pattern = this->data(rhs).get_pattern();
         this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
@@ -638,7 +637,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
         const std::string pattern = this->data(place).get_pattern();
         this->data(place).init(pattern, this->data(place).get_arg_count());

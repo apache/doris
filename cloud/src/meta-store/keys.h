@@ -72,6 +72,9 @@
 //
 // 0x01 "storage_vault" ${instance_id} "vault" ${resource_id}                              -> StorageVaultPB
 //
+// 0x01 "job" ${instance_id} "restore_tablet" ${tablet_id}                             -> RestoreJobCloudPB
+// 0x01 "job" ${instance_id} "restore_rowset" ${tablet_id} ${version}                  -> RowsetMetaCloudPB
+//
 // 0x02 "system" "meta-service" "registry"                                                 -> MetaServiceRegistryPB
 // 0x02 "system" "meta-service" "arn_info"                                                 -> RamUserPB
 // 0x02 "system" "meta-service" "encryption_key_info"                                      -> EncryptionKeyInfoPB
@@ -80,7 +83,7 @@
 // 0x03 "version" ${instance_id} "table" ${table_id} ${timestamp}           -> ${empty_value}
 //
 // 0x03 "index" ${instance_id} "partition" ${partition_id}                                                  -> PartitionIndexPB
-// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${index_id} ${partition}           -> ${empty_value}
+// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition}                       -> ${empty_value}
 // 0x03 "index" ${instance_id} "tablet" ${tablet_id}                                                        -> TabletIndexPB
 // 0x03 "index" ${instance_id} "tablet_inverted" ${db_id} ${table_id} ${index_id} ${partition} ${tablet}    -> ${empty_value}
 // 0x03 "index" ${instance_id} "index" ${index_id}                                                          -> IndexIndexPB
@@ -242,9 +245,9 @@ using TableVersionKeyInfo = BasicKeyInfo<31, std::tuple<std::string, int64_t>>;
 //                                                      0:instance_id  1:partition_id
 using PartitionIndexKeyInfo = BasicKeyInfo<32, std::tuple<std::string, int64_t>>;
 
-// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${index_id} ${partition} -> ${empty_value}
-//                                                      0:instance_id  1:db_id  2:table_id  3:index_id  4:partition_id
-using PartitionInvertedIndexKeyInfo = BasicKeyInfo<33, std::tuple<std::string, int64_t, int64_t, int64_t, int64_t>>;
+// 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition} -> ${empty_value}
+//                                                      0:instance_id  1:db_id  2:table_id  3:partition_id
+using PartitionInvertedIndexKeyInfo = BasicKeyInfo<33, std::tuple<std::string, int64_t, int64_t, int64_t>>;
 
 // 0x03 "index" ${instance_id} "tablet" ${tablet_id}                        -> TabletIndexPB
 //                                                      0:instance_id  1:tablet_id
@@ -311,6 +314,11 @@ using SnapshotReferenceKeyInfo = BasicKeyInfo<48, std::tuple<std::string, Versio
 using LogKeyInfo = BasicKeyInfo<49, std::tuple<std::string>>;
 
 } // namespace versioned
+
+//                                                      0:instance_id  1:tablet_id
+using JobRestoreTabletKeyInfo = BasicKeyInfo<50, std::tuple<std::string, int64_t>>;
+//                                                      0:instance_id  1:tablet_id  2:version
+using JobRestoreRowsetKeyInfo = BasicKeyInfo<51, std::tuple<std::string, int64_t,     int64_t>>;
 
 void instance_key(const InstanceKeyInfo& in, std::string* out);
 static inline std::string instance_key(const InstanceKeyInfo& in) { std::string s; instance_key(in, &s); return s; }
@@ -382,6 +390,11 @@ static inline std::string stats_tablet_num_rowsets_key(const StatsTabletKeyInfo&
 static inline std::string stats_tablet_num_segs_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_segs_key(in, &s); return s; }
 static inline std::string stats_tablet_index_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_index_size_key(in, &s); return s; }
 static inline std::string stats_tablet_segment_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_segment_size_key(in, &s); return s; }
+
+void job_restore_tablet_key(const JobRestoreTabletKeyInfo& in, std::string* out);
+static inline std::string job_restore_tablet_key(const JobRestoreTabletKeyInfo& in) { std::string s; job_restore_tablet_key(in, &s); return s; }
+void job_restore_rowset_key(const JobRestoreRowsetKeyInfo& in, std::string* out);
+static inline std::string job_restore_rowset_key(const JobRestoreRowsetKeyInfo& in) { std::string s; job_restore_rowset_key(in, &s); return s; }
 
 void job_recycle_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_check_key(const JobRecycleKeyInfo& in, std::string* out);

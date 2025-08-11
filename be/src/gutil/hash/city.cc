@@ -17,22 +17,12 @@
 #include "gutil/hash/city.h"
 
 #include <algorithm>
-
-using std::copy;
-using std::max;
-using std::min;
-using std::reverse;
-using std::sort;
-using std::swap;
 #include <utility>
 
-using std::make_pair;
-using std::pair;
-
 #include "common/logging.h"
-#include "gutil/endian.h"
+#include "vec/common/endian.h"
 
-namespace util_hash {
+namespace doris::util_hash {
 
 // Some primes between 2^63 and 2^64 for various uses.
 static const uint64_t k0 = 0xa5b85c5e198ed849ULL;
@@ -110,19 +100,19 @@ static uint64_t HashLen17to32(const char* s, size_t len) {
 // Return a 16-byte hash for 48 bytes.  Quick and dirty.
 // Callers do best to use "random-looking" values for a and b.
 // (For more, see the code review discussion of CL 18799087.)
-static pair<uint64_t, uint64_t> WeakHashLen32WithSeeds(uint64_t w, uint64_t x, uint64_t y,
-                                                       uint64_t z, uint64_t a, uint64_t b) {
+static std::pair<uint64_t, uint64_t> WeakHashLen32WithSeeds(uint64_t w, uint64_t x, uint64_t y,
+                                                            uint64_t z, uint64_t a, uint64_t b) {
     a += w;
     b = Rotate(b + a + z, 51);
     uint64_t c = a;
     a += x;
     a += y;
     b += Rotate(a, 23);
-    return make_pair(a + z, b + c);
+    return std::make_pair(a + z, b + c);
 }
 
 // Return a 16-byte hash for s[0] ... s[31], a, and b.  Quick and dirty.
-static pair<uint64_t, uint64_t> WeakHashLen32WithSeeds(const char* s, uint64_t a, uint64_t b) {
+static std::pair<uint64_t, uint64_t> WeakHashLen32WithSeeds(const char* s, uint64_t a, uint64_t b) {
     return WeakHashLen32WithSeeds(LittleEndian::Load64(s), LittleEndian::Load64(s + 8),
                                   LittleEndian::Load64(s + 16), LittleEndian::Load64(s + 24), a, b);
 }
@@ -168,8 +158,8 @@ uint64_t CityHash64(const char* s, size_t len) {
     uint64_t y = LittleEndian::Load64(s + len - 16) + LittleEndian::Load64(s + len - 56);
     uint64_t z =
             HashLen16(LittleEndian::Load64(s + len - 48) + len, LittleEndian::Load64(s + len - 24));
-    pair<uint64_t, uint64_t> v = WeakHashLen32WithSeeds(s + len - 64, len, z);
-    pair<uint64_t, uint64_t> w = WeakHashLen32WithSeeds(s + len - 32, y + k1, x);
+    std::pair<uint64_t, uint64_t> v = WeakHashLen32WithSeeds(s + len - 64, len, z);
+    std::pair<uint64_t, uint64_t> w = WeakHashLen32WithSeeds(s + len - 32, y + k1, x);
     x = x * k1 + LittleEndian::Load64(s);
 
     // Decrease len to the nearest multiple of 64, and operate on 64-byte chunks.
@@ -199,4 +189,4 @@ uint64_t CityHash64WithSeeds(const char* s, size_t len, uint64_t seed0, uint64_t
 uint64_t CityHash64WithSeed(const char* s, size_t len, uint64_t seed) {
     return CityHash64WithSeeds(s, len, k2, seed);
 }
-} // namespace util_hash
+} // namespace doris::util_hash

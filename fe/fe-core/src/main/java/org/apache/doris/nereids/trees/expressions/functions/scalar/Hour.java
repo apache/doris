@@ -57,13 +57,18 @@ public class Hour extends ScalarFunction
         super("hour", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Hour(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Hour withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Hour(children.get(0));
+        return new Hour(getFunctionParams(children));
     }
 
     @Override

@@ -40,7 +40,6 @@
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -83,7 +82,7 @@ public:
 
     // Deserializes the aggregate function's state from a buffer (including the SpaceSaving structure and threshold).
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena& arena) const override {
         auto readStringBinaryInto = [](Arena& arena, BufferReadable& buf) {
             uint64_t size = 0;
             buf.read_var_uint(size);
@@ -111,13 +110,13 @@ public:
 
         set.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            auto ref = readStringBinaryInto(*arena, buf);
+            auto ref = readStringBinaryInto(arena, buf);
             uint64_t count = 0;
             uint64_t error = 0;
             buf.read_var_uint(count);
             buf.read_var_uint(error);
             set.insert(ref, count, error);
-            arena->rollback(ref.size);
+            arena.rollback(ref.size);
         }
 
         set.read_alpha_map(buf);
@@ -136,7 +135,7 @@ public:
 
     // Adds a new row of data to the aggregate function (inserts a new value into the SpaceSaving structure).
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         if (!_init_flag) {
             lazy_init(columns, row_num, this->get_argument_types());
         }
@@ -147,12 +146,12 @@ public:
         }
 
         auto all_serialize_value_into_arena =
-                [](size_t i, size_t keys_size, const IColumn** columns, Arena* arena) -> StringRef {
+                [](size_t i, size_t keys_size, const IColumn** columns, Arena& arena) -> StringRef {
             const char* begin = nullptr;
 
             size_t sum_size = 0;
             for (size_t j = 0; j < keys_size; ++j) {
-                sum_size += columns[j]->serialize_value_into_arena(i, *arena, begin).size;
+                sum_size += columns[j]->serialize_value_into_arena(i, arena, begin).size;
             }
 
             return {begin, sum_size};
@@ -161,11 +160,11 @@ public:
         StringRef str_serialized =
                 all_serialize_value_into_arena(row_num, _column_names.size(), columns, arena);
         set.insert(str_serialized);
-        arena->rollback(str_serialized.size);
+        arena.rollback(str_serialized.size);
     }
 
     void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
-                  std::vector<int>& rows, Arena* arena) const override {
+                  std::vector<int>& rows, Arena& arena) const override {
         for (auto row : rows) {
             add(place, columns, row, arena);
         }
@@ -177,7 +176,7 @@ public:
 
     // Merges the state of another aggregate function into the current one (merges two SpaceSaving sets).
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         auto& rhs_set = this->data(rhs).value;
         if (!rhs_set.size()) {
             return;

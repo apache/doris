@@ -91,7 +91,7 @@ public class ModifyBrokerClause extends AlterClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         validateBrokerName();
 
         if (op != ModifyOp.OP_DROP_ALL) {
