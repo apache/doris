@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_remote_iceberg,new_catalog_property") {
     def format_compressions = ["parquet_zstd"]
 
     def q01 = { String format_compression, String catalog_name ->

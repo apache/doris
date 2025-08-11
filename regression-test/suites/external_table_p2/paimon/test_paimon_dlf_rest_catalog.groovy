@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_dlf_rest_catalog", "p2,external,paimon,external_remote,external_remote_paimon") {
+suite("test_paimon_dlf_rest_catalog", "p2,external,paimon,external_remote,external_remote_paimon,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
