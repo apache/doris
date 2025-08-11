@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.property.storage.OSSProperties;
+
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import org.apache.hadoop.hive.conf.HiveConf;
 
@@ -26,6 +28,8 @@ public class HMSAliyunDLFMetaStoreProperties extends AbstractHMSProperties {
 
     private AliyunDLFBaseProperties baseProperties;
 
+    private OSSProperties ossProperties;
+
     public HMSAliyunDLFMetaStoreProperties(Map<String, String> origProps) {
         super(Type.DLF, origProps);
     }
@@ -33,6 +37,7 @@ public class HMSAliyunDLFMetaStoreProperties extends AbstractHMSProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        ossProperties = OSSProperties.of(origProps);
         baseProperties = AliyunDLFBaseProperties.of(origProps);
         initHiveConf();
     }
@@ -41,6 +46,7 @@ public class HMSAliyunDLFMetaStoreProperties extends AbstractHMSProperties {
         // @see com.aliyun.datalake.metastore.hive.common.utils.ConfigUtils
         // todo support other parameters
         hiveConf = new HiveConf();
+        hiveConf.addResource(ossProperties.hadoopStorageConfig);
         hiveConf.set(DataLakeConfig.CATALOG_ACCESS_KEY_ID, baseProperties.dlfAccessKey);
         hiveConf.set(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET, baseProperties.dlfSecretKey);
         hiveConf.set(DataLakeConfig.CATALOG_ENDPOINT, baseProperties.dlfEndpoint);

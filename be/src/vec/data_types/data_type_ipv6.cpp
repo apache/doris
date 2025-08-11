@@ -59,17 +59,6 @@ void DataTypeIPv6::to_string(const IColumn& column, size_t row_num, BufferWritab
     ostr.write(value.data(), value.size());
 }
 
-Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnIPv6*>(column);
-    IPv6 val = 0;
-    if (!read_ipv6_text_impl<IPv6>(val, rb)) {
-        return Status::InvalidArgument("parse ipv6 fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
-    column_data->insert_value(val);
-    return Status::OK();
-}
-
 MutableColumnPtr DataTypeIPv6::create_column() const {
     return ColumnIPv6::create();
 }

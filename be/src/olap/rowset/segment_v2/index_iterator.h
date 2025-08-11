@@ -23,6 +23,7 @@
 
 #include "common/exception.h"
 #include "common/factory_creator.h"
+#include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "runtime/runtime_state.h"
@@ -33,25 +34,23 @@ class InvertedIndexQueryCacheHandle;
 
 struct InvertedIndexParam;
 using IndexParam = std::variant<InvertedIndexParam*>;
+using IndexReaderType = std::variant<InvertedIndexReaderType>;
 
 class IndexIterator {
 public:
-    IndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                  RuntimeState* runtime_state)
-            : _io_ctx(io_ctx), _stats(stats), _runtime_state(runtime_state) {}
-
+    IndexIterator() = default;
     virtual ~IndexIterator() = default;
 
-    virtual IndexType type() = 0;
-    virtual IndexReaderPtr get_reader() = 0;
+    virtual IndexReaderPtr get_reader(IndexReaderType reader_type) const = 0;
     virtual Status read_from_index(const IndexParam& param) = 0;
+
     virtual Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) = 0;
-    virtual bool has_null() = 0;
+    virtual Result<bool> has_null() = 0;
+
+    void set_context(const IndexQueryContextPtr& context) { _context = context; }
 
 protected:
-    io::IOContext _io_ctx;
-    OlapReaderStatistics* _stats = nullptr;
-    RuntimeState* _runtime_state = nullptr;
+    IndexQueryContextPtr _context = nullptr;
 };
 
 } // namespace doris::segment_v2

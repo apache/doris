@@ -406,22 +406,6 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 // here query is paused because of WORKLOAD_GROUP_MEMORY_EXCEEDED,
                 // wg of the current query may not actually exceed the limit,
                 // just (wg consumption + current query expected reserve memory > wg memory limit)
-                //
-                // Only deal with non overcommit workload group.
-                if (wg->enable_memory_overcommit()) {
-                    // Soft limit wg will only reserve failed when process limit exceed. But in some corner case,
-                    // when reserve, the wg is hard limit, the query reserve failed, but when this loop run
-                    // the wg is converted to soft limit.
-                    // So that should resume the query.
-                    LOG(WARNING)
-                            << "Query: " << print_id(resource_ctx->task_controller()->task_id())
-                            << " reserve memory failed because exceed workload group memlimit, it "
-                               "should not happen, resume it again. paused reason: "
-                            << resource_ctx->task_controller()->paused_reason();
-                    resource_ctx->task_controller()->set_memory_sufficient(true);
-                    query_it = queries_list.erase(query_it);
-                    continue;
-                }
                 // if the current query memory consumption + expected reserve memory exceeds the limit,
                 // it may be that the expected reserve memory is too large,
                 // wg memory is insufficient at this time,
@@ -731,9 +715,8 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_(
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
         for (auto& workload_group : _workload_groups) {
-            if (!workload_group.second->is_mem_limit_valid() ||
-                !workload_group.second->enable_memory_overcommit() ||
-                !workload_group.second->exceed_limit()) {
+            // TODO should use min memory percent to check
+            if (!workload_group.second->exceed_limit()) {
                 continue;
             }
             if (requestor->workload_group() != nullptr &&
@@ -965,8 +948,8 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
                 (double)(wg->total_mem_used()) / static_cast<double>(wg_mem_limit));
     }
 
-    // If reached low watermark and wg is not enable memory overcommit, then enable load buffer limit
-    if (is_low_watermark && !wg->enable_memory_overcommit()) {
+    // If reached low watermark, then enable load buffer limit
+    if (is_low_watermark) {
         wg->enable_write_buffer_limit(true);
     }
     // Both enable overcommit and not enable overcommit, if user set slot memory policy
@@ -1056,8 +1039,10 @@ Status WorkloadGroupMgr::create_internal_wg() {
     TWorkloadGroupInfo twg_info;
     twg_info.__set_id(INTERNAL_NORMAL_WG_ID);
     twg_info.__set_name(INTERNAL_NORMAL_WG_NAME);
-    twg_info.__set_mem_limit("100%");   // The normal wg will occupy all memory by default.
-    twg_info.__set_cpu_hard_limit(100); // Means disable cpu hard limit for cgroup
+    twg_info.__set_max_memory_percent(100); // The normal wg will occupy all memory by default.
+    twg_info.__set_min_memory_percent(0);   // The normal wg will occupy all memory by default.
+    twg_info.__set_max_cpu_percent(100);
+    twg_info.__set_min_cpu_percent(0);
     twg_info.__set_version(0);
 
     WorkloadGroupInfo wg_info = WorkloadGroupInfo::parse_topic_info(twg_info);

@@ -26,15 +26,15 @@ namespace doris::segment_v2 {
 
 class PhrasePrefixQuery : public Query {
 public:
-    PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                      const TQueryOptions& query_options, const io::IOContext* io_ctx);
+    PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
     ~PhrasePrefixQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    SearcherPtr _searcher;
+    IndexQueryContextPtr _context;
 
     size_t _term_size = 0;
     int32_t _max_expansions = 50;

@@ -33,6 +33,7 @@ suite('constant_propagation') {
         SET detail_shape_nodes='PhysicalProject,PhysicalHashAggregate,PhysicalQuickSort';
         SET ignore_shape_nodes='PhysicalDistribute';
         SET runtime_filter_type=2;
+        set disable_join_reorder=true;
         """
 
     sql 'drop table if exists t1 force'
@@ -224,39 +225,31 @@ suite('constant_propagation') {
         from t1 where t1.a not in (select t3.a from t3 where t3.b = 10);
     '''
 
-    /* // BUG start
-    // BUG: the result should  '[[null], [null]]', but be return '[[true], [true]]'
     explain_and_result  'join_12', '''
          select 1  in (select null from t2)
          from t1;
     '''
 
-    // BUG: the result should  '[[null], [null]]', but be return '[[false], [false]]'
     explain_and_result  'join_13', '''
         select 1 not in (select null from t2)
         from t1;
     '''
 
-    // OK
     explain_and_result 'join_14', '''
         select null  in (select c1 from s2) from s1
     '''
 
-    // BUG: the result expect multi rows with null, but be return multi rows with true
     explain_and_result 'join_15', '''
         select null  in (select 1 from s2) from s1
     '''
 
-    // BUG: the result expect multi rows with null, but be return multi rows with true
     explain_and_result 'join_16', '''
         select 1  in (select null from s2) from s1
     '''
 
-    // BUG: the result expect multi rows with null, but be return multi rows with false
     explain_and_result 'join_17', '''
         select 1 not in (select null from s2) from s1
     '''
-    */ // BUG end
 
     explain_and_result 'subquery_1', '''
        select a, x
@@ -301,7 +294,7 @@ suite('constant_propagation') {
 
     explain_and_result 'subquery_8', '''
       select t.k, t.b, t3.a
-      from (select a * 10 as k, b from t1 union all select x as k, y as b from t2) t join t3 on t.k = t3.a * 5 where t3.a = 2
+      from (select a * 10 as k, b from t1 union all select x as k, y as b from t2) t join t3 on t.k = t3.a * 5 where t3.a = 2 order by k, b, a
     '''
 
     explain_and_result 'subquery_9', '''

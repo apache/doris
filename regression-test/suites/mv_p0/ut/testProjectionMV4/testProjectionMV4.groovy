@@ -38,7 +38,7 @@ suite ("testProjectionMV4") {
 
     def result = "null"
 
-    createMV("create materialized view emps_mv as select name, deptno, salary from emps;")
+    createMV("create materialized view emps_mv as select name as a1, deptno as a2, salary as a3 from emps;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""

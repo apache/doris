@@ -38,7 +38,7 @@ suite ("MVMultiUsage") {
     sql """insert into MVMultiUsage values("2020-01-03",3,"c",3,3,3);"""
 
 
-    createMV("create materialized view MVMultiUsage_mv as select deptno, empid, salary from MVMultiUsage order by deptno;")
+    createMV("create materialized view MVMultiUsage_mv as select deptno as a1, empid as a2, salary as a3 from MVMultiUsage order by deptno;")
 
     sleep(3000)
 
