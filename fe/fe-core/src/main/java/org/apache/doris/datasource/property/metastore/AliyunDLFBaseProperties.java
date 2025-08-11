@@ -84,7 +84,7 @@ public class AliyunDLFBaseProperties {
                 .require(dlfSecretKey, "dlf.secret_key is required");
     }
 
-    public void checkAndInit() {
+    private void checkAndInit() {
         buildRules().validate();
         if (StringUtils.isBlank(dlfEndpoint) && StringUtils.isNotBlank(dlfRegion)) {
             if (BooleanUtils.toBoolean(dlfAccessPublic)) {
