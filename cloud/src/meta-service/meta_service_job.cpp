@@ -927,10 +927,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         LOG_INFO("put versioned tablet compact stats key")
                 .tag("compact_stats_key", hex(tablet_compact_stats_version_key))
                 .tag("tablet_id", tablet_id)
-                .tag("value_size", tablet_compact_stats_val.size());
-        INSTANCE_LOG(INFO)
-                << "process_compaction_job versioned_put tablet_compact_stats_version_key: "
-                << hex(tablet_compact_stats_version_key);
+                .tag("value_size", tablet_compact_stats_val.size())
+                .tag("instance_id", instance_id);
         versioned_put(txn.get(), tablet_compact_stats_version_key, tablet_compact_stats_val);
     }
 
@@ -1164,12 +1162,10 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                 versioned::meta_rowset_compact_key({instance_id, tablet_id, version});
         // Put versioned rowset compact metadata for output rowset
         LOG_INFO("put versioned meta rowset compact key")
+                .tag("instance_id", instance_id)
                 .tag("meta_rowset_compact_key", hex(meta_rowset_compact_key))
                 .tag("tablet_id", tablet_id)
                 .tag("version", version);
-        INSTANCE_LOG(INFO)
-                << "process_compaction_job versioned::document_put meta_rowset_compact_key: "
-                << hex(meta_rowset_compact_key);
         if (!versioned::document_put(txn.get(), meta_rowset_compact_key, std::move(rs_meta))) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
             msg = fmt::format("failed to serialize versioned rowset meta, key={}",
@@ -1212,12 +1208,11 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         }
         // Put versioned operation log for compaction to track recycling
         LOG_INFO("put versioned operation log key")
+                .tag("instance_id", instance_id)
                 .tag("operation_log_key", hex(operation_log_key))
                 .tag("tablet_id", tablet_id)
                 .tag("value_size", operation_log_value.size())
                 .tag("recycle_rowsets_count", compaction_log.recycle_rowsets().size());
-        INSTANCE_LOG(INFO) << "process_compaction_job versioned_put operation_log_key: "
-                           << hex(operation_log_key);
         versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 }

@@ -280,34 +280,43 @@ int OperationLogRecycler::recycle_compaction_log(const CompactionLogPB& compacti
                  recycle_rowset_pb.rowset_meta().end_version()});
         RowsetMetaCloudPB rowset_meta_cloud_pb;
         Versionstamp version;
-        TxnErrorCode err = versioned::document_get(txn.get(), meta_rowset_compact_key,
+        TxnErrorCode err = versioned::document_get(txn.get(), meta_rowset_compact_key, log_version_,
                                                    &rowset_meta_cloud_pb, &version);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "";
+            LOG_WARNING("Failed to get meta rowset compact key")
+                    .tag("instance_id", instance_id_)
+                    .tag("compact_key", hex(meta_rowset_compact_key))
+                    .tag("error", err);
         }
-        if (rowset_meta_cloud_pb.start_version() ==
-            recycle_rowset_pb.rowset_meta().start_version()) {
+        if (rowset_meta_cloud_pb.rowset_id_v2() == recycle_rowset_pb.rowset_meta().rowset_id_v2()) {
             // Remove meta rowset compact key for input rowset that was consumed in compaction
+            versioned::document_remove<doris::RowsetMetaCloudPB>(txn.get(), meta_rowset_compact_key,
+                                                                 version);
             LOG_INFO("remove meta rowset compact key")
+                    .tag("instance_id", instance_id_)
                     .tag("compact_key", hex(meta_rowset_compact_key))
                     .tag("tablet_id", recycle_rowset_pb.rowset_meta().tablet_id())
                     .tag("start_version", recycle_rowset_pb.rowset_meta().start_version())
                     .tag("end_version", recycle_rowset_pb.rowset_meta().end_version());
-            versioned::document_remove<doris::RowsetMetaCloudPB>(txn.get(), meta_rowset_compact_key,
-                                                                 version);
         }
-        err = versioned::document_get(txn.get(), meta_rowset_load_key, &rowset_meta_cloud_pb,
-                                      &version);
-        if (rowset_meta_cloud_pb.start_version() ==
-            recycle_rowset_pb.rowset_meta().start_version()) {
+        err = versioned::document_get(txn.get(), meta_rowset_load_key, log_version_,
+                                      &rowset_meta_cloud_pb, &version);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("Failed to get meta rowset load key")
+                    .tag("instance_id", instance_id_)
+                    .tag("load_key", hex(meta_rowset_load_key))
+                    .tag("error", err);
+        }
+        if (rowset_meta_cloud_pb.rowset_id_v2() == recycle_rowset_pb.rowset_meta().rowset_id_v2()) {
             // Remove meta rowset load key for input rowset that was consumed in compaction
+            versioned::document_remove<doris::RowsetMetaCloudPB>(txn.get(), meta_rowset_load_key,
+                                                                 version);
             LOG_INFO("remove meta rowset load key")
+                    .tag("instance_id", instance_id_)
                     .tag("load_key", hex(meta_rowset_load_key))
                     .tag("tablet_id", recycle_rowset_pb.rowset_meta().tablet_id())
                     .tag("start_version", recycle_rowset_pb.rowset_meta().start_version())
                     .tag("end_version", recycle_rowset_pb.rowset_meta().end_version());
-            versioned::document_remove<doris::RowsetMetaCloudPB>(txn.get(), meta_rowset_load_key,
-                                                                 version);
         }
     }
     err = txn->commit();
@@ -330,20 +339,21 @@ int OperationLogRecycler::commit() {
     std::string log_key = encode_versioned_key(versioned::log_key(instance_id_), log_version_);
     // Remove the operation log entry itself after recycling its contents
     LOG_INFO("remove operation log key")
+            .tag("instance_id", instance_id_)
             .tag("log_key", hex(log_key))
             .tag("log_version", log_version_.to_string());
     txn->remove(log_key);
-    
+
     for (const auto& key : keys_to_remove_) {
         // Remove versioned keys that were replaced during operation log processing
-        LOG_INFO("remove versioned key")
-                .tag("key", hex(key));
+        LOG_INFO("remove versioned key").tag("instance_id", instance_id_).tag("key", hex(key));
         txn->remove(key);
     }
 
     for (const auto& [key, value] : kvs_) {
         // Put recycled metadata entries (recycle partition, recycle index, recycle rowset, etc.)
         LOG_INFO("put recycled metadata key")
+                .tag("instance_id", instance_id_)
                 .tag("key", hex(key))
                 .tag("value_size", value.size());
         txn->put(key, value);
