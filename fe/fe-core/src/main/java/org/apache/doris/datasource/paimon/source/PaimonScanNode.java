@@ -223,7 +223,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
         // The hadoop conf should be same with
         // PaimonExternalCatalog.createCatalog()#getConfiguration()
-        fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getHadoopProperties());
+        fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getBackendStorageProperties());
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
