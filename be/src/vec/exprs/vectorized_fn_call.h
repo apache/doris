@@ -50,7 +50,7 @@ public:
 #endif
     VectorizedFnCall(const TExprNode& node);
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
-    Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
+    Status execute_runtime_filter(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
                                   ColumnNumbers& args) override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;

@@ -59,6 +59,7 @@ class ClusterOptions {
         'max_sys_mem_available_low_water_mark_bytes=0', //no check mem available memory
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
+        'enable_java_support=false',
     ]
 
     List<String> msConfigs = []
@@ -127,7 +128,7 @@ class ServerNode {
     static void fromCompose(ServerNode node, ListHeader header, int index, List<Object> fields) {
         node.index = index
         node.host = (String) fields.get(header.indexOf('IP'))
-        node.httpPort = (Integer) fields.get(header.indexOf('http_port'))
+        node.httpPort = (int) toLongOrDefault(fields.get(header.indexOf('http_port')), -1)
         node.alive = fields.get(header.indexOf('alive')) == 'true'
         node.path = (String) fields.get(header.indexOf('path'))
     }
@@ -167,6 +168,9 @@ class ServerNode {
         assert false : 'Unknown node type'
     }
 
+    String getBasePath() {
+        return path
+    }
 }
 
 class Frontend extends ServerNode {
@@ -178,8 +182,8 @@ class Frontend extends ServerNode {
     static Frontend fromCompose(ListHeader header, int index, List<Object> fields) {
         Frontend fe = new Frontend()
         ServerNode.fromCompose(fe, header, index, fields)
-        fe.queryPort = (Integer) fields.get(header.indexOf('query_port'))
-        fe.editLogPort = (Integer) fields.get(header.indexOf('edit_log_port'))
+        fe.queryPort = (int) toLongOrDefault(fields.get(header.indexOf('query_port')), -1)
+        fe.editLogPort = (int) toLongOrDefault(fields.get(header.indexOf('edit_log_port')), -1)
         fe.isMaster = fields.get(header.indexOf('is_master')) == 'true'
         return fe
     }
@@ -207,7 +211,7 @@ class Backend extends ServerNode {
     static Backend fromCompose(ListHeader header, int index, List<Object> fields) {
         Backend be = new Backend()
         ServerNode.fromCompose(be, header, index, fields)
-        be.heartbeatPort = (Integer) fields.get(header.indexOf('heartbeat_port'))
+        be.heartbeatPort = (int) toLongOrDefault(fields.get(header.indexOf('heartbeat_port')), -1)
         be.backendId = toLongOrDefault(fields.get(header.indexOf('backend_id')), -1L)
         be.tabletNum = (int) toLongOrDefault(fields.get(header.indexOf('tablet_num')), 0L)
 
@@ -224,6 +228,10 @@ class Backend extends ServerNode {
 
     String getConfFilePath() {
         return path + '/conf/be.conf'
+    }
+
+    String getHeartbeatPort() {
+        return heartbeatPort;
     }
 
 }
@@ -278,6 +286,8 @@ class SuiteCluster {
 
     static final Logger logger = LoggerFactory.getLogger(this.class)
 
+    // dockerImpl() will set jdbcUrl
+    String jdbcUrl = ""
     final String name
     final Config config
     private boolean running
@@ -352,8 +362,8 @@ class SuiteCluster {
         if (!options.beMetaServiceEndpoint) {
             cmd += ['--no-be-metaservice-endpoint']
         }
-        if (!options.beClusterId) {
-            cmd += ['--no-be-cluster-id']
+        if (options.beClusterId) {
+            cmd += ['--be-cluster-id']
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]

@@ -19,14 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 
 //
 public class DefaultValueExpr extends Expr {
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-    }
 
     @Override
     protected String toSqlImpl() {

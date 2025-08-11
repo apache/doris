@@ -91,4 +91,70 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\\\k')"""
+
+    sql "drop table if exists d_table;"
+    sql """
+        create table d_table (
+            k1 varchar(100) null,
+            k2 varchar(100) not null
+        )
+        duplicate key (k1)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """insert into d_table values 
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}'),
+    (null,'{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}');
+    """
+    qt_test """
+      SELECT k1,k2,JSON_CONTAINS(k1, '\$'),JSON_CONTAINS(k2, '\$') from d_table order by k1,k2;
+    """
+
+    qt_json_contains1 """
+      SELECT JSON_CONTAINS('{"age": 30, "name": "John", "hobbies": ["reading", "swimming"]}', '{"invalid": "format"}');
+    """
+    qt_json_contains2 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '{"age": 25}');
+    """
+    qt_json_contains3 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '{"age": "25"}');
+    """
+    qt_json_contains4 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '"music"', '\$.hobbies[1]');
+    """
+    qt_json_contains5 """
+      SELECT JSON_CONTAINS('{"age": 25, "name": "Alice", "hobbies": ["painting", "music"]}', '"music"', '\$.hobbies[0]');
+    """
+    qt_json_contains6 """
+      SELECT JSON_CONTAINS(NULL, '"music"', '{"age": 25}');
+    """
+
+    qt_json_keys """
+      SELECT JSON_KEYS('{"name": "John", "age": 30, "city": "New York"}');
+    """
+    qt_json_keys2 """
+      SELECT JSON_KEYS('{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}', '\$.hobbies');
+    """
+
+    qt_json_keys3 """
+      SELECT JSON_KEYS(k1, '\$.c') FROM d_table order by k1;
+    """
+
+    test {
+        sql """
+            SELECT JSON_KEYS('{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}', '\$.*');
+        """
+
+        exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
+    }
+    
+    test {
+        sql """
+            SELECT JSON_KEYS(k1, '\$.*.c') FROM d_table order by k1;
+        """
+
+        exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
+    }
 }

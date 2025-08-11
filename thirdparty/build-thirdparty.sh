@@ -165,6 +165,12 @@ if [[ "${CC}" == *gcc ]]; then
     warning_array_parameter='-Wno-array-parameter'
     warning_narrowing='-Wno-narrowing'
     warning_dangling_reference='-Wno-dangling-reference'
+
+    gcc_major_version=$("${CC}" -dumpversion | cut -d. -f1)
+    if [[ "${gcc_major_version}" -ge 15 ]]; then
+        warning_deprecated_literal_operator='-Wno-deprecated-literal-operator'
+    fi
+
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -758,10 +764,10 @@ build_mysql() {
     fi
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags='-static -pthread -lrt'
+        cflags='-static -pthread -lrt -std=gnu89'
         cxxflags='-static -pthread -lrt'
     else
-        cflags='-pthread'
+        cflags='-pthread -std=gnu89'
         cxxflags='-pthread'
     fi
 
@@ -875,7 +881,7 @@ build_cyrus_sasl() {
     check_if_source_exist "${CYRUS_SASL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
 
-    CFLAGS="-fPIC -Wno-implicit-function-declaration" \
+    CFLAGS="-fPIC -std=gnu89 -Wno-implicit-function-declaration" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LIBS="-lcrypto" \
@@ -919,7 +925,7 @@ build_odbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -std=gnu89 -Wno-implicit-function-declaration" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -982,6 +988,12 @@ build_grpc() {
 
     cmake -DgRPC_INSTALL=ON \
         -DgRPC_BUILD_TESTS=OFF \
+        -Dgrpc_csharp_plugin=OFF \
+        -Dgrpc_node_plugin=OFF \
+        -Dgrpc_objective_c_plugin=OFF \
+        -Dgrpc_php_plugin=OFF \
+        -Dgrpc_python_plugin=OFF \
+        -Dgrpc_ruby_plugin=OFF \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DgRPC_CARES_PROVIDER=package \
@@ -1352,7 +1364,7 @@ build_aws_sdk() {
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
         -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
-        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
+        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-literal-operator ${warning_deprecated_literal_operator} -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
@@ -1471,7 +1483,7 @@ build_krb5() {
         with_crypto_impl='--with-crypto-impl=openssl'
     fi
 
-    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
+    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include -std=gnu89" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
         ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
         --without-keyutils ${with_crypto_impl:+${with_crypto_impl}}
 
@@ -1560,7 +1572,7 @@ build_libunwind() {
         # LIBUNWIND_NO_HEAP: https://reviews.llvm.org/D11897
         # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
         # -nostdinc++ only required for gcc compilation
-        cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti"
+        cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti -Wno-error=incompatible-pointer-types"
         CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
 
         make -j "${PARALLEL}"
@@ -1651,7 +1663,7 @@ build_binutils() {
     cd "${BUILD_DIR}"
 
     ../configure --prefix="${TP_INSTALL_DIR}/binutils" --includedir="${TP_INCLUDE_DIR}" --libdir="${TP_LIB_DIR}" \
-        --enable-install-libiberty --without-msgpack
+        --enable-install-libiberty --without-msgpack -with-system-zlib
     make -j "${PARALLEL}"
     make install-bfd install-libiberty install-binutils
 }
@@ -1747,7 +1759,7 @@ build_jsoncpp() {
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DJSONCPP_WITH_TESTS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1802,7 +1814,7 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    if [[ "${BUILD_AZURE}" == "OFF" ]]; then
+    if [[ "${BUILD_AZURE}" == "OFF" || "$(uname -s)" == 'Darwin' ]]; then
         echo "Skip build azure"
     else
         check_if_source_exist "${AZURE_SOURCE}"
@@ -1817,7 +1829,7 @@ build_azure() {
         AZURE_PORTS="vcpkg-custom-ports"
         AZURE_MANIFEST_DIR="."
 
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
         "${BUILD_SYSTEM}" -j "${PARALLEL}"
         "${BUILD_SYSTEM}" install
     fi
@@ -1883,66 +1895,6 @@ build_pugixml() {
 
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugixml.hpp" "${TP_INSTALL_DIR}/include/"
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
-}
-
-build_openblas() {
-    check_if_source_exist "${OPENBLAS_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${OPENBLAS_SOURCE}"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-    OPENBLAS_CMAKE_OPTIONS=(
-        "-DCMAKE_PREFIX_PATH=${TP_INSTALL_DIR}"
-        "-DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR}"
-        "-DCMAKE_BUILD_TYPE=Release"
-        "-DBUILD_WITHOUT_LAPACK=OFF"
-        "-DNO_SHARED=TRUE"
-        "-DNO_AVX512=TRUE"
-        "-DC_LAPACK=TRUE"
-        "-DUSE_OPENMP=TRUE"
-        "-DBUILD_STATIC_LIBS=ON"
-        "-DNOFORTRAN=TRUE"
-        "-DBUILD_TESTING=OFF"
-        "-DBUILD_RELAPACK=ON"
-        "-DBUILD_BENCHMARKS=OFF"
-    )
-
-    echo "Building openblas at $(pwd) with cmake parameters: ${OPENBLAS_CMAKE_OPTIONS[*]}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" "${OPENBLAS_CMAKE_OPTIONS[@]}" ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-}
-
-build_faiss() {
-    check_if_source_exist "${FAISS_SOURCE}"
-    echo "Building faiss ${FAISS_SOURCE}"
-    cd "${TP_SOURCE_DIR}"
-    # if faiss dir not exists, create a symlink to faiss source dir
-    # this symlink is necessary since faiss source code must be compiled in a directory named faiss.
-    if [[ ! -d "${TP_SOURCE_DIR}/faiss" ]]; then
-        ln -s "${FAISS_SOURCE}" faiss
-    fi
-    cd "${TP_SOURCE_DIR}/faiss"
-
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    FAISS_CMAKE_OPTIONS=(
-        "-DDORIS_THIRD_LIB_INSTALL_DIR=${TP_INSTALL_DIR}"
-        "-DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR}"
-        "-DCMAKE_BUILD_TYPE=Release"
-        "-DFAISS_ENABLE_GPU=OFF"
-        "-DFAISS_ENABLE_PYTHON=OFF"
-    )
-
-    echo "Building faiss at $(pwd) with cmake parameters: ${FAISS_CMAKE_OPTIONS[*]}"
-
-    "${CMAKE_CMD}" -G "${GENERATOR}" "${FAISS_CMAKE_OPTIONS[@]}" ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2013,7 +1965,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         ali_sdk
         base64
         azure
-        dragonbox
         brotli
         icu
         pugixml

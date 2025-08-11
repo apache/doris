@@ -29,7 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -37,6 +37,10 @@ import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
@@ -52,7 +56,6 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.StringReader;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -85,7 +88,7 @@ import java.util.TreeSet;
  * The transform after the keyword named SET is the old ways which only supports the hadoop function.
  * It old way of transform will be removed gradually. It
  */
-public class DataDescription implements InsertStmt.DataDesc {
+public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
@@ -186,6 +189,88 @@ public class DataDescription implements InsertStmt.DataDesc {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
                 fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
                 mergeType, deleteCondition, sequenceColName, properties);
+    }
+
+    /**
+     * this constructor is for full parameters
+     */
+    public DataDescription(String tableName,
+                           PartitionNames partitionNames,
+                           List<String> filePaths,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           Separator lineDelimiter,
+                           String fileFormat,
+                           String compressType,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition,
+                           String sequenceColName,
+                           Map<String, String> properties,
+                           boolean isHadoopLoad,
+                           String dbName,
+                           String srcTableName,
+                           List<ImportColumnDesc> parsedColumnExprList,
+                           Map<String, Pair<String, List<String>>> columnToHadoopFunction,
+                           TUniqueKeyUpdateMode uniquekeyUpdateMode,
+                           boolean clientLocal,
+                           List<Long> fileSize,
+                           String columnDef,
+                           long backendId,
+                           boolean isMysqlLoad,
+                           boolean ignoreCsvRedundantCol,
+                           FileFormatProperties fileFormatProperties,
+                           Map<String, String> analysisMap) {
+        this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.filePaths = filePaths;
+        this.fileFieldNames = columns;
+        this.columnsFromPath = columnsFromPath;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
+        this.whereExpr = whereExpr;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition;
+        this.sequenceCol = sequenceColName;
+        this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
+
+        this.isHadoopLoad = isHadoopLoad;
+        this.dbName = dbName;
+        this.srcTableName = srcTableName;
+        this.parsedColumnExprList = parsedColumnExprList;
+        this.columnToHadoopFunction.putAll(columnToHadoopFunction);
+        this.uniquekeyUpdateMode = uniquekeyUpdateMode;
+        this.clientLocal = clientLocal;
+        this.fileSize = fileSize;
+        this.columnDef = columnDef;
+        this.backendId = backendId;
+        this.isMysqlLoad = isMysqlLoad;
+        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
+        this.fileFormatProperties = fileFormatProperties;
+        this.analysisMap = analysisMap;
     }
 
     public DataDescription(String tableName,
@@ -734,7 +819,7 @@ public class DataDescription implements InsertStmt.DataDesc {
      *                       "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
-    private void analyzeColumns() throws AnalysisException {
+    public void analyzeColumns() throws AnalysisException {
         if ((fileFieldNames == null || fileFieldNames.isEmpty())
                 && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
             throw new AnalysisException("Can not specify columns_from_path without column_list");
@@ -818,34 +903,26 @@ public class DataDescription implements InsertStmt.DataDesc {
         }
     }
 
-    private void analyzeMultiLoadColumns() throws AnalysisException {
+    public void analyzeMultiLoadColumns() throws AnalysisException {
         if (columnDef == null || columnDef.isEmpty()) {
             return;
         }
-        String columnsSQL = "COLUMNS (" + columnDef + ")";
-        SqlParser parser = new SqlParser(new org.apache.doris.analysis.SqlScanner(new StringReader(columnsSQL)));
-        ImportColumnsStmt columnsStmt;
+
+        List<Expression> expressions;
         try {
-            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
-        } catch (Error e) {
-            LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
-            throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
-        } catch (AnalysisException e) {
-            LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                    columnsSQL, parser.getErrorMsg(columnsSQL), e);
-            String errorMessage = parser.getErrorMsg(columnsSQL);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        } catch (Exception e) {
-            LOG.warn("failed to parse columns header, sql={}", columnsSQL, e);
-            throw new AnalysisException("parse columns header failed", e);
+            expressions = NereidsLoadUtils.parseExpressionSeq(columnDef);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage());
         }
 
-        if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            parsedColumnExprList = columnsStmt.getColumns();
+        for (Expression expr : expressions) {
+            if (expr instanceof BinaryOperator) {
+                // we should translate Expression to Expr
+                Expr legacyExpr = PlanUtils.translateToLegacyExpr(expr.child(1), null, ConnectContext.get());
+                parsedColumnExprList.add(new ImportColumnDesc(expr.child(0).getExpressionName(), legacyExpr));
+            } else {
+                parsedColumnExprList.add(new ImportColumnDesc(expr.getExpressionName()));
+            }
         }
     }
 
@@ -963,20 +1040,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         }
     }
 
-    public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(labelDbName)) {
-            String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            this.dbName = dbName;
-            return this.dbName;
-        } else {
-            this.dbName = labelDbName;
-            return labelDbName;
-        }
-    }
-
     public void analyze(String fullDbName) throws AnalysisException {
         if (isAnalyzed) {
             return;
@@ -1003,7 +1066,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         analyzeFilePaths();
 
         if (partitionNames != null) {
-            partitionNames.analyze(null);
+            partitionNames.analyze();
         }
 
         analyzeColumns();

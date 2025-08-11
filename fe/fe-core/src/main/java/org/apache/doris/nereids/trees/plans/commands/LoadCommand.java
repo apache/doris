@@ -17,485 +17,571 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.LabelName;
+import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.NereidsException;
-import org.apache.doris.common.profile.Profile;
-import org.apache.doris.common.util.FileFormatConstants;
-import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.job.base.JobExecuteType;
-import org.apache.doris.job.base.JobExecutionConfiguration;
-import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
+import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.LoadJobRowResult;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.analyzer.UnboundStar;
-import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
-import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
-import org.apache.doris.nereids.exceptions.MustFallbackException;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Properties;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
-import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
-import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
-import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.tablefunction.HdfsTableValuedFunction;
-import org.apache.doris.tablefunction.S3TableValuedFunction;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Function;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.UUID;
 
 /**
  * load OLAP table data from external bulk file
  */
 public class LoadCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
+    public static final String TIMEOUT_PROPERTY = "timeout";
+    public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
+    public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String CLUSTER_PROPERTY = "cluster";
+    public static final String STRICT_MODE = "strict_mode";
+    public static final String TIMEZONE = "timezone";
+    public static final String LOAD_PARALLELISM = "load_parallelism";
+    public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+    public static final String PRIORITY = "priority";
+    public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 
-    public static final Logger LOG = LogManager.getLogger(LoadCommand.class);
+    // deprecated, keeping this property to make LoadStmt#checkProperties() happy
+    public static final String USE_NEW_LOAD_SCAN_NODE = "use_new_load_scan_node";
 
-    private final String labelName;
-    private final BulkStorageDesc bulkStorageDesc;
-    private final Set<String> sinkTableNames = new HashSet<>();
-    private final List<BulkLoadDataDesc> sourceInfos;
+    // for load data from Baidu Object Store(BOS) todo wait new property support
+    public static final String BOS_ENDPOINT = "bos_endpoint";
+    public static final String BOS_ACCESSKEY = "bos_accesskey";
+    public static final String BOS_SECRET_ACCESSKEY = "bos_secret_accesskey";
+
+    // mini load params
+    public static final String KEY_IN_PARAM_COLUMNS = "columns";
+    public static final String KEY_IN_PARAM_SET = "set";
+    public static final String KEY_IN_PARAM_HLL = "hll";
+    public static final String KEY_IN_PARAM_COLUMN_SEPARATOR = "column_separator";
+    public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
+    public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
+    public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
+
+    public static final String KEY_IN_PARAM_WHERE = "where";
+    public static final String KEY_IN_PARAM_MAX_FILTER_RATIO = "max_filter_ratio";
+    public static final String KEY_IN_PARAM_TIMEOUT = "timeout";
+    public static final String KEY_IN_PARAM_TEMP_PARTITIONS = "temporary_partitions";
+    public static final String KEY_IN_PARAM_NEGATIVE = "negative";
+    public static final String KEY_IN_PARAM_STRICT_MODE = "strict_mode";
+    public static final String KEY_IN_PARAM_TIMEZONE = "timezone";
+    public static final String KEY_IN_PARAM_EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String KEY_IN_PARAM_JSONPATHS = "jsonpaths";
+    public static final String KEY_IN_PARAM_JSONROOT = "json_root";
+    public static final String KEY_IN_PARAM_STRIP_OUTER_ARRAY = "strip_outer_array";
+    public static final String KEY_IN_PARAM_FUZZY_PARSE = "fuzzy_parse";
+    public static final String KEY_IN_PARAM_NUM_AS_STRING = "num_as_string";
+    public static final String KEY_IN_PARAM_MERGE_TYPE = "merge_type";
+    public static final String KEY_IN_PARAM_DELETE_CONDITION = "delete";
+    public static final String KEY_IN_PARAM_FUNCTION_COLUMN = "function_column";
+    public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
+    public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
+    public static final String KEY_SKIP_LINES = "skip_lines";
+    public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+    public static final String PARTIAL_COLUMNS = "partial_columns";
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_behavior";
+    public static final String KEY_COMMENT = "comment";
+    public static final String KEY_CLOUD_CLUSTER = "cloud_cluster";
+    public static final String KEY_ENCLOSE = "enclose";
+    public static final String KEY_ESCAPE = "escape";
+    public static final ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
+            .put(TIMEOUT_PROPERTY, new Function<String, Long>() {
+                @Override
+                public @Nullable Long apply(@Nullable String s) {
+                    return Long.valueOf(s);
+                }
+            })
+            .put(MAX_FILTER_RATIO_PROPERTY, new Function<String, Double>() {
+                @Override
+                public @Nullable Double apply(@Nullable String s) {
+                    return Double.valueOf(s);
+                }
+            })
+            .put(EXEC_MEM_LIMIT, new Function<String, Long>() {
+                @Override
+                public @Nullable Long apply(@Nullable String s) {
+                    return Long.valueOf(s);
+                }
+            })
+            .put(STRICT_MODE, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(PARTIAL_COLUMNS, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(PARTIAL_UPDATE_NEW_KEY_POLICY, new Function<String, TPartialUpdateNewRowPolicy>() {
+                @Override
+                public @Nullable TPartialUpdateNewRowPolicy apply(@Nullable String s) {
+                    return TPartialUpdateNewRowPolicy.valueOf(s.toUpperCase());
+                }
+            })
+            .put(TIMEZONE, new Function<String, String>() {
+                @Override
+                public @Nullable String apply(@Nullable String s) {
+                    return s;
+                }
+            })
+            .put(LOAD_PARALLELISM, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
+            .put(SEND_BATCH_PARALLELISM, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
+            .put(CLUSTER_PROPERTY, new Function<String, String>() {
+                @Override
+                public @Nullable String apply(@Nullable String s) {
+                    return s;
+                }
+            })
+            .put(LOAD_TO_SINGLE_TABLET, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(USE_NEW_LOAD_SCAN_NODE, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(KEY_SKIP_LINES, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
+            .put(KEY_TRIM_DOUBLE_QUOTES, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(PRIORITY, (Function<String, LoadTask.Priority>) s -> LoadTask.Priority.valueOf(s))
+            .build();
+    private static final Logger LOG = LogManager.getLogger(LoadCommand.class);
+    private final LabelName label;
+    private final List<NereidsDataDescription> dataDescriptions;
+    private final BrokerDesc brokerDesc;
+    private final ResourceDesc resourceDesc;
     private final Map<String, String> properties;
-    private final String comment;
-    private List<InsertIntoTableCommand> plans = new ArrayList<>();
-    private Profile profile;
+    private String user;
+
+    private EtlJobType etlJobType = EtlJobType.UNKNOWN;
+
+    private String comment;
+    private String mysqlLoadId;
+    private UserIdentity userIdentity;
 
     /**
-     * constructor of ExportCommand
+     * constructor of LoadCommand
      */
-    public LoadCommand(String labelName, List<BulkLoadDataDesc> sourceInfos, BulkStorageDesc bulkStorageDesc,
-                       Map<String, String> properties, String comment) {
+    public LoadCommand(LabelName label, List<NereidsDataDescription> dataDescriptions, BrokerDesc brokerDesc,
+                           ResourceDesc resourceDesc, Map<String, String> properties, String comment) {
         super(PlanType.LOAD_COMMAND);
-        this.labelName = Objects.requireNonNull(labelName.trim(), "labelName should not null");
-        this.sourceInfos = Objects.requireNonNull(ImmutableList.copyOf(sourceInfos), "sourceInfos should not null");
-        this.properties = Objects.requireNonNull(ImmutableMap.copyOf(properties), "properties should not null");
-        this.bulkStorageDesc = Objects.requireNonNull(bulkStorageDesc, "bulkStorageDesc should not null");
-        this.comment = Objects.requireNonNull(comment, "comment should not null");
+        this.label = label;
+        this.dataDescriptions = dataDescriptions;
+        this.brokerDesc = brokerDesc;
+        this.resourceDesc = resourceDesc;
+        this.properties = properties;
+        this.comment = comment != null ? comment : "";
+    }
+
+    public EtlJobType getEtlJobType() {
+        return etlJobType;
+    }
+
+    public LabelName getLabel() {
+        return label;
+    }
+
+    public BrokerDesc getBrokerDesc() {
+        return brokerDesc;
+    }
+
+    public ResourceDesc getResourceDesc() {
+        return resourceDesc;
+    }
+
+    public List<NereidsDataDescription> getDataDescriptions() {
+        return dataDescriptions;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public UserIdentity getUserIdentity() {
+        return userIdentity;
+    }
+
+    public void setUserIdentity(UserIdentity userIdentity) {
+        this.userIdentity = userIdentity;
     }
 
     /**
-     * for test print
-     *
-     * @param ctx context
-     * @return parsed insert into plan
+     * check for properties
      */
-    @VisibleForTesting
-    public List<LogicalPlan> parseToInsertIntoPlan(ConnectContext ctx) throws AnalysisException {
-        List<LogicalPlan> plans = new ArrayList<>();
-        for (BulkLoadDataDesc dataDesc : sourceInfos) {
-            plans.add(completeQueryPlan(ctx, dataDesc));
+    public static void checkProperties(Map<String, String> properties) throws DdlException {
+        if (properties == null) {
+            return;
         }
-        return plans;
+
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (!PROPERTIES_MAP.containsKey(entry.getKey())) {
+                throw new DdlException(entry.getKey() + " is invalid property");
+            }
+        }
+
+        // exec mem
+        final String execMemProperty = properties.get(EXEC_MEM_LIMIT);
+        if (execMemProperty != null) {
+            try {
+                final long execMem = Long.valueOf(execMemProperty);
+                if (execMem <= 0) {
+                    throw new DdlException(EXEC_MEM_LIMIT + " must be greater than 0");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(EXEC_MEM_LIMIT + " is not a number.");
+            }
+        }
+
+        // timeout
+        final String timeoutLimitProperty = properties.get(TIMEOUT_PROPERTY);
+        if (timeoutLimitProperty != null) {
+            try {
+                final int timeoutLimit = Integer.valueOf(timeoutLimitProperty);
+                if (timeoutLimit < 0) {
+                    throw new DdlException(TIMEOUT_PROPERTY + " must be greater than 0");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(TIMEOUT_PROPERTY + " is not a number.");
+            }
+        }
+
+        // max filter ratio
+        final String maxFilterRadioProperty = properties.get(MAX_FILTER_RATIO_PROPERTY);
+        if (maxFilterRadioProperty != null) {
+            try {
+                double maxFilterRatio = Double.valueOf(maxFilterRadioProperty);
+                if (maxFilterRatio < 0.0 || maxFilterRatio > 1.0) {
+                    throw new DdlException(MAX_FILTER_RATIO_PROPERTY + " must between 0.0 and 1.0.");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(MAX_FILTER_RATIO_PROPERTY + " is not a number.");
+            }
+        }
+
+        // strict mode
+        final String strictModeProperty = properties.get(STRICT_MODE);
+        if (strictModeProperty != null) {
+            if (!strictModeProperty.equalsIgnoreCase("true")
+                    && !strictModeProperty.equalsIgnoreCase("false")) {
+                throw new DdlException(STRICT_MODE + " is not a boolean");
+            }
+        }
+
+        // partial update
+        final String partialColumnsProperty = properties.get(PARTIAL_COLUMNS);
+        if (partialColumnsProperty != null) {
+            if (!partialColumnsProperty.equalsIgnoreCase("true")
+                    && !partialColumnsProperty.equalsIgnoreCase("false")) {
+                throw new DdlException(PARTIAL_COLUMNS + " is not a boolean");
+            }
+        }
+
+        // partial update new key policy
+        final String partialUpdateNewKeyPolicyProperty = properties.get(PARTIAL_UPDATE_NEW_KEY_POLICY);
+        if (partialUpdateNewKeyPolicyProperty != null) {
+            if (!partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("append")
+                    && !partialUpdateNewKeyPolicyProperty.equalsIgnoreCase("error")) {
+                throw new DdlException(PARTIAL_UPDATE_NEW_KEY_POLICY + " should be one of [append, error], but found "
+                    + partialUpdateNewKeyPolicyProperty);
+            }
+        }
+
+        // time zone
+        final String timezone = properties.get(TIMEZONE);
+        if (timezone != null) {
+            properties.put(TIMEZONE, TimeUtils.checkTimeZoneValidAndStandardize(
+                    properties.getOrDefault(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE)));
+        }
+
+        // send batch parallelism
+        final String sendBatchParallelism = properties.get(SEND_BATCH_PARALLELISM);
+        if (sendBatchParallelism != null) {
+            try {
+                final int sendBatchParallelismValue = Integer.valueOf(sendBatchParallelism);
+                if (sendBatchParallelismValue < 1) {
+                    throw new DdlException(SEND_BATCH_PARALLELISM + " must be greater than 0");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(SEND_BATCH_PARALLELISM + " is not a number.");
+            }
+        }
+
+        // priority
+        final String priority = properties.get(PRIORITY);
+        if (priority != null) {
+            try {
+                LoadTask.Priority.valueOf(priority);
+            } catch (IllegalArgumentException | NullPointerException e) {
+                throw new DdlException(PRIORITY + " must be in [LOW/NORMAL/HIGH].");
+            }
+        }
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!Config.enable_nereids_load) {
-            throw new MustFallbackException("Fallback to legacy planner temporary.");
+        if (Strings.isNullOrEmpty(label.getDbName())) {
+            if (Strings.isNullOrEmpty(ctx.getDatabase())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+            label.setDbName(ctx.getDatabase());
         }
-        this.profile = new Profile(
-                ctx.getSessionVariable().enableProfile,
-                ctx.getSessionVariable().profileLevel,
-                ctx.getSessionVariable().getAutoProfileThresholdMs());
-        profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        if (sourceInfos.size() == 1) {
-            plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
-                    Optional.of(labelName), Optional.empty(), Optional.empty()));
+        FeNameFormat.checkLabel(label.getLabelName());
+
+        if (dataDescriptions == null || dataDescriptions.isEmpty()) {
+            throw new AnalysisException("No data file in load statement.");
+        }
+        // check data descriptions, support 2 cases bellow:
+        // case 1: multi file paths, multi data descriptions
+        // case 2: one hive table, one data description
+        boolean isLoadFromTable = false;
+        for (NereidsDataDescription dataDescription : dataDescriptions) {
+            if (brokerDesc == null && resourceDesc == null) {
+                dataDescription.setIsHadoopLoad(true);
+            }
+            String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), ctx);
+            dataDescription.analyze(fullDbName);
+
+            if (dataDescription.isLoadFromTable()) {
+                isLoadFromTable = true;
+            }
+            Database db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
+            OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
+                    && table.getKeysType() != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+            }
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {
+                throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+            }
+            if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
+                for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
+                    String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
+                    dataDescription.getFilePaths().set(i, location);
+                    dataDescription.getFilePaths().set(i, dataDescription.getFilePaths().get(i));
+                }
+            }
+        }
+        if (isLoadFromTable) {
+            if (dataDescriptions.size() > 1) {
+                throw new AnalysisException("Only support one olap table load from one external table");
+            }
+            if (resourceDesc == null) {
+                throw new AnalysisException("Load from table should use Spark Load");
+            }
+        }
+
+        if (resourceDesc != null) {
+            resourceDesc.analyze();
+            etlJobType = resourceDesc.getEtlJobType();
+            // check resource usage privilege
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
+                    resourceDesc.getName(), PrivPredicate.USAGE)) {
+                throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
+                    + "'@'" + ConnectContext.get().getRemoteIP()
+                    + "' for resource '" + resourceDesc.getName() + "'");
+            }
+        } else if (brokerDesc != null) {
+            etlJobType = EtlJobType.BROKER;
+            checkS3Param();
         } else {
-            throw new AnalysisException("Multi insert into statements are unsupported.");
-        }
-        profile.getSummaryProfile().setQueryPlanFinishTime();
-        submitInsertStmtPlan(ctx, executor, plans);
-    }
-
-    private LogicalPlan completeQueryPlan(ConnectContext ctx, BulkLoadDataDesc dataDesc)
-            throws AnalysisException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("nereids load stmt before conversion: {}", dataDesc::toSql);
-        }
-        // 1. build source projects plan (select col1,col2... from tvf where prefilter)
-        Map<String, String> tvfProperties = getTvfProperties(dataDesc, bulkStorageDesc);
-        LogicalPlan tvfLogicalPlan = new LogicalCheckPolicy<>(getUnboundTVFRelation(tvfProperties));
-        tvfLogicalPlan = buildTvfQueryPlan(dataDesc, tvfProperties, tvfLogicalPlan);
-
-        if (!(tvfLogicalPlan instanceof LogicalProject)) {
-            throw new AnalysisException("Fail to build TVF query, TVF query should be LogicalProject");
-        }
-        List<NamedExpression> tvfProjects = ((LogicalProject<?>) tvfLogicalPlan).getProjects();
-        // tvfProjects may be '*' or 'col1,col2,...'
-        if (tvfProjects.isEmpty()) {
-            throw new AnalysisException("Fail to build TVF query, parsed TVF select list requires not null");
-        }
-        boolean scanAllTvfCol = (tvfProjects.get(0) instanceof UnboundStar);
-
-        OlapTable olapTable = getOlapTable(ctx, dataDesc);
-        sinkTableNames.add(olapTable.getName());
-        List<Column> olapSchema = olapTable.getBaseSchema();
-        // map column index to mapping expr
-        Map<String, Expression> mappingExpressions = dataDesc.getColumnMappings();
-        // 2. build sink where
-        Set<Expression> conjuncts = new HashSet<>();
-        if (dataDesc.getWhereExpr().isPresent()) {
-            Set<Expression> whereParts = ExpressionUtils.extractConjunctionToSet(dataDesc.getWhereExpr().get());
-            for (Expression wherePart : whereParts) {
-                if (!(wherePart instanceof ComparisonPredicate)) {
-                    throw new AnalysisException("WHERE clause must be comparison expression");
-                }
-                ComparisonPredicate comparison = ((ComparisonPredicate) wherePart);
-                if (!(comparison.left() instanceof UnboundSlot)) {
-                    throw new AnalysisException("Invalid predicate column " + comparison.left().toSql());
-                }
-                conjuncts.add(comparison.rewriteUp(e -> {
-                    if (!(e instanceof UnboundSlot)) {
-                        return e;
-                    }
-                    UnboundSlot slot = (UnboundSlot) e;
-                    String colName = getUnquotedName(slot);
-                    return mappingExpressions.getOrDefault(colName, e);
-                }));
-            }
+            etlJobType = EtlJobType.UNKNOWN;
         }
 
-        if (dataDesc.getFileFieldNames().isEmpty() && isCsvType(tvfProperties) && !conjuncts.isEmpty()) {
-            throw new AnalysisException("Required property 'csv_schema' for csv file, "
-                    + "when no column list specified and use WHERE");
-        }
-        tvfLogicalPlan = new LogicalFilter<>(conjuncts, tvfLogicalPlan);
-
-        // 3. build sink project
-        List<String> sinkCols = new ArrayList<>();
-        List<NamedExpression> selectLists = new ArrayList<>();
-        List<String> olapColumns = olapSchema.stream().map(Column::getDisplayName).collect(Collectors.toList());
-        if (!scanAllTvfCol) {
-            int numSinkCol = Math.min(tvfProjects.size(), olapColumns.size());
-            // if not scan all tvf column, try to treat each tvfColumn as olapColumn
-            for (int i = 0; i < numSinkCol; i++) {
-                UnboundSlot sourceCol = (UnboundSlot) tvfProjects.get(i);
-                // check sourceCol is slot and check olapColumn beyond index.
-                String olapColumn = olapColumns.get(i);
-                fillSinkBySourceCols(mappingExpressions, olapColumn,
-                        sourceCol, sinkCols, selectLists);
-            }
-            fillDeleteOnColumn(dataDesc, olapTable, sinkCols, selectLists, Column.DELETE_SIGN);
-        } else {
-            for (String olapColumn : olapColumns) {
-                if (olapColumn.equalsIgnoreCase(Column.VERSION_COL)
-                        || olapColumn.equalsIgnoreCase(Column.SEQUENCE_COL)) {
-                    continue;
-                }
-                if (olapColumn.equalsIgnoreCase(Column.DELETE_SIGN)) {
-                    fillDeleteOnColumn(dataDesc, olapTable, sinkCols, selectLists, olapColumn);
-                    continue;
-                }
-                fillSinkBySourceCols(mappingExpressions, olapColumn, new UnboundSlot(olapColumn),
-                        sinkCols, selectLists);
-            }
-        }
-        if (sinkCols.isEmpty() && selectLists.isEmpty()) {
-            // build 'insert into tgt_tbl select * from src_tbl'
-            selectLists.add(new UnboundStar(new ArrayList<>()));
-        }
-        for (String columnFromPath : dataDesc.getColumnsFromPath()) {
-            sinkCols.add(columnFromPath);
-            // columnFromPath will be parsed by BE, put columns as placeholder.
-            selectLists.add(new UnboundSlot(columnFromPath));
-        }
-
-        tvfLogicalPlan = new LogicalProject<>(selectLists, tvfLogicalPlan);
-        checkAndAddSequenceCol(olapTable, dataDesc, sinkCols, selectLists);
-        boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
-                && sinkCols.size() < olapTable.getColumns().size();
-        return UnboundTableSinkCreator.createUnboundTableSink(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                false, dataDesc.getPartitionNames(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
-                        DMLCommandType.LOAD, tvfLogicalPlan);
-    }
-
-    private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,
-                                           List<String> sinkCols,
-                                           List<NamedExpression> selectLists,
-                                           String olapColumn) throws AnalysisException {
-        if (olapTable.hasDeleteSign() && dataDesc.getDeleteCondition().isPresent()) {
-            checkDeleteOnConditions(dataDesc.getMergeType(), dataDesc.getDeleteCondition().get());
-            Optional<If> deleteIf = createDeleteOnIfCall(olapTable, olapColumn, dataDesc);
-            if (deleteIf.isPresent()) {
-                sinkCols.add(olapColumn);
-                selectLists.add(new UnboundAlias(deleteIf.get(), olapColumn));
-            }
-            sinkCols.add(olapColumn);
-        }
-    }
-
-    /**
-     * use to get unquoted column name
-     * @return unquoted slot name
-     */
-    public static String getUnquotedName(NamedExpression slot) {
-        if (slot instanceof UnboundAlias) {
-            return slot.getName();
-        } else if (slot instanceof UnboundSlot) {
-            List<String> slotNameParts = ((UnboundSlot) slot).getNameParts();
-            return slotNameParts.get(slotNameParts.size() - 1);
-        }
-        return slot.getName();
-    }
-
-    private static void fillSinkBySourceCols(Map<String, Expression> mappingExpressions,
-                                             String olapColumn, UnboundSlot tvfColumn,
-                                             List<String> sinkCols, List<NamedExpression> selectLists) {
-        sinkCols.add(olapColumn);
-        if (mappingExpressions.containsKey(olapColumn)) {
-            selectLists.add(new UnboundAlias(mappingExpressions.get(olapColumn), olapColumn));
-        } else {
-            selectLists.add(new UnboundAlias(tvfColumn, olapColumn));
-        }
-    }
-
-    private static boolean isCsvType(Map<String, String> tvfProperties) {
-        return tvfProperties.get(FileFormatConstants.PROP_FORMAT).equalsIgnoreCase("csv");
-    }
-
-    /**
-     * fill all column that need to be loaded to sinkCols.
-     * fill the map with sink columns and generated source columns.
-     * sink columns use for 'INSERT INTO'
-     * generated source columns use for 'SELECT'
-     *
-     * @param dataDesc       dataDesc
-     * @param tvfProperties  generated tvfProperties
-     * @param tvfLogicalPlan source tvf relation
-     */
-    private static LogicalPlan buildTvfQueryPlan(BulkLoadDataDesc dataDesc,
-                                                 Map<String, String> tvfProperties,
-                                                 LogicalPlan tvfLogicalPlan) throws AnalysisException {
-        // build tvf column filter
-        if (dataDesc.getPrecedingFilterExpr().isPresent()) {
-            Set<Expression> preConjuncts =
-                    ExpressionUtils.extractConjunctionToSet(dataDesc.getPrecedingFilterExpr().get());
-            if (!preConjuncts.isEmpty()) {
-                tvfLogicalPlan = new LogicalFilter<>(preConjuncts, tvfLogicalPlan);
-            }
-        }
-
-        Map<String, String> sourceProperties = dataDesc.getProperties();
-        if (dataDesc.getFileFieldNames().isEmpty() && isCsvType(tvfProperties)) {
-            String csvSchemaStr = sourceProperties.get(FileFormatConstants.PROP_CSV_SCHEMA);
-            if (csvSchemaStr != null) {
-                tvfProperties.put(FileFormatConstants.PROP_CSV_SCHEMA, csvSchemaStr);
-                List<Column> csvSchema = new ArrayList<>();
-                FileFormatUtils.parseCsvSchema(csvSchema, csvSchemaStr);
-                List<NamedExpression> csvColumns = new ArrayList<>();
-                for (Column csvColumn : csvSchema) {
-                    csvColumns.add(new UnboundSlot(csvColumn.getName()));
-                }
-                if (!csvColumns.isEmpty()) {
-                    for (String columnFromPath : dataDesc.getColumnsFromPath()) {
-                        csvColumns.add(new UnboundSlot(columnFromPath));
-                    }
-                    return new LogicalProject<>(csvColumns, tvfLogicalPlan);
-                }
-                if (!dataDesc.getPrecedingFilterExpr().isPresent()) {
-                    throw new AnalysisException("Required property 'csv_schema' for csv file, "
-                            + "when no column list specified and use PRECEDING FILTER");
-                }
-            }
-            return getStarProjectPlan(tvfLogicalPlan);
-        }
-        List<NamedExpression> dataDescColumns = new ArrayList<>();
-        for (int i = 0; i < dataDesc.getFileFieldNames().size(); i++) {
-            String sourceColumn = dataDesc.getFileFieldNames().get(i);
-            dataDescColumns.add(new UnboundSlot(sourceColumn));
-        }
-        if (dataDescColumns.isEmpty()) {
-            return getStarProjectPlan(tvfLogicalPlan);
-        } else {
-            return new LogicalProject<>(dataDescColumns, tvfLogicalPlan);
-        }
-    }
-
-    private static LogicalProject<LogicalPlan> getStarProjectPlan(LogicalPlan logicalPlan) {
-        return new LogicalProject<>(ImmutableList.of(new UnboundStar(new ArrayList<>())), logicalPlan);
-    }
-
-    private static Optional<If> createDeleteOnIfCall(OlapTable olapTable, String olapColName,
-                                                     BulkLoadDataDesc dataDesc) throws AnalysisException {
-        if (olapTable.hasDeleteSign()
-                && dataDesc.getDeleteCondition().isPresent()) {
-            if (!(dataDesc.getDeleteCondition().get() instanceof ComparisonPredicate)) {
-                throw new AnalysisException("DELETE ON clause must be comparison expression.");
-            }
-            ComparisonPredicate deleteOn = (ComparisonPredicate) dataDesc.getDeleteCondition().get();
-            Expression deleteOnCol = deleteOn.left();
-            if (!(deleteOnCol instanceof UnboundSlot)) {
-                throw new AnalysisException("DELETE ON column must be an undecorated OLAP column.");
-            }
-            if (!olapColName.equalsIgnoreCase(getUnquotedName((UnboundSlot) deleteOnCol))) {
-                return Optional.empty();
-            }
-            If deleteIf = new If(deleteOn, new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0));
-            return Optional.of(deleteIf);
-        } else {
-            return Optional.empty();
-        }
-    }
-
-    private static void checkDeleteOnConditions(LoadTask.MergeType mergeType, Expression deleteCondition)
-                throws AnalysisException {
-        if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
-            throw new AnalysisException(BulkLoadDataDesc.EXPECT_MERGE_DELETE_ON);
-        }
-        if (mergeType == LoadTask.MergeType.MERGE && deleteCondition == null) {
-            throw new AnalysisException(BulkLoadDataDesc.EXPECT_DELETE_ON);
-        }
-    }
-
-    private static void checkAndAddSequenceCol(OlapTable olapTable, BulkLoadDataDesc dataDesc,
-                                               List<String> sinkCols, List<NamedExpression> selectLists)
-                throws AnalysisException {
-        Optional<String> optSequenceCol = dataDesc.getSequenceCol();
-        if (!optSequenceCol.isPresent() && !olapTable.hasSequenceCol()) {
-            return;
-        }
-        // check olapTable schema and sequenceCol
-        if (olapTable.hasSequenceCol() && !optSequenceCol.isPresent()) {
-            throw new AnalysisException("Table " + olapTable.getName()
-                    + " has sequence column, need to specify the sequence column");
-        }
-        if (optSequenceCol.isPresent() && !olapTable.hasSequenceCol()) {
-            throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());
-        }
-        String sequenceCol = dataDesc.getSequenceCol().get();
-        // check source sequence column is in parsedColumnExprList or Table base schema
-        boolean hasSourceSequenceCol = false;
-        if (!sinkCols.isEmpty()) {
-            List<String> allCols = new ArrayList<>(dataDesc.getFileFieldNames());
-            allCols.addAll(sinkCols);
-            for (String sinkCol : allCols) {
-                if (sinkCol.equals(sequenceCol)) {
-                    hasSourceSequenceCol = true;
-                    break;
-                }
-            }
-        }
-        List<Column> columns = olapTable.getBaseSchema();
-        for (Column column : columns) {
-            if (column.getName().equals(sequenceCol)) {
-                hasSourceSequenceCol = true;
-                break;
-            }
-        }
-        if (!hasSourceSequenceCol) {
-            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + olapTable.getName()
-                    + " or the COLUMNS and SET clause");
-        } else {
-            sinkCols.add(Column.SEQUENCE_COL);
-            selectLists.add(new UnboundAlias(new UnboundSlot(sequenceCol), Column.SEQUENCE_COL));
-        }
-    }
-
-    private UnboundTVFRelation getUnboundTVFRelation(Map<String, String> properties) {
-        UnboundTVFRelation relation;
-        if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.S3) {
-            relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    S3TableValuedFunction.NAME, new Properties(properties));
-        } else if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.HDFS) {
-            relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    HdfsTableValuedFunction.NAME, new Properties(properties));
-        } else {
-            throw new UnsupportedOperationException("Unsupported load storage type: "
-                    + bulkStorageDesc.getStorageType());
-        }
-        return relation;
-    }
-
-    private static OlapTable getOlapTable(ConnectContext ctx, BulkLoadDataDesc dataDesc) throws AnalysisException {
-        OlapTable targetTable;
-        TableIf table = RelationUtil.getTable(dataDesc.getNameParts(), ctx.getEnv(), Optional.empty());
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("table must be olapTable in load command");
-        }
-        targetTable = ((OlapTable) table);
-        return targetTable;
-    }
-
-    private static Map<String, String> getTvfProperties(BulkLoadDataDesc dataDesc, BulkStorageDesc bulkStorageDesc) {
-        Map<String, String> tvfProperties = new HashMap<>(bulkStorageDesc.getProperties());
-        String fileFormat = dataDesc.getFormatDesc().getFileFormat().orElse("csv");
-        if ("csv".equalsIgnoreCase(fileFormat)) {
-            dataDesc.getFormatDesc().getColumnSeparator().ifPresent(sep ->
-                    tvfProperties.put(FileFormatConstants.PROP_COLUMN_SEPARATOR, sep.getSeparator()));
-            dataDesc.getFormatDesc().getLineDelimiter().ifPresent(sep ->
-                    tvfProperties.put(FileFormatConstants.PROP_LINE_DELIMITER, sep.getSeparator()));
-        }
-        // TODO: resolve and put ExternalFileTableValuedFunction params
-        tvfProperties.put(FileFormatConstants.PROP_FORMAT, fileFormat);
-
-        List<String> filePaths = dataDesc.getFilePaths();
-        // TODO: support multi location by union
-        String listFilePath = filePaths.get(0);
-        if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.S3) {
-            // TODO: check file path by s3 fs list status
-            tvfProperties.put("uri", listFilePath);
-        }
-
-        final Map<String, String> dataDescProps = dataDesc.getProperties();
-        if (dataDescProps != null) {
-            tvfProperties.putAll(dataDescProps);
-        }
-        List<String> columnsFromPath = dataDesc.getColumnsFromPath();
-        if (columnsFromPath != null && !columnsFromPath.isEmpty()) {
-            tvfProperties.put(FileFormatConstants.PROP_PATH_PARTITION_KEYS,
-                    String.join(",", columnsFromPath));
-        }
-        return tvfProperties;
-    }
-
-    private void submitInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<InsertIntoTableCommand> plans) {
         try {
-            JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
-            jobExecutionConfiguration.setExecuteType(JobExecuteType.INSTANT);
-            InsertJob jobExecutor = new InsertJob(ctx, executor, labelName, plans,
-                    sinkTableNames, properties, comment, jobExecutionConfiguration);
-            Env.getCurrentEnv().getJobManager().registerJob(jobExecutor);
+            checkProperties(properties);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+
+        user = ctx.getQualifiedUser();
+        if (ctx.getCurrentUserIdentity() != null) {
+            this.setUserIdentity(ctx.getCurrentUserIdentity());
+        }
+
+        handleLoadCommand(ctx, executor);
+    }
+
+    /**
+     * check for s3 param
+     */
+    public void checkS3Param() throws UserException {
+        if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
+            ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
+            String endpoint = storageProperties.getEndpoint();
+            checkEndpoint(endpoint);
+            checkWhiteList(endpoint);
+            List<String> filePaths = new ArrayList<>();
+            if (dataDescriptions != null && !dataDescriptions.isEmpty()) {
+                for (NereidsDataDescription dataDescription : dataDescriptions) {
+                    if (dataDescription.getFilePaths() != null) {
+                        for (String filePath : dataDescription.getFilePaths()) {
+                            if (filePath != null && !filePath.isEmpty()) {
+                                filePaths.add(filePath);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * check endpoint
+     */
+    private void checkEndpoint(String endpoint) throws UserException {
+        HttpURLConnection connection = null;
+        try {
+            String urlStr = endpoint;
+            // Add default protocol if not specified
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                urlStr = "http://" + endpoint;
+            }
+            SecurityChecker.getInstance().startSSRFChecking(urlStr);
+            URL url = new URL(urlStr);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(10000);
+            connection.connect();
         } catch (Exception e) {
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
-            throw new NereidsException("Command process failed.", new AnalysisException(e.getMessage(), e));
+            LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
+            String msg;
+            if (e instanceof UserException) {
+                msg = ((UserException) e).getDetailMessage();
+            } else {
+                msg = e.getMessage();
+            }
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                "Failed to access object storage, message=" + msg, e);
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.disconnect();
+                } catch (Exception e) {
+                    LOG.warn("Failed to disconnect connection, endpoint={}, err={}", endpoint, e);
+                }
+            }
+            SecurityChecker.getInstance().stopSSRFChecking();
+        }
+    }
+
+    /**
+     * check WhiteList
+     */
+    public void checkWhiteList(String endpoint) throws UserException {
+        endpoint = endpoint.replaceFirst("^http://", "");
+        endpoint = endpoint.replaceFirst("^https://", "");
+        List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
+        whiteList.removeIf(String::isEmpty);
+        if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
+            throw new UserException("endpoint: " + endpoint
+                + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
+        }
+    }
+
+    /**
+     * this method is from StmtExecutor.handleLoadStmt()
+     */
+    public void handleLoadCommand(ConnectContext ctx, StmtExecutor executor) {
+        try {
+            // EtlJobType jobType = loadStmt.getEtlJobType();
+            if (etlJobType == EtlJobType.UNKNOWN) {
+                throw new DdlException("Unknown load job type");
+            }
+            LoadManager loadManager = ctx.getEnv().getLoadManager();
+            if (etlJobType == EtlJobType.LOCAL_FILE) {
+                if (!ctx.getCapability().supportClientLocalFile()) {
+                    ctx.getState().setError(ErrorCode.ERR_NOT_ALLOWED_COMMAND, "This client is not support"
+                            + " to load client local file.");
+                    return;
+                }
+                String loadId = UUID.randomUUID().toString();
+                mysqlLoadId = loadId;
+                LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
+                        .executeMySqlLoadJobFromCommand(ctx, getDataDescriptions().get(0), loadId);
+                ctx.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(), submitResult.toString());
+            } else {
+                loadManager.createLoadJobFromCommand(this, executor, ctx);
+                ctx.getState().setOk();
+            }
+        } catch (UserException e) {
+            // Return message to info client what happened.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("DDL statement({}) process failed.", executor.getOriginStmt().originStmt, e);
+            }
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("DDL statement(" + executor.getOriginStmt().originStmt + ") process failed.", e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
     }
 

@@ -19,6 +19,7 @@
 #include <common/multi_version.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <simdjson.h>
 #include <sys/resource.h>
 
 #include <cerrno> // IWYU pragma: keep
@@ -57,6 +58,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_column_object_pool.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
@@ -127,9 +129,8 @@
 #include "io/fs/hdfs/hdfs_mgr.h"
 // clang-format on
 
-#include "runtime/memory/tcmalloc_hook.h"
-
 namespace doris {
+
 #include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -182,6 +183,26 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
     return env->_init(store_paths, spill_store_paths, broken_paths);
+}
+
+// pick simdjson implementation based on CPU capabilities
+inline void init_simdjson_parser() {
+    // haswell: AVX2 (2013 Intel Haswell or later, all AMD Zen processors)
+    const auto* haswell_implementation = simdjson::get_available_implementations()["haswell"];
+    if (!haswell_implementation || !haswell_implementation->supported_by_runtime_system()) {
+        // pick available implementation
+        for (const auto* implementation : simdjson::get_available_implementations()) {
+            if (implementation->supported_by_runtime_system()) {
+                LOG(INFO) << "Using SimdJSON implementation : " << implementation->name() << ": "
+                          << implementation->description();
+                simdjson::get_active_implementation() = implementation;
+                return;
+            }
+        }
+        LOG(WARNING) << "No available SimdJSON implementation found.";
+    } else {
+        LOG(INFO) << "Using SimdJSON Haswell implementation";
+    }
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
@@ -348,7 +369,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         std::cout << "start BE in cloud mode, cloud_unique_id: " << config::cloud_unique_id
                   << ", meta_service_endpoint: " << config::meta_service_endpoint << std::endl;
-        _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
+        _storage_engine = std::make_unique<CloudStorageEngine>(options);
     } else {
         std::cout << "start BE in local mode" << std::endl;
         _storage_engine = std::make_unique<StorageEngine>(options);
@@ -375,6 +396,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
+
+    init_simdjson_parser();
 
     // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
     S3ClientFactory::instance();
@@ -451,8 +474,6 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-
-    init_hook();
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
@@ -583,6 +604,16 @@ Status ExecEnv::_init_mem_env() {
 
     _query_cache = QueryCache::create_global_cache(config::query_cache_size * 1024L * 1024L);
     LOG(INFO) << "query cache memory limit: " << config::query_cache_size << "MB";
+
+    // The default delete bitmap cache is set to 100MB,
+    // which can be insufficient and cause performance issues when the amount of user data is large.
+    // To mitigate the problem of an inadequate cache,
+    // we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _delete_bitmap_agg_cache = DeleteBitmapAggCache::create_instance(std::max(
+            delete_bitmap_agg_cache_cache_limit, config::delete_bitmap_agg_cache_capacity));
 
     return Status::OK();
 }
@@ -753,6 +784,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);
+    SAFE_DELETE(_delete_bitmap_agg_cache);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...

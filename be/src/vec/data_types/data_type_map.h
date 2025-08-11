@@ -69,6 +69,7 @@ public:
     const std::string get_family_name() const override { return "Map"; }
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
     Field get_default() const override;
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
@@ -96,11 +97,10 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeMapSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeMapSerDe>(key_type->get_serde(nesting_level + 1),
-                                                  value_type->get_serde(nesting_level + 1),
-                                                  nesting_level);
+        return std::make_shared<SerDeType>(key_type->get_serde(nesting_level + 1),
+                                           value_type->get_serde(nesting_level + 1), nesting_level);
     };
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::MAP);

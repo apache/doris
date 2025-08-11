@@ -27,9 +27,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -140,23 +138,22 @@ struct AggregateFunctionMapAggData {
 
     void write(BufferWritable& buf) const {
         const size_t size = _key_column->size();
-        write_binary(size, buf);
+        buf.write_binary(size);
         for (size_t i = 0; i < size; i++) {
-            write_binary(assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
-                                 .get_data_at(i),
-                         buf);
+            buf.write_binary(assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
+                                     .get_data_at(i));
         }
         for (size_t i = 0; i < size; i++) {
-            write_binary(_value_column->get_data_at(i), buf);
+            buf.write_binary(_value_column->get_data_at(i));
         }
     }
 
     void read(BufferReadable& buf) {
         size_t size = 0;
-        read_binary(size, buf);
+        buf.read_binary(size);
         StringRef key;
         for (size_t i = 0; i < size; i++) {
-            read_binary(key, buf);
+            buf.read_binary(key);
             DCHECK(_map.find(key) == _map.cend());
             key.data = _arena.insert(key.data, key.size);
             assert_cast<KeyColumnType&, TypeCheckOnRelease::DISABLE>(*_key_column)
@@ -164,7 +161,7 @@ struct AggregateFunctionMapAggData {
         }
         StringRef val;
         for (size_t i = 0; i < size; i++) {
-            read_binary(val, buf);
+            buf.read_binary(val);
             _value_column->insert_data(val.data, val.size);
         }
     }
@@ -198,7 +195,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         if (columns[0]->is_nullable()) {
             const auto& nullable_col =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
@@ -229,7 +226,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -238,12 +235,12 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena*) const override {
+                                           const size_t num_rows, Arena&) const override {
         auto& col = assert_cast<ColumnMap&>(*dst);
         for (size_t i = 0; i != num_rows; ++i) {
             Field key, value;
@@ -262,7 +259,7 @@ public:
         }
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
                                  size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnMap&>(column);
         auto* data = &(this->data(places));
@@ -281,7 +278,7 @@ public:
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena*) const override {
+                                           Arena&) const override {
         auto& col = assert_cast<const ColumnMap&>(column);
         const size_t num_rows = column.size();
         for (size_t i = 0; i != num_rows; ++i) {
@@ -292,7 +289,7 @@ public:
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena*) const override {
+                                                 Arena&) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         const auto& col = assert_cast<const ColumnMap&>(column);
@@ -303,7 +300,7 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena&,
                                    const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {
@@ -313,7 +310,7 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                            AggregateDataPtr rhs, const IColumn* column, Arena&,
                                             const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnMap&>(*column);
         for (size_t i = 0; i != num_rows; ++i) {

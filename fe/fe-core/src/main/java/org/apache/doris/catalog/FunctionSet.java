@@ -1220,6 +1220,14 @@ public class FunctionSet<T> {
                         null, null, null,
                         "",
                         false, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("stddev",
+                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
+                        "",
+                        "",
+                        "",
+                        null, null, null,
+                        "",
+                         false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         "",

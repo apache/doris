@@ -17,18 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 
 public class LambdaFunctionExpr extends Expr {
@@ -79,58 +76,6 @@ public class LambdaFunctionExpr extends Expr {
     }
 
     @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (names.size() != params.size()) {
-            throw new AnalysisException("Lambda argument size: is " + names.size() + " but input params size is "
-                    + params.size());
-        }
-        if (this.children.size() == 0) {
-            this.children.add(slotExprs.get(0));
-        }
-        HashSet<String> nameSet = new HashSet<>();
-        // the first is lambda
-        int size = slotExprs.size();
-        for (int i = size - 1; i < names.size(); ++i) {
-            if (nameSet.contains(names.get(i))) {
-                throw new AnalysisException(
-                        "The lambda function of params " + names.get(i) + " has already been repeated, "
-                                + "you should give a unique name for every param.");
-            } else {
-                nameSet.add(names.get(i));
-            }
-            Expr param = params.get(i);
-            if (!param.isAnalyzed()) {
-                param.analyze(analyzer);
-            }
-            Type paramType = param.getType();
-            if (!paramType.isArrayType()) {
-                throw new AnalysisException(
-                        "The lambda function of params must be array type, now the param of "
-                                + param.toColumnLabel() + " is " + paramType.toString());
-            }
-            // this ColumnRefExpr record the unique columnId, which is used for BE
-            // so could insert nested column by order.
-            ColumnRefExpr column = new ColumnRefExpr();
-            column.setName(names.get(i));
-            column.setColumnId(columnId);
-            column.setNullable(true);
-            column.setType(((ArrayType) paramType).getItemType());
-            columnId = columnId + 1;
-            replaceExpr(names.get(i), column, slotExprs);
-        }
-        if (slotExprs.size() != params.size() + 1) {
-            String msg = new String();
-            for (Expr s : slotExprs) {
-                msg = msg + s.debugString() + " ,";
-            }
-            throw new AnalysisException(
-                    "Lambda columnref size: is " + (slotExprs.size() - 1) + " but input params size is "
-                            + params.size() + ". the replaceExpr of columnref is " + msg);
-        }
-        this.children.get(0).analyze(analyzer);
-    }
-
-    @Override
     protected String toSqlImpl() {
         String nameStr = "";
         Expr lambdaExpr = slotExprs.get(0);
@@ -176,14 +121,6 @@ public class LambdaFunctionExpr extends Expr {
     @Override
     public Expr clone() {
         return new LambdaFunctionExpr(this);
-    }
-
-    public ArrayList<String> getNames() {
-        return names;
-    }
-
-    public ArrayList<Expr> getSlotExprs() {
-        return slotExprs;
     }
 
     @Override

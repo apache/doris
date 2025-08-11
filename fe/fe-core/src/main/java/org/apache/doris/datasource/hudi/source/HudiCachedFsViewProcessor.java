@@ -20,10 +20,12 @@ package org.apache.doris.datasource.hudi.source;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
@@ -51,7 +53,7 @@ public class HudiCachedFsViewProcessor {
 
     private HoodieTableFileSystemView createFsView(FsViewKey key) {
         HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder().build();
-        HudiLocalEngineContext ctx = new HudiLocalEngineContext(key.getClient().getStorageConf());
+        HoodieLocalEngineContext ctx = new HoodieLocalEngineContext(key.getClient().getStorageConf());
         return FileSystemViewManager.createInMemoryFileSystemView(ctx, key.getClient(), metadataConfig);
     }
 
@@ -75,9 +77,9 @@ public class HudiCachedFsViewProcessor {
         });
     }
 
-    public void invalidateTableCache(String dbName, String tbName) {
+    public void invalidateTableCache(ExternalTable dorisTable) {
         fsViewCache.asMap().forEach((k, v) -> {
-            if (k.getDbName().equals(dbName) && k.getTbName().equals(tbName)) {
+            if (k.getDbName().equals(dorisTable.getDbName()) && k.getTbName().equals(dorisTable.getName())) {
                 fsViewCache.invalidate(k);
             }
         });
@@ -116,12 +118,12 @@ public class HudiCachedFsViewProcessor {
             }
             FsViewKey fsViewKey = (FsViewKey) o;
             return Objects.equals(dbName, fsViewKey.dbName) && Objects.equals(tbName, fsViewKey.tbName)
-                && Objects.equals(client.getBasePathV2(), fsViewKey.client.getBasePathV2());
+                    && Objects.equals(client.getBasePath(), fsViewKey.client.getBasePath());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(dbName, tbName, client.getBasePathV2());
+            return Objects.hash(dbName, tbName, client.getBasePath());
         }
     }
 

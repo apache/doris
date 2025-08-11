@@ -17,15 +17,15 @@
 
 package org.apache.doris.datasource.operations;
 
-import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
@@ -33,6 +33,7 @@ import org.apache.iceberg.view.View;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * all external metadata operations use this interface
@@ -41,61 +42,68 @@ public interface ExternalMetadataOps {
 
     /**
      * create db in external metastore
-     * @param stmt
+     * @param dbName
+     * @param properties
+     * @return false means db does not exist and is created this time
      * @throws DdlException
      */
-    default void createDb(CreateDbStmt stmt) throws DdlException {
-        createDbImpl(stmt);
-        afterCreateDb(stmt.getFullDbName());
+    default boolean createDb(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException {
+        boolean res = createDbImpl(dbName, ifNotExists, properties);
+        if (!res) {
+            afterCreateDb();
+        }
+        return res;
     }
 
     /**
-     * create db in external metastore
-     * @param command
+     * create db in external metastore for nereids
+     *
+     * @param dbName the remote name that will be created in remote metastore
+     * @param ifNotExists
+     * @param properties
+     * @return false means db does not exist and is created this time
      * @throws DdlException
      */
-    default void createDb(CreateDatabaseCommand command) throws DdlException {
-        createDbImpl(command);
-        afterCreateDb(command.getDbName());
+    boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties) throws DdlException;
+
+    default void afterCreateDb() {
     }
 
-    void createDbImpl(CreateDbStmt stmt) throws DdlException;
-
-    void createDbImpl(CreateDatabaseCommand command) throws DdlException;
-
-    default void afterCreateDb(String dbName) {
-    }
 
     /**
      * drop db in external metastore
-     * @param stmt
-     * @throws DdlException
-     */
-    default void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDbImpl(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
-        afterDropDb(stmt.getCtlName());
-    }
-
-    default void dropDb(String ctlName, String dbName, boolean ifExists, boolean force) throws DdlException {
-        dropDbImpl(dbName, ifExists, force);
-        afterDropDb(ctlName);
-    }
-
-    /**
-     * drop db in external metastore for nereids
-     * @param dbName
+     *
+     * @param dbName the local db name in Doris
      * @param ifExists
      * @param force
      * @throws DdlException
      */
+    default void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        dropDbImpl(dbName, ifExists, force);
+        afterDropDb(dbName);
+    }
+
     void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException;
 
     void afterDropDb(String dbName);
 
     /**
+     * @param createTableInfo
+     * @return return false means table does not exist and is created this time
+     * @throws UserException
+     */
+    default boolean createTable(CreateTableInfo createTableInfo) throws UserException {
+        boolean res = createTableImpl(createTableInfo);
+        if (!res) {
+            afterCreateTable(createTableInfo.getDbName(), createTableInfo.getTableName());
+        }
+        return res;
+    }
+
+    /**
      *
      * @param stmt
-     * @return if set isExists is true, return true if table exists, otherwise return false
+     * @return return false means table does not exist and is created this time
      * @throws UserException
      */
     default boolean createTable(CreateTableStmt stmt) throws UserException {
@@ -106,46 +114,55 @@ public interface ExternalMetadataOps {
         return res;
     }
 
+    boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException;
+
     boolean createTableImpl(CreateTableStmt stmt) throws UserException;
 
     default void afterCreateTable(String dbName, String tblName) {
     }
 
-    /**
-     *
-     * @param stmt
-     * @throws DdlException
-     */
-    default void dropTable(DropTableStmt stmt) throws DdlException {
-        dropTableImpl(stmt);
-        afterDropTable(stmt.getDbName(), stmt.getTableName());
+    default void dropTable(ExternalTable dorisTable, boolean ifExists) throws DdlException {
+        dropTableImpl(dorisTable, ifExists);
+        afterDropTable(dorisTable.getDbName(), dorisTable.getName());
     }
 
-    default void dropTable(String dbName, String tableName, boolean ifExists) throws DdlException {
-        dropTableImpl(dbName, tableName, ifExists);
-        afterDropTable(dbName, tableName);
-    }
-
-    void dropTableImpl(DropTableStmt stmt) throws DdlException;
-
-    void dropTableImpl(String dbName, String tableName, boolean ifExists) throws DdlException;
+    void dropTableImpl(ExternalTable dorisTable, boolean ifExists) throws DdlException;
 
     default void afterDropTable(String dbName, String tblName) {
     }
 
     /**
-     * truncate table in external metastore
-     *
+     * rename table in external metastore
      * @param dbName
-     * @param tblName
-     * @param partitions
+     * @param oldName
+     * @param newName
+     * @throws DdlException
      */
-    default void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException {
-        truncateTableImpl(dbName, tblName, partitions);
-        afterTruncateTable(dbName, tblName);
+    default void renameTable(String dbName, String oldName, String newName) throws DdlException {
+        renameTableImpl(dbName, oldName, newName);
+        afterRenameTable(dbName, oldName, newName);
     }
 
-    void truncateTableImpl(String dbName, String tblName, List<String> partitions) throws DdlException;
+    default void renameTableImpl(String dbName, String oldName, String newName) throws DdlException {
+        throw new UnsupportedOperationException("Rename table operation is not supported for this table type.");
+    }
+
+    default void afterRenameTable(String dbName, String oldName, String newName) {
+        throw new UnsupportedOperationException("After rename table operation is not supported for this table type.");
+    }
+
+    /**
+     * truncate table in external metastore
+     *
+     * @param dorisTable
+     * @param partitions
+     */
+    default void truncateTable(ExternalTable dorisTable, List<String> partitions) throws DdlException {
+        truncateTableImpl(dorisTable, partitions);
+        afterTruncateTable(dorisTable.getDbName(), dorisTable.getName());
+    }
+
+    void truncateTableImpl(ExternalTable dorisTable, List<String> partitions) throws DdlException;
 
     default void afterTruncateTable(String dbName, String tblName) {
     }
@@ -153,18 +170,17 @@ public interface ExternalMetadataOps {
     /**
      * create or replace branch in external metastore
      *
-     * @param dbName
-     * @param tblName
+     * @param dorisTable
      * @param branchInfo
      * @throws UserException
      */
-    default void createOrReplaceBranch(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+    default void createOrReplaceBranch(ExternalTable dorisTable, CreateOrReplaceBranchInfo branchInfo)
             throws UserException {
-        createOrReplaceBranchImpl(dbName, tblName, branchInfo);
-        afterOperateOnBranchOrTag(dbName, tblName);
+        createOrReplaceBranchImpl(dorisTable, branchInfo);
+        afterOperateOnBranchOrTag(dorisTable.getDbName(), dorisTable.getName());
     }
 
-    void createOrReplaceBranchImpl(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
+    void createOrReplaceBranchImpl(ExternalTable dorisTable, CreateOrReplaceBranchInfo branchInfo)
             throws UserException;
 
     default void afterOperateOnBranchOrTag(String dbName, String tblName) {
@@ -173,51 +189,123 @@ public interface ExternalMetadataOps {
     /**
      * create or replace tag in external metastore
      *
-     * @param dbName
-     * @param tblName
+     * @param dorisTable
      * @param tagInfo
      * @throws UserException
      */
-    default void createOrReplaceTag(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+    default void createOrReplaceTag(ExternalTable dorisTable, CreateOrReplaceTagInfo tagInfo)
             throws UserException {
-        createOrReplaceTagImpl(dbName, tblName, tagInfo);
-        afterOperateOnBranchOrTag(dbName, tblName);
+        createOrReplaceTagImpl(dorisTable, tagInfo);
+        afterOperateOnBranchOrTag(dorisTable.getDbName(), dorisTable.getName());
     }
 
-    void createOrReplaceTagImpl(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
+    void createOrReplaceTagImpl(ExternalTable dorisTable, CreateOrReplaceTagInfo tagInfo)
             throws UserException;
 
     /**
      * drop tag in external metastore
      *
-     * @param dbName
-     * @param tblName
+     * @param dorisTable
      * @param tagInfo
      * @throws UserException
      */
-    default void dropTag(String dbName, String tblName, DropTagInfo tagInfo)
+    default void dropTag(ExternalTable dorisTable, DropTagInfo tagInfo)
             throws UserException {
-        dropTagImpl(dbName, tblName, tagInfo);
-        afterOperateOnBranchOrTag(dbName, tblName);
+        dropTagImpl(dorisTable, tagInfo);
+        afterOperateOnBranchOrTag(dorisTable.getDbName(), dorisTable.getName());
     }
 
-    void dropTagImpl(String dbName, String tblName, DropTagInfo tagInfo) throws UserException;
+    void dropTagImpl(ExternalTable dorisTable, DropTagInfo tagInfo) throws UserException;
 
     /**
      * drop branch in external metastore
      *
-     * @param dbName
-     * @param tblName
+     * @param dorisTable
      * @param branchInfo
      * @throws UserException
      */
-    default void dropBranch(String dbName, String tblName, DropBranchInfo branchInfo)
+    default void dropBranch(ExternalTable dorisTable, DropBranchInfo branchInfo)
             throws UserException {
-        dropBranchImpl(dbName, tblName, branchInfo);
-        afterOperateOnBranchOrTag(dbName, tblName);
+        dropBranchImpl(dorisTable, branchInfo);
+        afterOperateOnBranchOrTag(dorisTable.getDbName(), dorisTable.getName());
     }
 
-    void dropBranchImpl(String dbName, String tblName, DropBranchInfo branchInfo) throws UserException;
+    void dropBranchImpl(ExternalTable dorisTable, DropBranchInfo branchInfo) throws UserException;
+
+    /**
+     * add column for external table
+     *
+     * @param dorisTable
+     * @param column
+     * @param position
+     * @throws UserException
+     */
+    default void addColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+            throws UserException {
+        throw new UnsupportedOperationException("Add column operation is not supported for this table type.");
+    }
+
+    /**
+     * add columns for external table
+     *
+     * @param dorisTable
+     * @param columns
+     * @throws UserException
+     */
+    default void addColumns(ExternalTable dorisTable, List<Column> columns)
+            throws UserException {
+        throw new UnsupportedOperationException("Add columns operation is not supported for this table type.");
+    }
+
+    /**
+     * drop column for external table
+     *
+     * @param dorisTable
+     * @param columnName
+     * @throws UserException
+     */
+    default void dropColumn(ExternalTable dorisTable, String columnName)
+            throws UserException {
+        throw new UnsupportedOperationException("Drop column operation is not supported for this table type.");
+    }
+
+    /**
+     * rename column for external table
+     *
+     * @param dorisTable
+     * @param oldName
+     * @param newName
+     * @throws UserException
+     */
+    default void renameColumn(ExternalTable dorisTable, String oldName, String newName)
+            throws UserException {
+        throw new UnsupportedOperationException("Rename column operation is not supported for this table type.");
+    }
+
+    /**
+     * update column for external table
+     *
+     * @param dorisTable
+     * @param column
+     * @param position
+     * @throws UserException
+     */
+    default void modifyColumn(ExternalTable dorisTable, Column column, ColumnPosition position)
+            throws UserException {
+        throw new UnsupportedOperationException("Modify column operation is not supported for this table type.");
+    }
+
+    /**
+     * reorder columns for external table
+     *
+     * @param dorisTable
+     * @param newOrder
+     * @throws UserException
+     */
+    default void reorderColumns(ExternalTable dorisTable, List<String> newOrder)
+            throws UserException {
+        throw new UnsupportedOperationException("Reorder columns operation is not supported for this table type.");
+    }
 
     /**
      *

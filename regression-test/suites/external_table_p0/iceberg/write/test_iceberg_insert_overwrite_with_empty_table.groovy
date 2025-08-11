@@ -46,11 +46,8 @@ suite("test_iceberg_insert_overwrite_with_empty_table", "p0,external,doris,exter
     String tb2 = db1 + "_tb2"
     String tb3 = db1 + "_tb3"
 
-    sql """ drop table if exists ${db1}.${tb1} """
-    sql """ drop table if exists ${db1}.${tb2} """
-    sql """ drop table if exists ${db1}.${tb3} """
-
-    sql """ create database if not exists ${db1} """
+    sql """ drop database if exists ${db1} force"""
+    sql """ create database ${db1} """
     sql """ create table ${db1}.${tb1} (id int, val int) partition by list (val)() """
     sql """ create table ${db1}.${tb2} (id int, val int) """
     sql """ create table ${db1}.${tb3} (id int, val int) """

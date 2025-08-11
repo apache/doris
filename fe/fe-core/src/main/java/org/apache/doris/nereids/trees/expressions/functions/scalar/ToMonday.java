@@ -54,13 +54,18 @@ public class ToMonday extends ScalarFunction
         super("to_monday", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToMonday(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToMonday withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToMonday(children.get(0));
+        return new ToMonday(getFunctionParams(children));
     }
 
     @Override

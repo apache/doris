@@ -50,7 +50,7 @@ public:
     Status close(RuntimeState* state) override;
     friend class MultiCastDataStreamerSourceOperatorX;
 
-    std::vector<Dependency*> filter_dependencies() override {
+    std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
             return {};
         }
@@ -81,10 +81,10 @@ class MultiCastDataStreamerSourceOperatorX final
         : public OperatorX<MultiCastDataStreamSourceLocalState> {
 public:
     using Base = OperatorX<MultiCastDataStreamSourceLocalState>;
-    MultiCastDataStreamerSourceOperatorX(const int consumer_id, ObjectPool* pool,
+    MultiCastDataStreamerSourceOperatorX(const int node_id, const int consumer_id, ObjectPool* pool,
                                          const TDataStreamSink& sink,
                                          const RowDescriptor& row_descriptor, int operator_id)
-            : Base(pool, -1, operator_id),
+            : Base(pool, /*node_id=*/node_id, operator_id),
               _consumer_id(consumer_id),
               _t_data_stream_sink(sink),
               _multi_cast_output_row_descriptor(row_descriptor) {

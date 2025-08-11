@@ -40,6 +40,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(customer_address { store_sales date_dim store household_demographics } ) leading(current_addr { customer dn } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

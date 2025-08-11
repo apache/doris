@@ -17,9 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -40,6 +37,9 @@ import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.systable.SupportedSysTables;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -47,10 +47,10 @@ import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.List;
@@ -63,21 +63,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     private CatalogMgr mgr;
     private OlapScanNode olapScanNode;
 
-    @Mocked
     private HMSExternalTable tbl;
-    @Mocked
     private HMSExternalTable tbl2;
-    @Mocked
     private HMSExternalTable view1;
-    @Mocked
     private HMSExternalTable view2;
-    @Mocked
     private HiveScanNode hiveScanNode1;
-    @Mocked
     private HiveScanNode hiveScanNode2;
-    @Mocked
     private HiveScanNode hiveScanNode3;
-    @Mocked
     private HiveScanNode hiveScanNode4;
 
     @Override
@@ -92,256 +84,138 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         mgr = env.getCatalogMgr();
 
         // create hms catalog
-        CreateCatalogStmt hmsCatalogStmt = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog hms_ctl properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
-                connectContext);
-        mgr.createCatalog(hmsCatalogStmt);
+        String createStmt = "create catalog hms_ctl "
+                + "properties("
+                + "'type' = 'hms', "
+                + "'hive.metastore.uris' = 'thrift://192.168.0.1:9083');";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
 
         // create inner db and tbl for test
-        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt("create database test", connectContext);
-        mgr.getInternalCatalog().createDb(createDbStmt);
-
-        CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt("create table test.tbl1(\n"
+        mgr.getInternalCatalog().createDb("test", false, Maps.newHashMap());
+        createTable("create table test.tbl1(\n"
                 + "k1 int comment 'test column k1', "
                 + "k2 int comment 'test column k2')  comment 'test table1' "
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
-        mgr.getInternalCatalog().createTable(createTableStmt);
+    }
+
+    private void setField(Object target, String fieldName, Object value) {
+        // try {
+        //     Field field = target.getClass().getDeclaredField(fieldName);
+        //     field.setAccessible(true);
+        //     field.set(target, value);
+        // } catch (Exception e) {
+        //     throw new RuntimeException(e);
+        // }
+
+        Deencapsulation.setField(target, fieldName, value);
     }
 
     private void init(HMSExternalCatalog hmsCatalog) {
-        Deencapsulation.setField(hmsCatalog, "initialized", true);
-        Deencapsulation.setField(hmsCatalog, "objectCreated", true);
-        Deencapsulation.setField(hmsCatalog, "useMetaCache", Optional.of(false));
+        // Create mock objects
+        tbl = Mockito.mock(HMSExternalTable.class);
+        tbl2 = Mockito.mock(HMSExternalTable.class);
+        view1 = Mockito.mock(HMSExternalTable.class);
+        view2 = Mockito.mock(HMSExternalTable.class);
+        hiveScanNode1 = Mockito.mock(HiveScanNode.class);
+        hiveScanNode2 = Mockito.mock(HiveScanNode.class);
+        hiveScanNode3 = Mockito.mock(HiveScanNode.class);
+        hiveScanNode4 = Mockito.mock(HiveScanNode.class);
+
+        setField(hmsCatalog, "initialized", true);
+        setField(hmsCatalog, "objectCreated", true);
+        setField(hmsCatalog, "useMetaCache", Optional.of(false));
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
 
         HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hms_db", "hms_db");
-        Deencapsulation.setField(db, "initialized", true);
+        setField(db, "initialized", true);
 
-        Deencapsulation.setField(tbl, "objectCreated", true);
-        Deencapsulation.setField(tbl, "schemaUpdateTime", NOW);
-        Deencapsulation.setField(tbl, "eventUpdateTime", 0);
-        Deencapsulation.setField(tbl, "catalog", hmsCatalog);
-        Deencapsulation.setField(tbl, "dbName", "hms_db");
-        Deencapsulation.setField(tbl, "name", "hms_tbl");
-        Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
-        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
-        new Expectations(tbl) {
-            {
-                tbl.getId();
-                minTimes = 0;
-                result = 10001;
+        setField(tbl, "objectCreated", true);
+        setField(tbl, "schemaUpdateTime", NOW);
+        setField(tbl, "eventUpdateTime", 0);
+        setField(tbl, "catalog", hmsCatalog);
+        setField(tbl, "dbName", "hms_db");
+        setField(tbl, "name", "hms_tbl");
+        setField(tbl, "dlaTable", new HiveDlaTable(tbl));
+        setField(tbl, "dlaType", DLAType.HIVE);
 
-                tbl.getName();
-                minTimes = 0;
-                result = "hms_tbl";
+        Mockito.when(tbl.getId()).thenReturn(10001L);
+        Mockito.when(tbl.getName()).thenReturn("hms_tbl");
+        Mockito.when(tbl.getDbName()).thenReturn("hms_db");
+        Mockito.when(tbl.getFullSchema()).thenReturn(schema);
+        Mockito.when(tbl.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(tbl.isView()).thenReturn(false);
+        Mockito.when(tbl.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(tbl.getDlaType()).thenReturn(DLAType.HIVE);
+        Mockito.when(tbl.getDatabase()).thenReturn(db);
+        Mockito.when(tbl.getUpdateTime()).thenReturn(NOW);
+        // mock initSchemaAndUpdateTime and do nothing
+        Mockito.when(tbl.initSchema(Mockito.any(ExternalSchemaCache.SchemaCacheKey.class)))
+                .thenReturn(Optional.empty());
 
-                tbl.getDbName();
-                minTimes = 0;
-                result = "hms_db";
+        setField(tbl2, "objectCreated", true);
+        setField(tbl2, "schemaUpdateTime", NOW);
+        setField(tbl2, "eventUpdateTime", 0);
+        setField(tbl2, "catalog", hmsCatalog);
+        setField(tbl2, "dbName", "hms_db");
+        setField(tbl2, "name", "hms_tbl2");
+        setField(tbl2, "dlaTable", new HiveDlaTable(tbl2));
+        setField(tbl2, "dlaType", DLAType.HIVE);
 
-                tbl.getFullSchema();
-                minTimes = 0;
-                result = schema;
+        Mockito.when(tbl2.getId()).thenReturn(10004L);
+        Mockito.when(tbl2.getName()).thenReturn("hms_tbl2");
+        Mockito.when(tbl2.getDbName()).thenReturn("hms_db");
+        Mockito.when(tbl2.getFullSchema()).thenReturn(schema);
+        Mockito.when(tbl2.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(tbl2.isView()).thenReturn(false);
+        Mockito.when(tbl2.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(tbl2.getDlaType()).thenReturn(DLAType.HIVE);
+        Mockito.when(tbl2.getDatabase()).thenReturn(db);
+        Mockito.when(tbl2.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
+        Mockito.when(tbl2.getUpdateTime()).thenReturn(NOW);
+        Mockito.when(tbl2.getSchemaUpdateTime()).thenReturn(NOW);
+        // mock initSchemaAndUpdateTime and do nothing
+        Mockito.when(tbl2.initSchemaAndUpdateTime(Mockito.any(ExternalSchemaCache.SchemaCacheKey.class)))
+                .thenReturn(Optional.empty());
+        Mockito.doNothing().when(tbl2).setEventUpdateTime(Mockito.anyLong());
 
-                tbl.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
+        setField(view1, "objectCreated", true);
 
-                tbl.isView();
-                minTimes = 0;
-                result = false;
+        Mockito.when(view1.getId()).thenReturn(10002L);
+        Mockito.when(view1.getName()).thenReturn("hms_view1");
+        Mockito.when(view1.getDbName()).thenReturn("hms_db");
+        Mockito.when(view1.isView()).thenReturn(true);
+        Mockito.when(view1.getCatalog()).thenReturn(hmsCatalog);
+        Mockito.when(view1.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(view1.getFullSchema()).thenReturn(schema);
+        Mockito.when(view1.getViewText()).thenReturn("SELECT * FROM hms_db.hms_tbl");
+        Mockito.when(view1.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(view1.getDlaType()).thenReturn(DLAType.HIVE);
+        Mockito.when(view1.getUpdateTime()).thenReturn(NOW);
+        Mockito.when(view1.getDatabase()).thenReturn(db);
+        Mockito.when(view1.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
 
-                tbl.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
+        setField(view2, "objectCreated", true);
 
-                tbl.getDlaType();
-                minTimes = 0;
-                result = DLAType.HIVE;
-
-                // mock initSchemaAndUpdateTime and do nothing
-                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl"));
-                minTimes = 0;
-
-                tbl.getDatabase();
-                minTimes = 0;
-                result = db;
-            }
-        };
-
-        Deencapsulation.setField(tbl2, "objectCreated", true);
-        Deencapsulation.setField(tbl2, "schemaUpdateTime", NOW);
-        Deencapsulation.setField(tbl2, "eventUpdateTime", 0);
-        Deencapsulation.setField(tbl2, "catalog", hmsCatalog);
-        Deencapsulation.setField(tbl2, "dbName", "hms_db");
-        Deencapsulation.setField(tbl2, "name", "hms_tbl2");
-        Deencapsulation.setField(tbl2, "dlaTable", new HiveDlaTable(tbl2));
-        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
-        new Expectations(tbl2) {
-            {
-                tbl2.getId();
-                minTimes = 0;
-                result = 10004;
-
-                tbl2.getName();
-                minTimes = 0;
-                result = "hms_tbl2";
-
-                tbl2.getDbName();
-                minTimes = 0;
-                result = "hms_db";
-
-                tbl2.getFullSchema();
-                minTimes = 0;
-                result = schema;
-
-                tbl2.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
-
-                tbl2.isView();
-                minTimes = 0;
-                result = false;
-
-                tbl2.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
-
-                tbl2.getDlaType();
-                minTimes = 0;
-                result = DLAType.HIVE;
-
-                // mock initSchemaAndUpdateTime and do nothing
-                tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl2"));
-                minTimes = 0;
-
-                tbl2.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                tbl2.getSupportedSysTables();
-                minTimes = 0;
-                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
-            }
-        };
-
-        Deencapsulation.setField(view1, "objectCreated", true);
-
-        new Expectations(view1) {
-            {
-                view1.getId();
-                minTimes = 0;
-                result = 10002;
-
-                view1.getName();
-                minTimes = 0;
-                result = "hms_view1";
-
-                view1.getDbName();
-                minTimes = 0;
-                result = "hms_db";
-
-                view1.isView();
-                minTimes = 0;
-                result = true;
-
-                view1.getCatalog();
-                minTimes = 0;
-                result = hmsCatalog;
-
-                view1.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
-
-                view1.getFullSchema();
-                minTimes = 0;
-                result = schema;
-
-                view1.getViewText();
-                minTimes = 0;
-                result = "SELECT * FROM hms_db.hms_tbl";
-
-                view1.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
-
-                view1.getDlaType();
-                minTimes = 0;
-                result = DLAType.HIVE;
-
-                view1.getUpdateTime();
-                minTimes = 0;
-                result = NOW;
-
-                view1.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                view1.getSupportedSysTables();
-                minTimes = 0;
-                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
-            }
-        };
-
-        Deencapsulation.setField(view2, "objectCreated", true);
-        new Expectations(view2) {
-            {
-                view2.getId();
-                minTimes = 0;
-                result = 10003;
-
-                view2.getName();
-                minTimes = 0;
-                result = "hms_view2";
-
-                view2.getDbName();
-                minTimes = 0;
-                result = "hms_db";
-
-                view2.isView();
-                minTimes = 0;
-                result = true;
-
-                view2.getCatalog();
-                minTimes = 0;
-                result = hmsCatalog;
-
-                view2.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
-
-                view2.getFullSchema();
-                minTimes = 0;
-                result = schema;
-
-                view2.getViewText();
-                minTimes = 0;
-                result = "SELECT * FROM hms_db.hms_view1";
-
-                view2.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
-
-                view2.getDlaType();
-                minTimes = 0;
-                result = DLAType.HIVE;
-
-                view2.getUpdateTime();
-                minTimes = 0;
-                result = NOW;
-
-                view2.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                view2.getSupportedSysTables();
-                minTimes = 0;
-                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
-            }
-        };
+        Mockito.when(view2.getId()).thenReturn(10003L);
+        Mockito.when(view2.getName()).thenReturn("hms_view2");
+        Mockito.when(view2.getDbName()).thenReturn("hms_db");
+        Mockito.when(view2.isView()).thenReturn(true);
+        Mockito.when(view2.getCatalog()).thenReturn(hmsCatalog);
+        Mockito.when(view2.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(view2.getFullSchema()).thenReturn(schema);
+        Mockito.when(view2.getViewText()).thenReturn("SELECT * FROM hms_db.hms_view1");
+        Mockito.when(view2.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(view2.getDlaType()).thenReturn(DLAType.HIVE);
+        Mockito.when(view2.getUpdateTime()).thenReturn(NOW);
+        Mockito.when(view2.getDatabase()).thenReturn(db);
+        Mockito.when(view2.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
 
         db.addTableForTest(tbl);
         db.addTableForTest(tbl2);
@@ -349,89 +223,14 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         db.addTableForTest(view2);
         hmsCatalog.addDatabaseForTest(db);
 
-        new Expectations(hiveScanNode1) {
-            {
-                hiveScanNode1.getTargetTable();
-                minTimes = 0;
-                result = tbl;
-            }
-        };
-
-        new Expectations(hiveScanNode2) {
-            {
-                hiveScanNode2.getTargetTable();
-                minTimes = 0;
-                result = view1;
-            }
-        };
-
-        new Expectations(hiveScanNode3) {
-            {
-                hiveScanNode3.getTargetTable();
-                minTimes = 0;
-                result = view2;
-            }
-        };
-
-        new Expectations(hiveScanNode4) {
-            {
-                hiveScanNode4.getTargetTable();
-                minTimes = 0;
-                result = tbl2;
-            }
-        };
+        Mockito.when(hiveScanNode1.getTargetTable()).thenReturn(tbl);
+        Mockito.when(hiveScanNode2.getTargetTable()).thenReturn(view1);
+        Mockito.when(hiveScanNode3.getTargetTable()).thenReturn(view2);
+        Mockito.when(hiveScanNode4.getTargetTable()).thenReturn(tbl2);
 
         TupleDescriptor desc = new TupleDescriptor(new TupleId(1));
         desc.setTable(mgr.getInternalCatalog().getDbNullable("test").getTableNullable("tbl1"));
         olapScanNode = new OlapScanNode(new PlanNodeId(1), desc, "tb1ScanNode");
-    }
-
-    @Test
-    public void testHitSqlCache() throws Exception {
-        init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
-        StatementBase parseStmt = parseAndAnalyzeStmt("select * from hms_ctl.hms_db.hms_tbl", connectContext);
-        List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
-        CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
-        SqlCache sqlCache = (SqlCache) ca.getCache();
-        Assert.assertEquals(NOW, sqlCache.getLatestTime());
-    }
-
-    @Test
-    public void testHitSqlCacheAfterPartitionUpdateTimeChanged() throws Exception {
-        init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
-        StatementBase parseStmt = parseAndAnalyzeStmt("select * from hms_ctl.hms_db.hms_tbl2", connectContext);
-        List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
-
-        // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl2.getDbName(), tbl2.getName()));
-
-        CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
-        SqlCache sqlCache1 = (SqlCache) ca.getCache();
-
-        // latestTime is equals to the schema update time if not set partition update time
-        Assert.assertEquals(tbl2.getSchemaUpdateTime(), sqlCache1.getLatestTime());
-
-        // wait a second and set partition update time
-        try {
-            Thread.sleep(1000);
-        } catch (Throwable throwable) {
-            // do nothing
-        }
-        long later = System.currentTimeMillis();
-        tbl2.setEventUpdateTime(later);
-
-        // check cache mode again
-        ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
-        SqlCache sqlCache2 = (SqlCache) ca.getCache();
-        Assert.assertEquals(CacheAnalyzer.CacheMode.Sql, ca.getCacheMode());
-
-        // the latest time will be changed and is equals to the partition update time
-        Assert.assertEquals(later, sqlCache2.getLatestTime());
-        Assert.assertTrue(sqlCache2.getLatestTime() > sqlCache1.getLatestTime());
     }
 
     @Test
@@ -453,7 +252,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
 
         // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl2.getDbName(), tbl2.getName()));
+        tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl2.getOrBuildNameMapping()));
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
@@ -470,7 +269,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
             // do nothing
         }
         long later = System.currentTimeMillis();
-        tbl2.setEventUpdateTime(later);
+        Mockito.when(tbl2.getUpdateTime()).thenReturn(later);
 
         // check cache mode again
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
@@ -510,21 +309,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     }
 
     @Test
-    public void testNotHitSqlCache() throws Exception {
-        init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
-        StatementBase parseStmt = parseAndAnalyzeStmt("select * from hms_ctl.hms_db.hms_tbl", connectContext);
-        List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
-
-        CacheAnalyzer ca2 = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca2.checkCacheMode(0);
-        long latestPartitionTime = ca2.getLatestTable().latestPartitionTime;
-
-        CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca.checkCacheMode(latestPartitionTime);
-        Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
-    }
-
-    @Test
     public void testNotHitSqlCacheByNereids() {
         init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
         StatementBase parseStmt = analyzeAndGetStmtByNereids("select * from hms_ctl.hms_db.hms_tbl", connectContext);
@@ -536,18 +320,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(latestPartitionTime);
-        Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
-    }
-
-    @Test
-    public void testNotHitSqlCacheWithFederatedQuery() throws Exception {
-        init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
-        // cache mode is None if this query is a federated query
-        StatementBase parseStmt = parseAndAnalyzeStmt("select * from hms_ctl.hms_db.hms_tbl "
-                + "inner join internal.test.tbl1", connectContext);
-        List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1, olapScanNode);
-        CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
         Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 

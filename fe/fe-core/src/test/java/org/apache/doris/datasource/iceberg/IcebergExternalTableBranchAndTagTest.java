@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
@@ -73,15 +74,15 @@ public class IcebergExternalTableBranchAndTagTest {
         tempDirectory = Files.createTempDirectory("");
         map.put("warehouse", "file://" + tempDirectory.toString());
         map.put("type", "hadoop");
+        map.put("iceberg.catalog.type", IcebergExternalCatalog.ICEBERG_HADOOP);
         icebergCatalog =
                 (HadoopCatalog) CatalogUtil.buildIcebergCatalog("iceberg_catalog", map, new Configuration());
-
+        map.put("type", "iceberg");
         // init iceberg table
         icebergCatalog.createNamespace(Namespace.of(dbName));
         icebergTable = icebergCatalog.createTable(
                 TableIdentifier.of(dbName, tblName),
             new Schema(Types.NestedField.required(1, "level", Types.StringType.get())));
-
         // init external table
         catalog = Mockito.spy(new IcebergHadoopExternalCatalog(1L, "iceberg", null, map, null));
         catalog.setInitializedForTest(true);
@@ -93,7 +94,7 @@ public class IcebergExternalTableBranchAndTagTest {
 
         // mock IcebergUtils.getIcebergTable to return our test icebergTable
         mockedIcebergUtils = Mockito.mockStatic(IcebergUtils.class);
-        mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(Mockito.any(), Mockito.any(), Mockito.any()))
+        mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(Mockito.any()))
                 .thenReturn(icebergTable);
 
         // mock Env.getCurrentEnv().getEditLog().logBranchOrTag(info) to do nothing
@@ -103,6 +104,14 @@ public class IcebergExternalTableBranchAndTagTest {
         mockedEnv.when(Env::getCurrentEnv).thenReturn(mockEnv);
         Mockito.when(mockEnv.getEditLog()).thenReturn(mockEditLog);
         Mockito.doNothing().when(mockEditLog).logBranchOrTag(Mockito.any());
+
+        // mock refresh table after branch/tag operation
+        // Env.getCurrentEnv().getRefreshManager()
+        //        .refreshTableInternal(dorisCatalog, db, tbl, System.currentTimeMillis());
+        RefreshManager refreshManager = Mockito.mock(RefreshManager.class);
+        Mockito.when(mockEnv.getRefreshManager()).thenReturn(refreshManager);
+        Mockito.doNothing().when(refreshManager)
+                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.anyLong());
     }
 
     @AfterEach
@@ -134,7 +143,7 @@ public class IcebergExternalTableBranchAndTagTest {
                 new CreateOrReplaceTagInfo(tag1, true, false, false, TagOptions.EMPTY);
         Assertions.assertThrows(
                 UserException.class,
-                () -> catalog.createOrReplaceTag(dbName, tblName, info));
+                () -> catalog.createOrReplaceTag(dorisTable, info));
 
         // add some data
         addSomeDataIntoIcebergTable();
@@ -142,7 +151,7 @@ public class IcebergExternalTableBranchAndTagTest {
         Assertions.assertEquals(1, snapshots.size());
 
         // create a new tag: tag1
-        catalog.createOrReplaceTag(dbName, tblName, info);
+        catalog.createOrReplaceTag(dorisTable, info);
         assertSnapshotRef(
                 icebergTable.refs().get(tag1),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -151,12 +160,12 @@ public class IcebergExternalTableBranchAndTagTest {
         // create an existed tag: tag1
         Assertions.assertThrows(
                 IllegalArgumentException.class,
-                () -> catalog.createOrReplaceTag(dbName, tblName, info));
+                () -> catalog.createOrReplaceTag(dorisTable, info));
 
         // create an existed tag with replace
         CreateOrReplaceTagInfo info2 =
                 new CreateOrReplaceTagInfo(tag1, true, true, false, TagOptions.EMPTY);
-        catalog.createOrReplaceTag(dbName, tblName, info2);
+        catalog.createOrReplaceTag(dorisTable, info2);
         assertSnapshotRef(
                 icebergTable.refs().get(tag1),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -165,7 +174,7 @@ public class IcebergExternalTableBranchAndTagTest {
         // create an existed tag with if not exists
         CreateOrReplaceTagInfo info3 =
                 new CreateOrReplaceTagInfo(tag1, true, false, true, TagOptions.EMPTY);
-        catalog.createOrReplaceTag(dbName, tblName, info3);
+        catalog.createOrReplaceTag(dorisTable, info3);
         assertSnapshotRef(
                 icebergTable.refs().get(tag1),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -183,7 +192,7 @@ public class IcebergExternalTableBranchAndTagTest {
                 Optional.empty());
         CreateOrReplaceTagInfo info4 =
                 new CreateOrReplaceTagInfo(tag2, true, false, false, tagOps);
-        catalog.createOrReplaceTag(dbName, tblName, info4);
+        catalog.createOrReplaceTag(dorisTable, info4);
         assertSnapshotRef(
                 icebergTable.refs().get(tag2),
                 snapshots.get(1).snapshotId(),
@@ -195,7 +204,7 @@ public class IcebergExternalTableBranchAndTagTest {
                 Optional.of(2L));
         CreateOrReplaceTagInfo info5 =
                 new CreateOrReplaceTagInfo(tag2, true, true, false, tagOps2);
-        catalog.createOrReplaceTag(dbName, tblName, info5);
+        catalog.createOrReplaceTag(dorisTable, info5);
         assertSnapshotRef(
                 icebergTable.refs().get(tag2),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -204,7 +213,7 @@ public class IcebergExternalTableBranchAndTagTest {
         // create new tag: tag3
         CreateOrReplaceTagInfo info6 =
                 new CreateOrReplaceTagInfo(tag3, true, false, false, tagOps2);
-        catalog.createOrReplaceTag(dbName, tblName, info6);
+        catalog.createOrReplaceTag(dorisTable, info6);
         assertSnapshotRef(
                 icebergTable.refs().get(tag3),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -223,7 +232,7 @@ public class IcebergExternalTableBranchAndTagTest {
         // create a new branch: branch1
         CreateOrReplaceBranchInfo info =
                 new CreateOrReplaceBranchInfo(branch1, true, false, false, BranchOptions.EMPTY);
-        catalog.createOrReplaceBranch(dbName, tblName, info);
+        catalog.createOrReplaceBranch(dorisTable, info);
         List<Snapshot> snapshots = Lists.newArrayList(icebergTable.snapshots());
         Assertions.assertEquals(1, snapshots.size());
         assertSnapshotRef(
@@ -234,7 +243,7 @@ public class IcebergExternalTableBranchAndTagTest {
         // create an existed branch, failed
         Assertions.assertThrows(
                 IllegalArgumentException.class,
-                () -> catalog.createOrReplaceBranch(dbName, tblName, info));
+                () -> catalog.createOrReplaceBranch(dorisTable, info));
 
         // create or replace an empty branch, will fail
         // because cannot perform a replace operation on an empty branch.
@@ -242,12 +251,12 @@ public class IcebergExternalTableBranchAndTagTest {
                 new CreateOrReplaceBranchInfo(branch1, true, true, false, BranchOptions.EMPTY);
         Assertions.assertThrows(
                 UserException.class,
-                () -> catalog.createOrReplaceBranch(dbName, tblName, info2));
+                () -> catalog.createOrReplaceBranch(dorisTable, info2));
 
         // create an existed branch with ifNotExists
         CreateOrReplaceBranchInfo info4 =
                 new CreateOrReplaceBranchInfo(branch1, true, false, true, BranchOptions.EMPTY);
-        catalog.createOrReplaceBranch(dbName, tblName, info4);
+        catalog.createOrReplaceBranch(dorisTable, info4);
         assertSnapshotRef(
                 icebergTable.refs().get(branch1),
                 snapshots.get(0).snapshotId(),
@@ -259,7 +268,7 @@ public class IcebergExternalTableBranchAndTagTest {
         Assertions.assertEquals(2, snapshots.size());
 
         // update branch1
-        catalog.createOrReplaceBranch(dbName, tblName, info2);
+        catalog.createOrReplaceBranch(dorisTable, info2);
         assertSnapshotRef(
                 icebergTable.refs().get(branch1),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -268,7 +277,7 @@ public class IcebergExternalTableBranchAndTagTest {
         // create or replace a new branch: branch2
         CreateOrReplaceBranchInfo info3 =
                 new CreateOrReplaceBranchInfo(branch2, true, true, false, BranchOptions.EMPTY);
-        catalog.createOrReplaceBranch(dbName, tblName, info3);
+        catalog.createOrReplaceBranch(dorisTable, info3);
         assertSnapshotRef(
                 icebergTable.refs().get(branch2),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -282,7 +291,7 @@ public class IcebergExternalTableBranchAndTagTest {
                 Optional.of(3L));
         CreateOrReplaceBranchInfo info5 =
                 new CreateOrReplaceBranchInfo(branch2, true, true, false, brOps);
-        catalog.createOrReplaceBranch(dbName, tblName, info5);
+        catalog.createOrReplaceBranch(dorisTable, info5);
         assertSnapshotRef(
                 icebergTable.refs().get(branch2),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -308,14 +317,14 @@ public class IcebergExternalTableBranchAndTagTest {
                 Optional.of(3L));
         CreateOrReplaceBranchInfo info6 =
                 new CreateOrReplaceBranchInfo(branch3, true, true, false, brOps2);
-        catalog.createOrReplaceBranch(dbName, tblName, info6);
+        catalog.createOrReplaceBranch(dorisTable, info6);
         assertSnapshotRef(
                 icebergTable.refs().get(branch3),
                 snapshots.get(4).snapshotId(),
                 true, 1L, 2, 3L);
 
         // update branch1
-        catalog.createOrReplaceBranch(dbName, tblName, info2);
+        catalog.createOrReplaceBranch(dorisTable, info2);
         assertSnapshotRef(
                 icebergTable.refs().get(branch1),
                 icebergTable.currentSnapshot().snapshotId(),
@@ -369,23 +378,23 @@ public class IcebergExternalTableBranchAndTagTest {
         addSomeDataIntoIcebergTable();
         CreateOrReplaceTagInfo tagInfo =
                 new CreateOrReplaceTagInfo(tag1, true, false, false, TagOptions.EMPTY);
-        catalog.createOrReplaceTag(dbName, tblName, tagInfo);
+        catalog.createOrReplaceTag(dorisTable, tagInfo);
 
         // create a new branch: branch1
         CreateOrReplaceBranchInfo branchInfo =
                 new CreateOrReplaceBranchInfo(branch1, true, false, false, BranchOptions.EMPTY);
-        catalog.createOrReplaceBranch(dbName, tblName, branchInfo);
+        catalog.createOrReplaceBranch(dorisTable, branchInfo);
 
         // create a new tag: tag2
         addSomeDataIntoIcebergTable();
         CreateOrReplaceTagInfo tagInfo2 =
                 new CreateOrReplaceTagInfo(tag2, true, false, false, TagOptions.EMPTY);
-        catalog.createOrReplaceTag(dbName, tblName, tagInfo2);
+        catalog.createOrReplaceTag(dorisTable, tagInfo2);
 
         // create a new branch: branch2
         CreateOrReplaceBranchInfo branchInfo2 =
                 new CreateOrReplaceBranchInfo(branch2, true, false, false, BranchOptions.EMPTY);
-        catalog.createOrReplaceBranch(dbName, tblName, branchInfo2);
+        catalog.createOrReplaceBranch(dorisTable, branchInfo2);
 
         Assertions.assertEquals(5, icebergTable.refs().size());
 
@@ -405,53 +414,53 @@ public class IcebergExternalTableBranchAndTagTest {
         DropBranchInfo dropBranchInfoWithTag1 = new DropBranchInfo(tag1, false);
         DropBranchInfo dropBranchInfoIfExistsWithTag1 = new DropBranchInfo(tag1, true);
         Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropBranch(dbName, tblName, dropBranchInfoWithTag1));
+                () -> catalog.dropBranch(dorisTable, dropBranchInfoWithTag1));
         Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropBranch(dbName, tblName, dropBranchInfoIfExistsWithTag1));
+                () -> catalog.dropBranch(dorisTable, dropBranchInfoIfExistsWithTag1));
 
         // drop branch with tag interface, will fail
         DropTagInfo dropTagInfoWithBranch1 = new DropTagInfo(branch1, false);
         DropTagInfo dropTagInfoWithBranchIfExists1 = new DropTagInfo(branch1, true);
         Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropTag(dbName, tblName, dropTagInfoWithBranch1));
+                () -> catalog.dropTag(dorisTable, dropTagInfoWithBranch1));
         Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropTag(dbName, tblName, dropTagInfoWithBranchIfExists1));
+                () -> catalog.dropTag(dorisTable, dropTagInfoWithBranchIfExists1));
 
         // drop not exists tag
         DropTagInfo dropTagInfoWithNotExistsTag1 = new DropTagInfo(tagNotExists, true);
         DropTagInfo dropTagInfoWithNotExistsTag2 = new DropTagInfo(tagNotExists, false);
         DropTagInfo dropTagInfoWithNotExistsBranch1 = new DropTagInfo(branchNotExists, true);
         DropTagInfo dropTagInfoWithNotExistsBranch2 = new DropTagInfo(branchNotExists, false);
-        catalog.dropTag(dbName, tblName, dropTagInfoWithNotExistsTag1);
+        catalog.dropTag(dorisTable, dropTagInfoWithNotExistsTag1);
         Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropTag(dbName, tblName, dropTagInfoWithNotExistsTag2));
-        catalog.dropTag(dbName, tblName, dropTagInfoWithNotExistsBranch1);
+                () -> catalog.dropTag(dorisTable, dropTagInfoWithNotExistsTag2));
+        catalog.dropTag(dorisTable, dropTagInfoWithNotExistsBranch1);
         Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropTag(dbName, tblName, dropTagInfoWithNotExistsBranch2));
+                () -> catalog.dropTag(dorisTable, dropTagInfoWithNotExistsBranch2));
 
         // drop not exists branch
         DropBranchInfo dropBranchInfoWithNotExistsTag1 = new DropBranchInfo(tagNotExists, true);
         DropBranchInfo dropBranchInfoWithNotExistsTag2 = new DropBranchInfo(tagNotExists, false);
         DropBranchInfo dropBranchInfoIfExistsWithBranch1 = new DropBranchInfo(branchNotExists, true);
         DropBranchInfo dropBranchInfoIfExistsWithBranch2 = new DropBranchInfo(branchNotExists, false);
-        catalog.dropBranch(dbName, tblName, dropBranchInfoWithNotExistsTag1);
+        catalog.dropBranch(dorisTable, dropBranchInfoWithNotExistsTag1);
         Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropBranch(dbName, tblName, dropBranchInfoWithNotExistsTag2));
-        catalog.dropBranch(dbName, tblName, dropBranchInfoIfExistsWithBranch1);
+                () -> catalog.dropBranch(dorisTable, dropBranchInfoWithNotExistsTag2));
+        catalog.dropBranch(dorisTable, dropBranchInfoIfExistsWithBranch1);
         Assertions.assertThrows(RuntimeException.class,
-                () -> catalog.dropBranch(dbName, tblName, dropBranchInfoIfExistsWithBranch2));
+                () -> catalog.dropBranch(dorisTable, dropBranchInfoIfExistsWithBranch2));
 
         // drop branch1 and branch2
         DropBranchInfo dropBranchInfoWithBranch1 = new DropBranchInfo(branch1, false);
         DropBranchInfo dropBranchInfoWithBranch2 = new DropBranchInfo(branch2, true);
-        catalog.dropBranch(dbName, tblName, dropBranchInfoWithBranch1);
-        catalog.dropBranch(dbName, tblName, dropBranchInfoWithBranch2);
+        catalog.dropBranch(dorisTable, dropBranchInfoWithBranch1);
+        catalog.dropBranch(dorisTable, dropBranchInfoWithBranch2);
 
         // drop tag1 and tag2
         DropTagInfo dropTagInfoWithTag1 = new DropTagInfo(tag1, false);
         DropTagInfo dropTagInfoWithTag2 = new DropTagInfo(tag2, true);
-        catalog.dropTag(dbName, tblName, dropTagInfoWithTag1);
-        catalog.dropTag(dbName, tblName, dropTagInfoWithTag2);
+        catalog.dropTag(dorisTable, dropTagInfoWithTag1);
+        catalog.dropTag(dorisTable, dropTagInfoWithTag2);
 
         Assertions.assertEquals(1, icebergTable.refs().size());
     }

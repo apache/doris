@@ -128,6 +128,7 @@ class WalManager;
 class DNSCache;
 class IndexPolicyMgr;
 struct SyncRowsetStats;
+class DeleteBitmapAggCache;
 
 inline bool k_doris_exit = false;
 
@@ -166,6 +167,8 @@ public:
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
+    static bool get_is_upgrading() { return _s_upgrading.load(std::memory_order_acquire); }
+    static void set_is_upgrading() { _s_upgrading = true; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
@@ -303,6 +306,7 @@ public:
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_delete_bitmap_agg_cache(DeleteBitmapAggCache* c) { _delete_bitmap_agg_cache = c; }
     void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
         this->_tablet_column_object_pool = c;
     }
@@ -372,6 +376,8 @@ public:
     void set_stream_mgr(vectorized::VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
     void clear_stream_mgr();
 
+    DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
+
 private:
     ExecEnv();
 
@@ -390,6 +396,7 @@ private:
     inline static std::atomic_bool _s_tracking_memory {false};
     std::vector<StorePath> _store_paths;
     std::vector<StorePath> _spill_store_paths;
+    inline static std::atomic_bool _s_upgrading {false};
 
     io::FileCacheFactory* _file_cache_factory = nullptr;
     UserFunctionCache* _user_function_cache = nullptr;
@@ -499,6 +506,7 @@ private:
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
+    DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
     vectorized::DictionaryFactory* _dict_factory = nullptr;

@@ -311,7 +311,7 @@ TEST(UtilTest, test_sync_executor) {
     auto* sp = doris::SyncPoint::get_instance();
     sp->set_call_back("SyncExecutor::when_all.set_wait_time", [&](auto&& args) {
         std::unique_lock<std::mutex> _lock(go_mutex);
-        auto max_wait_time = *doris::try_any_cast<size_t*>(args[0]);
+        [[maybe_unused]] auto max_wait_time = *doris::try_any_cast<size_t*>(args[0]);
         max_wait_time = 100;
     });
 

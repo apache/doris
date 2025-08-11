@@ -58,43 +58,8 @@ suite("test_use_mv") {
     waitingMVTaskFinishedByMvName("test_use_mv", "t1","r1")
     sql """ alter table t1 add rollup r2(k2); """
     waitingMVTaskFinishedByMvName("test_use_mv", "t1","r2")
-    createMV("create materialized view k1_k2_sumk3 as select k1, k2, sum(v1) from t1 group by k1, k2;")
+    createMV("create materialized view k1_k2_sumk3 as select k1 as a1, k2 as a2, sum(v1) from t1 group by k1, k2;")
 
-    sql """set ENABLE_SYNC_MV_COST_BASED_REWRITE=false;"""
-    explain {
-        sql """select /*+ no_use_mv */ k1 from t1;"""
-        notContains("t1(r1)")
-    }
-    explain {
-        sql """select /*+ no_use_mv(t1.`*`) */ k1 from t1;"""
-        contains("t1(t1)")
-    }
-    explain {
-        sql """select /*+ use_mv(t1.r1) use_mv(t1.r2) */ k1 from t1;"""
-        contains("only one USE_MV hint is allowed")
-    }
-    explain {
-        sql """select /*+ no_use_mv(t1.r1) no_use_mv(t1.r2) */ k1 from t1;"""
-        contains("only one NO_USE_MV hint is allowed")
-    }
-    explain {
-        sql """select /*+ no_use_mv(t1.r3) */ k1 from t1;"""
-        contains("no_use_mv([t1, r3])")
-    }
-    explain {
-        sql """select /*+ use_mv(t1.r1) no_use_mv(t1.r1) */ k1 from t1;"""
-        contains("conflict mv exist in use_mv and no_use_mv in the same time")
-    }
-    explain {
-        sql """select /*+ use_mv(t1.k1_k2_sumk3) */ k1, k2, sum(v1) from t1 group by k1, k2;"""
-        contains("t1(k1_k2_sumk3)")
-    }
-    explain {
-        sql """select /*+ use_mv(t1.k1_k2_sumk3) */ k1, k2, min(v1) from t1 group by k1, k2;"""
-        notContains("t1(k1_k2_sumk3)")
-    }
-
-    sql """set ENABLE_SYNC_MV_COST_BASED_REWRITE=true;"""
     explain {
         sql """select /*+ no_use_mv(t1.*) */ k1 from t1 group by k1;"""
         notContains("t1(r1)")

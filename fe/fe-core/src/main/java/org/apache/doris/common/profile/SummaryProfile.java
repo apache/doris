@@ -1105,4 +1105,45 @@ public class SummaryProfile {
         }
         return null;
     }
+
+    public String getPlanTime() {
+        String planTimesMs = "{"
+                + "\"plan\"" + ":" + this.getPlanTimeMs() + ","
+                + "\"garbage_collect\"" + ":" + this.getNereidsGarbageCollectionTimeMs() + ","
+                + "\"lock_tables\"" + ":" + this.getNereidsLockTableTimeMs() + ","
+                + "\"analyze\"" + ":" + this.getNereidsAnalysisTimeMs() + ","
+                + "\"rewrite\"" + ":" + this.getNereidsRewriteTimeMs() + ","
+                + "\"fold_const_by_be\"" + ":" + this.getNereidsBeFoldConstTimeMs() + ","
+                + "\"collect_partitions\"" + ":" + this.getNereidsCollectTablePartitionTimeMs() + ","
+                + "\"optimize\"" + ":" + this.getNereidsOptimizeTimeMs() + ","
+                + "\"translate\"" + ":" + this.getNereidsTranslateTimeMs() + ","
+                + "\"init_scan_node\"" + ":" + this.getInitScanNodeTimeMs() + ","
+                + "\"finalize_scan_node\"" + ":" + this.getFinalizeScanNodeTimeMs() + ","
+                + "\"create_scan_range\"" + ":" + this.getCreateScanRangeTimeMs() + ","
+                + "\"distribute\"" + ":" + this.getNereidsDistributeTimeMs()
+                + "}";
+        return planTimesMs;
+    }
+
+    public String getMetaTime() {
+        return "{"
+                + "\"get_partition_version_time_ms\"" + ":" + this.getGetPartitionVersionTime() + ","
+                + "\"get_partition_version_count_has_data\"" + ":" + this.getGetPartitionVersionByHasDataCount() + ","
+                + "\"get_partition_version_count\"" + ":" + this.getGetPartitionVersionCount() + ","
+                + "\"get_table_version_time_ms\"" + ":" + this.getGetTableVersionTime() + ","
+                + "\"get_table_version_count\"" + ":" + this.getGetTableVersionCount()
+                + "}";
+    }
+
+    public String getScheduleTime() {
+        return "{"
+                + "\"schedule_time_ms\"" + ":" + this.getScheduleTimeMs() + ","
+                + "\"fragment_assign_time_ms\"" + ":" + this.getFragmentAssignTimsMs() + ","
+                + "\"fragment_serialize_time_ms\"" + ":" + this.getFragmentSerializeTimeMs() + ","
+                + "\"fragment_rpc_phase_1_time_ms\"" + ":" + this.getFragmentRPCPhase1TimeMs() + ","
+                + "\"fragment_rpc_phase_2_time_ms\"" + ":" + this.getFragmentRPCPhase2TimeMs() + ","
+                + "\"fragment_compressed_size_byte\"" + ":" + this.getFragmentCompressedSizeByte() + ","
+                + "\"fragment_rpc_count\"" + ":" + this.getFragmentRPCCount()
+                + "}";
+    }
 }

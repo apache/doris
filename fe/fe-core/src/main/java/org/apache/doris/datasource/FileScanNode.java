@@ -41,8 +41,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -54,7 +52,6 @@ import java.util.stream.Collectors;
  * Base class for External File Scan, including external query and load.
  */
 public abstract class FileScanNode extends ExternalScanNode {
-    private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
     public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
 
@@ -204,7 +201,6 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {
                     expr = column.getDefaultValueExpr();
-                    expr.analyze(analyzer);
                 } else {
                     expr = new StringLiteral(column.getDefaultValue());
                 }

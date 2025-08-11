@@ -27,11 +27,19 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class InferJoinNotNullTest implements MemoPatternMatchSupported {
-    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+    private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+
+    @BeforeAll
+    static void makeSureSlotIdStable() {
+        // make sure the slot id start from 10000 when not set StatementContext in ThreadLocal
+        scan1.getOutput();
+        scan2.getOutput();
+    }
 
     @Test
     void testInferIsNotNull() {
@@ -42,8 +50,8 @@ class InferJoinNotNullTest implements MemoPatternMatchSupported {
                 .applyTopDown(new InferJoinNotNull())
                 .matches(
                         innerLogicalJoin(
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#0 IS NULL)")),
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#2 IS NULL)"))
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#10000 IS NULL)")),
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#10002 IS NULL)"))
                         )
                 );
 
@@ -54,7 +62,7 @@ class InferJoinNotNullTest implements MemoPatternMatchSupported {
                 .applyTopDown(new InferJoinNotNull())
                 .matches(
                         leftSemiLogicalJoin(
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#0 IS NULL)")),
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#10000 IS NULL)")),
                                 logicalOlapScan()
                         )
                 );
@@ -67,7 +75,7 @@ class InferJoinNotNullTest implements MemoPatternMatchSupported {
                 .matches(
                         rightSemiLogicalJoin(
                                 logicalOlapScan(),
-                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#2 IS NULL)"))
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("( not id#10002 IS NULL)"))
                         )
                 );
 

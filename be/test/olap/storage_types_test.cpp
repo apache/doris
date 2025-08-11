@@ -49,7 +49,7 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     {
         typename TypeTraits<field_type>::CppType dst_val;
         vectorized::Arena pool;
-        type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
+        type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
@@ -85,7 +85,7 @@ void test_char(Slice src_val) {
         char buf[64];
         Slice dst_val(buf, sizeof(buf));
         vectorized::Arena pool;
-        type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
+        type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     {
@@ -167,7 +167,7 @@ void common_test_array(CollectionValue src_val) {
     { // test deep copy
         CollectionValue dst_val;
         vectorized::Arena pool;
-        array_type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
+        array_type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
         EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
     }
     { // test direct copy

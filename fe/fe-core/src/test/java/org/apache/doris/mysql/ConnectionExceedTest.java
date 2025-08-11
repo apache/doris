@@ -76,21 +76,21 @@ public class ConnectionExceedTest {
         // Create first context and register
         ConnectContext context1 = new ConnectContext();
         context1.setEnv(mockEnv);
-        context1.setQualifiedUser("test_user");
+        context1.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
         Assert.assertTrue(scheduler.submit(context1));
         Assert.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context1));
 
         // Create second context and register
         ConnectContext context2 = new ConnectContext();
         context2.setEnv(mockEnv);
-        context2.setQualifiedUser("test_user");
+        context2.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
         Assert.assertTrue(scheduler.submit(context2));
         Assert.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context2));
 
         // Create third context and try to register - should fail
         ConnectContext context3 = new ConnectContext();
         context3.setEnv(mockEnv);
-        context3.setQualifiedUser("test_user");
+        context3.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
         Assert.assertTrue(scheduler.submit(context3));
 
         // Create AcceptListener and handle the connection
@@ -139,14 +139,14 @@ public class ConnectionExceedTest {
         // Create first context and register
         ConnectContext context1 = new ConnectContext();
         context1.setEnv(mockEnv);
-        context1.setQualifiedUser("test_user");
+        context1.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
         Assert.assertTrue(scheduler.submit(context1));
         Assert.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context1));
 
         // Create second context and register
         ConnectContext context2 = new ConnectContext();
         context2.setEnv(mockEnv);
-        context2.setQualifiedUser("test_user");
+        context2.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
         Assert.assertTrue(scheduler.submit(context2));
         Assert.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context2));
 

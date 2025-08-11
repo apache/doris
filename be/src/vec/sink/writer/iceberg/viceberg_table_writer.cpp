@@ -49,16 +49,16 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
     // add all counter
-    _written_rows_counter = ADD_COUNTER(_profile, "WrittenRows", TUnit::UNIT);
-    _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
+    _written_rows_counter = ADD_COUNTER(_operator_profile, "WrittenRows", TUnit::UNIT);
+    _send_data_timer = ADD_TIMER(_operator_profile, "SendDataTime");
     _partition_writers_dispatch_timer =
-            ADD_CHILD_TIMER(_profile, "PartitionsDispatchTime", "SendDataTime");
+            ADD_CHILD_TIMER(_operator_profile, "PartitionsDispatchTime", "SendDataTime");
     _partition_writers_write_timer =
-            ADD_CHILD_TIMER(_profile, "PartitionsWriteTime", "SendDataTime");
-    _partition_writers_count = ADD_COUNTER(_profile, "PartitionsWriteCount", TUnit::UNIT);
-    _open_timer = ADD_TIMER(_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_profile, "CloseTime");
-    _write_file_counter = ADD_COUNTER(_profile, "WriteFileCount", TUnit::UNIT);
+            ADD_CHILD_TIMER(_operator_profile, "PartitionsWriteTime", "SendDataTime");
+    _partition_writers_count = ADD_COUNTER(_operator_profile, "PartitionsWriteCount", TUnit::UNIT);
+    _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
+    _close_timer = ADD_TIMER(_operator_profile, "CloseTime");
+    _write_file_counter = ADD_COUNTER(_operator_profile, "WriteFileCount", TUnit::UNIT);
 
     SCOPED_TIMER(_open_timer);
     try {
@@ -133,7 +133,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
                     return e.to_status();
                 }
                 _partitions_to_writers.insert({"", writer});
-                RETURN_IF_ERROR(writer->open(_state, _profile));
+                RETURN_IF_ERROR(writer->open(_state, _operator_profile));
             } else {
                 if (writer_iter->second->written_len() > config::iceberg_sink_max_file_size) {
                     std::string file_name(writer_iter->second->file_name());
@@ -150,7 +150,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
                         return e.to_status();
                     }
                     _partitions_to_writers.insert({"", writer});
-                    RETURN_IF_ERROR(writer->open(_state, _profile));
+                    RETURN_IF_ERROR(writer->open(_state, _operator_profile));
                 } else {
                     writer = writer_iter->second;
                 }
@@ -190,7 +190,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
                 try {
                     auto writer = _create_partition_writer(&transformed_block, position, file_name,
                                                            file_name_index);
-                    RETURN_IF_ERROR(writer->open(_state, _profile));
+                    RETURN_IF_ERROR(writer->open(_state, _operator_profile));
                     IColumn::Filter filter(output_block.rows(), 0);
                     filter[position] = 1;
                     writer_positions.insert({writer, std::move(filter)});
@@ -292,7 +292,7 @@ Status VIcebergTableWriter::close(Status status) {
         _partitions_to_writers.clear();
     }
     if (status.ok()) {
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
 
         COUNTER_SET(_written_rows_counter, static_cast<int64_t>(_row_count));
         COUNTER_SET(_send_data_timer, _send_data_ns);

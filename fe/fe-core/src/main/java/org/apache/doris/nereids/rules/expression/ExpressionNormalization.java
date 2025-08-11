@@ -18,12 +18,15 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.rules.ConcatWsMultiArrayToOne;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateExtractNonConstant;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
+import org.apache.doris.nereids.rules.expression.rules.JsonFunctionRewrite;
+import org.apache.doris.nereids.rules.expression.rules.LogToLn;
 import org.apache.doris.nereids.rules.expression.rules.MedianConvert;
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
@@ -44,6 +47,8 @@ import java.util.List;
 public class ExpressionNormalization extends ExpressionRewrite {
     // we should run supportJavaDateFormatter before foldConstantRule or be will fold
     // from_unixtime(timestamp, 'yyyyMMdd') to 'yyyyMMdd'
+    // specically note: LogToLn and ConcatWsMultiArrayToOne must  before FoldConstantRule,otherwise log will core when
+    // input single argument like log(100),and concat_ws will retuen a wrong result when input multi array
     public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> NORMALIZE_REWRITE_RULES
                 = ImmutableList.of(
             bottomUp(
@@ -54,6 +59,8 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 InPredicateToEqualToRule.INSTANCE,
                 SimplifyNotExprRule.INSTANCE,
                 SimplifyArithmeticRule.INSTANCE,
+                LogToLn.INSTANCE,
+                ConcatWsMultiArrayToOne.INSTANCE,
                 FoldConstantRule.INSTANCE,
                 SimplifyCastRule.INSTANCE,
                 DigitalMaskingConvert.INSTANCE,
@@ -61,6 +68,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
+                JsonFunctionRewrite.INSTANCE,
                 CheckCast.INSTANCE
             )
     );

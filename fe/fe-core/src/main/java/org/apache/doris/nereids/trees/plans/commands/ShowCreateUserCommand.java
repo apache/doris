@@ -59,12 +59,7 @@ public class ShowCreateUserCommand extends ShowCommand {
 
     @VisibleForTesting
     protected ShowResultSet handleShowCreateUser(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (userIdent == null) {
-            userIdent = ConnectContext.get().getCurrentUserIdentity();
-        }
-        if (userIdent != null) {
-            userIdent.analyze();
-        }
+        userIdent.analyze();
         Preconditions.checkState(userIdent != null);
         UserIdentity self = ConnectContext.get().getCurrentUserIdentity();
 

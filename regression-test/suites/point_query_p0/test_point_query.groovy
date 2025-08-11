@@ -194,6 +194,7 @@ suite("test_point_query") {
                 """
                 sleep(1);
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 1, 1.1111299, [119291.19291], ["111", "222", "333"], 1) """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 stmt.setBigDecimal(1, 1235)
                 stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
                 stmt.setString(3, "a    ddd")
@@ -208,11 +209,19 @@ suite("test_point_query") {
                 nprep_sql """
                 ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
                 nprep_sql """
                 ALTER table ${tableName} DROP COLUMN new_column1;
                 """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
 
@@ -220,6 +229,10 @@ suite("test_point_query") {
                   ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
                 sql "select 1"
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
             }
             // disable useServerPrepStmts
@@ -432,6 +445,16 @@ suite("test_point_query") {
     sql "insert into table_with_chars values (20, 30, 'aabc', 'value');"
     sql "set enable_short_circuit_query = true"
     qt_sql "select length(loc3) from table_with_chars where col1 = 10"
+
+    def ensure_one_fragment = {
+        sql "set enable_nereids_planner=true"
+        explain {
+            sql "select * from table_with_chars where col1 = 10"
+            check { explainStr ->
+                assertEquals(1, explainStr.count("PLAN FRAGMENT"))
+            }
+        }
+    }()
 
     // test variant type
     sql "DROP TABLE IF EXISTS test_with_variant"

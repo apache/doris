@@ -51,6 +51,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType primitive_type, class T>
 std::string cast_to_string(T value, int scale) {
@@ -371,15 +372,17 @@ private:
     int _precision;
     int _scale;
 
-    static constexpr bool _is_reject_split_type = primitive_type == PrimitiveType::TYPE_LARGEINT ||
-                                                  primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
-                                                  primitive_type == PrimitiveType::TYPE_HLL ||
-                                                  primitive_type == PrimitiveType::TYPE_VARCHAR ||
-                                                  primitive_type == PrimitiveType::TYPE_CHAR ||
-                                                  primitive_type == PrimitiveType::TYPE_STRING ||
-                                                  primitive_type == PrimitiveType::TYPE_BOOLEAN ||
-                                                  primitive_type == PrimitiveType::TYPE_DATETIME ||
-                                                  primitive_type == PrimitiveType::TYPE_DATETIMEV2;
+    static constexpr bool _is_reject_split_type =
+            primitive_type == PrimitiveType::TYPE_LARGEINT ||
+            primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
+            primitive_type == PrimitiveType::TYPE_HLL ||
+            primitive_type == PrimitiveType::TYPE_VARCHAR ||
+            primitive_type == PrimitiveType::TYPE_CHAR ||
+            primitive_type == PrimitiveType::TYPE_STRING ||
+            primitive_type == PrimitiveType::TYPE_BOOLEAN ||
+            primitive_type == PrimitiveType::TYPE_DATETIME ||
+            primitive_type == PrimitiveType::TYPE_DATETIMEV2 ||
+            primitive_type == PrimitiveType::TYPE_DECIMAL256;
 
     int _runtime_filter_id = -1;
 
@@ -670,14 +673,15 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
 
         // When CppType is date, we can not convert it to integer number and calculate distance.
         // In other case, we convert element to int128 to avoit overflow.
-        size_t step_size = (cast(max_value) - min_value) / max_scan_key_num;
+        int128_t step_size_may_overflow = (cast(max_value) - min_value) / max_scan_key_num;
 
         constexpr size_t MAX_STEP_SIZE = 1 << 20;
         // When the step size is too large, the range is easy to not really contain data.
-        if (step_size > MAX_STEP_SIZE) {
+        if (step_size_may_overflow > MAX_STEP_SIZE) {
             return no_split();
         }
-        size_t real_step_size = 0;
+        int step_size = cast_set<int>(step_size_may_overflow);
+        int real_step_size = 0;
 
         // Add null key if contain null, must do after no_split check
         if (contain_null()) {
@@ -1083,7 +1087,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
         else {
             auto fixed_value_set = range.get_fixed_value_set();
-            int original_key_range_size = _begin_scan_keys.size();
+            size_t original_key_range_size = _begin_scan_keys.size();
 
             for (int i = 0; i < original_key_range_size; ++i) {
                 OlapTuple start_base_key_range = _begin_scan_keys[i];
@@ -1170,4 +1174,5 @@ struct ScanPredicate {
     PrimitiveType primitiveType;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

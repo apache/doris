@@ -115,6 +115,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_LARGE_EDIT_LOG;
 
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
+    public static Histogram HISTO_JOURNAL_WRITE_LATENCY;
     public static Histogram HISTO_JOURNAL_BATCH_SIZE;
     public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
     public static Histogram HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY;
@@ -190,11 +191,11 @@ public final class MetricRepo {
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
-    private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
+    private static final ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
-    private static MetricCalculator metricCalculator = new MetricCalculator();
+    private static final MetricCalculator metricCalculator = new MetricCalculator();
 
-    // init() should only be called after catalog is contructed.
+    // init() should only be called after catalog is constructed.
     public static synchronized void init() {
         if (isInit) {
             return;
@@ -205,18 +206,24 @@ public final class MetricRepo {
             @Override
             public Long getValue() {
                 try {
-                    return Long.parseLong("" + Version.DORIS_BUILD_VERSION_MAJOR + "0"
-                                            + Version.DORIS_BUILD_VERSION_MINOR + "0"
-                                            + Version.DORIS_BUILD_VERSION_PATCH
-                                            + (Version.DORIS_BUILD_VERSION_HOTFIX > 0
-                                                ? ("0" + Version.DORIS_BUILD_VERSION_HOTFIX)
-                                                : ""));
+                    String verStr = Version.DORIS_BUILD_VERSION_MAJOR + "0" + Version.DORIS_BUILD_VERSION_MINOR + "0"
+                            + Version.DORIS_BUILD_VERSION_PATCH;
+                    if (Version.DORIS_BUILD_VERSION_HOTFIX > 0) {
+                        verStr += ("0" + Version.DORIS_BUILD_VERSION_HOTFIX);
+                    }
+                    return Long.parseLong(verStr);
                 } catch (Throwable t) {
                     LOG.warn("failed to init version metrics", t);
                     return 0L;
                 }
             }
         };
+        feVersion.addLabel(new MetricLabel("version", Version.DORIS_BUILD_VERSION));
+        feVersion.addLabel(new MetricLabel("major", String.valueOf(Version.DORIS_BUILD_VERSION_MAJOR)));
+        feVersion.addLabel(new MetricLabel("minor", String.valueOf(Version.DORIS_BUILD_VERSION_MINOR)));
+        feVersion.addLabel(new MetricLabel("patch", String.valueOf(Version.DORIS_BUILD_VERSION_PATCH)));
+        feVersion.addLabel(new MetricLabel("hotfix", String.valueOf(Version.DORIS_BUILD_VERSION_HOTFIX)));
+        feVersion.addLabel(new MetricLabel("short_hash", Version.DORIS_BUILD_SHORT_HASH));
         DORIS_METRIC_REGISTER.addMetrics(feVersion);
 
         // load jobs
@@ -361,14 +368,14 @@ public final class MetricRepo {
                 "total query from hive table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HIVE_TABLE);
         USER_COUNTER_QUERY_ALL = new AutoMappedMetric<>(name -> {
-            LongCounterMetric userCountQueryAll  = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
+            LongCounterMetric userCountQueryAll = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
                     "total query for single user");
             userCountQueryAll.addLabel(new MetricLabel("user", name));
             DORIS_METRIC_REGISTER.addMetrics(userCountQueryAll);
             return userCountQueryAll;
         });
         USER_COUNTER_QUERY_ERR = new AutoMappedMetric<>(name -> {
-            LongCounterMetric userCountQueryErr  = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
+            LongCounterMetric userCountQueryErr = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
                     "total error query for single user");
             userCountQueryErr.addLabel(new MetricLabel("user", name));
             DORIS_METRIC_REGISTER.addMetrics(userCountQueryErr);
@@ -455,6 +462,8 @@ public final class MetricRepo {
 
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("editlog", "write", "latency", "ms"));
+        HISTO_JOURNAL_WRITE_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("journal", "write", "latency", "ms"));
         HISTO_JOURNAL_BATCH_SIZE = METRIC_REGISTER.histogram(
                 MetricRegistry.name("journal", "write", "batch_size"));
         HISTO_JOURNAL_BATCH_DATA_SIZE = METRIC_REGISTER.histogram(
@@ -1004,6 +1013,20 @@ public final class MetricRepo {
         queryErrCounter.setLabels(labels);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(queryErrCounter);
 
+        LongCounterMetric warmUpJobExecCounter = CloudMetrics.CLUSTER_WARM_UP_JOB_EXEC_COUNT.getOrAdd(clusterId);
+        warmUpJobExecCounter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(warmUpJobExecCounter);
+
+        LongCounterMetric warmUpJobRequestedTablets =
+                CloudMetrics.CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS.getOrAdd(clusterId);
+        warmUpJobRequestedTablets.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(warmUpJobRequestedTablets);
+
+        LongCounterMetric warmUpJobFinishedTablets =
+                CloudMetrics.CLUSTER_WARM_UP_JOB_FINISHED_TABLETS.getOrAdd(clusterId);
+        warmUpJobFinishedTablets.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(warmUpJobFinishedTablets);
+
         GaugeMetricImpl<Double> requestPerSecondGauge = CloudMetrics.CLUSTER_REQUEST_PER_SECOND_GAUGE
                 .getOrAdd(clusterId);
         requestPerSecondGauge.setLabels(labels);
@@ -1073,6 +1096,90 @@ public final class MetricRepo {
         labels.add(new MetricLabel("cluster_name", clusterName));
         counter.setLabels(labels);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void increaseClusterWarmUpJobExecCount(String clusterName) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_WARM_UP_JOB_EXEC_COUNT.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(1L);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void increaseClusterWarmUpJobRequestedTablets(String clusterName, long tablets) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(tablets);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void increaseClusterWarmUpJobFinishedTablets(String clusterName, long bytes) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_WARM_UP_JOB_FINISHED_TABLETS.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(bytes);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void updateClusterWarmUpJobLatestStartTime(
+            String jobId, String srcClusterName, String dstClusterName, long timeMs) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(jobId)) {
+            return;
+        }
+        LongCounterMetric time = CloudMetrics.CLUSTER_WARM_UP_JOB_LATEST_START_TIME.getOrAdd(jobId);
+        List<MetricLabel> labels = new ArrayList<>();
+        time.update(timeMs);
+        labels.add(new MetricLabel("job_id", jobId));
+        labels.add(new MetricLabel("src_cluster_name", srcClusterName));
+        labels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+        time.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(time);
+    }
+
+    public static void updateClusterWarmUpJobLastFinishTime(
+            String jobId, String srcClusterName, String dstClusterName, long timeMs) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(jobId)) {
+            return;
+        }
+        LongCounterMetric time = CloudMetrics.CLUSTER_WARM_UP_JOB_LAST_FINISH_TIME.getOrAdd(jobId);
+        List<MetricLabel> labels = new ArrayList<>();
+        time.update(timeMs);
+        labels.add(new MetricLabel("job_id", jobId));
+        labels.add(new MetricLabel("src_cluster_name", srcClusterName));
+        labels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+        time.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(time);
     }
 
     public static void updateClusterRequestPerSecond(String clusterId, double value, List<MetricLabel> labels) {

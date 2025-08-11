@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -78,8 +79,6 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private static final String DFS_NAME_SERVICES_KEY = "dfs.nameservices";
 
-    private Map<String, String> backendConfigProperties;
-
     private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
 
     /**
@@ -107,21 +106,20 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (HdfsPropertiesUtils.validateUriIsHdfsUri(props, supportSchema)) {
             return true;
         }
-        if (HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)) {
-            return true;
-        }
-        return false;
+        return HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey);
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
         }
         extractUserOverriddenHdfsConfig(origProps);
-        initHadoopConfiguration();
         initBackendConfigProperties();
+        this.hadoopStorageConfig = new Configuration();
+        this.backendConfigProperties.forEach(hadoopStorageConfig::set);
+        hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(hadoopStorageConfig);
     }
 
     private void extractUserOverriddenHdfsConfig(Map<String, String> origProps) {
@@ -146,47 +144,36 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
     }
 
-    private void initHadoopConfiguration() {
-        Configuration conf = new Configuration(true);
-        Map<String, String> allProps = loadConfigFromFile(hadoopConfigResources);
-        allProps.forEach(conf::set);
+    private void initBackendConfigProperties() {
+        Map<String, String> props = loadConfigFromFile(hadoopConfigResources);
         if (MapUtils.isNotEmpty(userOverriddenHdfsConfig)) {
-            userOverriddenHdfsConfig.forEach(conf::set);
+            props.putAll(userOverriddenHdfsConfig);
         }
         if (StringUtils.isNotBlank(fsDefaultFS)) {
-            conf.set(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
+            props.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
         }
         if (StringUtils.isNotBlank(allowFallbackToSimpleAuth)) {
-            conf.set("ipc.client.fallback-to-simple-auth-allowed", allowFallbackToSimpleAuth);
+            props.put("ipc.client.fallback-to-simple-auth-allowed", allowFallbackToSimpleAuth);
         } else {
-            conf.set("ipc.client.fallback-to-simple-auth-allowed", "true");
+            props.put("ipc.client.fallback-to-simple-auth-allowed", "true");
         }
-        conf.set("hdfs.security.authentication", hdfsAuthenticationType);
+        props.put("hdfs.security.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
-            conf.set("hadoop.kerberos.principal", hdfsKerberosPrincipal);
-            conf.set("hadoop.kerberos.keytab", hdfsKerberosKeytab);
+            props.put("hadoop.kerberos.principal", hdfsKerberosPrincipal);
+            props.put("hadoop.kerberos.keytab", hdfsKerberosKeytab);
         }
         if (StringUtils.isNotBlank(hadoopUsername)) {
-            conf.set("hadoop.username", hadoopUsername);
+            props.put("hadoop.username", hadoopUsername);
         }
-        this.dfsNameServices = conf.get(DFS_NAME_SERVICES_KEY, "");
+        this.dfsNameServices = props.getOrDefault(DFS_NAME_SERVICES_KEY, "");
         if (StringUtils.isBlank(fsDefaultFS)) {
-            this.fsDefaultFS = conf.get(HDFS_DEFAULT_FS_NAME, "");
+            this.fsDefaultFS = props.getOrDefault(HDFS_DEFAULT_FS_NAME, "");
         }
-        this.configuration = conf;
+        this.backendConfigProperties = props;
     }
 
-    private void initBackendConfigProperties() {
-        Map<String, String> backendConfigProperties = new HashMap<>();
-        for (Map.Entry<String, String> entry : configuration) {
-            backendConfigProperties.put(entry.getKey(), entry.getValue());
-        }
-
-        this.backendConfigProperties = backendConfigProperties;
-    }
-
-    public Configuration getHadoopConfiguration() {
-        return this.configuration;
+    public boolean isKerberos() {
+        return "kerberos".equalsIgnoreCase(hdfsAuthenticationType);
     }
 
     //fixme be should send use input params
@@ -210,4 +197,5 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     public String getStorageName() {
         return "HDFS";
     }
+
 }

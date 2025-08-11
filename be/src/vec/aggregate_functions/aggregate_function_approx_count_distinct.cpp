@@ -17,14 +17,8 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
-#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_variant.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -33,35 +27,12 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_IPV4:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV4>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_IPV6:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV6>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_ARRAY:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_ARRAY>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_MAP:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_MAP>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_STRUCT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRUCT>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_VARIANT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_VARIANT>>(
-                argument_types, result_is_nullable);
-    default:
-        auto res = creator_with_any::create<AggregateFunctionApproxCountDistinct>(
-                argument_types, result_is_nullable);
-        if (!res) {
-            throw Exception(
-                    ErrorCode::NOT_IMPLEMENTED_ERROR,
-                    "Unsupported type for approx_count_distinct: " + argument_types[0]->get_name());
-        }
-        return res;
-    }
+    return creator_with_type_list<
+            TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
+            TYPE_FLOAT, TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+            TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_DATEV2, TYPE_DATETIMEV2, TYPE_IPV4,
+            TYPE_IPV6>::create<AggregateFunctionApproxCountDistinct>(argument_types,
+                                                                     result_is_nullable, attr);
 }
 
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory) {

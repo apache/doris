@@ -26,6 +26,8 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -36,6 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 public class MetaCache<T> {
+    private static final Logger LOG = LogManager.getLogger(MetaCache.class);
     private LoadingCache<String, List<Pair<String, String>>> namesCache;
     //Pair<String, String> : <Remote name, Local name>
     private Map<Long, String> idToName = Maps.newConcurrentMap();
@@ -95,10 +98,22 @@ public class MetaCache<T> {
                 if (val != null && val.isPresent()) {
                     return val;
                 }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
+                            this.name, name, id, new Exception());
+                }
                 metaObjCache.invalidate(name);
                 val = metaObjCache.get(name);
                 idToName.put(id, name);
             }
+        }
+        return val;
+    }
+
+    public Optional<T> tryGetMetaObj(String name) {
+        Optional<T> val = metaObjCache.getIfPresent(name);
+        if (val == null || !val.isPresent()) {
+            return Optional.empty();
         }
         return val;
     }
@@ -130,12 +145,19 @@ public class MetaCache<T> {
                 return v;
             }
         });
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
+                    name, localName, id, new Exception());
+        }
         metaObjCache.invalidate(localName);
         idToName.remove(id);
     }
 
     public void invalidateAll() {
         namesCache.invalidateAll();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate all in metacache {}", name, new Exception());
+        }
         metaObjCache.invalidateAll();
         idToName.clear();
     }
@@ -143,5 +165,19 @@ public class MetaCache<T> {
     @VisibleForTesting
     public LoadingCache<String, Optional<T>> getMetaObjCache() {
         return metaObjCache;
+    }
+
+    @VisibleForTesting
+    public void addObjForTest(long id, String name, T db) {
+        idToName.put(id, name);
+        metaObjCache.put(name, Optional.of(db));
+    }
+
+    /**
+     * Reset the names cache.
+     * Should only be used after creating new database/table
+     */
+    public void resetNames() {
+        namesCache.invalidateAll();
     }
 }

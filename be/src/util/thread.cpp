@@ -59,7 +59,6 @@
 #include "runtime/thread_context.h"
 #include "util/easy_json.h"
 #include "util/os_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -389,8 +388,7 @@ int64_t Thread::wait_for_tid() const {
 }
 
 Status Thread::start_thread(const std::string& category, const std::string& name,
-                            const ThreadFunctor& functor, uint64_t flags,
-                            scoped_refptr<Thread>* holder) {
+                            const ThreadFunctor& functor, scoped_refptr<Thread>* holder) {
     std::call_once(once, init_threadmgr);
 
     // Temporary reference for the duration of this function.
@@ -412,14 +410,11 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     // in FinishThread().
     t->AddRef();
 
-    auto cleanup = MakeScopedCleanup([&]() {
+    int ret = pthread_create(&t->_thread, nullptr, &Thread::supervise_thread, t.get());
+    if (ret) {
         // If we failed to create the thread, we need to undo all of our prep work.
         t->_tid = INVALID_TID;
         t->Release();
-    });
-
-    int ret = pthread_create(&t->_thread, nullptr, &Thread::supervise_thread, t.get());
-    if (ret) {
         return Status::RuntimeError("Could not create thread. (error {}) {}", ret, strerror(ret));
     }
 
@@ -429,8 +424,6 @@ Status Thread::start_thread(const std::string& category, const std::string& name
     // (or someone communicating with the parent) can join, so joinable must
     // be set before the parent returns.
     t->_joinable = true;
-    cleanup.cancel();
-
     VLOG_NOTICE << "Started thread " << t->tid() << " - " << category << ":" << name;
     return Status::OK();
 }

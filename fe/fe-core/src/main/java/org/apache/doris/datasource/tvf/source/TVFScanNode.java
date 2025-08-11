@@ -30,6 +30,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -41,8 +42,10 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -157,6 +160,15 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         return splits;
+    }
+
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (split instanceof FileSplit) {
+            TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+            tableFormatFileDesc.setTableFormatType(TableFormatType.TVF.value());
+            rangeDesc.setTableFormatParams(tableFormatFileDesc);
+        }
     }
 
     @Override

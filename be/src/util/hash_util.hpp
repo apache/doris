@@ -28,26 +28,24 @@
 #include <functional>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "gutil/endian.h"
 #include "gutil/hash/city.h"
-#include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"
 #include "util/sse_util.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Utility class to compute hash values.
 class HashUtil {
 public:
     static uint32_t zlib_crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
-        return crc32(hash, (const unsigned char*)data, bytes);
+        return (uint32_t)crc32(hash, (const unsigned char*)data, bytes);
     }
 
     static uint32_t zlib_crc_hash_null(uint32_t hash) {
         // null is treat as 0 when hash
         static const int INT_VALUE = 0;
-        return crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
+        return (uint32_t)crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
     }
 
 #if defined(__SSE4_2__) || defined(__aarch64__)
@@ -240,7 +238,7 @@ public:
                 k |= (uint64_t)data[6] << 48;
                 k |= (uint64_t)data[7] << 56;
             } else if constexpr (std::endian::native == std::endian::little) {
-                k = *((uint64_t*)data);
+                memcpy(&k, data, sizeof(k));
             } else {
                 static_assert(std::endian::native == std::endian::big ||
                                       std::endian::native == std::endian::little,
@@ -362,8 +360,8 @@ public:
 
 template <>
 struct std::hash<doris::TUniqueId> {
-    std::size_t operator()(const doris::TUniqueId& id) const {
-        std::size_t seed = 0;
+    size_t operator()(const doris::TUniqueId& id) const {
+        uint32_t seed = 0;
         seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
         seed = doris::HashUtil::hash(&id.hi, sizeof(id.hi), seed);
         return seed;
@@ -373,8 +371,9 @@ struct std::hash<doris::TUniqueId> {
 template <>
 struct std::hash<doris::TNetworkAddress> {
     size_t operator()(const doris::TNetworkAddress& address) const {
-        std::size_t seed = 0;
-        seed = doris::HashUtil::hash(address.hostname.data(), address.hostname.size(), seed);
+        uint32_t seed = 0;
+        seed = doris::HashUtil::hash(address.hostname.data(), (uint32_t)address.hostname.size(),
+                                     seed);
         seed = doris::HashUtil::hash(&address.port, 4, seed);
         return seed;
     }
@@ -383,7 +382,7 @@ struct std::hash<doris::TNetworkAddress> {
 template <>
 struct std::hash<std::pair<doris::TUniqueId, int64_t>> {
     size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const {
-        size_t seed = 0;
+        uint32_t seed = 0;
         seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
         seed = doris::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
         seed = doris::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
@@ -396,6 +395,8 @@ struct std::hash<std::pair<First, Second>> {
     size_t operator()(const pair<First, Second>& p) const {
         size_t h1 = std::hash<First>()(p.first);
         size_t h2 = std::hash<Second>()(p.second);
-        return util_hash::HashLen16(h1, h2);
+        return doris::util_hash::HashLen16(h1, h2);
     }
 };
+
+#include "common/compile_check_end.h"

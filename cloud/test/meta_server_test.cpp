@@ -37,11 +37,11 @@
 #include "common/logging.h"
 #include "common/stats.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -168,10 +168,9 @@ TEST(MetaServerTest, StartAndStop) {
 
     auto sp = SyncPoint::get_instance();
 
-    std::array<std::string, 3> sps {"MetaServer::start:1", "MetaServer::start:2",
-                                    "MetaServer::start:3"};
+    std::array<std::string, 2> sps {"MetaServer::start:1", "MetaServer::start:2"};
     // use structured binding for point alias (avoid multi lines of declaration)
-    auto [meta_server_start_1, meta_server_start_2, meta_server_start_3] = sps;
+    auto [meta_server_start_1, meta_server_start_2] = sps;
     sp->enable_processing();
     DORIS_CLOUD_DEFER {
         for (auto& i : sps) {
@@ -194,11 +193,6 @@ TEST(MetaServerTest, StartAndStop) {
     sp->set_call_back(meta_server_start_2, foo);
     ASSERT_EQ(server->start(&brpc_server), -1);
     sp->clear_call_back(meta_server_start_2);
-
-    // failed to start fdb metrics exporter
-    sp->set_call_back(meta_server_start_3, foo);
-    ASSERT_EQ(server->start(&brpc_server), -2);
-    sp->clear_call_back(meta_server_start_3);
 
     ASSERT_EQ(server->start(&brpc_server), 0);
     ASSERT_EQ(brpc_server.Start(0, &options), 0);

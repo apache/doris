@@ -24,6 +24,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/ipv6_value.h"
@@ -37,8 +38,7 @@ size_t DataTypeIPv6::number_length() const {
     return 40;
 }
 void DataTypeIPv6::push_number(ColumnString::Chars& chars, const IPv6& num) const {
-    auto value = IPv6Value(num);
-    auto ipv6_str = value.to_string();
+    auto ipv6_str = CastToString::from_ip(num);
     chars.insert(ipv6_str.begin(), ipv6_str.end());
 }
 std::string DataTypeIPv6::to_string(const IColumn& column, size_t row_num) const {
@@ -57,17 +57,6 @@ std::string DataTypeIPv6::to_string(const IPv6& ipv6_val) {
 void DataTypeIPv6::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     std::string value = to_string(column, row_num);
     ostr.write(value.data(), value.size());
-}
-
-Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnIPv6*>(column);
-    IPv6 val = 0;
-    if (!read_ipv6_text_impl<IPv6>(val, rb)) {
-        return Status::InvalidArgument("parse ipv6 fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
-    column_data->insert_value(val);
-    return Status::OK();
 }
 
 MutableColumnPtr DataTypeIPv6::create_column() const {

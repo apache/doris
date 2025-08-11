@@ -41,6 +41,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -52,6 +53,7 @@ import com.google.gson.internal.LinkedTreeMap;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.List;
@@ -93,7 +95,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected long lastUpdateTime;
     protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
-    protected boolean invalidCacheInInit = true;
 
     private MetaCache<T> metaCache;
 
@@ -130,9 +131,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    public synchronized void setUnInitialized(boolean invalidCache) {
+    public synchronized void resetToUninitialized() {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
+                    this.name, this.id, isInitializing, initialized, new Exception());
+        }
         this.initialized = false;
-        this.invalidCacheInInit = invalidCache;
+        this.lowerCaseToTableName = Maps.newConcurrentMap();
         if (extCatalog.getUseMetaCache().isPresent()) {
             if (extCatalog.getUseMetaCache().get() && metaCache != null) {
                 metaCache.invalidateAll();
@@ -142,59 +147,52 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 }
             }
         }
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
-        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getCatalog().getId(), getFullName());
     }
 
     public boolean isInitialized() {
         return initialized;
     }
 
-    public final synchronized void makeSureInitialized() {
-        if (isInitializing) {
-            return;
-        }
-        isInitializing = true;
-        try {
-            extCatalog.makeSureInitialized();
-            if (!initialized) {
-                if (extCatalog.getUseMetaCache().get()) {
-                    if (metaCache == null) {
-                        metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
-                                name,
-                                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
-                                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                                Config.max_meta_object_cache_num,
-                                ignored -> listTableNames(),
-                                localTableName -> Optional.ofNullable(
-                                        buildTableForInit(null, localTableName,
-                                                Util.genIdByName(extCatalog.getName(), name, localTableName),
-                                                extCatalog,
-                                                this, true)),
-                                (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
-                    }
-                    setLastUpdateTime(System.currentTimeMillis());
-                } else {
-                    if (!Env.getCurrentEnv().isMaster()) {
-                        // Forward to master and wait the journal to replay.
-                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
-                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                        try {
-                            remoteExecutor.forward(extCatalog.getId(), id);
-                        } catch (Exception e) {
-                            Util.logAndThrowRuntimeException(LOG,
-                                    String.format("failed to forward init external db %s operation to master", name),
-                                    e);
-                        }
-                        return;
-                    }
-                    init();
-                }
-                initialized = true;
+    public final void makeSureInitialized() {
+        // Must call this method before any operation on the database to avoid deadlock of synchronized block
+        extCatalog.makeSureInitialized();
+        synchronized (this) {
+            if (isInitializing) {
+                return;
             }
-        } finally {
-            isInitializing = false;
+            isInitializing = true;
+            try {
+                if (!initialized) {
+                    if (extCatalog.getUseMetaCache().get()) {
+                        buildMetaCache();
+                        setLastUpdateTime(System.currentTimeMillis());
+                    } else {
+                        if (!Env.getCurrentEnv().isMaster()) {
+                            // Forward to master and wait the journal to replay.
+                            int waitTimeOut = ConnectContext.get() == null ? 300
+                                    : ConnectContext.get().getExecTimeoutS();
+                            MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                            try {
+                                remoteExecutor.forward(extCatalog.getId(), id);
+                            } catch (Exception e) {
+                                Util.logAndThrowRuntimeException(LOG,
+                                        String.format("failed to forward init external db %s operation to master",
+                                                name), e);
+                            }
+                            return;
+                        }
+                        init();
+                    }
+                    initialized = true;
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to init db {}, id {}, isInitializing: {}, initialized: {}",
+                        this.name, this.id, isInitializing, initialized, e);
+                initialized = false;
+            } finally {
+                isInitializing = false;
+            }
         }
     }
 
@@ -233,8 +231,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
-            T table =
-                    buildTableForInit(log.getRemoteTableNames().get(i), log.getCreateTableNames().get(i),
+            T table = buildTableForInit(log.getRemoteTableNames().get(i), log.getCreateTableNames().get(i),
                             log.getCreateTableIds().get(i), catalog, this, false);
             tmpTableNameToId.put(table.getName(), table.getId());
             tmpIdToTbl.put(table.getId(), table);
@@ -309,8 +306,29 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
 
+    private void buildMetaCache() {
+        if (metaCache == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("buildMetaCache for database: {}:{}", this.name, this.id, new Exception());
+            }
+            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                    name,
+                    OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                    OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                    Config.max_meta_object_cache_num,
+                    ignored -> listTableNames(),
+                    localTableName -> Optional.ofNullable(
+                            buildTableForInit(null, localTableName,
+                                    Util.genIdByName(extCatalog.getName(), name, localTableName),
+                                    extCatalog,
+                                    this, true)),
+                    (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
+        }
+    }
+
     private List<Pair<String, String>> listTableNames() {
         List<Pair<String, String>> tableNames;
+        lowerCaseToTableName.clear();
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
             tableNames = ExternalInfoSchemaDatabase.listTableNames().stream()
                     .map(tableName -> {
@@ -334,6 +352,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                 return Pair.of(tableName, localTableName);
             }).collect(Collectors.toList());
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("after list tables in {}.{}, lowerCaseToTableName: {}",
+                    getCatalog().getName(), getFullName(), lowerCaseToTableName);
         }
         // Check for conflicts when stored table names or meta names are case-insensitive
         if (Boolean.parseBoolean(extCatalog.getLowerCaseMetaNames())
@@ -379,12 +401,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             try {
                 List<String> tblNames = Lists.newArrayList(getTableNamesWithLock());
                 if (!tblNames.contains(localTableName)) {
-                    tblNames = listTableNames().stream()
-                            .map(Pair::value)
-                            .collect(Collectors.toList());
+                    // reset the table name list to ensure it is up-to-date
+                    resetMetaCacheNames();
+                    tblNames = Lists.newArrayList(getTableNamesWithLock());
                     if (!tblNames.contains(localTableName)) {
-                        LOG.warn("Table {} does not exist in the remote system. Skipping initialization.",
-                                localTableName);
+                        LOG.warn("Table {} does not exist in the remote database {}. Skipping initialization.",
+                                localTableName, this.name);
                         return null;
                     }
                 }
@@ -429,7 +451,18 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected abstract T buildTableInternal(String remoteTableName, String localTableName, long tblId,
             ExternalCatalog catalog, ExternalDatabase db);
 
+    /**
+     * This method will try getting table from cache only,
+     * If there is no cache, it will return empty.
+     * Different from "getTableNullable()", this method will not visit the remote catalog to get table
+     * when it does not exist in cache.
+     * This is used for replaying the metadata, to avoid exception when trying to get table from remote catalog.
+     *
+     * @param tableId
+     * @return
+     */
     public Optional<T> getTableForReplay(long tableId) {
+        Preconditions.checkState(extCatalog.getUseMetaCache().isPresent(), extCatalog.getName() + "." + name);
         if (extCatalog.getUseMetaCache().get()) {
             if (!isInitialized()) {
                 return Optional.empty();
@@ -437,6 +470,34 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             return metaCache.getMetaObjById(tableId);
         } else {
             return Optional.ofNullable(idToTbl.get(tableId));
+        }
+    }
+
+    /**
+     * Same as "getTableForReplay(long tableId)", use "tryGetMetaObj" to get table from cache only.
+     *
+     * @param tblName
+     * @return
+     */
+    public Optional<T> getTableForReplay(String tblName) {
+        Preconditions.checkState(extCatalog.getUseMetaCache().isPresent(), extCatalog.getName() + "." + name);
+        String localName = getLocalTableName(tblName, true);
+        if (localName == null) {
+            return Optional.empty();
+        }
+        if (extCatalog.getUseMetaCache().get()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getTableForReplay from metacache, db: {}.{}, is db init: {}",
+                        this.extCatalog.getName(), this.name, isInitialized());
+            }
+            if (!isInitialized()) {
+                return Optional.empty();
+            }
+            return metaCache.tryGetMetaObj(localName);
+        } else if (tableNameToId.containsKey(localName)) {
+            return Optional.ofNullable(idToTbl.get(tableNameToId.get(localName)));
+        } else {
+            return Optional.empty();
         }
     }
 
@@ -512,21 +573,20 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public boolean isTableExist(String tableName) {
+        String remoteTblName = tableName;
         if (this.isTableNamesCaseInsensitive()) {
-            String realTableName = lowerCaseToTableName.get(tableName.toLowerCase());
-            if (realTableName == null) {
+            remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (remoteTblName == null) {
                 // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
                 // to prevent lowerCaseToTableName from being empty in some cases
                 listTableNames();
-                tableName = lowerCaseToTableName.get(tableName.toLowerCase());
-                if (tableName == null) {
+                remoteTblName = lowerCaseToTableName.get(tableName.toLowerCase());
+                if (remoteTblName == null) {
                     return false;
                 }
-            } else {
-                tableName = realTableName;
             }
         }
-        return extCatalog.tableExist(ConnectContext.get().getSessionContext(), name, tableName);
+        return extCatalog.tableExist(ConnectContext.get().getSessionContext(), remoteName, remoteTblName);
     }
 
     // ATTN: this method only returned cached tables.
@@ -576,38 +636,68 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public T getTableNullable(String tableName) {
         makeSureInitialized();
-        if (this.isStoredTableNamesLowerCase()) {
-            tableName = tableName.toLowerCase();
-        }
-        if (this.isTableNamesCaseInsensitive()) {
-            String realTableName = lowerCaseToTableName.get(tableName.toLowerCase());
-            if (realTableName == null) {
-                // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
-                // to prevent lowerCaseToTableName from being empty in some cases
-                listTableNames();
-                tableName = lowerCaseToTableName.get(tableName.toLowerCase());
-                if (tableName == null) {
-                    return null;
-                }
-            } else {
-                tableName = realTableName;
-            }
-        }
-        if (extCatalog.getLowerCaseMetaNames().equalsIgnoreCase("true")
-                && (this.isTableNamesCaseInsensitive())) {
-            tableName = tableName.toLowerCase();
+        String finalName = getLocalTableName(tableName, false);
+        if (finalName == null) {
+            return null;
         }
         if (extCatalog.getUseMetaCache().get()) {
             // must use full qualified name to generate id.
             // otherwise, if 2 databases have the same table name, the id will be the same.
-            return metaCache.getMetaObj(tableName,
-                    Util.genIdByName(extCatalog.getName(), name, tableName)).orElse(null);
+            return metaCache.getMetaObj(finalName,
+                    Util.genIdByName(extCatalog.getName(), name, finalName)).orElse(null);
         } else {
-            if (!tableNameToId.containsKey(tableName)) {
+            if (!tableNameToId.containsKey(finalName)) {
                 return null;
             }
-            return idToTbl.get(tableNameToId.get(tableName));
+            return idToTbl.get(tableNameToId.get(finalName));
         }
+    }
+
+    /**
+     * Get the local table name based on the given table name.
+     *
+     * @param tableName
+     * @param isReplay, if true, only check local cache, will not visit remote system
+     * @return
+     */
+    @Nullable
+    private String getLocalTableName(String tableName, boolean isReplay) {
+        String finalName = tableName;
+        if (this.isStoredTableNamesLowerCase()) {
+            finalName = tableName.toLowerCase();
+        }
+        if (this.isTableNamesCaseInsensitive()) {
+            finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (finalName == null) {
+                if (isReplay) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("failed to get final table name from: {}.{}.{}, is replay = true",
+                                getCatalog().getName(), getFullName(), tableName);
+                    }
+                    return null;
+                }
+                // Here we need to execute listTableNames() once to fill in lowerCaseToTableName
+                // to prevent lowerCaseToTableName from being empty in some cases
+                listTableNames();
+                finalName = lowerCaseToTableName.get(tableName.toLowerCase());
+                if (finalName == null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("failed to get final table name from: {}.{}.{}",
+                                getCatalog().getName(), getFullName(), tableName);
+                    }
+                    return null;
+                }
+            }
+        }
+        if (extCatalog.getLowerCaseMetaNames().equalsIgnoreCase("true")
+                && (this.isTableNamesCaseInsensitive())) {
+            finalName = tableName.toLowerCase();
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get table {} from database: {}.{}, final name is: {}, catalog id: {}",
+                    tableName, getCatalog().getName(), getFullName(), finalName, getCatalog().getId());
+        }
+        return finalName;
     }
 
     @Override
@@ -688,30 +778,33 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public void unregisterTable(String tableName) {
         makeSureInitialized();
-        if (this.isStoredTableNamesLowerCase()) {
-            tableName = tableName.toLowerCase();
-        }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
+            LOG.debug("unregister table {}.{}", this.name, tableName);
         }
-
+        setLastUpdateTime(System.currentTimeMillis());
+        // check if the table exists in cache, it not, does return
+        ExternalTable dorisTable = getTableForReplay(tableName).orElse(null);
+        if (dorisTable == null) {
+            return;
+        }
+        // clear the cache related to this table.
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.invalidate(tableName, Util.genIdByName(extCatalog.getName(), name, tableName));
-                lowerCaseToTableName.remove(tableName.toLowerCase());
+                metaCache.invalidate(dorisTable.getName(),
+                        Util.genIdByName(extCatalog.getName(), name, dorisTable.getName()));
+                lowerCaseToTableName.remove(dorisTable.getName().toLowerCase());
             }
         } else {
-            Long tableId = tableNameToId.remove(tableName);
+            Long tableId = tableNameToId.remove(dorisTable.getName());
             if (tableId == null) {
-                LOG.warn("table [{}] does not exist when drop", tableName);
+                LOG.warn("table [{}] does not exist when drop", dorisTable.getName());
                 return;
             }
             idToTbl.remove(tableId);
-            lowerCaseToTableName.remove(tableName.toLowerCase());
+            lowerCaseToTableName.remove(dorisTable.getName().toLowerCase());
         }
-        setLastUpdateTime(System.currentTimeMillis());
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(
-                extCatalog.getId(), getFullName(), tableName);
+
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
     }
 
     @Override
@@ -776,5 +869,23 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public int hashCode() {
         return Objects.hashCode(name, extCatalog);
+    }
+
+    @VisibleForTesting
+    public void addTableForTest(T tbl) {
+        // 1. add for "use_meta_cache = false"
+        idToTbl.put(tbl.getId(), tbl);
+        tableNameToId.put(tbl.getName(), tbl.getId());
+        // 2. add for "use_meta_cache = true"
+        buildMetaCache();
+        metaCache.addObjForTest(tbl.getId(), tbl.getName(), tbl);
+    }
+
+    public void resetMetaCacheNames() {
+        if (extCatalog.getUseMetaCache().isPresent() && extCatalog.getUseMetaCache().get() && metaCache != null) {
+            metaCache.resetNames();
+        } else {
+            resetToUninitialized();
+        }
     }
 }

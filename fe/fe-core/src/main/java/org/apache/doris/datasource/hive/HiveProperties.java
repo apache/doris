@@ -81,11 +81,16 @@ public class HiveProperties {
             PROP_SKIP_FOOTER_COUNT);
 
     public static String getFieldDelimiter(Table table) {
+        return getFieldDelimiter(table, false);
+    }
+
+    public static String getFieldDelimiter(Table table, boolean supportMultiChar) {
         // This method is used for text format.
         Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_FIELD_DELIMITER);
         Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SERIALIZATION_FORMAT);
-        return HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat));
+        String delimiter = HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat);
+        return supportMultiChar ? delimiter : HiveMetaStoreClientHelper.getByte(delimiter);
     }
 
     public static String getSeparatorChar(Table table) {

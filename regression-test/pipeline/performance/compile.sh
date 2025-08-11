@@ -78,10 +78,19 @@ merge_pr_to_target_branch_latest() {
 
 if [[ "${target_branch}" == "master" ]]; then
     REMOTE_CCACHE='/mnt/remote_ccache_master'
+    docker_image="apache/doris:build-env-ldb-toolchain-latest"
+elif [[ "${target_branch}" == "branch-3.1" ]]; then
+    REMOTE_CCACHE='/mnt/remote_ccache_master'
     docker_image="apache/doris:build-env-ldb-toolchain-0.19-latest"
-elif [[ "${target_branch}" == "branch-2.0" ]]; then
-    docker_image="apache/doris:build-env-for-2.0"
+elif [[ "${target_branch}" == "branch-3.0" ]]; then
+    REMOTE_CCACHE='/mnt/remote_ccache_master'
+    docker_image="apache/doris:build-env-for-3.0-0.19"
+elif [[ "${target_branch}" == "branch-2.1" ]]; then
     REMOTE_CCACHE='/mnt/remote_ccache_branch_2'
+    docker_image="apache/doris:build-env-for-2.1-0.19"
+elif [[ "${target_branch}" == "branch-2.0" ]]; then
+    REMOTE_CCACHE='/mnt/remote_ccache_branch_2'
+    docker_image="apache/doris:build-env-for-2.0"
 elif [[ "${target_branch}" == "branch-1.2-lts" ]]; then
     REMOTE_CCACHE='/mnt/remote_ccache_master'
     docker_image="apache/doris:build-env-for-1.2"
@@ -117,6 +126,7 @@ set -x
 # shellcheck disable=SC2086
 sudo docker run -i --rm \
     --name "${docker_name}" \
+    --network=host \
     -e TZ=Asia/Shanghai \
     ${mount_swapfile} \
     -v /etc/localtime:/etc/localtime:ro \

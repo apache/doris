@@ -128,6 +128,8 @@ public:
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
+    // Used to create tablet meta from memory buffer.
+    Status create_from_buffer(const uint8_t* buffer, size_t buffer_size);
     static Status load_from_file(const std::string& file_path, TabletMetaPB* tablet_meta_pb);
     Status save(const std::string& file_path);
     Status save_as_json(const std::string& file_path);
@@ -364,6 +366,20 @@ private:
     mutable std::shared_mutex _meta_lock;
 };
 
+class DeleteBitmapAggCache : public LRUCachePolicy {
+public:
+    DeleteBitmapAggCache(size_t capacity);
+
+    static DeleteBitmapAggCache* instance();
+
+    static DeleteBitmapAggCache* create_instance(size_t capacity);
+
+    class Value : public LRUCacheValueBase {
+    public:
+        roaring::Roaring bitmap;
+    };
+};
+
 /**
  * Wraps multiple bitmaps for recording rows (row id) that are deleted or
  * overwritten. For now, it's only used when unique key merge-on-write property
@@ -413,8 +429,8 @@ public:
     /**
      * Move c-tor for making delete bitmap snapshot on read path
      */
-    DeleteBitmap(DeleteBitmap&& r);
-    DeleteBitmap& operator=(DeleteBitmap&& r);
+    DeleteBitmap(DeleteBitmap&& r) noexcept;
+    DeleteBitmap& operator=(DeleteBitmap&& r) noexcept;
 
     /**
      * Makes a snapshot of delete bitmap, read lock will be acquired in this
@@ -565,46 +581,9 @@ public:
 
     std::set<RowsetId> get_rowset_cache_version();
 
-    class AggCachePolicy : public LRUCachePolicy {
-    public:
-        AggCachePolicy(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
-                                 LRUCacheType::SIZE,
-                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
-    };
-
-    class AggCache {
-    public:
-        class Value : public LRUCacheValueBase {
-        public:
-            roaring::Roaring bitmap;
-        };
-
-        AggCache(size_t size_in_bytes) {
-            static std::once_flag once;
-            std::call_once(once, [size_in_bytes] {
-                auto* tmp = new AggCachePolicy(size_in_bytes);
-                AggCache::s_repr.store(tmp, std::memory_order_release);
-
-                // release the sigleton instance at program exit
-                std::atexit([] {
-                    auto* ptr = AggCache::s_repr.exchange(nullptr, std::memory_order_acquire);
-                    delete ptr;
-                });
-            });
-
-            while (!s_repr.load(std::memory_order_acquire)) {
-            }
-        }
-
-        static LRUCachePolicy* repr() { return s_repr.load(std::memory_order_acquire); }
-        static std::atomic<AggCachePolicy*> s_repr;
-    };
-
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
 
-    mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
     mutable std::shared_mutex _rowset_cache_version_lock;
     mutable std::map<RowsetId, std::map<SegmentId, Version>> _rowset_cache_version;

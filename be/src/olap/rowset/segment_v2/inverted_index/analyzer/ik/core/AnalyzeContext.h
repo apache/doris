@@ -34,6 +34,8 @@
 #include "common/logging.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/cfg/Configuration.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/dic/Dictionary.h"
+#include "vec/common/arena.h"
+
 namespace doris::segment_v2 {
 
 class AnalyzeContext {
@@ -80,7 +82,7 @@ public:
         SURROGATE_PAIR_SEGMENTER
     };
     const CharacterUtil::TypedRuneArray& getTypedRuneArray() const { return typed_runes_; }
-    explicit AnalyzeContext(IKMemoryPool<Cell>& pool, std::shared_ptr<Configuration> config);
+    explicit AnalyzeContext(vectorized::Arena& arena, std::shared_ptr<Configuration> config);
     virtual ~AnalyzeContext();
 
     void reset();

@@ -254,8 +254,8 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
         if (!expr) {
             LOG(WARNING) << "TTL type file dose not need to change the suffix"
                          << " key=" << key.hash.to_string() << " offset=" << key.offset
-                         << " old_type=" << BlockFileCache::cache_type_to_string(key.meta.type)
-                         << " new_type=" << BlockFileCache::cache_type_to_string(type);
+                         << " old_type=" << cache_type_to_string(key.meta.type)
+                         << " new_type=" << cache_type_to_string(type);
         }
         DCHECK(expr);
         std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
@@ -288,7 +288,7 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const std::string& dir, 
     } else if (type == FileCacheType::TTL) {
         return Path(dir) / std::to_string(offset);
     } else {
-        return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
+        return Path(dir) / (std::to_string(offset) + cache_type_to_surfix(type));
     }
 }
 
@@ -297,7 +297,7 @@ std::string FSFileCacheStorage::get_path_in_local_cache_old_ttl_format(const std
                                                                        FileCacheType type,
                                                                        bool is_tmp) {
     DCHECK(type == FileCacheType::TTL);
-    return Path(dir) / (std::to_string(offset) + BlockFileCache::cache_type_to_string(type));
+    return Path(dir) / (std::to_string(offset) + cache_type_to_surfix(type));
 }
 
 std::vector<std::string> FSFileCacheStorage::get_path_in_local_cache_all_candidates(
@@ -536,8 +536,9 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
                 ++failure_count;
             }
         }
-        if (!write_file_cache_version().ok()) {
-            return Status::InternalError("Failed to write version hints for file cache");
+        if (auto st = write_file_cache_version(); !st.ok()) {
+            return Status::InternalError("Failed to write version hints for file cache, err={}",
+                                         st.to_string());
         }
     }
 
@@ -606,7 +607,7 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
             if (suffix == "tmp") [[unlikely]] {
                 *is_tmp = true;
             } else {
-                *cache_type = BlockFileCache::string_to_cache_type(suffix);
+                *cache_type = surfix_to_cache_type(suffix);
             }
         }
     } catch (...) {
@@ -662,6 +663,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
+                // TODO(zhengyu): update type&expiration if need
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed

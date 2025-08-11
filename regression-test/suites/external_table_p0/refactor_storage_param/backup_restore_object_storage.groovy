@@ -199,17 +199,13 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
         shouldFail {
             createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "AWS_ACCESS_KEY", ak, "AWS_SECRET_KEY", sk, "true", "s3://ck/" + System.currentTimeMillis())
         }
-        //endpoint is empty
-        shouldFail {
-            createRepository("${failedRepoName}", "s3.endpoint", "", "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "s3://${bucket}/test_" + System.currentTimeMillis())
-        }
         //region is empty
         shouldFail {
             createRepository("${failedRepoName}", "s3.endpoint", "", "s3.region", "", "s3.access_key", ak, "s3.secret_key", sk, "", "s3://${bucket}/test_" + System.currentTimeMillis())
         }
     }
     /*-------------AWS S3--------------------------------*/
-    String  ak = context.config.otherConfigs.get("AWSAK")
+    String ak = context.config.otherConfigs.get("AWSAK")
     String sk = context.config.otherConfigs.get("AWSSK")
     String s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
     String region = "ap-northeast-1"

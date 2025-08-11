@@ -25,9 +25,6 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 /**
  * Assert num rows node is used to determine whether the number of rows is less than desired num of rows.
  * The rows are the result of subqueryString.
@@ -35,17 +32,12 @@ import org.apache.logging.log4j.Logger;
  * The cancelled reason will be reported by Backend and displayed back to the user.
  */
 public class AssertNumRowsNode extends PlanNode {
-    private static final Logger LOG = LogManager.getLogger(AssertNumRowsNode.class);
 
     private long desiredNumOfRows;
     private String subqueryString;
     private AssertNumRowsElement.Assertion assertion;
 
     private boolean shouldConvertOutputToNullable = false;
-
-    public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement) {
-        this(id, input, assertNumRowsElement, false, null);
-    }
 
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement,
                              boolean convertToNullable, TupleDescriptor tupleDescriptor) {

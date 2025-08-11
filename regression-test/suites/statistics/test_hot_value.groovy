@@ -52,6 +52,7 @@ suite("test_hot_value") {
     sql """create database test_hot_value"""
     sql """use test_hot_value"""
     sql """set global enable_auto_analyze=false"""
+    sql " set hot_value_threshold = 0.01"
 
     sql """CREATE TABLE test1 (
             key1 int NULL,
@@ -80,6 +81,10 @@ suite("test_hot_value") {
     wait_row_count_reported("test_hot_value", "test1", 0, 4, "10000")
     wait_row_count_reported("test_hot_value", "test2", 0, 4, "10000")
     sql """analyze table test1 with sync"""
+    explain {
+        sql("memo plan select * from test1")
+        contains "hotValues=(null)"
+    }
     def result = sql """show column stats test1(key1)"""
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
@@ -109,16 +114,16 @@ suite("test_hot_value") {
     assertEquals("10000.0", result[0][2])
     String[] hotValues = result[0][17].split(";")
     assertEquals(2, hotValues.length)
-    assertTrue(hotValues[0] == "1:50.0" || hotValues[0] == "0:50.0")
-    assertTrue(hotValues[1] == "1:50.0" || hotValues[1] == "0:50.0")
+    assertTrue(hotValues[0] == "'1':50.0" || hotValues[0] == "'0':50.0")
+    assertTrue(hotValues[1] == "'1':50.0" || hotValues[1] == "'0':50.0")
     result = sql """show column cached stats test1(value1)"""
     logger.info("result " + result)
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
     hotValues = result[0][17].split(";")
     assertEquals(2, hotValues.length)
-    assertTrue(hotValues[0] == "1:50.0" || hotValues[0] == "0:50.0")
-    assertTrue(hotValues[1] == "1:50.0" || hotValues[1] == "0:50.0")
+    assertTrue(hotValues[0] == "'1':50.0" || hotValues[0] == "'0':50.0")
+    assertTrue(hotValues[1] == "'1':50.0" || hotValues[1] == "'0':50.0")
 
     sql """drop stats test1"""
     sql """analyze table test1 with sample rows 40000 with sync"""
@@ -132,53 +137,61 @@ suite("test_hot_value") {
     assertEquals("10000.0", result[0][2])
     hotValues = result[0][17].split(";")
     assertEquals(2, hotValues.length)
-    assertTrue(hotValues[0] == "1:50.0" || hotValues[0] == "0:50.0")
-    assertTrue(hotValues[1] == "1:50.0" || hotValues[1] == "0:50.0")
+    assertTrue(hotValues[0] == "'1':50.0" || hotValues[0] == "'0':50.0")
+    assertTrue(hotValues[1] == "'1':50.0" || hotValues[1] == "'0':50.0")
     result = sql """show column cached stats test1(value1)"""
     logger.info("result " + result)
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
     hotValues = result[0][17].split(";")
     assertEquals(2, hotValues.length)
-    assertTrue(hotValues[0] == "1:50.0" || hotValues[0] == "0:50.0")
-    assertTrue(hotValues[1] == "1:50.0" || hotValues[1] == "0:50.0")
+    assertTrue(hotValues[0] == "'1':50.0" || hotValues[0] == "'0':50.0")
+    assertTrue(hotValues[1] == "'1':50.0" || hotValues[1] == "'0':50.0")
 
     sql """alter table test1 modify column value1 set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST', 'hot_values'='aaa :22.33');"""
     result = sql """show column stats test1(value1)"""
     assertEquals(1, result.size())
     assertEquals("5.0", result[0][2])
-    assertEquals("aaa:22.33", result[0][17])
+    assertEquals("'aaa':22.33", result[0][17])
     result = sql """show column cached stats test1(value1)"""
     assertEquals(1, result.size())
     assertEquals("5.0", result[0][2])
-    assertEquals("aaa:22.33", result[0][17])
+    assertEquals("'aaa':22.33", result[0][17])
+    explain {
+        sql("memo plan select * from test1")
+        contains "hotValues=('aaa':22.33)"
+    }
 
     sql """alter table test1 modify column value1 set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST', 'hot_values'='a \\\\;a \\\\:a :22.33');"""
     result = sql """show column stats test1(value1)"""
     assertEquals(1, result.size())
     assertEquals("5.0", result[0][2])
-    assertEquals("a ;a :a:22.33", result[0][17])
+    assertEquals("'a ;a :a':22.33", result[0][17])
     result = sql """show column cached stats test1(value1)"""
     assertEquals(1, result.size())
     assertEquals("5.0", result[0][2])
-    assertEquals("a ;a :a:22.33", result[0][17])
+    assertEquals("'a ;a :a':22.33", result[0][17])
+    explain {
+        sql("memo plan select * from test1")
+        contains "hotValues=('a ;a :a':22.33)"
+    }
 
     sql """analyze table test2 with sample rows 100 with sync"""
     result = sql """show column stats test2(value1)"""
     assertEquals(1, result.size())
-    assertEquals(" : ;a:100.0", result[0][17])
+    assertEquals("' : ;a':100.0", result[0][17])
     result = sql """show column cached stats test2(value1)"""
     assertEquals(1, result.size())
-    assertEquals(" : ;a:100.0", result[0][17])
+    assertEquals("' : ;a':100.0", result[0][17])
 
     sql """drop stats test2"""
     sql """analyze table test2 with sample rows 4000000 with sync"""
     result = sql """show column stats test2(value1)"""
     assertEquals(1, result.size())
-    assertEquals(" : ;a:100.0", result[0][17])
+    assertEquals("' : ;a':100.0", result[0][17])
     result = sql """show column cached stats test2(value1)"""
     assertEquals(1, result.size())
-    assertEquals(" : ;a:100.0", result[0][17])
+    assertEquals("' : ;a':100.0", result[0][17])
 
     sql """drop database if exists test_hot_value"""
 }

@@ -33,8 +33,6 @@ import java.util.Map;
  * CreateIndexOp
  */
 public class CreateIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx

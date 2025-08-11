@@ -70,7 +70,7 @@ public:
         return _approximate_data_size.load(std::memory_order_relaxed);
     }
 
-    const std::string& tablet_path() const override;
+    std::string tablet_path() const override;
 
     // clang-format off
     int64_t fetch_add_approximate_num_rowsets (int64_t x) { return _approximate_num_rowsets .fetch_add(x, std::memory_order_relaxed); }
@@ -271,8 +271,6 @@ public:
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
-
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
 
@@ -285,6 +283,8 @@ public:
 
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
+
+    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version

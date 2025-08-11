@@ -50,13 +50,18 @@ public class NullOrEmpty extends ScalarFunction
         super("null_or_empty", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private NullOrEmpty(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public NullOrEmpty withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new NullOrEmpty(children.get(0));
+        return new NullOrEmpty(getFunctionParams(children));
     }
 
     @Override

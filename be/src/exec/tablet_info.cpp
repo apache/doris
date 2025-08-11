@@ -56,6 +56,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);
@@ -597,17 +598,17 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     case TExprNodeType::INT_LITERAL: {
         switch (t_expr.type.types[0].scalar_type.type) {
         case TPrimitiveType::TINYINT: {
-            int8_t value = t_expr.int_literal.value;
+            auto value = cast_set<int8_t>(t_expr.int_literal.value);
             column->insert_data(reinterpret_cast<const char*>(&value), 0);
             break;
         }
         case TPrimitiveType::SMALLINT: {
-            int16_t value = t_expr.int_literal.value;
+            auto value = cast_set<int16_t>(t_expr.int_literal.value);
             column->insert_data(reinterpret_cast<const char*>(&value), 0);
             break;
         }
         case TPrimitiveType::INT: {
-            int32_t value = t_expr.int_literal.value;
+            auto value = cast_set<int32_t>(t_expr.int_literal.value);
             column->insert_data(reinterpret_cast<const char*>(&value), 0);
             break;
         }
@@ -629,7 +630,7 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
         break;
     }
     case TExprNodeType::STRING_LITERAL: {
-        int len = t_expr.string_literal.value.size();
+        size_t len = t_expr.string_literal.value.size();
         const char* str_val = t_expr.string_literal.value.c_str();
         column->insert_data(str_val, len);
         break;
@@ -653,7 +654,7 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                                      t_expr.node_type);
     }
     }
-    part_key->second = column->size() - 1;
+    part_key->second = cast_set<int32_t>(column->size() - 1);
     return Status::OK();
 }
 // NOLINTEND(readability-function-size)
@@ -718,6 +719,12 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
                     ", part_index={}, schema_index={}",
                     part_result->indexes[j].index_id, _schema->indexes()[j]->index_id);
         }
+    }
+    if (t_part.__isset.total_replica_num) {
+        part_result->total_replica_num = t_part.total_replica_num;
+    }
+    if (t_part.__isset.load_required_replica_num) {
+        part_result->load_required_replica_num = t_part.load_required_replica_num;
     }
     return Status::OK();
 }
@@ -869,5 +876,6 @@ Status VOlapTablePartitionParam::replace_partitions(
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -22,14 +22,13 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <stdlib.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <iterator>
 #include <ostream>
 #include <set>
-#include <shared_mutex>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -45,14 +44,9 @@
 #include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/schema_cache.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_cache.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -63,6 +57,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/scan_node.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/json/path_in_data.h"
 #include "vec/olap/block_reader.h"
@@ -74,29 +69,32 @@ using ReadSource = TabletReader::ReadSource;
 OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
-          _tablet_reader_params({
-                  .tablet = std::move(params.tablet),
-                  .tablet_schema {},
-                  .aggregation = params.aggregation,
-                  .version = {0, params.version},
-                  .start_key {},
-                  .end_key {},
-                  .conditions {},
-                  .bloom_filters {},
-                  .bitmap_filters {},
-                  .in_filters {},
-                  .function_filters {},
-                  .delete_predicates {},
-                  .target_cast_type_for_variants {},
-                  .rs_splits {},
-                  .return_columns {},
-                  .output_columns {},
-                  .remaining_conjunct_roots {},
-                  .common_expr_ctxs_push_down {},
-                  .topn_filter_source_node_ids {},
-                  .filter_block_conjuncts {},
-                  .key_group_cluster_key_idxes {},
-          }) {
+          _tablet_reader_params({.tablet = std::move(params.tablet),
+                                 .tablet_schema {},
+                                 .aggregation = params.aggregation,
+                                 .version = {0, params.version},
+                                 .start_key {},
+                                 .end_key {},
+                                 .conditions {},
+                                 .bloom_filters {},
+                                 .bitmap_filters {},
+                                 .in_filters {},
+                                 .function_filters {},
+                                 .delete_predicates {},
+                                 .target_cast_type_for_variants {},
+                                 .rs_splits {},
+                                 .return_columns {},
+                                 .output_columns {},
+                                 .remaining_conjunct_roots {},
+                                 .common_expr_ctxs_push_down {},
+                                 .topn_filter_source_node_ids {},
+                                 .filter_block_conjuncts {},
+                                 .key_group_cluster_key_idxes {},
+                                 .virtual_column_exprs {},
+                                 .vir_cid_to_idx_in_block {},
+                                 .vir_col_idx_to_type {},
+                                 .score_runtime {},
+                                 .collection_statistics {}}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _is_init = false;
 }
@@ -130,11 +128,28 @@ Status OlapScanner::init() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
+        LOG_WARNING("CloudTablet.capture_rs_readers.return e-230 init")
+                .tag("tablet_id", tablet->tablet_id());
+        return Status::Error<false>(-230, "injected error");
+    });
+
     for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
     }
+
+    for (auto pair : local_state->_slot_id_to_virtual_column_expr) {
+        // Scanner will be executed in a different thread, so we need to clone the context.
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(pair.second->clone(_state, context));
+        _slot_id_to_virtual_column_expr[pair.first] = context;
+    }
+
+    _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
+    _slot_id_to_col_type = local_state->_slot_id_to_col_type;
+    _score_runtime = local_state->_score_runtime;
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -150,8 +165,9 @@ Status OlapScanner::init() {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
-            tablet->tablet_schema()->num_variant_columns() == 0) {
+            olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
+            tablet->tablet_schema()->num_variant_columns() == 0 &&
+            tablet->tablet_schema()->num_virtual_columns() == 0) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
                                                 olap_scan_node.schema_version);
@@ -227,6 +243,13 @@ Status OlapScanner::init() {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
+    if (_tablet_reader_params.score_runtime) {
+        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                _tablet_reader_params.common_expr_ctxs_push_down));
+    }
+
     return Status::OK();
 }
 
@@ -286,12 +309,15 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
+    _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
+    _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
+    _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
+    _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns =
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
-        _tablet_reader_params.target_cast_type_for_variants[ele.first] =
-                ele.second->get_primitive_type();
+        _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     // Condition
     for (auto& filter : filters) {
@@ -334,7 +360,7 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.end_key.push_back(key_range->end_scan_range);
     }
 
-    _tablet_reader_params.profile = _local_state->profile();
+    _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
@@ -446,7 +472,9 @@ Status OlapScanner::_init_variant_columns() {
             // add them into tablet_schema for later column indexing.
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
-                    slot->column_paths(), slot->col_unique_id());
+                    slot->column_paths(), slot->col_unique_id(),
+                    assert_cast<const vectorized::DataTypeVariant&>(*remove_nullable(slot->type()))
+                            .variant_max_subcolumns_count());
             if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
@@ -479,6 +507,20 @@ Status OlapScanner::_init_return_columns() {
                     "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
                     slot->col_name(), tablet_schema->get_all_field_names(), slot->col_unique_id());
         }
+
+        if (slot->get_virtual_column_expr()) {
+            ColumnId virtual_column_cid = index;
+            _virtual_column_exprs[virtual_column_cid] = _slot_id_to_virtual_column_expr[slot->id()];
+            size_t idx_in_block = _slot_id_to_index_in_block[slot->id()];
+            _vir_cid_to_idx_in_block[virtual_column_cid] = idx_in_block;
+            _vir_col_idx_to_type[idx_in_block] = _slot_id_to_col_type[slot->id()];
+
+            VLOG_DEBUG << fmt::format(
+                    "Virtual column, slot id: {}, cid {}, column index: {}, type: {}", slot->id(),
+                    virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
+                    _vir_col_idx_to_type[idx_in_block]->get_name());
+        }
+
         _return_columns.push_back(index);
         if (slot->is_nullable() && !tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
@@ -553,17 +595,22 @@ void OlapScanner::update_realtime_counters() {
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(stats.raw_rows_read);
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
             stats.uncompressed_bytes_read);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-            stats.file_cache_stats.bytes_read_from_local);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
-            stats.file_cache_stats.bytes_read_from_remote);
 
     // In case of no cache, we still need to update the IO stats. uncompressed bytes read == local + remote
     if (stats.file_cache_stats.bytes_read_from_local == 0 &&
         stats.file_cache_stats.bytes_read_from_remote == 0) {
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+                stats.compressed_bytes_read);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.compressed_bytes_read);
     } else {
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+                stats.file_cache_stats.bytes_read_from_local);
+        _state->get_query_ctx()
+                ->resource_ctx()
+                ->io_context()
+                ->update_scan_bytes_from_remote_storage(
+                        stats.file_cache_stats.bytes_read_from_remote);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
@@ -639,7 +686,7 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
-    COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.rows_dict_filtered);
+    COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.segment_dict_filtered);
     COUNTER_UPDATE(local_state->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_filtered);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_by_bitmap);

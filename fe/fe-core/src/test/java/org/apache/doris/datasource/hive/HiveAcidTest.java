@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -70,7 +70,7 @@ public class HiveAcidTest {
                 AcidUtil.VALID_WRITEIDS_KEY,
             new ValidReaderWriteIdList("tbl:100:" + Long.MAX_VALUE + ":").writeToString());
 
-        HivePartition partition = new HivePartition(new SimpleTableInfo("", "tbl"),
+        HivePartition partition = new HivePartition(NameMapping.createForTest("", "tbl"),
                 false, "", "file://" + tempPath.toAbsolutePath() + "",
                 new ArrayList<>(), new HashMap<>());
         try {
@@ -99,7 +99,7 @@ public class HiveAcidTest {
                 new ValidReaderWriteIdList("tbl:150:" + Long.MAX_VALUE + ":").writeToString());
 
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -135,7 +135,7 @@ public class HiveAcidTest {
                 new ValidReaderWriteIdList("tbl:100:" + Long.MAX_VALUE + ":").writeToString());
 
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -186,7 +186,7 @@ public class HiveAcidTest {
                 new ValidReaderWriteIdList("tbl:100:" + Long.MAX_VALUE + ":").writeToString());
 
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -233,7 +233,7 @@ public class HiveAcidTest {
                 new ValidReaderWriteIdList("tbl:100:4:4").writeToString());
 
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -280,7 +280,7 @@ public class HiveAcidTest {
                 new ValidReaderWriteIdList("tbl:100:4:4").writeToString());
 
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -333,7 +333,7 @@ public class HiveAcidTest {
         //         AcidUtils.AcidOperationalProperties.getDefault().toString());
 
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -403,7 +403,7 @@ public class HiveAcidTest {
         //         AcidUtils.AcidOperationalProperties.getDefault().toString());
 
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -469,7 +469,7 @@ public class HiveAcidTest {
 
         Map<String, String> tableProps = new HashMap<>();
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -515,7 +515,7 @@ public class HiveAcidTest {
 
         Map<String, String> tableProps = new HashMap<>();
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",
@@ -578,7 +578,7 @@ public class HiveAcidTest {
         Map<String, String> tableProps = new HashMap<>();
 
         HivePartition partition = new HivePartition(
-                new SimpleTableInfo("", "tbl"),
+                NameMapping.createForTest("", "tbl"),
                 false,
                 "",
                 "file://" + tempPath.toAbsolutePath() + "",

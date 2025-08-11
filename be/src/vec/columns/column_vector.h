@@ -202,7 +202,7 @@ public:
         size_t value_size = sizeof(uint64_t);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + value_size * i;
-            uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
+            auto value = unaligned_load<uint64_t>(cur_ptr);
             VecDateTimeValue datetime = VecDateTimeValue::create_from_olap_datetime(value);
             this->insert_data(reinterpret_cast<char*>(&datetime), 0);
         }
@@ -244,15 +244,9 @@ public:
 
     void deserialize_vec(StringRef* keys, const size_t num_rows) override;
 
-    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                       const uint8_t* null_map) override;
-
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
-
-    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                     const uint8_t* null_map) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {
@@ -367,8 +361,6 @@ public:
 
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }
@@ -410,6 +402,9 @@ public:
                 elements_to_move * sizeof(value_type));
         data.resize(data.size() - length);
     }
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 protected:
     static value_type default_value() {

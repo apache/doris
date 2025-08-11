@@ -67,7 +67,7 @@ suite("schema_change_modify_mv_column_type_agg") {
             def json = parseJson(result)
         }
     }
-    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT k2, k1, max(c_int) FROM ${testTable} GROUP BY k2, k1""")
+    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT k2 as a1, k1 as a2, max(c_int) FROM ${testTable} GROUP BY k2, k1""")
     qt_sql """ desc ${testTable} all """
     sql "set topn_opt_limit_threshold = 100"
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"

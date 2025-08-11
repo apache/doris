@@ -20,8 +20,8 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
-#include "meta-service/codec.h"
-#include "meta-service/keys.h"
+#include "meta-store/codec.h"
+#include "meta-store/keys.h"
 
 namespace doris::cloud {
 

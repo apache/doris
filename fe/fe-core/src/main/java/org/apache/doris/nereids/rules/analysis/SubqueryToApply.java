@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -137,7 +138,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                     .collect(ImmutableList.toImmutableList()), tmpPlan,
                                 context.getSubqueryToMarkJoinSlot(),
                                 ctx.cascadesContext,
-                                Optional.of(conjunct), false, isMarkSlotNotNull);
+                                Optional.of(conjunct), isMarkSlotNotNull);
                         applyPlan = result.first;
                         tmpPlan = applyPlan;
                         newConjuncts.add(result.second.isPresent() ? result.second.get() : conjunct);
@@ -179,7 +180,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     Pair<LogicalPlan, Optional<Expression>> result =
                             subqueryToApply(Utils.fastToImmutableList(subqueryExprs), childPlan,
                                     context.getSubqueryToMarkJoinSlot(), ctx.cascadesContext,
-                                    Optional.of(newProject), true, false);
+                                    Optional.of(newProject), false);
                     applyPlan = result.first;
                     childPlan = applyPlan;
                     newProjects.add(
@@ -263,7 +264,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
                                 relatedInfoList.get(i) == RelatedInfo.RelatedToLeft ? leftChildPlan : rightChildPlan,
                                 context.getSubqueryToMarkJoinSlot(),
-                                ctx.cascadesContext, Optional.of(conjunct), false, isMarkSlotNotNull);
+                                ctx.cascadesContext, Optional.of(conjunct), isMarkSlotNotNull);
                         applyPlan = result.first;
                         if (relatedInfoList.get(i) == RelatedInfo.RelatedToLeft) {
                             leftChildPlan = applyPlan;
@@ -360,22 +361,20 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     private Pair<LogicalPlan, Optional<Expression>> subqueryToApply(
             List<SubqueryExpr> subqueryExprs, LogicalPlan childPlan,
             Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
-            CascadesContext ctx, Optional<Expression> conjunct, boolean isProject,
-            boolean isMarkJoinSlotNotNull) {
-        Pair<LogicalPlan, Optional<Expression>> tmpPlan = Pair.of(childPlan, conjunct);
+            CascadesContext ctx, Optional<Expression> correlatedOuterExpr, boolean isMarkJoinSlotNotNull) {
+        Pair<LogicalPlan, Optional<Expression>> tmpPlan = Pair.of(childPlan, correlatedOuterExpr);
         for (int i = 0; i < subqueryExprs.size(); ++i) {
             SubqueryExpr subqueryExpr = subqueryExprs.get(i);
             if (subqueryExpr instanceof Exists && hasTopLevelScalarAgg(subqueryExpr.getQueryPlan())) {
                 // because top level scalar agg always returns a value or null(for empty input)
-                // so Exists and Not Exists conjunct are always evaluated to True and false literals respectively
-                // we don't create apply node for it
+                // so Exists and Not Exists correlatedOuterExpr are always evaluated to
+                // True and false literals respectively, we don't create apply node for it
                 continue;
             }
 
             if (!ctx.subqueryIsAnalyzed(subqueryExpr)) {
                 tmpPlan = addApply(subqueryExpr, tmpPlan.first,
-                    subqueryToMarkJoinSlot, ctx, tmpPlan.second,
-                    isProject, subqueryExprs.size() == 1, isMarkJoinSlotNotNull);
+                    subqueryToMarkJoinSlot, ctx, tmpPlan.second, isMarkJoinSlotNotNull);
             }
         }
         return tmpPlan;
@@ -390,30 +389,27 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         return false;
     }
 
-    private Pair<LogicalPlan, Optional<Expression>> addApply(SubqueryExpr subquery,
-            LogicalPlan childPlan,
+    private Pair<LogicalPlan, Optional<Expression>> addApply(SubqueryExpr subquery, LogicalPlan childPlan,
             Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
-            CascadesContext ctx, Optional<Expression> conjunct, boolean isProject,
-            boolean singleSubquery, boolean isMarkJoinSlotNotNull) {
+            CascadesContext ctx, Optional<Expression> correlatedOuterExpr, boolean isMarkJoinSlotNotNull) {
         ctx.setSubqueryExprIsAnalyzed(subquery, true);
         Optional<MarkJoinSlotReference> markJoinSlot = subqueryToMarkJoinSlot.get(subquery);
-        boolean needAddScalarSubqueryOutputToProjects = isConjunctContainsScalarSubqueryOutput(
-                subquery, conjunct, isProject, singleSubquery);
+        boolean needAddScalarSubqueryOutputToProjects = isScalarSubqueryOutputUsedInOuterScope(
+                subquery, correlatedOuterExpr);
         // for scalar subquery, we need ensure it output at most 1 row
         // by doing that, we add an aggregate function any_value() to the project list
         // we use needRuntimeAnyValue to indicate if any_value() is needed
         // if needRuntimeAnyValue is true, we will add it to the project list
         boolean needRuntimeAnyValue = false;
-        NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0);
+        NamedExpression subqueryOutput = subquery.getQueryPlan().getOutput().get(0);
         if (subquery instanceof ScalarSubquery) {
             // scalar sub query may adjust output slot's nullable.
-            oldSubqueryOutput = ((ScalarSubquery) subquery).getOutputSlotAdjustNullable();
+            subqueryOutput = ((ScalarSubquery) subquery).getOutputSlotAdjustNullable();
         }
         Slot countSlot = null;
         Slot anyValueSlot = null;
-        Optional<Expression> newConjunct = conjunct;
-        if (needAddScalarSubqueryOutputToProjects && subquery instanceof ScalarSubquery
-                && !subquery.getCorrelateSlots().isEmpty()) {
+        Optional<Expression> newCorrelatedOuterExpr = correlatedOuterExpr;
+        if (needAddScalarSubqueryOutputToProjects && !subquery.getCorrelateSlots().isEmpty()) {
             if (((ScalarSubquery) subquery).hasTopLevelScalarAgg()) {
                 // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b));
                 // when unnest correlated subquery, we create a left join node.
@@ -421,44 +417,21 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 // if there is no match, the row from right table is filled with nulls
                 // but COUNT function is always not nullable.
                 // so wrap COUNT with Nvl to ensure its result is 0 instead of null to get the correct result
-                if (conjunct.isPresent()) {
-                    NamedExpression agg = ScalarSubquery.getTopLevelScalarAggFunction(
-                            subquery.getQueryPlan(), subquery.getCorrelateSlots()).get();
-                    if (agg instanceof Alias) {
-                        Map<Expression, Expression> replaceMap = new HashMap<>();
-                        if (((Alias) agg).child() instanceof NotNullableAggregateFunction) {
-                            NotNullableAggregateFunction notNullableAggFunc =
-                                    (NotNullableAggregateFunction) ((Alias) agg).child();
-                            if (subquery.getQueryPlan() instanceof LogicalProject) {
-                                LogicalProject logicalProject =
-                                        (LogicalProject) subquery.getQueryPlan();
-                                Preconditions.checkState(logicalProject.getOutputs().size() == 1,
-                                        "Scalar subuqery's should only output 1 column");
-                                Slot aggSlot = agg.toSlot();
-                                replaceMap.put(aggSlot, new Alias(new Nvl(aggSlot,
-                                        notNullableAggFunc.resultForEmptyInput())));
-                                NamedExpression newOutput = (NamedExpression) ExpressionUtils
-                                        .replace((NamedExpression) logicalProject.getProjects().get(0), replaceMap);
-                                replaceMap.clear();
-                                replaceMap.put(oldSubqueryOutput, newOutput.toSlot());
-                                oldSubqueryOutput = newOutput;
-                                subquery = subquery.withSubquery((LogicalPlan) logicalProject.child());
-                            } else {
-                                replaceMap.put(oldSubqueryOutput, new Nvl(oldSubqueryOutput,
-                                        notNullableAggFunc.resultForEmptyInput()));
-                            }
-                            if (!replaceMap.isEmpty()) {
-                                newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
-                            }
-                        }
-                    }
+                if (correlatedOuterExpr.isPresent()) {
+                    List<NamedExpression> aggFunctions = ScalarSubquery.getTopLevelScalarAggFunctions(
+                            subquery.getQueryPlan(), subquery.getCorrelateSlots());
+                    SubQueryRewriteResult result = addNvlForScalarSubqueryOutput(aggFunctions, subqueryOutput,
+                            subquery, correlatedOuterExpr);
+                    subqueryOutput = result.subqueryOutput;
+                    subquery = result.subquery;
+                    newCorrelatedOuterExpr = result.correlatedOuterExpr;
                 }
             } else {
                 // if scalar subquery doesn't have top level scalar agg we will create one, for example
                 // select (select t2.c1 from t2 where t2.c2 = t1.c2) from t1;
                 // the original output of the correlate subquery is t2.c1, after adding a scalar agg, it will be
                 // select (select count(*), any_value(t2.c1) from t2 where t2.c2 = t1.c2) from t1;
-                Alias anyValueAlias = new Alias(new AnyValue(oldSubqueryOutput));
+                Alias anyValueAlias = new Alias(new AnyValue(subqueryOutput));
                 LogicalAggregate<Plan> aggregate;
                 if (((ScalarSubquery) subquery).limitOneIsEliminated()) {
                     aggregate = new LogicalAggregate<>(ImmutableList.of(),
@@ -471,10 +444,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 }
                 anyValueSlot = anyValueAlias.toSlot();
                 subquery = subquery.withSubquery(aggregate);
-                if (conjunct.isPresent()) {
+                if (correlatedOuterExpr.isPresent()) {
                     Map<Expression, Expression> replaceMap = new HashMap<>();
-                    replaceMap.put(oldSubqueryOutput, anyValueSlot);
-                    newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
+                    replaceMap.put(subqueryOutput, anyValueSlot);
+                    newCorrelatedOuterExpr = Optional.of(ExpressionUtils.replace(correlatedOuterExpr.get(),
+                            replaceMap));
                 }
                 needRuntimeAnyValue = true;
             }
@@ -498,7 +472,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 subquery.getCorrelateSlots(),
                 subQueryType, isNot, compareExpr, subquery.getTypeCoercionExpr(), Optional.empty(),
                 markJoinSlot,
-                needAddScalarSubqueryOutputToProjects, isProject, isMarkJoinSlotNotNull,
+                needAddScalarSubqueryOutputToProjects, isMarkJoinSlotNotNull,
                 childPlan, subquery.getQueryPlan());
 
         ImmutableList.Builder<NamedExpression> projects =
@@ -525,22 +499,104 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     logicalProject = new LogicalProject(projects.build(), newApply);
                 }
             } else {
-                projects.add(oldSubqueryOutput);
+                projects.add(subqueryOutput);
                 logicalProject = new LogicalProject(projects.build(), newApply);
             }
         } else {
             logicalProject = new LogicalProject(projects.build(), newApply);
         }
 
-        return Pair.of(logicalProject, newConjunct);
+        return Pair.of(logicalProject, newCorrelatedOuterExpr);
     }
 
-    private boolean isConjunctContainsScalarSubqueryOutput(
-            SubqueryExpr subqueryExpr, Optional<Expression> conjunct, boolean isProject, boolean singleSubquery) {
+    /**
+     * SubQueryRewriteResult
+     */
+    @VisibleForTesting
+    protected class SubQueryRewriteResult {
+        public SubqueryExpr subquery;
+        public NamedExpression subqueryOutput;
+        public Optional<Expression> correlatedOuterExpr;
+
+        public SubQueryRewriteResult(SubqueryExpr subquery, NamedExpression subqueryOutput,
+                                     Optional<Expression> correlatedOuterExpr) {
+            this.subquery = subquery;
+            this.subqueryOutput = subqueryOutput;
+            this.correlatedOuterExpr = correlatedOuterExpr;
+        }
+    }
+
+    /**
+     * for correlated scalar subquery like select c1, (select count(c1) from t2 where t1.c2 = t2.c2) as c from t1
+     * if we don't add extra nvl for not nullable agg functions, the plan will be like bellow:
+     * +--LogicalProject(projects=[c1#0, count(c1)#4 AS `c`#5])
+     *    +--LogicalJoin(type=LEFT_OUTER_JOIN, hashJoinConjuncts=[(c2#1 = c2#3)])
+     *       |--LogicalOlapScan (t1)
+     *       +--LogicalAggregate[108] (groupByExpr=[c2#3], outputExpr=[c2#3, count(c1#2) AS `count(c1)`#4])
+     *          +--LogicalOlapScan (t2)
+     *
+     * the count(c1)#4 may be null because of unmatched row of left outer join, but count is not nullable agg function,
+     * it should never be null, we need use nvl to wrap it and change the plan like bellow:
+     * +--LogicalProject(projects=[c1#0, ifnull(count(c1)#4, 0) AS `c`#5])
+     *    +--LogicalJoin(type=LEFT_OUTER_JOIN, hashJoinConjuncts=[(c2#1 = c2#3)])
+     *       |--LogicalOlapScan (t1)
+     *       +--LogicalAggregate[108] (groupByExpr=[c2#3], outputExpr=[c2#3, count(c1#2) AS `count(c1)`#4])
+     *          +--LogicalOlapScan (t2)
+     *
+     * in order to do that, we need change subquery's output and replace the correlated outer expr
+     */
+    @VisibleForTesting
+    protected SubQueryRewriteResult addNvlForScalarSubqueryOutput(List<NamedExpression> aggFunctions,
+                                                                NamedExpression subqueryOutput,
+                                                                SubqueryExpr subquery,
+                                                                Optional<Expression> correlatedOuterExpr) {
+        SubQueryRewriteResult result = new SubQueryRewriteResult(subquery, subqueryOutput, correlatedOuterExpr);
+        Map<Expression, Expression> replaceMapForSubqueryProject = new HashMap<>();
+        Map<Expression, Expression> replaceMapForCorrelatedOuterExpr = new HashMap<>();
+        for (NamedExpression agg : aggFunctions) {
+            if (agg instanceof Alias && ((Alias) agg).child() instanceof NotNullableAggregateFunction) {
+                NotNullableAggregateFunction notNullableAggFunc =
+                        (NotNullableAggregateFunction) ((Alias) agg).child();
+                if (subquery.getQueryPlan() instanceof LogicalProject) {
+                    // if the top node of subquery is LogicalProject, we need replace the agg slot in
+                    // project list by nvl(agg), and this project will be placed above LogicalApply node
+                    Slot aggSlot = agg.toSlot();
+                    replaceMapForSubqueryProject.put(aggSlot, new Alias(new Nvl(aggSlot,
+                            notNullableAggFunc.resultForEmptyInput())));
+                } else {
+                    replaceMapForCorrelatedOuterExpr.put(subqueryOutput, new Nvl(subqueryOutput,
+                            notNullableAggFunc.resultForEmptyInput()));
+                }
+            }
+        }
+        if (!replaceMapForSubqueryProject.isEmpty()) {
+            Preconditions.checkState(subquery.getQueryPlan() instanceof LogicalProject,
+                    "Scalar subquery's top plan node should be LogicalProject");
+            LogicalProject logicalProject =
+                    (LogicalProject) subquery.getQueryPlan();
+            Preconditions.checkState(logicalProject.getOutputs().size() == 1,
+                    "Scalar subuqery's should only output 1 column");
+            NamedExpression newOutput = (NamedExpression) ExpressionUtils
+                    .replace((NamedExpression) logicalProject.getProjects().get(0),
+                            replaceMapForSubqueryProject);
+            replaceMapForCorrelatedOuterExpr.put(subqueryOutput, newOutput.toSlot());
+            result.subqueryOutput = newOutput;
+            // logicalProject will be placed above LogicalApply later, so we remove it from subquery
+            result.subquery = subquery.withSubquery((LogicalPlan) logicalProject.child());
+        }
+        if (!replaceMapForCorrelatedOuterExpr.isEmpty()) {
+            result.correlatedOuterExpr = Optional.of(ExpressionUtils.replace(correlatedOuterExpr.get(),
+                    replaceMapForCorrelatedOuterExpr));
+        }
+        return result;
+    }
+
+    private boolean isScalarSubqueryOutputUsedInOuterScope(
+            SubqueryExpr subqueryExpr, Optional<Expression> correlatedOuterExpr) {
         return subqueryExpr instanceof ScalarSubquery
-            && ((conjunct.isPresent() && ((ImmutableSet) conjunct.get().collect(SlotReference.class::isInstance))
-                    .contains(subqueryExpr.getQueryPlan().getOutput().get(0)))
-                || isProject);
+            && ((correlatedOuterExpr.isPresent()
+                && ((ImmutableSet) correlatedOuterExpr.get().collect(SlotReference.class::isInstance))
+                    .contains(subqueryExpr.getQueryPlan().getOutput().get(0))));
     }
 
     /**
@@ -671,12 +727,6 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             subqueryToMarkJoinSlot.put(subquery, markJoinSlotReference);
         }
 
-    }
-
-    private enum SearchState {
-        SearchNot,
-        SearchAnd,
-        SearchExistsOrInSubquery
     }
 
     private List<Boolean> shouldOutputMarkJoinSlot(Collection<Expression> conjuncts) {

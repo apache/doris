@@ -54,12 +54,21 @@ public class Array extends ScalarFunction
         super("array", varArgs);
     }
 
+    public Array(List<Expression> varArgs) {
+        super("array", varArgs);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Array(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Array withChildren(List<Expression> children) {
-        return new Array(children.toArray(new Expression[0]));
+        return new Array(getFunctionParams(children));
     }
 
     @Override

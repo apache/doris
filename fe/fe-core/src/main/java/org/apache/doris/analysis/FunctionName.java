@@ -21,11 +21,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TFunctionName;
 
-import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -122,16 +119,7 @@ public class FunctionName {
         return db + "." + fn;
     }
 
-    // used to analyze db element in function name, add cluster
-    public String analyzeDb(Analyzer analyzer) throws AnalysisException {
-        String db = this.db;
-        if (db == null) {
-            db = analyzer.getDefaultDb();
-        }
-        return db;
-    }
-
-    public void analyze(Analyzer analyzer, SetType type) throws AnalysisException {
+    public void analyze(SetType type) throws AnalysisException {
         if (fn.length() == 0) {
             throw new AnalysisException("Function name can not be empty.");
         }
@@ -143,12 +131,6 @@ public class FunctionName {
         }
         if (Character.isDigit(fn.charAt(0))) {
             throw new AnalysisException("Function cannot start with a digit: " + fn);
-        }
-        if (db == null) {
-            db = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(db) && type != SetType.GLOBAL) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
         }
     }
 

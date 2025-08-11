@@ -39,6 +39,7 @@
 #include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exec/format/table/table_format_reader.h"
 #include "vparquet_column_reader.h"
 #include "vparquet_group_reader.h"
 
@@ -103,19 +104,20 @@ public:
                   io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
-    // for test
-    void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
+    // for unit test
+    void set_file_reader(io::FileReaderSPtr file_reader);
 
     Status init_reader(
             const std::vector<std::string>& all_column_names,
-            const std::vector<std::string>& missing_column_names,
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-            bool filter_groups = true, const bool hive_use_column_names = true);
+            std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
+                    TableSchemaChangeHelper::ConstNode::get_instance(),
+            bool filter_groups = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -148,15 +150,14 @@ public:
                     partition_columns,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
-    const FieldDescriptor get_file_metadata_schema();
-    void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
-        _table_col_to_file_col = map;
-    }
+    Status get_file_metadata_schema(const FieldDescriptor** ptr);
 
     void set_row_id_column_iterator(
             std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
+
+    bool count_read_rows() override { return true; }
 
 protected:
     void _collect_profile_before_close() override;
@@ -181,10 +182,7 @@ private:
         RuntimeProfile::Counter* read_page_index_time = nullptr;
         RuntimeProfile::Counter* parse_page_index_time = nullptr;
 
-        RuntimeProfile::Counter* file_read_time = nullptr;
-        RuntimeProfile::Counter* file_read_calls = nullptr;
         RuntimeProfile::Counter* file_meta_read_calls = nullptr;
-        RuntimeProfile::Counter* file_read_bytes = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
@@ -253,20 +251,27 @@ private:
     FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
+    // _tracing_file_reader wraps _file_reader.
+    // _file_reader is original file reader.
+    // _tracing_file_reader is tracing file reader with io context.
+    // If io_ctx is null, _tracing_file_reader will be the same as file_reader.
     io::FileReaderSPtr _file_reader = nullptr;
+    io::FileReaderSPtr _tracing_file_reader = nullptr;
     std::unique_ptr<RowGroupReader> _current_group_reader;
     // read to the end of current reader
     bool _row_group_eof = true;
     size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
-    // table column name to file column name map. For iceberg schema evolution.
-    std::unordered_map<std::string, std::string> _table_col_to_file_col;
+
+    // Through this node, you can find the file column based on the table column.
+    std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
+            TableSchemaChangeHelper::ConstNode::get_instance();
+
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
 
-    // During initialization, multiple vfile_scanner's _colname_to_value_range will point to the same object,
-    // so the content in the object cannot be modified (there is a multi-threading problem).
-    // _colname_to_value_range_index_read used when _hive_use_column_names = false.
-    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range_index_read;
-    std::vector<std::string> _read_columns;
+    //sequence in file, need to read
+    std::vector<std::string> _read_table_columns;
+    std::vector<std::string> _read_file_columns;
+
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
@@ -282,9 +287,11 @@ private:
     cctz::time_zone* _ctz = nullptr;
 
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
-    const std::vector<std::string>* _column_names = nullptr;
 
     std::vector<std::string> _missing_cols;
+    // _table_column_names = _missing_cols + _read_table_columns
+    const std::vector<std::string>* _table_column_names = nullptr;
+
     Statistics _statistics;
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
@@ -301,7 +308,6 @@ private:
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
-    bool _hive_use_column_names = false;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 
     std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;

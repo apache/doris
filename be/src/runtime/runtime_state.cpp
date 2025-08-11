@@ -132,7 +132,8 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
+                           ExecEnv* exec_env,
+                           const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
         : _profile("PipelineX  " + std::to_string(fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -150,7 +151,8 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _error_row_number(0) {
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    init_mem_trackers("<unnamed>");
+    _query_mem_tracker = query_mem_tracker;
+    DCHECK(_query_mem_tracker != nullptr);
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)

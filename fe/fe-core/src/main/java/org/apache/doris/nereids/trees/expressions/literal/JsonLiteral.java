@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -69,5 +71,13 @@ public class JsonLiteral extends Literal {
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage(), t);
         }
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        }
+        throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
     }
 }

@@ -21,6 +21,8 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
@@ -490,6 +492,30 @@ public class TransactionEntry {
         }
         LOG.info("set txn load info in observer, label={}, txnId={}, dbId={}, timeoutTimestamp={}, allSubTxnNum={}, "
                 + "subTxnStates={}", label, transactionId, dbId, timeoutTimestamp, allSubTxnNum, subTransactionStates);
+    }
+
+    public List<Long> getPartitionSubTxnIds(long tableId, Partition partition, long indexId) {
+        List<Long> subTxnIds = new ArrayList<>();
+        MaterializedIndex index = partition.getIndex(indexId);
+        if (index == null) {
+            LOG.error("index={} not found in table={}, partition={}", indexId, tableId, partition.getId());
+            return subTxnIds;
+        }
+        for (SubTransactionState subTransactionState : subTransactionStates) {
+            if (subTransactionState.getTable().getId() != tableId) {
+                continue;
+            }
+            for (TTabletCommitInfo tabletCommitInfo : subTransactionState.getTabletCommitInfos()) {
+                if (index.getTablet(tabletCommitInfo.getTabletId()) != null) {
+                    subTxnIds.add(subTransactionState.getSubTransactionId());
+                    break;
+                }
+            }
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("table_id={}, partition_id={}, sub_txn_ids={}", tableId, partition.getId(), subTxnIds);
+        }
+        return subTxnIds;
     }
 
     private void resetByTxnInfo(TTxnLoadInfo txnLoadInfo) throws DdlException {

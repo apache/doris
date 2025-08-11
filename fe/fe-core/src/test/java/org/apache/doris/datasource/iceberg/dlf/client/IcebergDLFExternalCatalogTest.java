@@ -17,12 +17,10 @@
 
 package org.apache.doris.datasource.iceberg.dlf.client;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
-import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 
+import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.Assert;
 import org.junit.Test;
@@ -42,19 +40,15 @@ public class IcebergDLFExternalCatalogTest {
         // This cache should belong to the catalog level,
         // so the object addresses of clients in different pools must be different
         Assert.assertNotSame(dlfClientPool1, dlfClientPool2);
-
     }
 
     @Test
     public void testNotSupportOperation() {
         HashMap<String, String> props = new HashMap<>();
         IcebergDLFExternalCatalog catalog = new IcebergDLFExternalCatalog(1, "test", "test", props, "test");
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.createDb((CreateDbStmt) null));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.createDb((CreateDatabaseCommand) null));
+        Assert.assertThrows(NotSupportedException.class, () -> catalog.createDb("db1", true, Maps.newHashMap()));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropDb("", true, true));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.createTable(null));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable("", "", true, true, true, true));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.truncateTable((TruncateTableCommand) null));
+        Assert.assertThrows(NotSupportedException.class, () -> catalog.truncateTable("", "", null, true, ""));
     }
 }

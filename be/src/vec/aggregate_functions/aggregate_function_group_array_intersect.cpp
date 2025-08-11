@@ -20,11 +20,15 @@
 
 #include "vec/aggregate_functions/aggregate_function_group_array_intersect.h"
 
+#include "vec/aggregate_functions/factory_helpers.h"
+#include "vec/aggregate_functions/helpers.h"
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
-                                            const DataTypes& argument_types) {
+                                            const DataTypes& argument_types,
+                                            const AggregateFunctionAttr& attr) {
     if (nested_type->get_primitive_type() == PrimitiveType::TYPE_DATE ||
         nested_type->get_primitive_type() == PrimitiveType::TYPE_DATETIME) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -45,46 +49,16 @@ IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
 }
 
 inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
     const auto& nested_type = remove_nullable(
             dynamic_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
-    AggregateFunctionPtr res = nullptr;
+    AggregateFunctionPtr res =
+            creator_with_numeric_type::create<AggregateFunctionGroupArrayIntersect>(
+                    argument_types, result_is_nullable, attr);
 
-    switch (nested_type->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_BOOLEAN>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_TINYINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_TINYINT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_SMALLINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_SMALLINT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_INT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_INT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_BIGINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_BIGINT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_LARGEINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_LARGEINT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_FLOAT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_FLOAT>>(
-                argument_types, result_is_nullable);
-        break;
-    case PrimitiveType::TYPE_DOUBLE:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_DOUBLE>>(
-                argument_types, result_is_nullable);
-        break;
-    default:
-        res = AggregateFunctionPtr(create_with_extra_types(nested_type, argument_types));
+    if (!res) {
+        res = AggregateFunctionPtr(create_with_extra_types(nested_type, argument_types, attr));
     }
 
     if (!res) {
@@ -99,7 +73,7 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
 AggregateFunctionPtr create_aggregate_function_group_array_intersect(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    assert_unary(name, argument_types);
+    assert_arity_range(name, argument_types, 1, 1);
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
 
     if (argument_type->get_primitive_type() != TYPE_ARRAY)
@@ -108,7 +82,7 @@ AggregateFunctionPtr create_aggregate_function_group_array_intersect(
                         "Provided argument type: " +
                                 argument_type->get_name());
     return create_aggregate_function_group_array_intersect_impl(name, {argument_type},
-                                                                result_is_nullable);
+                                                                result_is_nullable, attr);
 }
 
 void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory) {

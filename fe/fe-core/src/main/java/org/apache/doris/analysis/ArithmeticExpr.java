@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
@@ -31,8 +30,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -84,10 +81,6 @@ public class ArithmeticExpr extends Expr {
 
         public String getName() {
             return name;
-        }
-
-        public OperatorPosition getPos() {
-            return pos;
         }
 
         public TExprOpcode getOpcode() {
@@ -304,115 +297,6 @@ public class ArithmeticExpr extends Expr {
         return ((ArithmeticExpr) obj).opcode == opcode;
     }
 
-    private Type findCommonType(Type t1, Type t2) {
-        PrimitiveType pt1 = t1.getPrimitiveType();
-        PrimitiveType pt2 = t2.getPrimitiveType();
-
-        if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
-            return Type.DOUBLE;
-        } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
-            return pt1 == PrimitiveType.DECIMALV2 && pt2 == PrimitiveType.DECIMALV2
-                    || (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value)
-                    ? Type.MAX_DECIMALV2_TYPE : Type.DOUBLE;
-        } else if (pt1 == PrimitiveType.DECIMAL32 || pt2 == PrimitiveType.DECIMAL32) {
-            return pt1 == PrimitiveType.DECIMAL32 && pt2 == PrimitiveType.DECIMAL32 ? Type.DECIMAL32 : Type.DOUBLE;
-        } else if (pt1 == PrimitiveType.DECIMAL64 || pt2 == PrimitiveType.DECIMAL64) {
-            return pt1 == PrimitiveType.DECIMAL64 && pt2 == PrimitiveType.DECIMAL64 ? Type.DECIMAL64 : Type.DOUBLE;
-        } else if (pt1 == PrimitiveType.DECIMAL128 || pt2 == PrimitiveType.DECIMAL128) {
-            return pt1 == PrimitiveType.DECIMAL128 && pt2 == PrimitiveType.DECIMAL128 ? Type.DECIMAL128 : Type.DOUBLE;
-        } else if (pt1 == PrimitiveType.LARGEINT || pt2 == PrimitiveType.LARGEINT) {
-            return Type.LARGEINT;
-        } else {
-            if (pt1 != PrimitiveType.BIGINT && pt2 != PrimitiveType.BIGINT) {
-                return Type.INVALID;
-            }
-            return Type.BIGINT;
-        }
-    }
-
-    private boolean castIfHaveSameType(Type t1, Type t2, Type target) throws AnalysisException {
-        if (t1 == target || t2 == target) {
-            castChild(target, 0);
-            castChild(target, 1);
-            return true;
-        }
-        return false;
-    }
-
-    private void castUpperInteger(Type t1, Type t2) throws AnalysisException {
-        if (!t1.isIntegerType() || !t2.isIntegerType()) {
-            return;
-        }
-        if (castIfHaveSameType(t1, t2, Type.BIGINT)) {
-            return;
-        }
-        if (castIfHaveSameType(t1, t2, Type.INT)) {
-            return;
-        }
-        if (castIfHaveSameType(t1, t2, Type.SMALLINT)) {
-            return;
-        }
-        if (castIfHaveSameType(t1, t2, Type.TINYINT)) {
-            return;
-        }
-    }
-
-    private void analyzeNoneDecimalOp(Type t1, Type t2) throws AnalysisException {
-        Type commonType;
-        switch (op) {
-            case MULTIPLY:
-            case ADD:
-            case SUBTRACT:
-                if (t1.isDecimalV2() || t2.isDecimalV2()) {
-                    castBinaryOp(findCommonType(t1, t2));
-                }
-                if (isConstant()) {
-                    castUpperInteger(t1, t2);
-                }
-                break;
-            case MOD:
-                if (t1.isDecimalV2() || t2.isDecimalV2()) {
-                    castBinaryOp(findCommonType(t1, t2));
-                } else if ((t1.isFloatingPointType() || t2.isFloatingPointType()) && !t1.equals(t2)) {
-                    castBinaryOp(Type.DOUBLE);
-                }
-                break;
-            case INT_DIVIDE:
-                if (!t1.isFixedPointType() || !t2.isFixedPointType()) {
-                    castBinaryOp(Type.BIGINT);
-                }
-                break;
-            case DIVIDE:
-                t1 = getChild(0).getType().getNumResultType();
-                t2 = getChild(1).getType().getNumResultType();
-                commonType = findCommonType(t1, t2);
-                if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
-                        || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
-                    commonType = Type.DOUBLE;
-                }
-                castBinaryOp(commonType);
-                break;
-            case BITAND:
-            case BITOR:
-            case BITXOR:
-                if (t1 == Type.BOOLEAN && t2 == Type.BOOLEAN) {
-                    t1 = Type.TINYINT;
-                    t2 = Type.TINYINT;
-                }
-                commonType = Type.getAssignmentCompatibleType(t1, t2, false, SessionVariable.getEnableDecimal256());
-                if (commonType.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
-                    commonType = Type.BIGINT;
-                }
-                type = castBinaryOp(commonType);
-                break;
-            default:
-                Preconditions.checkState(false,
-                        "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
-                break;
-        }
-    }
-
     /**
      * Convert integer type to decimal type.
      */
@@ -548,89 +432,6 @@ public class ArithmeticExpr extends Expr {
                 Preconditions.checkState(false,
                         "Unknown arithmetic operation " + op + " in: " + this.toSql());
                 break;
-        }
-    }
-
-    @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // bitnot is the only unary op, deal with it here
-        if (op == Operator.BITNOT) {
-            Type t = getChild(0).getType();
-            if (t.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
-                type = Type.BIGINT;
-                castChild(type, 0);
-            } else {
-                type = t;
-            }
-            fn = getBuiltinFunction(op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
-            if (fn == null) {
-                Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
-            }
-            return;
-        }
-        analyzeSubqueryInChildren();
-        // if children has subquery, it will be rewritten and reanalyzed in the future.
-        if (contains(Subquery.class)) {
-            return;
-        }
-
-        Type t1 = getChild(0).getType();
-        Type t2 = getChild(1).getType();
-
-        // Support null operation
-        if (t1.isNull() || t2.isNull()) {
-            castBinaryOp(t1.isNull() ? t2 : t1);
-            t1 = getChild(0).getType();
-            t2 = getChild(1).getType();
-        }
-
-        // dispose the case t1 and t2 is not numeric type
-        if (!t1.isNumericType()) {
-            castChild(t1.getNumResultType(), 0);
-            t1 = t1.getNumResultType();
-        }
-        if (!t2.isNumericType()) {
-            castChild(t2.getNumResultType(), 1);
-            t2 = t2.getNumResultType();
-        }
-
-        if (t1.isDecimalV3() || t2.isDecimalV3()) {
-            analyzeDecimalV3Op(t1, t2);
-        } else {
-            analyzeNoneDecimalOp(t1, t2);
-        }
-        fn = getBuiltinFunction(op.name, collectChildReturnTypes(), Function.CompareMode.IS_IDENTICAL);
-        if (fn == null) {
-            Preconditions.checkState(false,
-                    String.format("No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
-        }
-        if (!fn.getReturnType().isDecimalV3()) {
-            type = fn.getReturnType();
-        }
-    }
-
-    public void analyzeSubqueryInChildren() throws AnalysisException {
-        for (Expr child : children) {
-            if (child instanceof Subquery) {
-                Subquery subquery = (Subquery) child;
-                if (!subquery.returnsScalarColumn()) {
-                    String msg = "Subquery of arithmetic expr must return a single column: " + child.toSql();
-                    throw new AnalysisException(msg);
-                }
-                /**
-                 * Situation: The expr is a binary predicate and the type of subquery is not scalar type.
-                 * Add assert: The stmt of subquery is added an assert condition (return error if row count > 1).
-                 * Input params:
-                 *     expr: 0.9*(select k1 from t2)
-                 *     subquery stmt: select k1 from t2
-                 * Output params:
-                 *     new expr: 0.9 * (select k1 from t2 (assert row count: return error if row count > 1 ))
-                 *     subquery stmt: select k1 from t2 (assert row count: return error if row count > 1 )
-                 */
-                if (!subquery.getType().isScalarType()) {
-                    subquery.getStatement().setAssertNumRowsElement(1, AssertNumRowsElement.Assertion.LE);
-                }
-            }
         }
     }
 

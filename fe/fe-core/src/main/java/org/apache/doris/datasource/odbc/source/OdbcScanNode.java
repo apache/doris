@@ -24,10 +24,8 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
@@ -35,7 +33,6 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
-import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
 import org.apache.doris.thrift.TOdbcTableType;
@@ -219,13 +216,6 @@ public class OdbcScanNode extends ExternalScanNode {
 
         msg.odbc_scan_node = odbcScanNode;
         super.toThrift(msg);
-    }
-
-    @Override
-    public StatsDelta genStatsDelta() throws AnalysisException {
-        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
-                tbl.getId(), -1L);
     }
 
     @Override

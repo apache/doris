@@ -54,6 +54,11 @@ MutableColumnPtr DataTypeArray::create_column() const {
     return ColumnArray::create(nested->create_column(), ColumnArray::ColumnOffsets::create());
 }
 
+Status DataTypeArray::check_column(const IColumn& column) const {
+    const auto* column_array = DORIS_TRY(check_column_nested_type<ColumnArray>(column));
+    return nested->check_column(column_array->get_data());
+}
+
 Field DataTypeArray::get_default() const {
     Array a;
     a.push_back(nested->get_default());
@@ -119,7 +124,7 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf, int be_exec_ver
         const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
         // row num
-        *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
+        unaligned_store<ColumnArray::Offset64>(buf, column.size());
         buf += sizeof(ColumnArray::Offset64);
         // offsets
         memcpy(buf, data_column.get_offsets().data(),
@@ -153,7 +158,7 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
         auto& offsets = data_column->get_offsets();
 
         // row num
-        ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
+        auto row_num = unaligned_load<ColumnArray::Offset64>(buf);
         buf += sizeof(ColumnArray::Offset64);
         // offsets
         offsets.resize(row_num);
@@ -228,135 +233,53 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
     return str;
 }
 
-bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
-    StringRef element(rb.position(), 0);
-    has_quota = false;
-    if (rb.eof()) {
-        return false;
+FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
+                                                          size_t row_num) const {
+    const auto& array_column = assert_cast<const ColumnArray&>(column);
+    int precision = -1;
+    int scale = -1;
+    auto nested_type = get_nested_type();
+    PrimitiveType nested_type_id = nested_type->get_primitive_type();
+    uint8_t num_dimensions = 1;
+    while (nested_type_id == TYPE_ARRAY) {
+        nested_type = remove_nullable(nested_type);
+        const auto& nested_array = assert_cast<const DataTypeArray&>(*nested_type);
+        nested_type_id = nested_array.get_nested_type()->get_primitive_type();
+        num_dimensions++;
     }
-
-    // ltrim
-    while (!rb.eof() && isspace(*rb.position())) {
-        ++rb.position();
-        element.data = rb.position();
-    }
-
-    // parse string
-    if (*rb.position() == '"' || *rb.position() == '\'') {
-        const char str_sep = *rb.position();
-        size_t str_len = 1;
-        // search until next '"' or '\''
-        while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
-            ++str_len;
+    if (is_decimal(nested_type_id)) {
+        precision = nested_type->get_precision();
+        scale = nested_type->get_scale();
+    } else if (nested_type_id == TYPE_DATETIMEV2) {
+        scale = nested_type->get_scale();
+    } else if (nested_type_id == TYPE_JSONB) {
+        // Array<Jsonb> should return JsonbField as element
+        // Currently only Array<Jsonb> is supported
+        DCHECK(num_dimensions == 1);
+        Array arr;
+        size_t offset = array_column.offset_at(row_num);
+        size_t size = array_column.size_at(row_num);
+        for (size_t i = 0; i < size; ++i) {
+            auto field = Field::create_field<TYPE_JSONB>({});
+            array_column.get_data().get(offset + i, field);
+            arr.push_back(field);
         }
-        // invalid string
-        if (str_len >= rb.count()) {
-            rb.position() = rb.end();
-            return false;
-        }
-        has_quota = true;
-        rb.position() += str_len + 1;
-        element.size += str_len + 1;
+        return FieldWithDataType {
+                .field = Field::create_field<TYPE_ARRAY>(arr),
+                .base_scalar_type_id = nested_type_id,
+                .num_dimensions = num_dimensions,
+                .precision = precision,
+                .scale = scale,
+        };
     }
-
-    // parse array element until array separator ',' or end ']'
-    while (!rb.eof() && (*rb.position() != ',') && (rb.count() != 1 || *rb.position() != ']')) {
-        // invalid elements such as ["123" 456,"789" 777]
-        // correct elements such as ["123"    ,"789"    ]
-        if (has_quota && !isspace(*rb.position())) {
-            return false;
-        }
-        ++rb.position();
-        ++element.size;
-    }
-    // invalid array element
-    if (rb.eof()) {
-        return false;
-    }
-    // adjust read buffer position to first char of next array element
-    ++rb.position();
-
-    // rtrim
-    while (element.size > 0 && isspace(element.data[element.size - 1])) {
-        --element.size;
-    }
-
-    // trim '"' and '\'' for string
-    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-        element.data[0] == element.data[element.size - 1]) {
-        ++element.data;
-        element.size -= 2;
-    }
-    output = element;
-    return true;
-}
-
-Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
-    DCHECK(!rb.eof());
-    // only support one level now
-    auto* array_column = assert_cast<ColumnArray*>(column);
-    auto& offsets = array_column->get_offsets();
-
-    IColumn& nested_column = array_column->get_data();
-    DCHECK(nested_column.is_nullable());
-    if (*rb.position() != '[') {
-        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
-                                       *rb.position());
-    }
-    if (*(rb.end() - 1) != ']') {
-        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
-                                       *(rb.end() - 1));
-    }
-    // empty array []
-    if (rb.count() == 2) {
-        offsets.push_back(offsets.back());
-        return Status::OK();
-    }
-    ++rb.position();
-
-    size_t element_num = 0;
-    // parse array element until end of array
-    while (!rb.eof()) {
-        StringRef element(rb.position(), rb.count());
-        bool has_quota = false;
-        if (!next_element_from_string(rb, element, has_quota)) {
-            // we should do array element column revert if error
-            nested_column.pop_back(element_num);
-            return Status::InvalidArgument("Cannot read array element from text '{}'",
-                                           element.to_string());
-        }
-
-        // handle empty element
-        if (element.size == 0) {
-            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
-            nested_null_col.get_nested_column().insert_default();
-            nested_null_col.get_null_map_data().push_back(0);
-            ++element_num;
-            continue;
-        }
-
-        // handle null element, need to distinguish null and "null"
-        if (!has_quota && element.size == 4 && strncmp(element.data, "null", 4) == 0) {
-            // insert null
-            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
-            nested_null_col.get_nested_column().insert_default();
-            nested_null_col.get_null_map_data().push_back(1);
-            ++element_num;
-            continue;
-        }
-
-        // handle normal element
-        ReadBuffer read_buffer(const_cast<char*>(element.data), element.size);
-        auto st = nested->from_string(read_buffer, &nested_column);
-        if (!st.ok()) {
-            // we should do array element column revert if error
-            nested_column.pop_back(element_num);
-            return st;
-        }
-        ++element_num;
-    }
-    offsets.push_back(offsets.back() + element_num);
-    return Status::OK();
+    auto field = array_column[row_num];
+    return FieldWithDataType {
+            .field = std::move(field),
+            .base_scalar_type_id = nested_type_id,
+            .num_dimensions = num_dimensions,
+            .precision = precision,
+            .scale = scale,
+    };
 }
 
 } // namespace doris::vectorized

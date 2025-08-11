@@ -95,7 +95,6 @@ public class TablePartitionValues {
         addPartitionItems(addPartitionNames, addPartitionItems, types);
     }
 
-
     private void addPartitionItems(List<String> partitionNames, List<PartitionItem> partitionItems, List<Type> types) {
         Preconditions.checkState(partitionNames.size() == partitionItems.size());
         Preconditions.checkState(nextPartitionId == 0);
@@ -172,15 +171,12 @@ public class TablePartitionValues {
 
     @Data
     public static class TablePartitionKey {
+        // use local db/table name here
+        // because these names are only used to compare with local names
         private final String dbName;
         private final String tblName;
         // not in key
         private List<Type> types;
-
-        public TablePartitionKey(String dbName, String tblName) {
-            this.dbName = dbName;
-            this.tblName = tblName;
-        }
 
         public TablePartitionKey(String dbName, String tblName, List<Type> types) {
             this.dbName = dbName;

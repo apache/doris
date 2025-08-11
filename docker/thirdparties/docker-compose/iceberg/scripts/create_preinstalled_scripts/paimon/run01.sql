@@ -42,12 +42,21 @@ insert into two_partition values(4,'2038-01-01','sh');
 insert into two_partition values(5,'2038-01-02','bj');
 
 drop table if exists null_partition;
+-- CREATE TABLE null_partition (
+--    id BIGINT,
+--    region STRING
+-- ) PARTITIONED BY (region) TBLPROPERTIES (
+--     'primary-key' = 'region,id',
+--     'bucket'=10,
+--     'file.format'='orc'
+-- );
+-- in paimon 1.0.1 ,primary-key is `not null`. 
 CREATE TABLE null_partition (
    id BIGINT,
    region STRING
 ) PARTITIONED BY (region) TBLPROPERTIES (
-    'primary-key' = 'region,id',
-    'bucket'=10,
+    'primary-key' = 'id',
+    'bucket'='-1',
     'file.format'='orc'
 );
 -- null NULL "null" all will be in partition [null]

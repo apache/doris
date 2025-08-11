@@ -63,7 +63,9 @@ public:
 
     Status read_next_block_sync(Block* block, bool* eos);
 
-    void set_read_counters(RuntimeProfile* profile) { reader_->set_counters(profile); }
+    void set_read_counters(RuntimeProfile* operator_profile) {
+        reader_->set_counters(operator_profile);
+    }
 
     void update_shared_profiles(RuntimeProfile* source_op_profile);
 

@@ -23,8 +23,6 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 
@@ -35,7 +33,6 @@ import java.util.ArrayList;
  * construct a valid row empty batch.
  */
 public class EmptySetNode extends PlanNode {
-    private static final Logger LOG = LogManager.getLogger(EmptySetNode.class);
 
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
         super(id, tupleIds, "EMPTYSET", StatisticalType.EMPTY_SET_NODE);

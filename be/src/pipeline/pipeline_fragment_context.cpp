@@ -111,7 +111,6 @@
 #include "runtime/thread_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
 #include "service/backend_options.h"
-#include "util/container_util.hpp"
 #include "util/countdown_latch.h"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
@@ -222,6 +221,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
     auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
     if (stream_load_ctx != nullptr) {
         stream_load_ctx->pipe->cancel(reason.to_string());
+        // Set error URL here because after pipe is cancelled, stream load execution may return early.
+        // We need to set the error URL at this point to ensure error information is properly
+        // propagated to the client.
+        stream_load_ctx->error_url = get_load_error_url();
     }
 
     for (auto& tasks : _tasks) {
@@ -488,7 +491,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 DCHECK(task != nullptr);
 
                 // If this task has upstream dependency, then inject it into this task.
-                if (_dag.find(_pipeline->id()) != _dag.end()) {
+                if (_dag.contains(_pipeline->id())) {
                     auto& deps = _dag[_pipeline->id()];
                     for (auto& dep : deps) {
                         if (pipeline_id_to_task.contains(dep)) {
@@ -509,9 +512,10 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
                 DCHECK(pipeline_id_to_profile[pip_idx]);
                 std::vector<TScanRangeParams> scan_ranges;
-                scan_ranges = find_with_default(local_params.per_node_scan_ranges,
-                                                _pipelines[pip_idx]->operators().front()->node_id(),
-                                                scan_ranges);
+                auto node_id = _pipelines[pip_idx]->operators().front()->node_id();
+                if (local_params.per_node_scan_ranges.contains(node_id)) {
+                    scan_ranges = local_params.per_node_scan_ranges.find(node_id)->second;
+                }
                 RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(
                         scan_ranges, local_params.sender_id, request.fragment.output_sink));
             }
@@ -1110,6 +1114,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
         DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
         auto sink_id = next_sink_operator_id();
+        const int multi_cast_node_id = sink_id;
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
         // one sink has multiple sources.
         std::vector<int> sources;
@@ -1118,7 +1123,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             sources.push_back(source_id);
         }
 
-        _sink.reset(new MultiCastDataStreamSinkOperatorX(sink_id, sources, pool,
+        _sink.reset(new MultiCastDataStreamSinkOperatorX(sink_id, multi_cast_node_id, sources, pool,
                                                          thrift_sink.multi_cast_stream_sink));
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
@@ -1138,7 +1143,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             OperatorPtr source_op;
             // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
             source_op.reset(new MultiCastDataStreamerSourceOperatorX(
-                    i, pool, thrift_sink.multi_cast_stream_sink.sinks[i], row_desc, source_id));
+                    multi_cast_node_id, i, pool, thrift_sink.multi_cast_stream_sink.sinks[i],
+                    row_desc, /*operator_id=*/source_id));
             RETURN_IF_ERROR(new_pipeline->add_operator(
                     source_op, params.__isset.parallel_instances ? params.parallel_instances : 0));
             // 2. create and set sink operator of data stream sender for new pipeline
@@ -1235,7 +1241,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::EXCHANGE_NODE: {
-        int num_senders = find_with_default(request.per_exch_num_senders, tnode.node_id, 0);
+        int num_senders = request.per_exch_num_senders.contains(tnode.node_id)
+                                  ? request.per_exch_num_senders.find(tnode.node_id)->second
+                                  : 0;
         DCHECK_GT(num_senders, 0);
         op.reset(new ExchangeSourceOperatorX(pool, tnode, next_operator_id(), descs, num_senders));
         RETURN_IF_ERROR(cur_pipe->add_operator(

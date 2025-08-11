@@ -36,8 +36,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -45,7 +43,6 @@ import java.util.List;
  * Computation of analytic exprs.
  */
 public class AnalyticEvalNode extends PlanNode {
-    private static final Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
 
     private List<Expr> analyticFnCalls;
 
@@ -73,30 +70,6 @@ public class AnalyticEvalNode extends PlanNode {
     private final TupleDescriptor bufferedTupleDesc;
 
     private boolean isColocate = false;
-
-    public AnalyticEvalNode(
-            PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
-            List<Expr> partitionExprs, List<OrderByElement> orderByElements,
-            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
-            TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
-            Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
-        super(id, Lists.newArrayList(input.getOutputTupleIds()), "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
-        Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
-        // we're materializing the input row augmented with the analytic output tuple
-        tupleIds.add(outputTupleDesc.getId());
-        this.analyticFnCalls = analyticFnCalls;
-        this.partitionExprs = partitionExprs;
-        this.orderByElements = orderByElements;
-        this.analyticWindow = analyticWindow;
-        this.intermediateTupleDesc = intermediateTupleDesc;
-        this.outputTupleDesc = outputTupleDesc;
-        this.logicalToPhysicalSmap = logicalToPhysicalSmap;
-        this.partitionByEq = partitionByEq;
-        this.orderByEq = orderByEq;
-        this.bufferedTupleDesc = bufferedTupleDesc;
-        children.add(input);
-        nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
-    }
 
     // constructor used in Nereids
     public AnalyticEvalNode(
@@ -126,19 +99,6 @@ public class AnalyticEvalNode extends PlanNode {
         this.bufferedTupleDesc = bufferedTupleDesc;
         children.add(input);
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
-    }
-
-    public List<Expr> getPartitionExprs() {
-        return partitionExprs;
-    }
-
-    public List<OrderByElement> getOrderByElements() {
-        return orderByElements;
-    }
-
-    @Override
-    protected void computeOldCardinality() {
-        cardinality = getChild(0).cardinality;
     }
 
     public void setColocate(boolean colocate) {

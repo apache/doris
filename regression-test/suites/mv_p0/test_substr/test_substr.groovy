@@ -41,7 +41,7 @@ suite ("test_substr") {
             create materialized view dwd_mv as 
             SELECT  
             substr(created_at,1,10) as statistic_date,
-            max(dt) as dt
+            max(dt) as dt2
             FROM dwd 
             group by substr(created_at,1,10);
     """)

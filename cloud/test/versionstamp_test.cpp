@@ -29,8 +29,8 @@
 #include <vector>
 
 #include "common/util.h"
-#include "meta-service/codec.h"
-#include "meta-service/keys.h"
+#include "meta-store/codec.h"
+#include "meta-store/keys.h"
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
@@ -73,6 +73,11 @@ TEST(VersionstampTest, Usage) {
     EXPECT_EQ(vs3.version(), version);
     EXPECT_EQ(vs3.order(), order);
 
+    constexpr Versionstamp vs4(vs.version(), vs.order());
+    EXPECT_EQ(vs4.version(), vs.version());
+    EXPECT_EQ(vs4.order(), vs.order());
+    EXPECT_EQ(vs4.data(), vs.data());
+
     // The default constructor creates a zeroed versionstamp
     constexpr Versionstamp vs_default;
     EXPECT_EQ(vs_default.version(), 0);
@@ -99,4 +104,52 @@ TEST(VersionstampTest, EncodeDecode) {
     int result = decode_versionstamp(&encoded_view, &decoded_vs);
     EXPECT_EQ(result, 0);
     EXPECT_EQ(decoded_vs == vs, true); // Check if data matches
+}
+
+TEST(VersionstampTest, Compare) {
+    using namespace doris::cloud;
+
+    Versionstamp v1(0x0001, 1);
+    Versionstamp v2(0x0001, 2);
+    Versionstamp v3(0x0100, 1);
+
+    {
+        EXPECT_EQ(v1.version(), 0x0001);
+        EXPECT_EQ(v1.order(), 1);
+        EXPECT_EQ(v2.version(), 0x0001);
+        EXPECT_EQ(v2.order(), 2);
+        EXPECT_EQ(v3.version(), 0x0100);
+        EXPECT_EQ(v3.order(), 1);
+    }
+
+    {
+        // Test comparison operators
+        EXPECT_EQ(v1 < v2, true);
+        EXPECT_EQ(v1 > v2, false);
+        EXPECT_EQ(v1 <= v2, true);
+        EXPECT_EQ(v1 >= v2, false);
+        EXPECT_EQ(v1 == v2, false);
+
+        EXPECT_EQ(v2 < v3, true);
+        EXPECT_EQ(v2 > v3, false);
+        EXPECT_EQ(v2 <= v3, true);
+        EXPECT_EQ(v2 >= v3, false);
+        EXPECT_EQ(v2 == v3, false);
+
+        EXPECT_EQ(v1 < v3, true);
+        EXPECT_EQ(v1 > v3, false);
+        EXPECT_EQ(v1 <= v3, true);
+        EXPECT_EQ(v1 >= v3, false);
+        EXPECT_EQ(v1 == v3, false);
+    }
+
+    {
+        EXPECT_EQ(v1.order() < v2.order(), true);
+        EXPECT_EQ(v1.version() < v3.version(), true);
+    }
+
+    std::string encoded("\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01", 10);
+    for (size_t i = 0; i < 10; ++i) {
+        EXPECT_EQ(encoded.data()[i], v1.data().data()[i]) << "i: " << i;
+    }
 }
