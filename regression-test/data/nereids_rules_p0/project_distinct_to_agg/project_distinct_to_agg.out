@@ -26,8 +26,11 @@ PhysicalResultSink
 
 -- !order_by_shape --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalUnion
+--PhysicalQuickSort[MERGE_SORT]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
 
 -- !order_by_result --
 101
@@ -37,7 +40,7 @@ PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
 ------PhysicalProject
---------PhysicalStorageLayerAggregate[tbl_project_distinct_to_agg]
+--------PhysicalOlapScan[tbl_project_distinct_to_agg]
 
 -- !constant_result --
 1	2	3
