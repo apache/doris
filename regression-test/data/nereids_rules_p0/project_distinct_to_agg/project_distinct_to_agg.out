@@ -26,8 +26,11 @@ PhysicalResultSink
 
 -- !order_by_shape --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalUnion
+--PhysicalQuickSort[MERGE_SORT]
+----PhysicalQuickSort[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
 
 -- !order_by_result --
 101
