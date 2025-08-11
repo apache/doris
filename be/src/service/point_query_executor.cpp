@@ -412,6 +412,7 @@ Status PointQueryExecutor::_lookup_row_key() {
     if (_version >= 0) {
         CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
         SyncOptions options;
+        options.warmup_delta_data = config::enable_query_driven_warmup;
         options.query_version = _version;
         RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(options));
     }

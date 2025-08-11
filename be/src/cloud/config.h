@@ -142,5 +142,7 @@ DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 
 DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
 
+DECLARE_mBool(enable_query_driven_warmup);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

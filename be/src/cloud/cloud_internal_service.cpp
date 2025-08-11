@@ -21,6 +21,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
@@ -180,14 +181,14 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
     }
 
     for (auto& rs_meta_pb : request->rowset_metas()) {
-        RowsetMeta rs_meta;
-        rs_meta.init_from_pb(rs_meta_pb);
-        auto storage_resource = rs_meta.remote_storage_resource();
+        RowsetMetaSharedPtr rs_meta = std::make_shared<RowsetMeta>();
+        rs_meta->init_from_pb(rs_meta_pb);
+        auto storage_resource = rs_meta->remote_storage_resource();
         if (!storage_resource) {
             LOG(WARNING) << storage_resource.error();
             continue;
         }
-        int64_t tablet_id = rs_meta.tablet_id();
+        int64_t tablet_id = rs_meta->tablet_id();
         auto res = _engine.tablet_mgr().get_tablet(tablet_id);
         if (!res.has_value()) {
             LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
@@ -205,21 +206,27 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         if (request_ts > 0 && handle_ts - request_ts > config::warm_up_rowset_slow_log_ms * 1000) {
             g_file_cache_warm_up_rowset_request_to_handle_slow_count << 1;
             LOG(INFO) << "warm up rowset (request to handle) took " << handle_ts - request_ts
-                      << " us, tablet_id: " << rs_meta.tablet_id()
-                      << ", rowset_id: " << rs_meta.rowset_id().to_string();
+                      << " us, tablet_id: " << rs_meta->tablet_id()
+                      << ", rowset_id: " << rs_meta->rowset_id().to_string();
         }
         int64_t expiration_time =
-                tablet_meta->ttl_seconds() == 0 || rs_meta.newest_write_timestamp() <= 0
+                tablet_meta->ttl_seconds() == 0 || rs_meta->newest_write_timestamp() <= 0
                         ? 0
-                        : rs_meta.newest_write_timestamp() + tablet_meta->ttl_seconds();
+                        : rs_meta->newest_write_timestamp() + tablet_meta->ttl_seconds();
         if (expiration_time <= UnixSeconds()) {
             expiration_time = 0;
         }
 
-        for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
-            auto download_done = [&, tablet_id = rs_meta.tablet_id(),
-                                  rowset_id = rs_meta.rowset_id().to_string(),
-                                  segment_size = rs_meta.segment_file_size(segment_id),
+        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpState::TRIGGERED_BY_JOB)) {
+            LOG(INFO) << "found duplicate warmup task for rowset " << rs_meta->rowset_id()
+                      << ", skip it";
+            continue;
+        }
+
+        for (int64_t segment_id = 0; segment_id < rs_meta->num_segments(); segment_id++) {
+            auto download_done = [&, tablet_id = rs_meta->tablet_id(),
+                                  rowset_id = rs_meta->rowset_id(),
+                                  segment_size = rs_meta->segment_file_size(segment_id),
                                   wait](Status st) {
                 if (st.ok()) {
                     g_file_cache_event_driven_warm_up_finished_segment_num << 1;
@@ -249,16 +256,26 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
                                  << " rowset_id: " << rowset_id << ", error: " << st;
                 }
+                VLOG_DEBUG << "warmup rowset " << rs_meta->version() << " segment " << segment_id
+                           << " completed";
+
+                // TODO: consider index file for warm up state management
+                if (tablet->complete_rowset_segment_warmup(rs_meta->rowset_id(), st) ==
+                    WarmUpState::DONE) {
+                    VLOG_DEBUG << "warmup rowset " << rs_meta->version() << "(" << rowset_id
+                               << ") completed";
+                }
+
                 if (wait) {
                     wait->signal();
                 }
             };
 
             io::DownloadFileMeta download_meta {
-                    .path = storage_resource.value()->remote_segment_path(rs_meta, segment_id),
-                    .file_size = rs_meta.segment_file_size(segment_id),
+                    .path = storage_resource.value()->remote_segment_path(*(rs_meta), segment_id),
+                    .file_size = rs_meta->segment_file_size(segment_id),
                     .offset = 0,
-                    .download_size = rs_meta.segment_file_size(segment_id),
+                    .download_size = rs_meta->segment_file_size(segment_id),
                     .file_system = storage_resource.value()->fs,
                     .ctx =
                             {
@@ -271,16 +288,16 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             };
             g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
             g_file_cache_event_driven_warm_up_submitted_segment_size
-                    << rs_meta.segment_file_size(segment_id);
+                    << rs_meta->segment_file_size(segment_id);
             if (wait) {
                 wait->add_count();
             }
             _engine.file_cache_block_downloader().submit_download_task(download_meta);
 
             auto download_inverted_index = [&](std::string index_path, uint64_t idx_size) {
-                auto storage_resource = rs_meta.remote_storage_resource();
-                auto download_done = [=, tablet_id = rs_meta.tablet_id(),
-                                      rowset_id = rs_meta.rowset_id().to_string()](Status st) {
+                auto storage_resource = rs_meta->remote_storage_resource();
+                auto download_done = [=, tablet_id = rs_meta->tablet_id(),
+                                      rowset_id = rs_meta->rowset_id().to_string()](Status st) {
                     if (st.ok()) {
                         g_file_cache_event_driven_warm_up_finished_index_num << 1;
                         g_file_cache_event_driven_warm_up_finished_index_size << idx_size;
@@ -340,13 +357,13 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             };
 
             // inverted index
-            auto schema_ptr = rs_meta.tablet_schema();
+            auto schema_ptr = rs_meta->tablet_schema();
             auto idx_version = schema_ptr->get_inverted_index_storage_format();
             bool has_inverted_index = schema_ptr->has_inverted_index();
 
             if (has_inverted_index) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
-                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    auto&& inverted_index_info = rs_meta->inverted_index_file_info(segment_id);
                     std::unordered_map<int64_t, int64_t> index_size_map;
                     for (const auto& info : inverted_index_info.index_info()) {
                         if (info.index_file_size() != -1) {
@@ -358,11 +375,12 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     }
                     for (const auto& index : schema_ptr->inverted_indexes()) {
                         auto idx_path = storage_resource.value()->remote_idx_v1_path(
-                                rs_meta, segment_id, index->index_id(), index->get_index_suffix());
+                                *(rs_meta), segment_id, index->index_id(),
+                                index->get_index_suffix());
                         download_inverted_index(idx_path, index_size_map[index->index_id()]);
                     }
                 } else { // InvertedIndexStorageFormatPB::V2
-                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    auto&& inverted_index_info = rs_meta->inverted_index_file_info(segment_id);
                     int64_t idx_size = 0;
                     if (inverted_index_info.has_index_size()) {
                         idx_size = inverted_index_info.index_size();
@@ -370,7 +388,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         VLOG_DEBUG << "index_size is not set for segment " << segment_id;
                     }
                     auto idx_path =
-                            storage_resource.value()->remote_idx_v2_path(rs_meta, segment_id);
+                            storage_resource.value()->remote_idx_v2_path(*(rs_meta), segment_id);
                     download_inverted_index(idx_path, idx_size);
                 }
             }
