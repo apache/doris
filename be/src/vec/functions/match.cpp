@@ -100,6 +100,10 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
         inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     }
+    if (inverted_index_ctx == nullptr) {
+        _default_inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
+        inverted_index_ctx = _default_inverted_index_ctx.get();
+    }
 
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
