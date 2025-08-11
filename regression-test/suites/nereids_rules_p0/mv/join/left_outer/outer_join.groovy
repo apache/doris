@@ -521,7 +521,8 @@ suite("outer_join") {
             "left join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate "
     order_qt_query6_0_before "${query6_0}"
-    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
+    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv6_0, query6_0, "mv6_0", [NOT_IN_RBO])
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
