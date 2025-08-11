@@ -235,7 +235,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_inverted_indexs) {
     EXPECT_EQ(1, inverted_indexes_by_uid.size());
     EXPECT_EQ("idx1", inverted_indexes_by_uid[0]->index_name());
 
-    EXPECT_TRUE(schema.has_inverted_index());
+    EXPECT_TRUE(schema.has_extra_index());
 
     auto all_inverted_indexes = schema.inverted_indexes();
     EXPECT_EQ(2, all_inverted_indexes.size());
@@ -276,7 +276,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_update_indexes_from_thrift) {
 
     schema.update_indexes_from_thrift(tindexes);
 
-    EXPECT_TRUE(schema.has_inverted_index());
+    EXPECT_TRUE(schema.has_extra_index());
     auto all_inverted_indexes = schema.inverted_indexes();
     EXPECT_EQ(2, all_inverted_indexes.size());
 
@@ -318,7 +318,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_append_index) {
 
     schema.append_index(std::move(index));
 
-    EXPECT_TRUE(schema.has_inverted_index());
+    EXPECT_TRUE(schema.has_extra_index());
     auto indexes = schema.inverted_indexes();
     EXPECT_EQ(1, indexes.size());
     EXPECT_EQ("append_test_idx", indexes[0]->index_name());
@@ -361,7 +361,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_update_indexs) {
 
     schema.update_index(col, IndexType::INVERTED, std::move(indexes));
 
-    EXPECT_TRUE(schema.has_inverted_index());
+    EXPECT_TRUE(schema.has_extra_index());
     auto all_indexes = schema.inverted_indexs(5001);
     EXPECT_EQ(3, all_indexes.size());
 
@@ -417,7 +417,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_remove_and_clear_index) {
         schema.append_index(std::move(index));
     }
 
-    EXPECT_TRUE(schema.has_inverted_index());
+    EXPECT_TRUE(schema.has_extra_index());
     auto indexes_before = schema.inverted_indexes();
     EXPECT_EQ(3, indexes_before.size());
 
@@ -439,7 +439,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_remove_and_clear_index) {
     EXPECT_TRUE(found_402);
 
     schema.clear_index();
-    EXPECT_FALSE(schema.has_inverted_index());
+    EXPECT_FALSE(schema.has_extra_index());
     auto indexes_after_clear = schema.inverted_indexes();
     EXPECT_EQ(0, indexes_after_clear.size());
 }

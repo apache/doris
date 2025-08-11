@@ -345,7 +345,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             // inverted index
             auto schema_ptr = rs_meta.tablet_schema();
             auto idx_version = schema_ptr->get_inverted_index_storage_format();
-            bool has_inverted_index = schema_ptr->has_inverted_index();
+            bool has_inverted_index = schema_ptr->has_extra_index();
 
             if (has_inverted_index) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {

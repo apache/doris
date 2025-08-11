@@ -77,6 +77,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
+#include "util/pretty_printer.h"
 #include "util/time.h"
 #include "util/trace.h"
 #include "vec/common/schema_util.h"
@@ -556,13 +557,19 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << _is_vertical
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << tablet()->max_version().second
-              << ", disk=" << tablet()->data_dir()->path() << ", segments=" << _input_num_segments
-              << ", input_rowsets_data_size=" << _input_rowsets_data_size
-              << ", input_rowsets_index_size=" << _input_rowsets_index_size
-              << ", input_rowsets_total_size=" << _input_rowsets_total_size
-              << ", output_rowset_data_size=" << _output_rowset->data_disk_size()
-              << ", output_rowset_index_size=" << _output_rowset->index_disk_size()
-              << ", output_rowset_total_size=" << _output_rowset->total_disk_size()
+              << ", disk=" << tablet()->data_dir()->path()
+              << ", input_segments=" << _input_num_segments << ", input_rowsets_data_size="
+              << PrettyPrinter::print_bytes(_input_rowsets_data_size)
+              << ", input_rowsets_index_size="
+              << PrettyPrinter::print_bytes(_input_rowsets_index_size)
+              << ", input_rowsets_total_size="
+              << PrettyPrinter::print_bytes(_input_rowsets_total_size)
+              << ", output_rowset_data_size="
+              << PrettyPrinter::print_bytes(_output_rowset->data_disk_size())
+              << ", output_rowset_index_size="
+              << PrettyPrinter::print_bytes(_output_rowset->index_disk_size())
+              << ", output_rowset_total_size="
+              << PrettyPrinter::print_bytes(_output_rowset->total_disk_size())
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", filtered_row_num=" << _stats.filtered_rows
@@ -769,8 +776,8 @@ Status Compaction::do_inverted_index_compaction() {
 
     // dest index files
     // format: rowsetId_segmentId
-    auto& inverted_index_file_writers = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())
-                                                ->inverted_index_file_writers();
+    auto& inverted_index_file_writers =
+            dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())->index_file_writers();
     DBUG_EXECUTE_IF(
             "Compaction::do_inverted_index_compaction_inverted_index_file_writers_size_error",
             { inverted_index_file_writers.clear(); })

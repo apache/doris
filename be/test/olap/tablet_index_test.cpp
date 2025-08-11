@@ -59,7 +59,7 @@ TEST_F(TabletIndexTest, test_inverted_index) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(schema_pb);
 
-    EXPECT_TRUE(tablet_schema->has_inverted_index());
+    EXPECT_TRUE(tablet_schema->has_extra_index());
     EXPECT_EQ(tablet_schema->inverted_indexes().size(), 2);
     EXPECT_FALSE(tablet_schema->inverted_indexs(tablet_schema->column_by_uid(0)).empty());
     EXPECT_FALSE(tablet_schema->inverted_indexs(tablet_schema->column_by_uid(1)).empty());
