@@ -31,6 +31,7 @@ import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
+import org.apache.doris.datasource.paimon.PaimonVendedCredentialsProvider;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -451,7 +452,12 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() {
-        return source.getCatalog().getCatalogProperty().getBackendStorageProperties();
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
+        return PaimonVendedCredentialsProvider.getBackendLocationProperties(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                source.getPaimonTable()
+        );
     }
 
     @Override
