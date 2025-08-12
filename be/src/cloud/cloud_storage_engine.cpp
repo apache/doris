@@ -221,9 +221,6 @@ Status CloudStorageEngine::open() {
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
 
-    _schema_cloud_dictionary_cache =
-            std::make_unique<SchemaCloudDictionaryCache>(config::schema_dict_cache_capacity);
-
     _cloud_snapshot_mgr = std::make_unique<CloudSnapshotMgr>(*this);
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
