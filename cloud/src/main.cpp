@@ -27,6 +27,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -274,6 +275,7 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<MetaServer> meta_server; // meta-service
     std::unique_ptr<Recycler> recycler;
+    std::unique_ptr<FdbMetricExporter> fdb_metric_exporter;
     std::thread periodiccally_log_thread;
     std::mutex periodiccally_log_thread_lock;
     std::condition_variable periodiccally_log_thread_cv;
@@ -315,6 +317,7 @@ int main(int argc, char** argv) {
         periodiccally_log_thread = std::thread {periodiccally_log};
         pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
+
     // start service
     brpc::ServerOptions options;
     if (config::brpc_idle_timeout_sec != -1) {
@@ -331,6 +334,14 @@ int main(int argc, char** argv) {
         return -1;
     }
     end = steady_clock::now();
+
+    fdb_metric_exporter = std::make_unique<FdbMetricExporter>(txn_kv);
+    ret = fdb_metric_exporter->start();
+    if (ret != 0) {
+        LOG(WARNING) << "failed to start fdb metric exporter";
+        return -2;
+    }
+
     msg = "successfully started service listening on port=" + std::to_string(port) +
           " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count());
     LOG(INFO) << msg;
@@ -344,6 +355,7 @@ int main(int argc, char** argv) {
     if (recycler) {
         recycler->stop();
     }
+    fdb_metric_exporter->stop();
 
     if (periodiccally_log_thread.joinable()) {
         {
