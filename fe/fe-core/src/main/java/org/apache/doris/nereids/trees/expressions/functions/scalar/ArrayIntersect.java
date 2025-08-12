@@ -61,10 +61,9 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = ((ArrayType) child(0).getDataType()).getItemType();
-        if (argType.isComplexType()) {
-            throw new AnalysisException("array_intersect does not support type "
-            + argType.toString() + ", expression is " + toSql());
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
+            throw new AnalysisException("array_intersect does not support complex types: " + toSql());
         }
     }
 

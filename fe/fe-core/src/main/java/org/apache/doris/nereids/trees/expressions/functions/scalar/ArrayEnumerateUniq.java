@@ -66,10 +66,12 @@ public class ArrayEnumerateUniq extends ScalarFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         for (Expression arg : children()) {
-            DataType nestedType = ((ArrayType) arg.getDataType()).getItemType();
-            if (nestedType.isComplexType()) {
-                throw new AnalysisException("array_enumerate_uniq does not support type "
-                + arg.getDataType() + ", expression is " + toSql());
+            DataType argType = arg.getDataType();
+            if (argType.isArrayType()) {
+                DataType itemType = ((ArrayType) argType).getItemType();
+                if (itemType.isComplexType()) {
+                    throw new AnalysisException("array_enumerate_uniq does not support types: " + toSql());
+                }
             }
         }
     }
