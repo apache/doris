@@ -60,6 +60,40 @@ constexpr bool IsCppTypeNumberOrTime =
         IsCppTypeInt<CppT> || IsCppTypeFloat<CppT> ||
         std::is_same_v<CppT, PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnItemType>;
 
+template <typename T, typename FloatingType>
+    requires(IsCppTypeInt<T> and IsCppTypeFloat<FloatingType>)
+struct ValidFloatingRange {};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int8_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p7;
+    static constexpr FloatingType LOWER = -0x1p7;
+};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int16_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p15;
+    static constexpr FloatingType LOWER = -0x1p15;
+};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int32_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p31;
+    static constexpr FloatingType LOWER = -0x1p31;
+};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int64_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p63;
+    static constexpr FloatingType LOWER = -0x1p63;
+};
+
+template <typename FloatingType>
+struct ValidFloatingRange<int128_t, FloatingType> {
+    static constexpr FloatingType UPPER = 0x1p127;
+    static constexpr FloatingType LOWER = -0x1p127;
+};
+
 // cast to int, may overflow if:
 // 1. from wider int to narrower int
 // 2. from float/double to int
@@ -154,8 +188,6 @@ struct CastToInt {
     template <typename FromCppT, typename ToCppT>
         requires(IsCppTypeInt<ToCppT> && IsCppTypeFloat<FromCppT>)
     static inline bool from_float(FromCppT from, ToCppT& to, CastParameters& params) {
-        constexpr auto min_to_value = std::numeric_limits<ToCppT>::min();
-        constexpr auto max_to_value = std::numeric_limits<ToCppT>::max();
         if (std::isinf(from) || std::isnan(from)) {
             if (params.is_strict) {
                 params.status = Status::InternalError(fmt::format(
@@ -164,7 +196,8 @@ struct CastToInt {
             return false;
         }
         auto truncated_value = std::trunc(from);
-        if (truncated_value < min_to_value || truncated_value > static_cast<double>(max_to_value)) {
+        if (truncated_value < ValidFloatingRange<ToCppT, FromCppT>::LOWER ||
+            truncated_value >= ValidFloatingRange<ToCppT, FromCppT>::UPPER) {
             // overflow
             if (params.is_strict) {
                 params.status = Status::InternalError(fmt::format(
