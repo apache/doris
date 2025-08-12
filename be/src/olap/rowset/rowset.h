@@ -318,6 +318,9 @@ public:
 
     std::vector<std::string> get_index_file_names();
 
+    int64_t approximate_cache_data_size();
+    int64_t approximate_cache_index_size();
+
 protected:
     friend class RowsetFactory;
 
