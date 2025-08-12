@@ -151,6 +151,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_connection_pool_cache_clear_time(
                 config::jdbc_connection_pool_cache_clear_time_sec);
         ctor_params.__set_connection_pool_keep_alive(_conn_param.connection_pool_keep_alive);
+        ctor_params.__set_is_tvf(_conn_param.is_tvf);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -216,8 +217,10 @@ Status JdbcConnector::query() {
             return Status::InternalError("GetJniExceptionMsg meet error, query={}, msg={}",
                                          _conn_param.query_string, status.to_string());
         }
-        if (colunm_count != materialize_num) {
-            return Status::InternalError("input and output column num not equal of jdbc query.");
+        if (colunm_count < materialize_num) {
+            return Status::InternalError(
+                    "JDBC query returned fewer columns ({}) than required ({}).", colunm_count,
+                    materialize_num);
         }
     }
 
