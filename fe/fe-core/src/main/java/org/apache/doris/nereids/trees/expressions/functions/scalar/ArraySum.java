@@ -48,7 +48,7 @@ public class ArraySum extends ScalarFunction implements ExplicitlyCastableSignat
         ComputePrecisionForArrayItemAgg, UnaryExpression, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(DoubleType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(TinyIntType.INSTANCE)),
             FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(SmallIntType.INSTANCE)),
             FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(IntegerType.INSTANCE)),
