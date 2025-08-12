@@ -4708,7 +4708,16 @@ private:
         if (IsConst) {
             const auto& from_str = col_from->get_data_at(0);
             const auto& to_str = col_to->get_data_at(0);
-            build_translate_map_ascii(map, from_str, to_str);
+            if (!build_translate_map_ascii(map, from_str, to_str)) {
+                // if the map is not need delete char, we can directly copy the source string,then use map to translate
+                res_offsets.insert(col_source->get_offsets().begin(),
+                                   col_source->get_offsets().end());
+                res_chars.insert(col_source->get_chars().begin(), col_source->get_chars().end());
+                for (int i = 0; i < res_chars.size(); ++i) {
+                    res_chars[i] = map[res_chars[i]]; // translate the chars
+                }
+                return; // no need to translate
+            }
         }
 
         auto res_size = 0;
@@ -4729,7 +4738,8 @@ private:
         res_chars.resize(res_size);
     }
 
-    void static build_translate_map_ascii(AsciiMap& map, const StringRef& from_str,
+    // return true if no need delete char
+    bool static build_translate_map_ascii(AsciiMap& map, const StringRef& from_str,
                                           const StringRef& to_str) {
         for (size_t i = 0; i < map.size(); ++i) {
             map[i] = i; // initialize map to identity
@@ -4746,13 +4756,17 @@ private:
             }
         }
 
+        bool need_delete_char = false;
+
         for (size_t i = min_size; i < from_str.size; ++i) {
             auto from_char = from_str.data[i];
             if (set_map[from_char] == 0) {
                 set_map[from_char] = 1;
                 map[from_char] = DELETE_CHAR; // delete this char
+                need_delete_char = true;
             }
         }
+        return need_delete_char;
     }
 
     static size_t translate_ascii(const StringRef& source_str, AsciiMap& map, UInt8* dst_data) {
