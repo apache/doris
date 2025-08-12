@@ -1163,7 +1163,7 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
         pb.set_tablet_id(tablet_idx.tablet_id());
         pb.mutable_tablet_meta()->Swap(&tablet_meta);
         pb.set_ctime_s(::time(nullptr));
-        pb.set_expiration(request->expiration());
+        pb.set_expired_at_s(request->expiration());
         pb.set_state(RestoreJobCloudPB::PREPARED);
         total_rowset_num = rs_metas.size();
         for (const auto& rs_meta : rs_metas) {

@@ -525,7 +525,7 @@ message RestoreJobCloudPB {
     optional int64 tablet_id = 1;
     optional int64 ctime_s = 2;
     optional int64 mtime_s = 3;
-    optional int64 expiration = 4; // expiration timestamp
+    optional int64 expired_at_s = 4; // expiration timestamp
     optional doris.TabletMetaCloudPB tablet_meta = 5;
     optional State state = 6;
     optional int64 total_rowset_num = 7;

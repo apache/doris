@@ -2241,7 +2241,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void releaseSnapshots(com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos,
-                                  boolean isJobFinished) {
+                                  boolean isJobCompleted) {
         if (snapshotInfos.isEmpty()) {
             return;
         }
@@ -2250,7 +2250,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
-                    info.getTabletId(), info.getPath(), isJobFinished);
+                    info.getTabletId(), info.getPath(), isJobCompleted);
             batchTask.addTask(releaseTask);
         }
         AgentTaskExecutor.submit(batchTask);
