@@ -255,8 +255,10 @@ private:
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
-    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader);
-    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader);
+    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
+                            FileMetaCache* file_meta_cache_ptr);
+    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader,
+                                FileMetaCache* file_meta_cache_ptr);
     Status _create_row_id_column_iterator();
 
     TFileFormatType::type _get_current_format_type() {
