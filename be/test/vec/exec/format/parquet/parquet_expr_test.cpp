@@ -71,6 +71,7 @@
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 
 namespace doris {
@@ -1022,6 +1023,322 @@ TEST_F(ParquetExprTest, test_in) {
         ASSERT_FALSE(p_reader->_expr_push_down(in_expr3, get_stat_func));
         ASSERT_FALSE(p_reader->_expr_push_down(in_expr4, get_stat_func));
     }
+}
+
+TEST_F(ParquetExprTest, test_expr_push_down_le_int64) {
+    auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+    auto fn_le = MockFnCall::create("le");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10000000002}));
+
+    fn_le->add_child(slot_ref);
+    fn_le->add_child(const_val);
+    fn_le->_node_type = TExprNodeType::BINARY_PRED;
+    fn_le->_opcode = TExprOpcode::LE;
+    slot_ref->_slot_id = 2;
+    slot_ref->_column_id = 2;
+    EXPECT_FALSE(fn_le->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_le);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
+            [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+        const auto& column_meta_data = doris_metadata.row_groups[0].columns[2].meta_data;
+        auto col_schema = doris_file_metadata->schema().get_column(2);
+        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                 doris_metadata.created_by, stat)
+                     .ok()) {
+            return false;
+        }
+        return true;
+    };
+
+    ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+}
+
+TEST_F(ParquetExprTest, test_expr_push_down_gt_float) {
+    auto slot_ref = std::make_shared<MockSlotRef>(3, std::make_shared<DataTypeFloat32>());
+    auto fn_gt = MockFnCall::create("gt");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeFloat32>({3.5f}));
+
+    fn_gt->add_child(slot_ref);
+    fn_gt->add_child(const_val);
+    fn_gt->_node_type = TExprNodeType::BINARY_PRED;
+    fn_gt->_opcode = TExprOpcode::GT;
+    slot_ref->_slot_id = 3;
+    slot_ref->_column_id = 3;
+    EXPECT_FALSE(fn_gt->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_gt);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
+            [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+        const auto& column_meta_data = doris_metadata.row_groups[0].columns[3].meta_data;
+        auto col_schema = doris_file_metadata->schema().get_column(3);
+        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                 doris_metadata.created_by, stat)
+                     .ok()) {
+            return false;
+        }
+        return true;
+    };
+
+    ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+}
+
+TEST_F(ParquetExprTest, test_expr_push_down_ge_double) {
+    auto slot_ref = std::make_shared<MockSlotRef>(4, std::make_shared<DataTypeFloat64>());
+    auto fn_ge = MockFnCall::create("ge");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeFloat64>({4.22}));
+
+    fn_ge->add_child(slot_ref);
+    fn_ge->add_child(const_val);
+    fn_ge->_node_type = TExprNodeType::BINARY_PRED;
+    fn_ge->_opcode = TExprOpcode::GE;
+    slot_ref->_slot_id = 4;
+    slot_ref->_column_id = 4;
+    EXPECT_FALSE(fn_ge->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_ge);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
+            [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+        const auto& column_meta_data = doris_metadata.row_groups[0].columns[4].meta_data;
+        auto col_schema = doris_file_metadata->schema().get_column(4);
+        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                 doris_metadata.created_by, stat)
+                     .ok()) {
+            return false;
+        }
+        return true;
+    };
+
+    ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+}
+
+TEST_F(ParquetExprTest, test_expr_push_down_lt_string) {
+    auto slot_ref = std::make_shared<MockSlotRef>(5, std::make_shared<DataTypeString>());
+    auto fn_lt = MockFnCall::create("lt");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeString>({"name_100"}));
+
+    fn_lt->add_child(slot_ref);
+    fn_lt->add_child(const_val);
+    fn_lt->_node_type = TExprNodeType::BINARY_PRED;
+    fn_lt->_opcode = TExprOpcode::LT;
+    slot_ref->_slot_id = 5;
+    slot_ref->_column_id = 5;
+    EXPECT_FALSE(fn_lt->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_lt);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
+            [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+        const auto& column_meta_data = doris_metadata.row_groups[0].columns[5].meta_data;
+        auto col_schema = doris_file_metadata->schema().get_column(5);
+        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                 doris_metadata.created_by, stat)
+                     .ok()) {
+            return false;
+        }
+        return true;
+    };
+
+    ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+}
+
+TEST_F(ParquetExprTest, test_expr_push_down_eq_bool) {
+    auto slot_ref = std::make_shared<MockSlotRef>(6, std::make_shared<DataTypeUInt8>());
+    auto fn_eq = MockFnCall::create("eq");
+    auto const_val = std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeUInt8>({1}));
+
+    fn_eq->add_child(slot_ref);
+    fn_eq->add_child(const_val);
+    fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+    fn_eq->_opcode = TExprOpcode::EQ;
+    slot_ref->_slot_id = 6;
+    slot_ref->_column_id = 6;
+    EXPECT_FALSE(fn_eq->is_constant());
+
+    auto ctx = VExprContext::create_shared(fn_eq);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+    const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
+            [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+        const auto& column_meta_data = doris_metadata.row_groups[0].columns[6].meta_data;
+        auto col_schema = doris_file_metadata->schema().get_column(6);
+        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                 doris_metadata.created_by, stat)
+                     .ok()) {
+            return false;
+        }
+        return true;
+    };
+
+    ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
+}
+
+TEST_F(ParquetExprTest, test_expr_push_down_and) {
+    auto and_expr = std::make_shared<VCompoundPred>();
+    and_expr->_op = TExprOpcode::COMPOUND_AND;
+    and_expr->_opcode = TExprOpcode::COMPOUND_AND;
+    and_expr->_node_type = TExprNodeType::COMPOUND_PRED;
+    // x <= 10000000002
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+        auto fn_le = MockFnCall::create("le");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({10000000002}));
+        fn_le->add_child(slot_ref);
+        fn_le->add_child(const_val);
+        fn_le->_node_type = TExprNodeType::BINARY_PRED;
+        fn_le->_opcode = TExprOpcode::LE;
+        slot_ref->_slot_id = 2;
+        slot_ref->_column_id = 2;
+        EXPECT_FALSE(fn_le->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_le);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+        and_expr->add_child(ctx->root());
+    }
+
+    { // x > 100
+        auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+        auto fn_le = MockFnCall::create("gt");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
+
+        fn_le->add_child(slot_ref);
+        fn_le->add_child(const_val);
+        fn_le->_node_type = TExprNodeType::BINARY_PRED;
+        fn_le->_opcode = TExprOpcode::GT;
+        slot_ref->_slot_id = 2;
+        slot_ref->_column_id = 2;
+        EXPECT_FALSE(fn_le->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_le);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+        and_expr->add_child(ctx->root());
+    }
+
+    { // x >= 900
+        auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+        auto fn_le = MockFnCall::create("ge");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({900}));
+
+        fn_le->add_child(slot_ref);
+        fn_le->add_child(const_val);
+        fn_le->_node_type = TExprNodeType::BINARY_PRED;
+        fn_le->_opcode = TExprOpcode::GE;
+        slot_ref->_slot_id = 2;
+        slot_ref->_column_id = 2;
+        EXPECT_FALSE(fn_le->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_le);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+        and_expr->add_child(ctx->root());
+    }
+
+    const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
+            [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+        const auto& column_meta_data = doris_metadata.row_groups[0].columns[2].meta_data;
+        auto col_schema = doris_file_metadata->schema().get_column(2);
+        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                 doris_metadata.created_by, stat)
+                     .ok()) {
+            return false;
+        }
+        return true;
+    };
+    ASSERT_TRUE(p_reader->_check_expr_can_push_down(and_expr));
+    ASSERT_FALSE(p_reader->_expr_push_down(and_expr, get_stat_func));
+
+    p_reader->_enable_filter_by_min_max = true;
+    p_reader->_push_down_exprs.clear();
+    p_reader->_push_down_exprs.push_back(and_expr);
+
+    bool filter_group = false;
+    ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[0], &filter_group)
+                        .OK());
+    ASSERT_FALSE(filter_group);
+    filter_group = true;
+    ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[1], &filter_group)
+                        .OK());
+    ASSERT_TRUE(filter_group);
+    p_reader->_push_down_exprs.clear();
+}
+
+TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
+    auto or_expr = std::make_shared<VCompoundPred>();
+    or_expr->_op = TExprOpcode::COMPOUND_OR;
+    or_expr->_opcode = TExprOpcode::COMPOUND_OR;
+    or_expr->_node_type = TExprNodeType::COMPOUND_PRED;
+    // string_col < "name_1"
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(5, std::make_shared<DataTypeString>());
+        auto fn_lt = MockFnCall::create("lt");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeString>({"name_1"}));
+
+        fn_lt->add_child(slot_ref);
+        fn_lt->add_child(const_val);
+        fn_lt->_node_type = TExprNodeType::BINARY_PRED;
+        fn_lt->_opcode = TExprOpcode::LT;
+        slot_ref->_slot_id = 5;
+        slot_ref->_column_id = 5;
+        EXPECT_FALSE(fn_lt->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_lt);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+        or_expr->add_child(ctx->root());
+    }
+
+    // string_col IS NOT NULL
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(5, std::make_shared<DataTypeString>());
+        auto fn_is_not_null = MockFnCall::create("is_not_null_pred");
+
+        fn_is_not_null->add_child(slot_ref);
+        fn_is_not_null->_node_type = TExprNodeType::FUNCTION_CALL;
+        slot_ref->_slot_id = 5;
+        slot_ref->_column_id = 5;
+        EXPECT_FALSE(fn_is_not_null->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_is_not_null);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+        or_expr->add_child(ctx->root());
+    }
+
+    const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>& get_stat_func =
+            [&](const FieldSchema*, ParquetPredicate::ColumnStat* stat) -> bool {
+        const auto& column_meta_data = doris_metadata.row_groups[0].columns[5].meta_data;
+        auto col_schema = doris_file_metadata->schema().get_column(5);
+        if (!ParquetPredicate::read_column_stats(col_schema, column_meta_data, nullptr,
+                                                 doris_metadata.created_by, stat)
+                     .ok()) {
+            return false;
+        }
+        return true;
+    };
+    ASSERT_TRUE(p_reader->_check_expr_can_push_down(or_expr));
+    ASSERT_FALSE(p_reader->_expr_push_down(or_expr, get_stat_func));
 }
 
 } // namespace vectorized
