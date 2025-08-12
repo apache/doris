@@ -308,7 +308,7 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         drop_partition->set_table_id(table_id);
         drop_partition->add_index_ids(index_id);
         drop_partition->add_partition_ids(partition_id);
-        drop_partition->set_expiration_secs(expiration);
+        drop_partition->set_expiration_at_s(expiration);
         drop_partition->set_update_table_version(
                 true); // Update table version to ensure the table version is removed
 
@@ -362,7 +362,7 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         drop_partition->set_table_id(table_id);
         drop_partition->add_index_ids(index_id);
         drop_partition->add_partition_ids(partition_id + 1); // Different partition
-        drop_partition->set_expiration_secs(expiration);
+        drop_partition->set_expiration_at_s(expiration);
         drop_partition->set_update_table_version(false); // Don't update table version
 
         std::unique_ptr<Transaction> txn;
