@@ -81,7 +81,6 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override { return "HLL()"; }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     Field get_default() const override {
         return Field::create_field<TYPE_HLL>(HyperLogLog::empty());

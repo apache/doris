@@ -176,14 +176,34 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        setEndpointIfNotSet();
-        if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
-        }
+        checkEndpoint();
         checkRequiredProperties();
         initRegionIfNecessary();
         if (StringUtils.isBlank(getRegion())) {
             throw new IllegalArgumentException("region is required");
+        }
+    }
+
+    /**
+     * Checks and validates the configured endpoint.
+     * <p>
+     * All object storage implementations must have an explicitly set endpoint.
+     * However, for compatibility with legacy behavior—especially when using DLF
+     * as the catalog—some logic may derive the endpoint based on the region.
+     * <p>
+     * To support such cases, this method is exposed as {@code protected} to allow
+     * subclasses to override it with custom logic if necessary.
+     * <p>
+     * That said, we strongly recommend users to explicitly configure both
+     * {@code endpoint} and {@code region} to ensure predictable behavior
+     * across all storage backends.
+     *
+     * @throws IllegalArgumentException if the endpoint format is invalid
+     */
+    protected void checkEndpoint() {
+        setEndpointIfNotSet();
+        if (!isValidEndpoint(getEndpoint())) {
+            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
         }
     }
 
@@ -240,9 +260,19 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         }
         String endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
         if (StringUtils.isBlank(endpoint)) {
+            endpoint = getEndpointFromRegion();
+        }
+        if (StringUtils.isBlank(endpoint)) {
             throw new IllegalArgumentException("endpoint is required");
         }
         setEndpoint(endpoint);
+    }
+
+    // This method should be overridden by subclasses to provide a default endpoint based on the region.
+    // Because for aws s3, only region is needed, the endpoint can be constructed from the region.
+    // But for other s3 compatible storage, the endpoint may need to be specified explicitly.
+    protected String getEndpointFromRegion() {
+        return "";
     }
 
     @Override

@@ -145,7 +145,7 @@ public class OSSPropertiesTest {
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         origProps.put("oss.secret_key", "myOSSSecretKey");
         Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     @Test
@@ -154,6 +154,22 @@ public class OSSPropertiesTest {
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         origProps.put("oss.access_key", "myOSSAccessKey");
         Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+    }
+
+    @Test
+    public void testNotEndpoint() throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("uri", "oss://examplebucket-1250000000/test/file.txt");
+        origProps.put("oss.access_key", "myOSSAccessKey");
+        origProps.put("oss.secret_key", "myOSSSecretKey");
+        origProps.put("oss.region", "cn-hangzhou");
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com",
+                ((OSSProperties) StorageProperties.createPrimary(origProps)).getEndpoint());
+        origProps.put("dlf.access.public", "true");
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com",
+                ((OSSProperties) StorageProperties.createPrimary(origProps)).getEndpoint());
+        origProps.put("uri", "https://doris-regression-hk.oss-cn-hangzhou-internal.aliyuncs.com/regression/datalake/pipeline_data/data_page_v2_gzip.parquet");
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com", ((OSSProperties) StorageProperties.createPrimary(origProps)).getEndpoint());
     }
 }

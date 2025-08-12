@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
@@ -397,17 +396,9 @@ public class Column implements GsonPostProcessable {
         return removeNamePrefix(name);
     }
 
-    public String getNameWithoutMvPrefix() {
-        return CreateMaterializedViewStmt.mvColumnBreaker(name);
-    }
-
-    public static String getNameWithoutMvPrefix(String originalName) {
-        return CreateMaterializedViewStmt.mvColumnBreaker(originalName);
-    }
-
     public String getDisplayName() {
         if (defineExpr == null) {
-            return getNameWithoutMvPrefix();
+            return name;
         } else {
             return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
         }
@@ -955,6 +946,18 @@ public class Column implements GsonPostProcessable {
         if (generatedColumnInfo != null || other.getGeneratedColumnInfo() != null) {
             throw new DdlException("Not supporting alter table modify generated columns.");
         }
+
+        if (type.isVariantType() && other.type.isVariantType()) {
+            if (this.getVariantMaxSubcolumnsCount() != other.getVariantMaxSubcolumnsCount()) {
+                throw new DdlException("Can not change variant max subcolumns count");
+            }
+            if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
+                throw new DdlException("Can not change variant enable typed paths to sparse");
+            }
+            if (!this.getChildren().isEmpty() || !other.getChildren().isEmpty()) {
+                throw new DdlException("Can not change variant schema templates");
+            }
+        }
     }
 
     public boolean nameEquals(String otherColName, boolean ignorePrefix) {
@@ -1244,6 +1247,20 @@ public class Column implements GsonPostProcessable {
 
     public boolean isMaterializedViewColumn() {
         return defineExpr != null;
+    }
+
+    // this function is try to get base column name for distribution column, partition column, key column
+    // or delete condition column in load job. So these columns are all simple SlotRef not other complex expr like a +_b
+    // under the assumption, we just try to get base column when the defineExpr is a simple SlotRef with a Column in tbl
+    public String tryGetBaseColumnName() {
+        String colName = name;
+        if (defineExpr != null && defineExpr instanceof SlotRef) {
+            Column baseCol = ((SlotRef) defineExpr).getColumn();
+            if (baseCol != null) {
+                colName = baseCol.getName();
+            }
+        }
+        return colName;
     }
 
     public GeneratedColumnInfo getGeneratedColumnInfo() {

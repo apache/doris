@@ -32,7 +32,6 @@ import org.apache.doris.thrift.TWgSlotMemoryPolicy;
 import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -48,6 +47,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class WorkloadGroup implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(WorkloadGroup.class);
@@ -56,7 +56,15 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String CPU_HARD_LIMIT = "cpu_hard_limit";
 
+    public static final String MAX_CPU_PERCENT = "max_cpu_percent";
+
+    public static final String MIN_CPU_PERCENT = "min_cpu_percent";
+
     public static final String MEMORY_LIMIT = "memory_limit";
+
+    public static final String MAX_MEMORY_PERCENT = "max_memory_percent";
+
+    public static final String MIN_MEMORY_PERCENT = "min_memory_percent";
 
     public static final String ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
 
@@ -94,36 +102,26 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
-    // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
-            .add(CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).add(MAX_CONCURRENCY)
-            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
-            .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
-            .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK)
+            .add(MAX_CPU_PERCENT).add(MIN_CPU_PERCENT)
+            .add(MAX_MEMORY_PERCENT).add(MIN_MEMORY_PERCENT)
+            .add(MAX_CONCURRENCY).add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT)
+            .add(SCAN_THREAD_NUM).add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
+            .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK).add(WRITE_BUFFER_RATIO)
             .add(COMPUTE_GROUP).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
-            .add(WRITE_BUFFER_RATIO).add(SLOT_MEMORY_POLICY).build();
+            .add(SLOT_MEMORY_POLICY).build();
 
 
-    private static final ImmutableMap<String, String> DEPRECATED_PROPERTIES_NAME =
-            new ImmutableMap.Builder<String, String>()
-                    .put(SPILL_THRESHOLD_LOW_WATERMARK, MEMORY_LOW_WATERMARK)
-                    .put(SPILL_THRESHOLD_HIGH_WATERMARK, MEMORY_HIGH_WATERMARK).build();
-
-
-    public static final int CPU_HARD_LIMIT_DEFAULT_VALUE = 100;
+    public static final int MAX_CPU_PERCENT_DEFAULT_VALUE = 100;
     // Memory limit is a string value ending with % in BE, so it is different from other limits
     // other limit is a number.
-    public static final String MEMORY_LIMIT_DEFAULT_VALUE = "100%";
+    public static final String MAX_MEMORY_PERCENT_DEFAULT_VALUE = "100";
     public static final int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 75;
     public static final int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 85;
 
     private static final Map<String, String> ALL_PROPERTIES_DEFAULT_VALUE_MAP = Maps.newHashMap();
 
     static {
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(CPU_SHARE, "-1");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(CPU_HARD_LIMIT, "100");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_LIMIT, "100%");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(ENABLE_MEMORY_OVERCOMMIT, "false");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MAX_CONCURRENCY, String.valueOf(Integer.MAX_VALUE));
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MAX_QUEUE_SIZE, "0");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(QUEUE_TIMEOUT, "0");
@@ -187,32 +185,44 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             this.properties.put(SLOT_MEMORY_POLICY, SLOT_MEMORY_POLICY_DEFAULT_VALUE);
         }
 
-        if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
-            properties.put(ENABLE_MEMORY_OVERCOMMIT, properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase());
-        } else {
-            properties.put(ENABLE_MEMORY_OVERCOMMIT, "false");
-        }
-
-        if (properties.containsKey(CPU_HARD_LIMIT)) {
-            String cpuHardLimitStr = properties.get(CPU_HARD_LIMIT);
+        if (properties.containsKey(MAX_CPU_PERCENT)) {
+            String cpuHardLimitStr = properties.get(MAX_CPU_PERCENT);
             if (cpuHardLimitStr.endsWith("%")) {
                 cpuHardLimitStr = cpuHardLimitStr.substring(0, cpuHardLimitStr.length() - 1);
             }
-            this.properties.put(CPU_HARD_LIMIT, cpuHardLimitStr);
+            this.properties.put(MAX_CPU_PERCENT, cpuHardLimitStr);
         } else {
-            this.properties.put(CPU_HARD_LIMIT, CPU_HARD_LIMIT_DEFAULT_VALUE + "");
+            this.properties.put(MAX_CPU_PERCENT, MAX_CPU_PERCENT_DEFAULT_VALUE + "");
         }
 
-        if (properties.containsKey(MEMORY_LIMIT)) {
-            String memHardLimitStr = properties.get(MEMORY_LIMIT);
-            // If the input is -1, it means use all memory, in this version we could change it to 100% now
-            // since sum of all group's memory could be larger than 100%
-            if (memHardLimitStr.equals("-1")) {
-                memHardLimitStr = MEMORY_LIMIT_DEFAULT_VALUE;
+        if (properties.containsKey(MIN_CPU_PERCENT)) {
+            String cpuHardLimitStr = properties.get(MIN_CPU_PERCENT);
+            if (cpuHardLimitStr.endsWith("%")) {
+                cpuHardLimitStr = cpuHardLimitStr.substring(0, cpuHardLimitStr.length() - 1);
             }
-            this.properties.put(MEMORY_LIMIT, memHardLimitStr);
+            this.properties.put(MIN_CPU_PERCENT, cpuHardLimitStr);
         } else {
-            this.properties.put(MEMORY_LIMIT, MEMORY_LIMIT_DEFAULT_VALUE);
+            this.properties.put(MIN_CPU_PERCENT, "0");
+        }
+
+        if (properties.containsKey(MAX_MEMORY_PERCENT)) {
+            String memHardLimitStr = properties.get(MAX_MEMORY_PERCENT);
+            if (memHardLimitStr.endsWith("%")) {
+                memHardLimitStr = memHardLimitStr.substring(0, memHardLimitStr.length() - 1);
+            }
+            this.properties.put(MAX_MEMORY_PERCENT, memHardLimitStr);
+        } else {
+            this.properties.put(MAX_MEMORY_PERCENT, MAX_MEMORY_PERCENT_DEFAULT_VALUE);
+        }
+
+        if (properties.containsKey(MIN_MEMORY_PERCENT)) {
+            String minMemLimitStr = properties.get(MIN_MEMORY_PERCENT);
+            if (minMemLimitStr.endsWith("%")) {
+                minMemLimitStr = minMemLimitStr.substring(0, minMemLimitStr.length() - 1);
+            }
+            this.properties.put(MIN_MEMORY_PERCENT, minMemLimitStr);
+        } else {
+            this.properties.put(MIN_MEMORY_PERCENT, "0");
         }
 
         if (properties.containsKey(MEMORY_LOW_WATERMARK)) {
@@ -261,67 +271,111 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     private static void checkProperties(Map<String, String> properties) throws DdlException {
         for (String propertyName : properties.keySet()) {
             if (!ALL_PROPERTIES_NAME.contains(propertyName)) {
-                throw new DdlException("Property " + propertyName + " is not supported.");
+                throw new DdlException("Property " + propertyName + " is not supported, maybe it is deprecated.");
             }
         }
 
-        if (properties.containsKey(CPU_SHARE)) {
-            String inputValue = properties.get(CPU_SHARE);
+        int minCpuPercent = 0;
+        if (properties.containsKey(MIN_CPU_PERCENT)) {
+            String inputValue = properties.get(MIN_CPU_PERCENT);
+            String minCpuPercentStr = inputValue;
             try {
-                int cpuShareI = Integer.parseInt(inputValue);
-                if (cpuShareI <= 0 && cpuShareI != -1) {
+                if (minCpuPercentStr.endsWith("%")) {
+                    minCpuPercentStr = minCpuPercentStr.substring(0, minCpuPercentStr.length() - 1);
+                }
+
+                minCpuPercent = Integer.parseInt(minCpuPercentStr);
+                if (minCpuPercent < 0 || minCpuPercent > 100) {
                     throw new NumberFormatException();
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        "The allowed " + CPU_SHARE + " value is -1 or a positive integer, but input value is "
+                        "The allowed " + MIN_CPU_PERCENT + " value has to be in [0,100], but input value is "
                                 + inputValue);
             }
+        } else {
+            properties.put(MIN_CPU_PERCENT, "0");
         }
 
-        if (properties.containsKey(CPU_HARD_LIMIT)) {
-            String inputValue = properties.get(CPU_HARD_LIMIT);
-            String cpuHardLimit = inputValue;
+        int maxCpuPercent = 0;
+        if (properties.containsKey(MAX_CPU_PERCENT)) {
+            String inputValue = properties.get(MAX_CPU_PERCENT);
+            String maxCpuPercentStr = inputValue;
             try {
-                boolean endWithSign = false;
-                if (cpuHardLimit.endsWith("%")) {
-                    cpuHardLimit = cpuHardLimit.substring(0, cpuHardLimit.length() - 1);
-                    endWithSign = true;
+                if (maxCpuPercentStr.endsWith("%")) {
+                    maxCpuPercentStr = maxCpuPercentStr.substring(0, maxCpuPercentStr.length() - 1);
                 }
 
-                int intVal = Integer.parseInt(cpuHardLimit);
-                if (endWithSign && intVal == -1) {
-                    throw new NumberFormatException();
-                }
-                if (!(intVal >= 1 && intVal <= 100) && -1 != intVal) {
+                maxCpuPercent = Integer.parseInt(maxCpuPercentStr);
+                if (maxCpuPercent < 1 || maxCpuPercent > 100) {
                     throw new NumberFormatException();
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        "The allowed " + WorkloadGroup.CPU_HARD_LIMIT
-                                + " value is -1 or a positive integer between 1 and 100, but input value is "
+                        "The allowed " + MAX_CPU_PERCENT + " value has to be in [1,100], but input value is "
                                 + inputValue);
             }
+        } else {
+            properties.put(MAX_CPU_PERCENT, "100");
+            maxCpuPercent = 100;
         }
 
-        if (properties.containsKey(MEMORY_LIMIT)) {
-            String memoryLimitStr = properties.get(MEMORY_LIMIT);
-            if (!memoryLimitStr.endsWith("%") && !"-1".equals(memoryLimitStr)) {
-                throw new DdlException(
-                        MEMORY_LIMIT + " requires a percentage value which ends with a '%' or -1, but input value is "
-                                + memoryLimitStr);
-            }
-            if (!"-1".equals(memoryLimitStr)) {
-                try {
-                    double memLimitD = Double.parseDouble(memoryLimitStr.substring(0, memoryLimitStr.length() - 1));
-                    if (memLimitD <= 0) {
-                        throw new NumberFormatException();
-                    }
-                } catch (NumberFormatException e) {
-                    throw new DdlException("The allowed " + MEMORY_LIMIT
-                            + " value is a positive floating point number, but input value is " + memoryLimitStr);
+        if (maxCpuPercent < minCpuPercent) {
+            throw new DdlException(MAX_CPU_PERCENT + "'s value " + maxCpuPercent
+                    + " has to be great or equal than "
+                    + MIN_CPU_PERCENT + " " + minCpuPercent);
+        }
+
+        int maxMemPercent = 0;
+        if (properties.containsKey(MAX_MEMORY_PERCENT)) {
+            String inputValue = properties.get(MAX_MEMORY_PERCENT);
+            String maxMemPercentStr = inputValue;
+            try {
+                if (maxMemPercentStr.endsWith("%")) {
+                    maxMemPercentStr = maxMemPercentStr.substring(0, maxMemPercentStr.length() - 1);
                 }
+
+                maxMemPercent = Integer.parseInt(maxMemPercentStr);
+                if (maxMemPercent < 1 || maxMemPercent > 100) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        "The allowed " + MAX_MEMORY_PERCENT + " value has to be in [1,100], but input value is "
+                                + inputValue);
             }
+        } else {
+            properties.put(MAX_MEMORY_PERCENT, "100");
+            maxMemPercent = 100;
+        }
+
+        int minMemPercent = 0;
+        if (properties.containsKey(MIN_MEMORY_PERCENT)) {
+            String inputValue = properties.get(MIN_MEMORY_PERCENT);
+            String minMemPercentStr = inputValue;
+            try {
+                if (minMemPercentStr.endsWith("%")) {
+                    minMemPercentStr = minMemPercentStr.substring(0, minMemPercentStr.length() - 1);
+                }
+
+                minMemPercent = Integer.parseInt(minMemPercentStr);
+                if (minMemPercent < 0 || minMemPercent > 100) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        "The allowed " + MIN_MEMORY_PERCENT + " value has to be in [0,100], but input value is "
+                                + inputValue);
+            }
+        } else {
+            properties.put(MIN_MEMORY_PERCENT, "0");
+            minMemPercent = 0;
+        }
+
+        if (maxMemPercent < minMemPercent) {
+            throw new DdlException(MAX_MEMORY_PERCENT + "'s value " + maxMemPercent
+                    + " has to be great or equal than "
+                    + MIN_MEMORY_PERCENT + " " + minMemPercent);
         }
 
         if (properties.containsKey(WRITE_BUFFER_RATIO)) {
@@ -340,16 +394,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     LOG.debug(memLimitErr, e);
                 }
                 throw new DdlException(memLimitErr);
-            }
-        }
-
-        if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
-            String inputValue = properties.get(ENABLE_MEMORY_OVERCOMMIT);
-            String value = inputValue.toLowerCase();
-            if (!("true".equals(value) || "false".equals(value))) {
-                throw new DdlException(
-                        "The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false. but input value is "
-                                + inputValue);
             }
         }
 
@@ -553,6 +597,52 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return version;
     }
 
+    public int getMinCpuPercent() {
+        String minCpuPercentStr = properties.get(MIN_CPU_PERCENT);
+        if (minCpuPercentStr.endsWith("%")) {
+            return Integer.valueOf(minCpuPercentStr.substring(0, minCpuPercentStr.length() - 1));
+        }
+        return Integer.valueOf(minCpuPercentStr);
+    }
+
+    public int getMaxCpuPercent() {
+        String maxCpuPercentStr = properties.get(MAX_CPU_PERCENT);
+        if (maxCpuPercentStr.endsWith("%")) {
+            return Integer.valueOf(maxCpuPercentStr.substring(0, maxCpuPercentStr.length() - 1));
+        }
+        return Integer.valueOf(maxCpuPercentStr);
+    }
+
+    public int getMinMemoryPercent() {
+        String minMemPercentStr = properties.get(MIN_MEMORY_PERCENT);
+        if (minMemPercentStr.endsWith("%")) {
+            return Integer.valueOf(minMemPercentStr.substring(0,
+                    minMemPercentStr.length() - 1));
+        }
+        return Integer.valueOf(minMemPercentStr);
+    }
+
+    public int getMaxMemoryPercent() {
+        String maxMemPercentStr = properties.get(MAX_MEMORY_PERCENT);
+        if (maxMemPercentStr.endsWith("%")) {
+            return Integer.valueOf(maxMemPercentStr.substring(0,
+                    maxMemPercentStr.length() - 1));
+        }
+        return Integer.valueOf(maxMemPercentStr);
+    }
+
+    public void trimProperties() {
+        if (properties == null) {
+            return;
+        }
+        Set<String> keySet = properties.keySet();
+        for (String key : keySet) {
+            String value = properties.get(key);
+            String trimmedValue = value.trim();
+            properties.put(key, trimmedValue);
+        }
+    }
+
     public void getProcNodeData(BaseProcResult result) {
         List<String> row = new ArrayList<>();
         row.add(String.valueOf(id));
@@ -583,7 +673,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 String val = properties.get(key);
                 if (StringUtils.isEmpty(val)) {
                     row.add(ALL_PROPERTIES_DEFAULT_VALUE_MAP.get(key));
-                } else if ((CPU_HARD_LIMIT.equals(key) && !"-1".equals(val))
+                } else if (MIN_CPU_PERCENT.equals(key)
+                        || MAX_CPU_PERCENT.equals(key)
+                        || MIN_MEMORY_PERCENT.equals(key)
+                        || MAX_MEMORY_PERCENT.equals(key)
                         || MEMORY_LOW_WATERMARK.equals(key)
                         || MEMORY_HIGH_WATERMARK.equals(key)) {
                     row.add(val + "%");
@@ -593,11 +686,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         }
         result.addRow(row);
-    }
-
-    public double getMemoryLimitPercent() {
-        String memoryStr = properties.get(MEMORY_LIMIT);
-        return Double.valueOf(memoryStr.substring(0, memoryStr.length() - 1));
     }
 
     public String getComputeGroup() {
@@ -633,20 +721,26 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         tWorkloadGroupInfo.setName(name);
         tWorkloadGroupInfo.setVersion(version);
 
-        String cpuShareStr = properties.get(CPU_SHARE);
-        if (cpuShareStr != null) {
-            tWorkloadGroupInfo.setCpuShare(Long.valueOf(cpuShareStr));
+        String minCpuPercentStr = properties.get(MIN_CPU_PERCENT);
+        if (minCpuPercentStr != null) {
+            tWorkloadGroupInfo.setMinCpuPercent(this.getMinCpuPercent());
         }
 
-        String cpuHardLimitStr = properties.get(CPU_HARD_LIMIT);
-        if (cpuHardLimitStr != null) {
-            tWorkloadGroupInfo.setCpuHardLimit(Integer.valueOf(cpuHardLimitStr));
+        String maxCpuPercentStr = properties.get(MAX_CPU_PERCENT);
+        if (maxCpuPercentStr != null) {
+            tWorkloadGroupInfo.setMaxCpuPercent(this.getMaxCpuPercent());
         }
 
-        String memLimitStr = properties.get(MEMORY_LIMIT);
-        if (memLimitStr != null) {
-            tWorkloadGroupInfo.setMemLimit(memLimitStr);
+        String maxMemPercentStr = properties.get(MAX_MEMORY_PERCENT);
+        if (maxMemPercentStr != null) {
+            tWorkloadGroupInfo.setMaxMemoryPercent(this.getMaxMemoryPercent());
         }
+
+        String minMemPercentStr = properties.get(MIN_MEMORY_PERCENT);
+        if (minMemPercentStr != null) {
+            tWorkloadGroupInfo.setMinMemoryPercent(this.getMinMemoryPercent());
+        }
+
         String writeBufferRatioStr = properties.get(WRITE_BUFFER_RATIO);
         if (writeBufferRatioStr != null) {
             tWorkloadGroupInfo.setWriteBufferRatio(Integer.parseInt(writeBufferRatioStr));
@@ -654,10 +748,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String slotMemoryPolicyStr = properties.get(SLOT_MEMORY_POLICY);
         if (slotMemoryPolicyStr != null) {
             tWorkloadGroupInfo.setSlotMemoryPolicy(findSlotPolicyValueByString(slotMemoryPolicyStr));
-        }
-        String memOvercommitStr = properties.get(ENABLE_MEMORY_OVERCOMMIT);
-        if (memOvercommitStr != null) {
-            tWorkloadGroupInfo.setEnableMemoryOvercommit(Boolean.valueOf(memOvercommitStr));
         }
 
         String scanThreadNumStr = properties.get(SCAN_THREAD_NUM);
@@ -716,22 +806,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         Text.writeString(out, json);
     }
 
+    // This API is used in journal deserialize API.
     public static WorkloadGroup read(DataInput in) throws IOException {
         String json = Text.readString(in);
         WorkloadGroup workloadGroup = GsonUtils.GSON.fromJson(json, WorkloadGroup.class);
-        // "spill_threshold_low_watermark" and "spill_threshold_high_watermark"
-        // are renamed and deprecated, replace them with "memory_low_watermark"
-        // and "memory_high_watermark"
-        for (String key : DEPRECATED_PROPERTIES_NAME.keySet()) {
-            if (workloadGroup.properties.containsKey(key)) {
-                String value = workloadGroup.properties.get(key);
-                workloadGroup.properties.remove(key);
-                workloadGroup.properties.put(DEPRECATED_PROPERTIES_NAME.get(key), value);
-            }
-        }
         return workloadGroup;
     }
 
+    // When GsonUtils.GSON from json is called, this API is called.
     @Override
     public void gsonPostProcess() throws IOException {
         // Do not use -1 as default value, using 100%
@@ -740,12 +822,63 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             // If the input is -1, it means use all memory, in this version we could change it to 100% now
             // since sum of all group's memory could be larger than 100%
             if (memHardLimitStr.equals("-1")) {
-                memHardLimitStr = MEMORY_LIMIT_DEFAULT_VALUE;
+                memHardLimitStr = MAX_MEMORY_PERCENT_DEFAULT_VALUE;
+            } else if (memHardLimitStr.endsWith("%")) {
+                memHardLimitStr = memHardLimitStr.substring(0, memHardLimitStr.length() - 1);
             }
-            this.properties.put(MEMORY_LIMIT, memHardLimitStr);
-        } else {
-            this.properties.put(MEMORY_LIMIT, MEMORY_LIMIT_DEFAULT_VALUE);
+            // During upgrade if the workload group's overcommit property == true, then it means not control
+            // memory usage in BE, so that we reset max memory percent to 100% directly.
+            boolean isOverCommit = true;
+            String memOvercommitStr = properties.get(ENABLE_MEMORY_OVERCOMMIT);
+            if (memOvercommitStr != null) {
+                isOverCommit = Boolean.valueOf(memOvercommitStr);
+            }
+            if (isOverCommit) {
+                memHardLimitStr = MAX_MEMORY_PERCENT_DEFAULT_VALUE;
+            }
+            this.properties.put(MAX_MEMORY_PERCENT, memHardLimitStr);
         }
+
+        if (!properties.containsKey(MAX_MEMORY_PERCENT)) {
+            this.properties.put(MAX_MEMORY_PERCENT, MAX_MEMORY_PERCENT_DEFAULT_VALUE);
+        }
+
+        if (!properties.containsKey(MIN_MEMORY_PERCENT)) {
+            this.properties.put(MIN_MEMORY_PERCENT, "0");
+        }
+
+        if (properties.containsKey(CPU_HARD_LIMIT)) {
+            String cpuHardLimitStr = properties.get(CPU_HARD_LIMIT);
+            if (cpuHardLimitStr.equals("-1")) {
+                cpuHardLimitStr = MAX_CPU_PERCENT_DEFAULT_VALUE + "";
+            } else if (cpuHardLimitStr.endsWith("%")) {
+                cpuHardLimitStr = cpuHardLimitStr.substring(0, cpuHardLimitStr.length() - 1);
+            }
+            this.properties.put(MAX_CPU_PERCENT, cpuHardLimitStr);
+        }
+
+        if (!properties.containsKey(MAX_CPU_PERCENT)) {
+            this.properties.put(MAX_CPU_PERCENT, MAX_CPU_PERCENT_DEFAULT_VALUE + "");
+        }
+
+        if (!properties.containsKey(MIN_CPU_PERCENT)) {
+            this.properties.put(MIN_CPU_PERCENT, "0");
+        }
+
+        if (!properties.containsKey(MEMORY_LOW_WATERMARK)) {
+            this.properties.put(MEMORY_LOW_WATERMARK, MEMORY_LOW_WATERMARK_DEFAULT_VALUE + "");
+        }
+
+        if (!properties.containsKey(MEMORY_HIGH_WATERMARK)) {
+            this.properties.put(MEMORY_HIGH_WATERMARK, MEMORY_HIGH_WATERMARK_DEFAULT_VALUE + "");
+        }
+
+        properties.remove(CPU_SHARE);
+        properties.remove(CPU_HARD_LIMIT);
+        properties.remove(ENABLE_MEMORY_OVERCOMMIT);
+        properties.remove(MEMORY_LIMIT);
+        properties.remove(SPILL_THRESHOLD_HIGH_WATERMARK);
+        properties.remove(SPILL_THRESHOLD_LOW_WATERMARK);
         // The from json method just uses reflection logic to create a new workload group
         // but workload group's contructor need create other objects, like queue, so need
         // init queue here after workload group is created from json

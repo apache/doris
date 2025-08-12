@@ -23,10 +23,12 @@ import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSimilarity;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
@@ -218,6 +220,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Da
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
@@ -381,6 +384,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
@@ -1293,6 +1297,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(gcd, context);
     }
 
+    default R visitGetVariantType(GetVariantType getVariantType, C context) {
+        return visitScalarFunction(getVariantType, context);
+    }
+
     default R visitGreatest(Greatest greatest, C context) {
         return visitScalarFunction(greatest, context);
     }
@@ -1889,6 +1897,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(rtrimIn, context);
     }
 
+    default R visitScore(Score score, C context) {
+        return visitScalarFunction(score, context);
+    }
+
     default R visitSecond(Second second, C context) {
         return visitScalarFunction(second, context);
     }
@@ -2437,6 +2449,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(llmSentiment, context);
     }
 
+    default R visitLLMFilter(LLMFilter llmFilter, C context) {
+        return visitScalarFunction(llmFilter, context);
+    }
+
     default R visitLLMFixGrammar(LLMFixGrammar llmFixGrammar, C context) {
         return visitScalarFunction(llmFixGrammar, context);
     }
@@ -2459,5 +2475,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLLMSummarize(LLMSummarize llmSummarize, C context) {
         return visitScalarFunction(llmSummarize, context);
+    }
+
+    default R visitLLMSimilarity(LLMSimilarity llmSimilarity, C context) {
+        return visitScalarFunction(llmSimilarity, context);
     }
 }

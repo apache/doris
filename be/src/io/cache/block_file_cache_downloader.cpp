@@ -174,7 +174,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
         VLOG_DEBUG << "download_file_cache_block: start, tablet_id=" << meta.tablet_id()
                    << ", rowset_id=" << meta.rowset_id() << ", segment_id=" << meta.segment_id()
-                   << ", offset=" << meta.offset() << ", size=" << meta.size();
+                   << ", offset=" << meta.offset() << ", size=" << meta.size()
+                   << ", type=" << meta.cache_type();
         CloudTabletSPtr tablet;
         if (auto res = _engine.tablet_mgr().get_tablet(meta.tablet_id(), false); !res.has_value()) {
             LOG(INFO) << "failed to find tablet " << meta.tablet_id() << " : " << res.error();
@@ -265,10 +266,12 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
 
     std::unique_ptr<char[]> buffer(new char[one_single_task_size]);
 
+    size_t task_offset = 0;
     for (size_t i = 0; i < task_num; i++) {
-        size_t offset = meta.offset + i * one_single_task_size;
-        size_t size =
-                std::min(one_single_task_size, static_cast<size_t>(meta.download_size - offset));
+        size_t offset = meta.offset + task_offset;
+
+        size_t size = std::min(one_single_task_size,
+                               static_cast<size_t>(meta.download_size - task_offset));
         size_t bytes_read;
         VLOG_DEBUG << "download_segment_file, path=" << meta.path << ", read_at offset=" << offset
                    << ", size=" << size;
@@ -285,6 +288,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
             g_file_cache_download_failed_num << 1;
             return;
         }
+        task_offset += size;
         g_file_cache_download_finished_size << size;
     }
 

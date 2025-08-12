@@ -20,10 +20,8 @@ package org.apache.doris.utframe;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.SqlParser;
@@ -53,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
@@ -66,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
@@ -675,8 +675,11 @@ public abstract class TestWithFeService {
     }
 
     public void createCatalog(String sql) throws Exception {
-        CreateCatalogStmt stmt = (CreateCatalogStmt) parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getCatalogMgr().createCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
     }
 
     public CatalogIf getCatalog(String name) throws Exception {
@@ -767,8 +770,9 @@ public abstract class TestWithFeService {
     }
 
     protected void dropSqlBlockRule(String sql) throws Exception {
-        Env.getCurrentEnv().getSqlBlockRuleMgr()
-                .dropSqlBlockRule((DropSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+        NereidsParser parser = new NereidsParser();
+        DropSqlBlockRuleCommand command = (DropSqlBlockRuleCommand) parser.parseSingle(sql);
+        Env.getCurrentEnv().getSqlBlockRuleMgr().dropSqlBlockRule(command.getRuleNames(), command.isIfExists());
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {

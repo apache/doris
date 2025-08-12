@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/token_filter/ascii_folding_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/lower_case_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/word_delimiter_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/char/char_group_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/ngram/edge_ngram_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/standard/standard_tokenizer_factory.h"
@@ -35,6 +36,8 @@ void AnalysisFactoryMgr::initialise() {
         registerFactory("ngram", []() { return std::make_shared<NGramTokenizerFactory>(); });
         registerFactory("edge_ngram",
                         []() { return std::make_shared<EdgeNGramTokenizerFactory>(); });
+        registerFactory("char_group",
+                        []() { return std::make_shared<CharGroupTokenizerFactory>(); });
 
         // token_filter
         registerFactory("lowercase", []() { return std::make_shared<LowerCaseFilterFactory>(); });

@@ -18,18 +18,25 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_statistic.h"
+#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <PrimitiveType T>
-AggregateFunctionPtr type_dispatch_for_aggregate_function_kurt(const DataTypes& argument_types,
-                                                               const bool result_is_nullable,
-                                                               bool nullable_input,
-                                                               const AggregateFunctionAttr& attr) {
-    using StatFunctionTemplate = StatFuncOneArg<T, 4>;
+AggregateFunctionPtr create_aggregate_function_kurt(const std::string& name,
+                                                    const DataTypes& argument_types,
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 1, 1);
+    if (!result_is_nullable) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Aggregate function {} requires result_is_nullable", name);
+    }
+
+    const bool nullable_input = argument_types[0]->is_nullable();
+    using StatFunctionTemplate = StatFuncOneArg<TYPE_DOUBLE, 4>;
 
     if (nullable_input) {
         return creator_without_type::create_ignore_nullable<
@@ -39,53 +46,6 @@ AggregateFunctionPtr type_dispatch_for_aggregate_function_kurt(const DataTypes& 
         return creator_without_type::create_ignore_nullable<
                 AggregateFunctionVarianceSimple<StatFunctionTemplate, false>>(
                 argument_types, result_is_nullable, attr, STATISTICS_FUNCTION_KIND::KURT_POP);
-    }
-};
-
-AggregateFunctionPtr create_aggregate_function_kurt(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const bool result_is_nullable,
-                                                    const AggregateFunctionAttr& attr) {
-    if (argument_types.size() != 1) {
-        LOG(WARNING) << "aggregate function " << name << " requires exactly 1 argument";
-        return nullptr;
-    }
-
-    if (!result_is_nullable) {
-        LOG(WARNING) << "aggregate function " << name << " requires nullable result type";
-        return nullptr;
-    }
-
-    const bool nullable_input = argument_types[0]->is_nullable();
-    switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return type_dispatch_for_aggregate_function_kurt<TYPE_BOOLEAN>(
-                argument_types, result_is_nullable, nullable_input, attr);
-    case PrimitiveType::TYPE_TINYINT:
-        return type_dispatch_for_aggregate_function_kurt<TYPE_TINYINT>(
-                argument_types, result_is_nullable, nullable_input, attr);
-    case PrimitiveType::TYPE_SMALLINT:
-        return type_dispatch_for_aggregate_function_kurt<TYPE_SMALLINT>(
-                argument_types, result_is_nullable, nullable_input, attr);
-    case PrimitiveType::TYPE_INT:
-        return type_dispatch_for_aggregate_function_kurt<TYPE_INT>(
-                argument_types, result_is_nullable, nullable_input, attr);
-    case PrimitiveType::TYPE_BIGINT:
-        return type_dispatch_for_aggregate_function_kurt<TYPE_BIGINT>(
-                argument_types, result_is_nullable, nullable_input, attr);
-    case PrimitiveType::TYPE_LARGEINT:
-        return type_dispatch_for_aggregate_function_kurt<TYPE_LARGEINT>(
-                argument_types, result_is_nullable, nullable_input, attr);
-    case PrimitiveType::TYPE_FLOAT:
-        return type_dispatch_for_aggregate_function_kurt<TYPE_FLOAT>(
-                argument_types, result_is_nullable, nullable_input, attr);
-    case PrimitiveType::TYPE_DOUBLE:
-        return type_dispatch_for_aggregate_function_kurt<TYPE_DOUBLE>(
-                argument_types, result_is_nullable, nullable_input, attr);
-    default:
-        LOG(WARNING) << "unsupported input type " << argument_types[0]->get_name()
-                     << " for aggregate function " << name;
-        return nullptr;
     }
 }
 

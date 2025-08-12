@@ -2595,15 +2595,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
-            // only if session variable: disable_variant_flatten_nested = false and
+            // only if session variable: enable_variant_flatten_nested = true and
             // table property: variant_enable_flatten_nested = true
             // we can enable variant flatten nested otherwise throw error
-            if (ctx != null && !ctx.getSessionVariable().getDisableVariantFlattenNested()
+            if (ctx != null && ctx.getSessionVariable().getEnableVariantFlattenNested()
                     && variantEnableFlattenNested) {
                 olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
             } else if (variantEnableFlattenNested) {
                 throw new DdlException("If you want to enable variant flatten nested, "
-                        + "please set session variable: disable_variant_flatten_nested = false");
+                        + "please set session variable: enable_variant_flatten_nested = true");
             } else {
                 // keep table property: variant_enable_flatten_nested = false
                 olapTable.setVariantEnableFlattenNested(false);
@@ -3483,15 +3483,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
-            // only if session variable: disable_variant_flatten_nested = false and
+            // only if session variable: enable_variant_flatten_nested = true and
             // table property: variant_enable_flatten_nested = true
             // we can enable variant flatten nested otherwise throw error
-            if (ctx != null && !ctx.getSessionVariable().getDisableVariantFlattenNested()
+            if (ctx != null && ctx.getSessionVariable().getEnableVariantFlattenNested()
                     && variantEnableFlattenNested) {
                 olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
             } else if (variantEnableFlattenNested) {
                 throw new DdlException("If you want to enable variant flatten nested, "
-                        + "please set session variable: disable_variant_flatten_nested = false");
+                        + "please set session variable: enable_variant_flatten_nested = true");
             } else {
                 // keep table property: variant_enable_flatten_nested = false
                 olapTable.setVariantEnableFlattenNested(false);

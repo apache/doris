@@ -37,6 +37,7 @@
 #include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/olap_scanner.h"
+#include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -47,6 +48,17 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
+
+    if (olap_scan_node.__isset.score_sort_info && olap_scan_node.__isset.score_sort_limit) {
+        const doris::TExpr& ordering_expr = olap_scan_node.score_sort_info.ordering_exprs.front();
+        const bool asc = olap_scan_node.score_sort_info.is_asc_order[0];
+        const size_t limit = olap_scan_node.score_sort_limit;
+        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
+    }
+
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(_sync_cloud_tablets(state));
     return Status::OK();
@@ -651,6 +663,10 @@ Status OlapScanLocalState::open(RuntimeState* state) {
                 _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
             }
         }
+    }
+
+    if (_score_runtime) {
+        RETURN_IF_ERROR(_score_runtime->prepare(state, p.intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));

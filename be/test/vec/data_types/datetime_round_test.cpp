@@ -34,7 +34,6 @@
 #include "vec/core/types.h" // UInt32
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/io/reader_buffer.h"
 
 using namespace doris;
 using namespace doris::vectorized;
@@ -47,9 +46,9 @@ static void from_string_checker(UInt32 scale, const std::string& rounding,
                     DataTypeFactory::instance().create_data_type(
                             doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 0, scale));
 
-    // constructor of ReadBuffer is not const(which seems not reasonable),
+    // constructor of StringRefis not const(which seems not reasonable),
     // so we need to cast away const
-    ReadBuffer rb(const_cast<char*>(rounding.c_str()), rounding.size());
+    StringRef rb(const_cast<char*>(rounding.c_str()), rounding.size());
     ColumnDateTimeV2::MutablePtr column = ColumnDateTimeV2::create(0);
     // DataTypeDateTimeV2::from_string
     auto rt = datetime_ptr->from_string(rb, &(*column));
@@ -98,7 +97,7 @@ static void serialization_checker(UInt32 scale, const std::string& input,
                     DataTypeFactory::instance().create_data_type(
                             doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 0, scale));
 
-    ReadBuffer rb(const_cast<char*>(input.c_str()), input.size());
+    StringRef rb(const_cast<char*>(input.c_str()), input.size());
     ColumnDateTimeV2::MutablePtr column = ColumnDateTimeV2::create(0);
     auto rt = datetime_ptr->from_string(rb, &(*column));
     EXPECT_TRUE(rt.ok());
