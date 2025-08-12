@@ -202,22 +202,23 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         // And get_writer_status will also need this lock, it will block pipeline exec thread.
         Status st = finish(state);
         _writer_status.update(st);
-    }
-    Status st = Status::OK();
-    { st = _writer_status.status(); }
 
-    Status close_st = close(st);
-    _closed = true;
-    {
-        // If it is already failed before, then not update the write status so that we could get
-        // the real reason.
-        std::lock_guard l(_m);
-        if (_writer_status.ok()) {
-            _writer_status.update(close_st);
+        if (!_closed) {
+            _closed = true;
+            Status close_st = close(st);
+            {
+                // If it is already failed before, then not update the write status so that we could get
+                // the real reason.
+                std::lock_guard l(_m);
+                if (_writer_status.ok()) {
+                    _writer_status.update(close_st);
+                }
+            }
         }
+        // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
+        _set_ready_to_finish();
     }
-    // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
-    _set_ready_to_finish();
+
 }
 
 void AsyncResultWriter::_set_ready_to_finish() {
@@ -238,9 +239,10 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 }
 
 void AsyncResultWriter::force_close(Status s) {
+    // If task is failed or wake up early, `close` will be not called.
     if (!_closed) {
-        WARN_IF_ERROR(close(s), "");
         _closed = true;
+        WARN_IF_ERROR(close(s), "");
     }
     std::lock_guard l(_m);
     _writer_status.update(s);
