@@ -19,6 +19,7 @@
 #include <concurrentqueue.h>
 
 #include <condition_variable>
+#include <future>
 #include <queue> // IWYU pragma: keep
 
 #include "runtime/result_writer.h"
@@ -82,7 +83,7 @@ protected:
     std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
 
 private:
-    void process_block(RuntimeState* state, RuntimeProfile* operator_profile);
+    Status process_block(RuntimeState* state, RuntimeProfile* operator_profile);
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
     void _set_ready_to_finish();
@@ -93,8 +94,10 @@ private:
     static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;
     std::deque<std::unique_ptr<Block>> _data_queue;
-    bool _running_reader = false;
     bool _opened = false;
+    std::shared_ptr<std::promise<Status>> _promise = nullptr;
+    std::future<Status>* _future;
+    std::future<Status> _placeholder;
     std::atomic_bool _closed = false;
     // Default value is ok
     AtomicStatus _writer_status;

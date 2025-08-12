@@ -37,7 +37,12 @@ namespace vectorized {
 AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs,
                                      std::shared_ptr<pipeline::Dependency> dep,
                                      std::shared_ptr<pipeline::Dependency> fin_dep)
-        : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(dep), _finish_dependency(fin_dep) {}
+        : _vec_output_expr_ctxs(output_expr_ctxs), _dependency(dep), _finish_dependency(fin_dep) {
+    _future = &_placeholder;
+    _promise = std::make_shared<std::promise<Status>>();
+    *_future = _promise->get_future();
+    _promise->set_value(Status::OK());
+}
 
 Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
     auto rows = block->rows();
@@ -64,18 +69,25 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
             _dependency->block();
         }
     }
-    if (!_running_reader) {
-        _running_reader = true;
+
+    if (!_future || _future->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        // Need to start a new thread
+        _promise = std::make_shared<std::promise<Status>>();
+        *_future = _promise->get_future();
+        DCHECK(_future->wait_for(std::chrono::seconds(0)) != std::future_status::ready);
         DCHECK(_operator_profile);
         auto task_ctx = state->get_task_execution_context();
         RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-                [this, state, operator_profile = _operator_profile, task_ctx]() {
+                [this, state, operator_profile = _operator_profile, task_ctx,
+                 p = std::move(_promise)]() {
                     SCOPED_ATTACH_TASK(state);
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
                         return;
                     }
-                    this->process_block(state, operator_profile);
+                    DCHECK(_future->wait_for(std::chrono::seconds(0)) != std::future_status::ready);
+                    p->set_value(this->process_block(state, operator_profile));
+                    DCHECK(_future->wait_for(std::chrono::seconds(0)) == std::future_status::ready);
                     task_lock.reset();
                 }));
     }
@@ -120,7 +132,7 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     return Status::OK();
 }
 
-void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
+Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
     if (state && state->get_query_ctx() && state->get_query_ctx()->workload_group()) {
         if (auto cg_ctl_sptr =
                     state->get_query_ctx()->workload_group()->get_cgroup_cpu_ctl_wptr().lock()) {
@@ -153,8 +165,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
             while (!_eos && _data_queue.empty() && _writer_status.ok() &&
                    !ExecEnv::GetInstance()->fragment_mgr()->shutting_down()) {
                 // No block available.
-                _running_reader = false;
-                return;
+                return Status::OK();
             }
             // If writer status is not ok, then we should not change its status to avoid lost the actual error status.
             if (ExecEnv::GetInstance()->fragment_mgr()->shutting_down() && _writer_status.ok()) {
@@ -202,22 +213,26 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         // And get_writer_status will also need this lock, it will block pipeline exec thread.
         Status st = finish(state);
         _writer_status.update(st);
+    }
+    Status st = Status::OK();
+    { st = _writer_status.status(); }
 
-        if (!_closed) {
-            _closed = true;
-            Status close_st = close(st);
-            {
-                // If it is already failed before, then not update the write status so that we could get
-                // the real reason.
-                std::lock_guard l(_m);
-                if (_writer_status.ok()) {
-                    _writer_status.update(close_st);
-                }
-            }
+    Status close_st = Status::OK();
+    if (!_closed) {
+        close_st = close(st);
+        _closed = true;
+    }
+    {
+        // If it is already failed before, then not update the write status so that we could get
+        // the real reason.
+        std::lock_guard l(_m);
+        if (_writer_status.ok()) {
+            _writer_status.update(close_st);
         }
     }
     // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
     _set_ready_to_finish();
+    return Status::OK();
 }
 
 void AsyncResultWriter::_set_ready_to_finish() {
@@ -239,6 +254,8 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 
 void AsyncResultWriter::force_close(Status s) {
     // If task is failed or wake up early, `close` will be not called.
+    // TODO(gabriel): This is a light blocking operation. However, this should be removed in future.
+    _future->wait();
     if (!_closed) {
         _closed = true;
         WARN_IF_ERROR(close(s), "");
