@@ -110,6 +110,15 @@ public:
         return info;
     }
 
+    std::string dump_segment_info(int64_t internal_id) const {
+        if (auto it = _segment_infos.find(internal_id); it != _segment_infos.end()) {
+            const auto& seg_info = it->second;
+            return fmt::format("Segment {}: row_count={}, offset={}, size={}", internal_id,
+                               seg_info.row_count, seg_info.offset, seg_info.size);
+        }
+        return fmt::format("Segment {} not found", internal_id);
+    }
+
 private:
     std::string _path;
     int _fd {-1};

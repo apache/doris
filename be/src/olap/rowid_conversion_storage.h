@@ -226,10 +226,20 @@ public:
 private:
     Status _spill_segment(uint32_t internal_id) {
         auto& segment = _segments[internal_id];
+        LOG_INFO(
+                "begin to spill segment mapping, internal_id={}, current memory usage={}, totoal "
+                "memory usage={}, segment info={}",
+                internal_id, segment.resource->bytes_allocated(), memory_usage(),
+                _spill_manager->dump_segment_info(internal_id));
         RETURN_IF_ERROR(_spill_manager->spill_segment_mapping(internal_id, segment.mapping));
         segment.is_spilled = true;
         segment.mapping.clear();
         segment.resource->reset();
+        LOG_INFO(
+                "after spilling segment mapping, internal_id={}, current memory usage={}, totoal "
+                "memory usage={}, segment info={}",
+                internal_id, segment.resource->bytes_allocated(), memory_usage(),
+                _spill_manager->dump_segment_info(internal_id));
         return Status::OK();
     }
 

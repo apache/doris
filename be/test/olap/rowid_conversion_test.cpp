@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -289,7 +290,8 @@ protected:
     void check_rowid_conversion(KeysType keys_type, bool enable_unique_key_merge_on_write,
                                 uint32_t num_input_rowset, uint32_t num_segments,
                                 uint32_t rows_per_segment, const SegmentsOverlapPB& overlap,
-                                bool has_delete_handler, bool is_vertical_merger) {
+                                bool has_delete_handler, bool is_vertical_merger, bool check_spill,
+                                int64_t rowid_conversion_max_memory) {
         // generate input data
         std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
         generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -384,6 +386,9 @@ protected:
             for (auto i = 0; i < output_block.rows(); i++) {
                 output_data.emplace_back(columns[0].column->get_int(i),
                                          columns[1].column->get_int(i));
+            }
+            if (check_spill) {
+                ASSERT_LE(rowid_conversion._mem_used, rowid_conversion_max_memory);
             }
         } while (s.ok());
         EXPECT_TRUE(s.is<END_OF_FILE>()) << s;
@@ -553,6 +558,12 @@ TEST_F(TestRowIdConversion, Basic) {
     EXPECT_EQ(res, -1);
 }
 
+std::string MyNameGenerator(const testing::TestParamInfo<TestRowIdConversion::ParamType>& info) {
+    bool enable_spill = std::get<0>(std::get<1>(info.param));
+    int64_t spill_threshold = std::get<1>(std::get<1>(info.param));
+    return fmt::format("{}_{}_{}", info.index, enable_spill, spill_threshold);
+}
+
 INSTANTIATE_TEST_SUITE_P(
         Parameters, TestRowIdConversion,
         ::testing::Combine(
@@ -571,7 +582,8 @@ INSTANTIATE_TEST_SUITE_P(
                                                       {UNIQUE_KEYS, true, true, true}}),
                 ::testing::ValuesIn(
                         // Parameters: enable_spill, spill_threshold
-                        std::vector<SpillParam> {{false, 0}, {true, 1000000}, {true, 10000000}})));
+                        std::vector<SpillParam> {{false, 0}, {true, 1000000}, {true, 1000}})),
+        MyNameGenerator);
 
 TEST_P(TestRowIdConversion, Conversion) {
     auto [compaction_param, spill_param] = GetParam();
@@ -593,7 +605,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = NONOVERLAPPING;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
-                                   is_vertical_merger);
+                                   is_vertical_merger, std::get<0>(spill_param),
+                                   std::get<1>(spill_param));
         }
         // RowsetReader: VMergeIterator
         {
@@ -601,7 +614,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = OVERLAPPING;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
-                                   is_vertical_merger);
+                                   is_vertical_merger, std::get<0>(spill_param),
+                                   std::get<1>(spill_param));
         }
         // RowsetReader: VUnionIterator
         {
@@ -609,7 +623,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = NONOVERLAPPING;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
-                                   is_vertical_merger);
+                                   is_vertical_merger, std::get<0>(spill_param),
+                                   std::get<1>(spill_param));
         }
         // RowsetReader: VUnionIterator + VMergeIterator
         {
@@ -617,7 +632,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = OVERLAP_UNKNOWN;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
-                                   is_vertical_merger);
+                                   is_vertical_merger, std::get<0>(spill_param),
+                                   std::get<1>(spill_param));
         }
     }
 }
