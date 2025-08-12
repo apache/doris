@@ -17,18 +17,18 @@
 
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <utility>
 #include <vector>
 
-#include "common/config.h"
 #include "olap/olap_common.h"
-#include "olap/rowid_conversion_storage.h"
-#include "olap/utils.h"
-#include "runtime/thread_context.h"
-
 namespace doris {
 #include "common/compile_check_begin.h"
+namespace detail {
+class RowIdConversionStorage;
+}
+struct RowLocation;
 
 // For unique key merge on write table, we should update delete bitmap
 // of destination rowset when compaction finished.
@@ -37,7 +37,7 @@ namespace doris {
 // destination rowset.
 class RowIdConversion {
 public:
-    RowIdConversion() = default;
+    RowIdConversion();
     ~RowIdConversion();
 
     static size_t calculate_memory_usage(size_t rows);

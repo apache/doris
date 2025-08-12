@@ -28,7 +28,7 @@ namespace doris {
 Status RowIdSpillManager::init() {
     std::lock_guard<std::mutex> lock(_mutex);
 
-    _fd = open(_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
+    _fd = ::open(_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (_fd < 0) {
         auto msg = fmt::format("Failed to open spill file {}: {}", _path, strerror(errno));
         LOG_WARNING(msg);

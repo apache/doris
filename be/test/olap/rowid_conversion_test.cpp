@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -379,6 +380,7 @@ protected:
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
+        auto t1 = std::chrono::steady_clock::now();
         // read output rowset data
         std::vector<std::tuple<int64_t, int64_t>> output_data;
         do {
@@ -394,8 +396,15 @@ protected:
                 ASSERT_LE(rowid_conversion._mem_used, rowid_conversion_max_memory);
             }
         } while (s.ok());
-        std::cout << fmt::format("output_rows={}, rowid_conversion memory used={}",
-                                 out_rowset->rowset_meta()->num_rows(), rowid_conversion._mem_used);
+        auto t2 = std::chrono::steady_clock::now();
+        int64_t total_input_rows = std::accumulate(
+                input_rowsets.begin(), input_rowsets.end(), 0,
+                [](int64_t sum, const RowsetSharedPtr& rs) { return sum + rs->num_rows(); });
+        std::cout << fmt::format(
+                "input_rows={}, output_rows={}, rowid_conversion memory used={}, compaction "
+                "cost={} ms\n",
+                total_input_rows, out_rowset->rowset_meta()->num_rows(), rowid_conversion._mem_used,
+                std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count());
         EXPECT_TRUE(s.is<END_OF_FILE>()) << s;
         EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
         auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(out_rowset);
@@ -433,6 +442,10 @@ protected:
             }
         }
         EXPECT_EQ(count, output_data.size());
+        auto t3 = std::chrono::steady_clock::now();
+        std::cout << fmt::format(
+                "================= check rowid conversion cost={} ms =================\n",
+                std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count());
     }
     // if overlap == NONOVERLAPPING, all rowsets are non overlapping;
     // if overlap == OVERLAPPING, all rowsets are overlapping;
@@ -565,7 +578,7 @@ TEST_F(TestRowIdConversion, Basic) {
 
 std::string MyNameGenerator(const testing::TestParamInfo<TestRowIdConversion::ParamType>& info) {
     int64_t spill_threshold = std::get<0>(std::get<1>(info.param));
-    return fmt::format("{}_{}", info.index, spill_threshold);
+    return fmt::format("{}_{}", spill_threshold, info.index);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -585,8 +598,8 @@ INSTANTIATE_TEST_SUITE_P(
                                                       {UNIQUE_KEYS, false, true, true},
                                                       {UNIQUE_KEYS, true, true, true}}),
                 ::testing::ValuesIn(
-                        // Parameters: enable_spill, spill_threshold
-                        std::vector<SpillParam> {{0}, {1000000}, {40000}})),
+                        // Parameters: spill_threshold
+                        std::vector<SpillParam> {{0}, {100000000 /* large enough */}, {200000}})),
         MyNameGenerator);
 
 TEST_P(TestRowIdConversion, Conversion) {

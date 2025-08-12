@@ -26,7 +26,6 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "common/status.h"
 

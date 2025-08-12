@@ -18,11 +18,16 @@
 #include "olap/rowid_conversion.h"
 
 #include "cloud/config.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_factory.h"
-
+#include "olap/rowid_conversion_storage.h"
+#include "olap/utils.h"
+#include "runtime/thread_context.h"
 namespace doris {
 #include "common/compile_check_begin.h"
+
+RowIdConversion::RowIdConversion() = default;
 
 RowIdConversion::~RowIdConversion() {
     RELEASE_THREAD_MEM_TRACKER(_mem_used);
@@ -83,8 +88,9 @@ Status RowIdConversion::add(const std::vector<RowLocation>& rss_row_ids,
                             const std::vector<uint32_t>& dst_segments_num_row) {
     CHECK(_phase == Phase::BUILD) << "Cannot add row ids in READ phase";
     size_t old_mem = _storage->memory_usage();
-    LOG_INFO("[verbose] RowIdConversion::add, rows size={}, current memory usage={}",
-             rss_row_ids.size(), old_mem);
+    VLOG_DEBUG << fmt::format(
+            "[verbose] RowIdConversion::add, rows size={}, current memory usage={}",
+            rss_row_ids.size(), old_mem);
     for (const auto& item : rss_row_ids) {
         if (item.row_id == -1) {
             continue;
@@ -100,8 +106,9 @@ Status RowIdConversion::add(const std::vector<RowLocation>& rss_row_ids,
                                       {_cur_dst_segment_id, _cur_dst_segment_rowid++}));
     }
     RETURN_IF_ERROR(_storage->spill_if_eligible());
-    LOG_INFO("[verbose] after RowIdConversion::add, rows size={}, current memory usage={}",
-             rss_row_ids.size(), _storage->memory_usage());
+    VLOG_DEBUG << fmt::format(
+            "[verbose] after RowIdConversion::add, rows size={}, current memory usage={}",
+            rss_row_ids.size(), _storage->memory_usage());
     track_mem_usage(_storage->memory_usage() - old_mem);
     return Status::OK();
 }

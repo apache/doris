@@ -40,6 +40,8 @@ public:
     virtual void prune_segment_mapping(const RowsetId& rowset_id, uint32_t segment_id) = 0;
     virtual std::size_t memory_usage() const = 0;
     virtual Status spill_if_eligible() { return Status::OK(); }
+
+    // for inverted index compaction
     virtual const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>&
     get_rowid_conversion_map() const = 0;
 
@@ -103,8 +105,6 @@ public:
 
     void prune_segment_mapping(const RowsetId& rowset_id, uint32_t segment_id) override;
 
-    // for inverted index compaction
-    // TODO: fix me
     const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& get_rowid_conversion_map()
             const override;
 

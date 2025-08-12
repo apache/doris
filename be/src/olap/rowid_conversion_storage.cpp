@@ -141,6 +141,7 @@ Status RowIdSpillableStorage::get(const RowsetId& rowset_id, uint32_t segment_id
     auto& mappings = _segments[internal_id].mapping;
     if (_segments[internal_id].is_spilled) {
         RETURN_IF_ERROR(_spill_manager->read_segment_mapping(internal_id, &mappings));
+        _segments[internal_id].is_spilled = false;
     }
 
     if (auto it2 = mappings.find(row_id); it2 != mappings.end()) {
@@ -160,8 +161,6 @@ void RowIdSpillableStorage::prune_segment_mapping(const RowsetId& rowset_id, uin
     }
 }
 
-// for inverted index compaction
-// TODO: fix me
 const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>&
 RowIdSpillableStorage::get_rowid_conversion_map() const {
     throw Exception(Status::FatalError("Unreachable"));
@@ -177,7 +176,7 @@ std::size_t RowIdSpillableStorage::memory_usage() const {
 
 Status RowIdSpillableStorage::_spill_segment(uint32_t internal_id) {
     auto& segment = _segments[internal_id];
-    LOG_INFO(
+    VLOG_DEBUG << fmt::format(
             "[verbose] begin to spill segment mapping, internal_id={}, current memory "
             "usage={}, totoal memory usage={}, segment info={}",
             internal_id, segment.resource->bytes_allocated(), memory_usage(),
@@ -186,7 +185,7 @@ Status RowIdSpillableStorage::_spill_segment(uint32_t internal_id) {
     segment.is_spilled = true;
     segment.mapping.clear();
     segment.resource->reset();
-    LOG_INFO(
+    VLOG_DEBUG << fmt::format(
             "[verbose] after spilling segment mapping, internal_id={}, current memory "
             "usage={}, totoal memory usage={}, segment info={}",
             internal_id, segment.resource->bytes_allocated(), memory_usage(),
@@ -196,8 +195,9 @@ Status RowIdSpillableStorage::_spill_segment(uint32_t internal_id) {
 
 Status RowIdSpillableStorage::check_and_spill_segment(uint32_t internal_id) {
     if (_segments[internal_id].resource->bytes_allocated() >= memory_limit()) {
-        LOG_INFO("[verbose] spill a single segment {}, memory {}, limit {}", internal_id,
-                 _segments[internal_id].resource->bytes_allocated(), memory_limit());
+        VLOG_DEBUG << fmt::format("[verbose] spill a single segment {}, memory {}, limit {}",
+                                  internal_id, _segments[internal_id].resource->bytes_allocated(),
+                                  memory_limit());
         RETURN_IF_ERROR(_spill_segment(internal_id));
     }
     return Status::OK();
@@ -205,8 +205,8 @@ Status RowIdSpillableStorage::check_and_spill_segment(uint32_t internal_id) {
 
 Status RowIdSpillableStorage::check_and_spill_all() {
     if (memory_usage() >= memory_limit()) {
-        LOG_INFO("[verbose] spill all segments, current memory usage={}, limit {}", memory_usage(),
-                 memory_limit());
+        VLOG_DEBUG << fmt::format("[verbose] spill all segments, current memory usage={}, limit {}",
+                                  memory_usage(), memory_limit());
         for (std::size_t i = 0; i < _segments.size(); ++i) {
             if (!_segments[i].mapping.empty()) {
                 RETURN_IF_ERROR(_spill_segment(static_cast<uint32_t>(i)));
