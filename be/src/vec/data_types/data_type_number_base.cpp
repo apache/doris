@@ -43,7 +43,6 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

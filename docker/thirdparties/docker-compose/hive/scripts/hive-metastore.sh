@@ -30,6 +30,22 @@ done
 ls "${AUX_LIB}/"
 cp -r "${AUX_LIB}"/ /opt/hive
 
+#  download auxiliary jars
+cd /opt/hive/auxlib
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/jdom-1.1.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-java-sdk-core-3.4.0.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-java-sdk-ecs-4.2.0.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-java-sdk-ram-3.0.0.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-java-sdk-sts-3.0.0.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aliyun-sdk-oss-3.4.1.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-aliyun-3.2.1.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/aws-java-sdk-bundle-1.11.375.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-huaweicloud-3.1.1-hw-54.5.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-cos-3.1.0-8.3.22.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/cos_api-bundle-5.6.244.4.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/hadoop-aws-3.2.1.jar
+curl -O https://s3BucketName.s3Endpoint/regression/docker/hive3/paimon-hive-connector-3.1-1.3-SNAPSHOT.jar
+
 nohup /opt/hive/bin/hive --service metastore &
 
 # wait lockfile
@@ -117,6 +133,17 @@ hadoop_put_pids+=($!)
 ## put paimon1
 hadoop fs -copyFromLocal -f /mnt/scripts/paimon1 /user/doris/ &
 hadoop_put_pids+=($!)
+
+# create paimon external table
+if [[ ${enablePaimonHms} == "true" ]]; then
+    START_TIME=$(date +%s)
+    hive -f /mnt/scripts/create_external_paimon_scripts/create_paimon_tables.hql || (echo "Failed to executing create_paimon_table.hql" && exit 1)
+    END_TIME=$(date +%s)
+    EXECUTION_TIME=$((END_TIME - START_TIME))
+    echo "Script: create_paimon_table.hql executed in $EXECUTION_TIME seconds"
+else
+    echo "enablePaimonHms is false, skip create paimon table"
+fi
 
 ## put tvf_data
 if [[ -z "$(ls /mnt/scripts/tvf_data)" ]]; then

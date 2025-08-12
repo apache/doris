@@ -43,7 +43,6 @@ namespace doris::vectorized {
 
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 /** Implements part of the IDataType interface, common to all numbers and for Date and DateTime.
   */

@@ -133,7 +133,7 @@ TEST_P(DataTypeBitMapTest, FromAndToStringTest) {
         auto assert_column = dt_bitmap->create_column();
         for (int i = 0; i < col_to->size(); ++i) {
             std::string s = col_to->get_data_at(i).to_string();
-            ReadBuffer rb(s.data(), s.size());
+            StringRef rb(s.data(), s.size());
             ASSERT_EQ(Status::OK(), dt_bitmap->from_string(rb, assert_column.get()));
             ASSERT_EQ(assert_column->operator[](i), bitmap_cols[0]->get_ptr()->operator[](i))
                     << "i: " << i << " s: " << s << " datatype: " << dt_bitmap->get_name()
@@ -158,7 +158,7 @@ TEST_P(DataTypeBitMapTest, FromAndToStringTest) {
         auto assert_column_1 = dt_bitmap->create_column();
         for (int i = 0; i < ser_col->size(); ++i) {
             std::string s = ser_col->get_data_at(i).to_string();
-            ReadBuffer rb(s.data(), s.size());
+            StringRef rb(s.data(), s.size());
             ASSERT_EQ(Status::OK(), dt_bitmap->from_string(rb, assert_column_1.get()));
             auto aaa = assert_column_1->operator[](i);
             ASSERT_EQ(assert_column_1->operator[](i), bitmap_cols[0]->get_ptr()->operator[](i));
