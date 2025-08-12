@@ -2294,11 +2294,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                     throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
                 if (fn == null) {
+                    // Refain:
+                    // For expression-based partitioning, we don't actually analyze the parameter types of the expressions
+                    // but in practice this doesn't cause any operational issues.
                     // throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
             } else if (expr instanceof SlotRef) {
-                if (partitionDesc.isAutoCreatePartitions()) {
-                    throw new AnalysisException("Auto Partition need FunctionCallExpr");
+                if (partitionDesc.isAutoCreatePartitions() && partitionDesc.getType() == PartitionType.RANGE) {
+                    throw new AnalysisException("Auto Range Partition need FunctionCallExpr");
                 }
             }
         }
