@@ -2648,17 +2648,19 @@ public class InternalCatalog implements CatalogIf<Database> {
             // only if session variable: enable_variant_flatten_nested = true and
             // table property: variant_enable_flatten_nested = true
             // we can enable variant flatten nested otherwise throw error
-            if (ctx != null && !ctx.getSessionVariable().getEnableVariantFlattenNested()
+            if (ctx != null && ctx.getSessionVariable().getEnableVariantFlattenNested()
                     && variantEnableFlattenNested) {
                 olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
             } else if (variantEnableFlattenNested) {
                 throw new DdlException("If you want to enable variant flatten nested, "
                         + "please set session variable: enable_variant_flatten_nested = true");
+            } else {
+                // keep table property: variant_enable_flatten_nested = false
+                olapTable.setVariantEnableFlattenNested(false);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
