@@ -26,6 +26,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
 #include "meta_service.h"
@@ -75,7 +76,13 @@ static TxnErrorCode index_exists(Transaction* txn, const std::string& instance_i
         }
         return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
     } else {
-        CHECK(false) << "versioned read is not supported yet";
+        MetaReader reader(instance_id);
+        TxnErrorCode err = reader.get_index_index(txn, req->index_ids(0), nullptr);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG_WARNING("failed to get index index key").tag("err", err);
+            return err;
+        }
+        return err;
     }
 }
 
@@ -428,7 +435,13 @@ static TxnErrorCode partition_exists(Transaction* txn, const std::string& instan
         }
         return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
     } else {
-        CHECK(false) << "versioned read is not supported yet";
+        MetaReader reader(instance_id);
+        TxnErrorCode err = reader.get_partition_index(txn, req->partition_ids(0), nullptr);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG_WARNING("failed to get partition index key").tag("err", err);
+            return err;
+        }
+        return err;
     }
 }
 
