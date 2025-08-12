@@ -163,7 +163,7 @@ public class PartitionTableInfo {
             boolean isExternal) {
 
         if (identifierPartitionColumns != null) {
-
+            // (Refrain) should we support expr(col1, col2)?
             if (identifierPartitionColumns.size() != partitionList.size()) {
                 if (!isExternal && partitionType.equalsIgnoreCase(PartitionType.LIST.name())) {
                     throw new AnalysisException("internal catalog does not support functions in 'LIST' partition");
@@ -262,10 +262,10 @@ public class PartitionTableInfo {
 
             ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
 
-            // only auto partition support partition expr
-            if (!isAutoPartition) {
+            // only auto partition support partition expr (Refrain only check range)
+            if (!isAutoPartition && partitionType.equals(PartitionType.RANGE.name())) {
                 if (exprs.stream().anyMatch(expr -> expr instanceof FunctionCallExpr)) {
-                    throw new AnalysisException("Non-auto partition table not support partition expr!");
+                    throw new AnalysisException("Non-auto range partition table not support partition expr!");
                 }
             }
             try {

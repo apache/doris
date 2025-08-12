@@ -116,16 +116,17 @@ public class PartitionDesc {
                         "auto create partition only support function call expr is date_trunc/date_floor/date_ceil. "
                             + expr.toSql());
                 }
-
+                // (Refrain) now we support (f(a), f(b,1), f(c),2)
                 for (Expr param : paramsExpr) {
                     if (param instanceof SlotRef) {
-                        if (colNames.isEmpty()) {
-                            colNames.add(((SlotRef) param).getColumnName());
-                        } else {
-                            throw new AnalysisException(
-                                "partition only support one slotRef in function expr. "
-                                    + expr.toSql());
-                        }
+                        colNames.add(((SlotRef) param).getColumnName());
+                        // if (colNames.isEmpty()) {
+                        //     colNames.add(((SlotRef) param).getColumnName());
+                        // } else {
+                        //     throw new AnalysisException(
+                        //         "partition only support one slotRef in function expr. "
+                        //             + expr.toSql());
+                        // }
                     }
                 }
             } else if (expr instanceof SlotRef) {
