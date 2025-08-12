@@ -60,6 +60,7 @@ private:
     TupleId _tuple_id;
     std::string _query_string;
     TOdbcTableType::type _table_type;
+    bool _is_tvf;
 };
 
 } // namespace doris::pipeline

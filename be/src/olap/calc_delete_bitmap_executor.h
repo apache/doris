@@ -56,7 +56,7 @@ public:
                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer);
 
     // calculate delete bitmap between `segments`
-    Status submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+    Status submit(BaseTabletSPtr tablet, TabletSchemaSPtr schema, RowsetId rowset_id,
                   const std::vector<segment_v2::SegmentSharedPtr>& segments,
                   DeleteBitmapPtr delete_bitmap);
 

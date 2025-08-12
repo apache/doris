@@ -80,11 +80,11 @@ suite("txn_insert_restart_fe_with_schema_change", 'docker') {
         }
 
         result = sql_return_maparray 'SHOW PROC "/transactions"'
-        runningTxn = result.find { it.DbName.indexOf(dbName) >= 0 }.RunningTransactionNum as int
+        def runningTxn = result.find { it.DbName.indexOf(dbName) >= 0 }.RunningTransactionNum as int
         assertEquals(4, runningTxn)
 
         sql "ALTER TABLE tbl_2 ADD COLUMN k3 INT DEFAULT '-1'"
-        sql 'CREATE MATERIALIZED VIEW tbl_3_mv AS SELECT k1, k1 + k2 FROM tbl_3'
+        sql 'CREATE MATERIALIZED VIEW tbl_3_mv AS SELECT k1 + 1, k1 + k2 FROM tbl_3'
         sql 'ALTER TABLE tbl_4 ADD ROLLUP tbl_3_r1(k1, v)'
         sql 'ALTER TABLE tbl_5 ORDER BY (k2, k1)'
 
@@ -112,7 +112,7 @@ suite("txn_insert_restart_fe_with_schema_change", 'docker') {
         // should publish visible
         order_qt_select_2 'SELECT k1, k2 FROM tbl_2'
         order_qt_select_3 'SELECT * FROM tbl_3'
-        order_qt_select_3m 'SELECT k1, k1 + k2 FROM tbl_3'
+        order_qt_select_3m 'SELECT k1 + 1, k1 + k2 FROM tbl_3'
         order_qt_select_4 'SELECT * FROM tbl_4'
         order_qt_select_4r 'SELECT k1, v FROM tbl_4'
         order_qt_select_5 'SELECT k1, k2 FROM tbl_5'

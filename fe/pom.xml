@@ -382,6 +382,7 @@ under the License.
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
         <awssdk.version>2.29.26</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
+        <mockito.version>4.11.0</mockito.version>
     </properties>
     <profiles>
         <profile>
@@ -1701,6 +1702,16 @@ under the License.
                 <groupId>org.semver4j</groupId>
                 <artifactId>semver4j</artifactId>
                 <version>${semver4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-inline</artifactId>
+                <version>${mockito.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

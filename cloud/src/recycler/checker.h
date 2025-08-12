@@ -111,6 +111,18 @@ public:
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
 private:
+    struct RowsetIndexesFormatV1 {
+        std::string rowset_id;
+        std::unordered_set<int64_t> segment_ids;
+        std::unordered_set<std::string> index_ids;
+    };
+
+    struct RowsetIndexesFormatV2 {
+        std::string rowset_id;
+        std::unordered_set<int64_t> segment_ids;
+    };
+
+private:
     // returns 0 for success otherwise error
     int init_obj_store_accessors(const InstanceInfoPB& instance);
 
@@ -127,6 +139,14 @@ private:
     int traverse_delete_bitmaps(const std::function<int(int64_t)>& check_func);
 
     int check_delete_bitmap_storage_optimize(int64_t tablet_id);
+
+    int check_inverted_index_file_storage_format_v1(int64_t tablet_id, const std::string& file_path,
+                                                    const std::string& rowset_info,
+                                                    RowsetIndexesFormatV1& rowset_index_cache_v1);
+
+    int check_inverted_index_file_storage_format_v2(int64_t tablet_id, const std::string& file_path,
+                                                    const std::string& rowset_info,
+                                                    RowsetIndexesFormatV2& rowset_index_cache_v2);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;

@@ -21,6 +21,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     // MOR
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"
+    sql """ set disable_variant_flatten_nested = false """
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
