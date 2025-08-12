@@ -51,7 +51,8 @@ Status CollectionStatistics::collect(
             auto status = process_segment(seg_path, rowset_meta->fs(), tablet_schema.get(),
                                           collect_infos);
             if (!status.ok()) {
-                if (status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND) {
+                if (status.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+                    status.code() == ErrorCode::INVERTED_INDEX_BYPASS) {
                     LOG(ERROR) << "Index statistics collection failed: " << status.to_string();
                 } else {
                     return status;

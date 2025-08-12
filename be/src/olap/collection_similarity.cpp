@@ -60,33 +60,18 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
 
     if (order_type == OrderType::DESC) {
         find_top_k_scores(
-                _bm25_scores, top_k,
+            row_bitmap, _bm25_scores, top_k,
                 [](const ScoreMapIterator& a, const ScoreMapIterator& b) {
                     return a->second > b->second;
                 },
                 top_k_results);
     } else {
         find_top_k_scores(
-                _bm25_scores, top_k,
+            row_bitmap, _bm25_scores, top_k,
                 [](const ScoreMapIterator& a, const ScoreMapIterator& b) {
                     return a->second < b->second;
                 },
                 top_k_results);
-    }
-
-    if (top_k_results.size() < top_k) {
-        roaring::Roaring scored_bitmap;
-        for (const auto& result : top_k_results) {
-            scored_bitmap.add(result.first);
-        }
-
-        roaring::Roaring remaining_bitmap = *row_bitmap - scored_bitmap;
-        for (uint32_t row_id : remaining_bitmap) {
-            top_k_results.emplace_back(row_id, 0.0F);
-            if (top_k_results.size() >= top_k) {
-                break;
-            }
-        }
     }
 
     size_t num_results = top_k_results.size();
@@ -109,7 +94,7 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
 
 template <typename Compare>
 void CollectionSimilarity::find_top_k_scores(
-        const ScoreMap& all_scores, size_t top_k, Compare comp,
+        const roaring::Roaring* row_bitmap, const ScoreMap& all_scores, size_t top_k, Compare comp,
         std::vector<std::pair<uint32_t, float>>& top_k_results) const {
     if (top_k <= 0) {
         return;
@@ -117,7 +102,11 @@ void CollectionSimilarity::find_top_k_scores(
 
     std::priority_queue<ScoreMapIterator, std::vector<ScoreMapIterator>, Compare> top_k_heap(comp);
 
-    for (auto it = all_scores.begin(); it != all_scores.end(); ++it) {
+    for (uint32_t row_id : *row_bitmap) {
+        auto it = all_scores.find(row_id);
+        if (it == all_scores.end()) {
+            continue;
+        }
         if (top_k_heap.size() < top_k) {
             top_k_heap.push(it);
         } else if (comp(it, top_k_heap.top())) {

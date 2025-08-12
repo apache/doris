@@ -79,9 +79,6 @@ public:
                     } else {
                         res |= *index_result;
                     }
-                    if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
-                        break; // Early exit if result is full
-                    }
                 } else {
                     all_pass = false;
                 }
