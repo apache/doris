@@ -109,11 +109,15 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
-    auto st = open(state, operator_profile);
-    if (!st.ok()) {
-        force_close(st);
+    if (!_opened) {
+        _opened = true;
+        auto st = open(state, operator_profile);
+        if (!st.ok()) {
+            force_close(st);
+        }
+        return st;
     }
-    return st;
+    return Status::OK();
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
@@ -203,6 +207,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
     { st = _writer_status.status(); }
 
     Status close_st = close(st);
+    _closed = true;
     {
         // If it is already failed before, then not update the write status so that we could get
         // the real reason.
@@ -233,6 +238,10 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 }
 
 void AsyncResultWriter::force_close(Status s) {
+    if (!_closed) {
+        WARN_IF_ERROR(close(s), "");
+        _closed = true;
+    }
     std::lock_guard l(_m);
     _writer_status.update(s);
     DCHECK(_dependency);

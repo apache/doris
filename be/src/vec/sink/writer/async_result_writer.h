@@ -94,6 +94,8 @@ private:
     std::mutex _m;
     std::deque<std::unique_ptr<Block>> _data_queue;
     bool _running_reader = false;
+    bool _opened = false;
+    bool _closed = false;
     // Default value is ok
     AtomicStatus _writer_status;
     bool _eos = false;
