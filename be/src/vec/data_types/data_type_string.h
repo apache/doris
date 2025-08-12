@@ -39,7 +39,6 @@
 namespace doris::vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 class DataTypeString : public IDataType {
 public:
