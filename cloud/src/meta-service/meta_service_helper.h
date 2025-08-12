@@ -94,98 +94,104 @@ inline std::string encryt_sk(std::string debug_string) {
     return debug_string;
 }
 
-template <class Request>
-void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req) {
+template <class Request, class Response>
+void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req,
+               Response* res) {
+    res->Clear(); // clear response in case of this is call is a local retry in MS
     if constexpr (std::is_same_v<Request, CreateRowsetRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side();
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip();
     } else if constexpr (std::is_same_v<Request, CreateTabletsRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side();
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip();
     } else if constexpr (std::is_same_v<Request, UpdateDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
-                  << " table_id=" << req->table_id() << " tablet_id=" << req->tablet_id()
-                  << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " table_id=" << req->table_id()
+                  << " tablet_id=" << req->tablet_id() << " lock_id=" << req->lock_id()
+                  << " initiator=" << req->initiator()
                   << " delete_bitmap_size=" << req->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else if constexpr (std::is_same_v<Request, GetTabletStatsRequest>) {
-        VLOG_DEBUG << "begin " << func_name << " from " << ctrl->remote_side()
-                   << " tablet size: " << req->tablet_idx().size();
+        VLOG_DEBUG << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                   << " original_client_ip=" << req->request_ip()
+                   << " num_tablets: " << req->tablet_idx().size();
     } else if constexpr (std::is_same_v<Request, GetVersionRequest> ||
                          std::is_same_v<Request, GetRowsetRequest> ||
                          std::is_same_v<Request, GetTabletRequest>) {
-        VLOG_DEBUG << "begin " << func_name << " from " << ctrl->remote_side()
+        VLOG_DEBUG << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                   << " original_client_ip=" << req->request_ip()
                    << " request=" << req->ShortDebugString();
     } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapUpdateLockRequest>) {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
-                  << " table_id=" << req->table_id() << " lock_id=" << req->lock_id()
-                  << " initiator=" << req->initiator() << " expiration=" << req->expiration()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " table_id=" << req->table_id()
+                  << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
+                  << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
     } else {
-        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " request=" << req->ShortDebugString();
     }
 }
 
-template <class Response>
-void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* res) {
+template <class Request, class Response>
+void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req,
+                Response* res) {
     if constexpr (std::is_same_v<Response, CommitTxnResponse>) {
-        if (res->status().code() != MetaServiceCode::OK) {
-            res->clear_table_ids();
-            res->clear_partition_ids();
-            res->clear_versions();
-        }
-        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetRowsetResponse>) {
-        if (res->status().code() != MetaServiceCode::OK) {
-            res->clear_rowset_meta();
-        }
-        VLOG_DEBUG << "finish " << func_name << " from " << ctrl->remote_side()
-                   << " status=" << res->status().ShortDebugString();
+        LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
+                << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                << " original_client_ip=" << req->request_ip()
+                << " request=" << req->ShortDebugString()
+                << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetTabletStatsResponse>) {
-        VLOG_DEBUG << "finish " << func_name << " from " << ctrl->remote_side()
-                   << " status=" << res->status().ShortDebugString()
-                   << " tablet size: " << res->tablet_stats().size();
+        LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
+                << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                << " original_client_ip=" << req->request_ip()
+                << " request=" << req->ShortDebugString()
+                << " status=" << res->status().ShortDebugString()
+                << " num_tablets: " << res->tablet_stats().size();
     } else if constexpr (std::is_same_v<Response, GetVersionResponse> ||
                          std::is_same_v<Response, GetTabletResponse>) {
-        VLOG_DEBUG << "finish " << func_name << " from " << ctrl->remote_side()
-                   << " response=" << res->ShortDebugString();
+        LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
+                << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                << " request=" << req->ShortDebugString()
+                << " original_client_ip=" << req->request_ip()
+                << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapResponse>) {
-        if (res->status().code() != MetaServiceCode::OK) {
-            res->clear_rowset_ids();
-            res->clear_segment_ids();
-            res->clear_versions();
-            res->clear_segment_delete_bitmaps();
-        }
-        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " status=" << res->status().ShortDebugString()
                   << " tablet=" << res->tablet_id()
                   << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapUpdateLockResponse>) {
-        if (res->status().code() != MetaServiceCode::OK) {
-            res->clear_base_compaction_cnts();
-            res->clear_cumulative_compaction_cnts();
-            res->clear_cumulative_points();
-        }
-        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse>) {
         std::string debug_string = encryt_sk(res->DebugString());
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
-        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
-                  << " response=" << debug_string;
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " response=" << debug_string;
     } else {
-        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
                   << " response=" << res->ShortDebugString();
     }
 }
 
-enum ErrCategory { CREATE, READ, COMMIT };
+enum class ErrCategory { CREATE, READ, COMMIT };
 
 template <ErrCategory category>
 inline MetaServiceCode cast_as(TxnErrorCode code) {
@@ -231,8 +237,10 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 // don't use these macro it just for defer count, reduce useless variable(some rpc just need one of rw op)
 // If we have to write separate code for each RPC, it would be quite troublesome
 // After all, adding put, get, and del after the RPC_PREPROCESS macro is simpler than writing a long string of code
-#define RPCKVCOUNTHELPER(func_name, op) \
+#define RPCKVCOUNTHELPER(func_name, op)                                            \
+    g_bvar_rpc_kv_##func_name##_##op##_bytes.put({instance_id}, stats.op##_bytes); \
     g_bvar_rpc_kv_##func_name##_##op##_counter.put({instance_id}, stats.op##_counter);
+
 #define RPCKVCOUNT_0(func_name)
 #define RPCKVCOUNT_1(func_name, op1) RPCKVCOUNTHELPER(func_name, op1)
 #define RPCKVCOUNT_2(func_name, op1, op2) \
@@ -252,7 +260,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 #define RPC_PREPROCESS(func_name, ...)                                                        \
     StopWatch sw;                                                                             \
     auto ctrl = static_cast<brpc::Controller*>(controller);                                   \
-    begin_rpc(#func_name, ctrl, request);                                                     \
+    begin_rpc(#func_name, ctrl, request, response);                                           \
     brpc::ClosureGuard closure_guard(done);                                                   \
     [[maybe_unused]] std::stringstream ss;                                                    \
     [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                              \
@@ -264,9 +272,12 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     DORIS_CLOUD_DEFER {                                                                       \
         response->mutable_status()->set_code(code);                                           \
         response->mutable_status()->set_msg(msg);                                             \
-        finish_rpc(#func_name, ctrl, response);                                               \
+        finish_rpc(#func_name, ctrl, request, response);                                      \
         closure_guard.reset(nullptr);                                                         \
         if (txn != nullptr) {                                                                 \
+            stats.get_bytes += txn->get_bytes();                                              \
+            stats.put_bytes += txn->put_bytes();                                              \
+            stats.del_bytes += txn->delete_bytes();                                           \
             stats.get_counter += txn->num_get_keys();                                         \
             stats.put_counter += txn->num_put_keys();                                         \
             stats.del_counter += txn->num_del_keys();                                         \

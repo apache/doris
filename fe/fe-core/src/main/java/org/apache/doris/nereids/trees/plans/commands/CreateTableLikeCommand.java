@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -53,8 +52,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         executor.checkBlockRules();
         info.validate(ctx);
-        CreateTableLikeStmt stmt = info.translateToLegacyStmt();
-        doRun(stmt, ctx, executor);
+        doRun(info, ctx, executor);
     }
 
     @Override
@@ -67,10 +65,11 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
         return StmtType.CREATE;
     }
 
-    private void doRun(CreateTableLikeStmt stmt, ConnectContext ctx, StmtExecutor executor) throws Exception {
+    private void doRun(CreateTableLikeInfo createTableLikeInfo, ConnectContext ctx, StmtExecutor executor)
+            throws Exception {
         try {
-            DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getExistedDbName());
-            TableIf table = db.getTableOrDdlException(stmt.getExistedTableName());
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrDdlException(createTableLikeInfo.getExistedDbName());
+            TableIf table = db.getTableOrDdlException(createTableLikeInfo.getExistedTableName());
 
             if (table.getType() == TableIf.TableType.VIEW) {
                 throw new DdlException("Not support create table from a View");
@@ -80,21 +79,23 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
             table.readLock();
             try {
                 if (table.isManagedTable()) {
-                    if (!CollectionUtils.isEmpty(stmt.getRollupNames())) {
+                    if (!CollectionUtils.isEmpty(createTableLikeInfo.getRollupNames())) {
                         OlapTable olapTable = (OlapTable) table;
-                        for (String rollupIndexName : stmt.getRollupNames()) {
+                        for (String rollupIndexName : createTableLikeInfo.getRollupNames()) {
                             if (!olapTable.hasMaterializedIndex(rollupIndexName)) {
                                 throw new DdlException("Rollup index[" + rollupIndexName + "] not exists in Table["
-                                        + olapTable.getName() + "]");
+                                    + olapTable.getName() + "]");
                             }
                         }
                     }
-                } else if (!CollectionUtils.isEmpty(stmt.getRollupNames()) || stmt.isWithAllRollup()) {
+                } else if (!CollectionUtils.isEmpty(createTableLikeInfo.getRollupNames())
+                        || createTableLikeInfo.isWithAllRollup()) {
                     throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
                 }
 
-                Env.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true, -1L,
-                        false, false);
+                Env.getCreateTableLikeStmt(createTableLikeInfo, createTableLikeInfo.getDbName(), table, createTableStmt,
+                        null, null, false, false, true, -1L,
+                            false, false);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
@@ -112,14 +113,16 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                         .parseSingle(createTableStmt.get(0));
                 CreateTableInfo createTableInfo = createTableCommand.getCreateTableInfo();
                 createTableCommand = new CreateTableCommand(createTableCommand.getCtasQuery(),
-                        createTableInfo.withTableNameAndIfNotExists(stmt.getTableName(), stmt.isIfNotExists()));
+                    createTableInfo.withTableNameAndIfNotExists(createTableLikeInfo.getTableName(),
+                            createTableLikeInfo.isIfNotExists()));
                 createTableCommand.run(ctx, executor);
             } finally {
                 ctx.setSkipAuth(false);
             }
         } catch (UserException e) {
-            throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: "
-                    + e.getMessage(), e);
+            throw new DdlException("Failed to execute CREATE TABLE LIKE "
+                + createTableLikeInfo.getExistedTableName() + ". Reason: "
+                + e.getMessage(), e);
         }
     }
 }

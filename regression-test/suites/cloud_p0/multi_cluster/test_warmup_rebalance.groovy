@@ -98,7 +98,7 @@ suite('test_warmup_rebalance_in_cloud', 'multi_cluster, docker') {
         INSERT INTO table100 VALUES (1, 1, 100);
         """
 
-        dockerAwaitUntil(5) {
+        awaitUntil(5) {
             ret = sql """ADMIN SHOW REPLICA DISTRIBUTION FROM table100"""
             log.info("replica distribution table100: {}", ret)
             ret.size() == 5

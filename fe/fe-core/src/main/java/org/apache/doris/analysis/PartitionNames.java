@@ -104,7 +104,7 @@ public class PartitionNames implements ParseNode {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (isStar && count > 0) {
             throw new AnalysisException("All partition and partition count couldn't be set at the same time.");
         }

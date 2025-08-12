@@ -97,7 +97,11 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
             "use_meta_cache" = "false",
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
-            "include_database_list" = "external_test_lower,external_test_UPPER"
+            "include_database_list" = "external_test_lower,external_test_UPPER",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_cache_false_lower_false.external_test_lower")
@@ -146,7 +150,11 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
             "use_meta_cache" = "true",
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
-            "include_database_list" = "external_test_lower,external_test_UPPER"
+            "include_database_list" = "external_test_lower,external_test_UPPER",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -195,7 +203,11 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
             "use_meta_cache" = "false",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "external_test_lower,external_test_UPPER"
+            "include_database_list" = "external_test_lower,external_test_UPPER",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     wait_table_sync("test_cache_false_lower_true.external_test_lower")
@@ -244,7 +256,11 @@ suite("test_lower_case_meta_show_and_select", "p0,external,doris,external_docker
             "use_meta_cache" = "true",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "external_test_lower,external_test_UPPER"
+            "include_database_list" = "external_test_lower,external_test_UPPER",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {

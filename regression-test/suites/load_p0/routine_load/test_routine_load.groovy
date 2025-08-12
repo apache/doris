@@ -33,8 +33,8 @@ suite("test_routine_load","p0") {
         forComputeGroupStr = " for  $validCluster "
     }
 
-    sql "create workload group if not exists create_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
-    sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists create_routine_load_group $forComputeGroupStr properties ( 'min_cpu_percent'='0');"
+    sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'min_cpu_percent'='0');"
     Thread.sleep(5000) // wait publish workload group to be
 
     def tables = [
@@ -193,8 +193,33 @@ suite("test_routine_load","p0") {
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+        // add timeout config
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")  
+        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+
+        // check conenction
+        def verifyKafkaConnection = { prod ->
+            try {
+                logger.info("=====try to connect Kafka========")
+                def partitions = prod.partitionsFor("__connection_verification_topic")
+                return partitions != null
+            } catch (Exception e) {
+                throw new Exception("Kafka connect fail: ${e.message}".toString())
+            }
+        }
         // Create kafka producer
         def producer = new KafkaProducer<>(props)
+        try {
+            logger.info("Kafka connecting: ${kafka_broker}")
+            if (!verifyKafkaConnection(producer)) {
+                throw new Exception("can't get any kafka info")
+            }
+        } catch (Exception e) {
+            logger.error("FATAL: " + e.getMessage())
+            producer.close()
+            throw e  
+        }
+        logger.info("Kafka connect success")
 
         for (String kafkaCsvTopic in kafkaCsvTpoics) {
             def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text

@@ -58,6 +58,7 @@ public class Frontend implements Writable {
     private long replayedJournalId;
     private long lastStartupTime;
     private long lastUpdateTime;
+    private long liveSince;
     private String heartbeatErrMsg = "";
     private List<FeDiskInfo> diskInfos;
 
@@ -139,6 +140,10 @@ public class Frontend implements Writable {
         return lastUpdateTime;
     }
 
+    public long getLiveSince() {
+        return liveSince;
+    }
+
     public List<FeDiskInfo> getDiskInfos() {
         return diskInfos;
     }
@@ -164,6 +169,10 @@ public class Frontend implements Writable {
                 BDBHA bdbha = (BDBHA) Env.getCurrentEnv().getHaProtocol();
                 bdbha.removeUnReadyElectableNode(nodeName, Env.getCurrentEnv().getFollowerCount());
             }
+            if (!isAlive) {
+                liveSince = System.currentTimeMillis();
+            }
+
             isAlive = true;
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();
@@ -172,7 +181,7 @@ public class Frontend implements Writable {
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
-            lastStartupTime = hbResponse.getProcessUUID();
+            lastStartupTime = hbResponse.getFeStartTime();
             diskInfos = hbResponse.getDiskInfos();
             isChanged = true;
             processUUID = hbResponse.getProcessUUID();

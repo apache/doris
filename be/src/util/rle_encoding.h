@@ -20,10 +20,12 @@
 
 #include <limits> // IWYU pragma: keep
 
+#include "common/cast_set.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Utility classes to do run length encoding (RLE) for fixed bit width values.  If runs
 // are sufficiently long, RLE is used, otherwise, the values are just bit-packed
@@ -246,9 +248,9 @@ bool RleDecoder<T>::ReadHeader() {
         } else {
             repeat_count_ = indicator_value >> 1;
             DCHECK_GT(repeat_count_, 0);
-            bool result = bit_reader_.GetAligned<T>(BitUtil::Ceil(bit_width_, 8),
-                                                    reinterpret_cast<T*>(&current_value_));
-            DCHECK(result);
+            bool result1 = bit_reader_.GetAligned<T>(BitUtil::Ceil(bit_width_, 8),
+                                                     reinterpret_cast<T*>(&current_value_));
+            DCHECK(result1);
         }
     }
     return true;
@@ -262,7 +264,7 @@ bool RleDecoder<T>::Get(T* val) {
     }
 
     if (repeat_count_ > 0) [[likely]] {
-        *val = current_value_;
+        *val = cast_set<T>(current_value_);
         --repeat_count_;
         rewind_state_ = REWIND_RUN;
     } else {
@@ -308,7 +310,7 @@ size_t RleDecoder<T>::GetNextRun(T* val, size_t max_run) {
             if (ret > 0 && *val != current_value_) [[unlikely]] {
                 return ret;
             }
-            *val = current_value_;
+            *val = cast_set<T>(current_value_);
             if (repeat_count_ >= rem) {
                 // The next run is longer than the amount of remaining data
                 // that the caller wants to read. Only consume it partially.
@@ -416,8 +418,8 @@ size_t RleDecoder<T>::Skip(size_t to_skip) {
             to_skip -= nskip;
             for (; nskip > 0; nskip--) {
                 T value = 0;
-                bool result = bit_reader_.GetValue(bit_width_, &value);
-                DCHECK(result);
+                bool result1 = bit_reader_.GetValue(bit_width_, &value);
+                DCHECK(result1);
                 if (value != 0) {
                     set_count++;
                 }
@@ -466,7 +468,7 @@ template <typename T>
 void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
     if (literal_indicator_byte_idx_ < 0) {
         // The literal indicator byte has not been reserved yet, get one now.
-        literal_indicator_byte_idx_ = bit_writer_.GetByteIndexAndAdvance(1);
+        literal_indicator_byte_idx_ = cast_set<int>(bit_writer_.GetByteIndexAndAdvance(1));
         DCHECK_GE(literal_indicator_byte_idx_, 0);
     }
 
@@ -484,7 +486,8 @@ void RleEncoder<T>::FlushLiteralRun(bool update_indicator_byte) {
         int num_groups = BitUtil::Ceil(literal_count_, 8);
         int32_t indicator_value = (num_groups << 1) | 1;
         DCHECK_EQ(indicator_value & 0xFFFFFF00, 0);
-        bit_writer_.buffer()->data()[literal_indicator_byte_idx_] = indicator_value;
+        bit_writer_.buffer()->data()[literal_indicator_byte_idx_] =
+                cast_set<uint8_t>(indicator_value);
         literal_indicator_byte_idx_ = -1;
         literal_count_ = 0;
     }
@@ -770,7 +773,7 @@ void RleBatchDecoder<T>::NextCounts() {
         // Use int64_t to avoid overflowing multiplication.
         int64_t literal_count = static_cast<int64_t>(run_len) * 8;
         if (UNLIKELY(literal_count > std::numeric_limits<int32_t>::max())) return;
-        literal_count_ = literal_count;
+        literal_count_ = cast_set<int32_t>(literal_count);
     } else {
         if (UNLIKELY(run_len == 0)) return;
         bool result = bit_reader_.GetBytes<T>(BitUtil::Ceil(bit_width_, 8), &repeated_value_);
@@ -863,5 +866,5 @@ uint32_t RleBatchDecoder<T>::GetBatch(T* values, uint32_t batch_num) {
     }
     return num_consumed;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -37,7 +37,7 @@
 #include "util/debug_points.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
@@ -196,7 +196,7 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
         }
 
         BinlogMetaEntryPB binlog_meta_entry_pb;
-        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), value.size())) {
+        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()))) {
             LOG(WARNING) << fmt::format("invalid binlog meta value:{}", value);
             return false;
         }
@@ -250,7 +250,7 @@ std::pair<std::string, int64_t> RowsetMetaManager::get_binlog_info(
         rowset_id = key.substr(pos + 1);
 
         BinlogMetaEntryPB binlog_meta_entry_pb;
-        binlog_meta_entry_pb.ParseFromArray(value.data(), value.size());
+        binlog_meta_entry_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()));
         num_segments = binlog_meta_entry_pb.num_segments();
 
         return false;
@@ -313,7 +313,7 @@ Status RowsetMetaManager::_get_rowset_binlog_metas(OlapMeta* meta, const TabletU
         }
 
         BinlogMetaEntryPB binlog_meta_entry_pb;
-        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), value.size())) {
+        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()))) {
             auto err_msg = fmt::format("fail to parse binlog meta value:{}", value);
             status = Status::InternalError(err_msg);
             LOG(WARNING) << err_msg;
@@ -380,7 +380,7 @@ Status RowsetMetaManager::get_rowset_binlog_metas(OlapMeta* meta, TabletUid tabl
         }
 
         BinlogMetaEntryPB binlog_meta_entry_pb;
-        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), value.size())) {
+        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()))) {
             auto err_msg = fmt::format("fail to parse binlog meta value:{}", value);
             status = Status::InternalError(err_msg);
             LOG(WARNING) << err_msg;
@@ -434,7 +434,7 @@ Status RowsetMetaManager::_get_all_rowset_binlog_metas(OlapMeta* meta, const Tab
         }
 
         BinlogMetaEntryPB binlog_meta_entry_pb;
-        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), value.size())) {
+        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()))) {
             auto err_msg = fmt::format("fail to parse binlog meta value:{}", value);
             status = Status::InternalError(err_msg);
             LOG(WARNING) << err_msg;
@@ -689,5 +689,5 @@ Status RowsetMetaManager::remove_tablet_related_partial_update_info(OlapMeta* me
     RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, prefix, get_remove_keys_func));
     return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -62,7 +62,10 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         Optional.empty(),
                         olapScan.getLogicalProperties(),
                         olapScan.getTableSample(),
-                        olapScan.getOperativeSlots())
+                        olapScan.getOperativeSlots(),
+                        olapScan.getVirtualColumns(),
+                        olapScan.getScoreOrderKeys(),
+                        olapScan.getScoreLimit())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
@@ -87,8 +90,9 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 List<ExprId> hashColumns = Lists.newArrayList();
                 for (Column column : hashDistributionInfo.getDistributionColumns()) {
                     for (Slot slot : output) {
-                        if (((SlotReference) slot).getOriginalColumn().get().getNameWithoutMvPrefix()
-                                .equals(column.getName())) {
+                        Column originalColumn = ((SlotReference) slot).getOriginalColumn().get();
+                        String origName = originalColumn.tryGetBaseColumnName();
+                        if (origName.equals(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }
                     }
@@ -117,7 +121,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         // If the length of the column in the bucket key changes after DDL, the length cannot be
                         // determined. As a result, some bucket fields are lost in the query execution plan.
                         // So here we use the column name to avoid this problem
-                        if (((SlotReference) slot).getOriginalColumn().get().getName()
+                        if (((SlotReference) slot).getOriginalColumn().isPresent()
+                                && ((SlotReference) slot).getOriginalColumn().get().getName()
                                 .equalsIgnoreCase(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }

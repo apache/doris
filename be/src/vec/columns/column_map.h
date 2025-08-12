@@ -119,7 +119,6 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
-    ColumnPtr replicate(const Offsets& offsets) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
@@ -201,6 +200,19 @@ public:
     }
 
     void erase(size_t start, size_t length) override;
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    size_t get_max_row_byte_size() const override;
+
+    template <bool positive>
+    struct less;
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;

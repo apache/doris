@@ -81,6 +81,11 @@ public:
         return _set_read_one_line_impl();
     }
 
+    /// The reader is responsible for counting the number of rows read,
+    /// because some readers, such as parquet/orc,
+    /// can skip some pages/rowgroups through indexes.
+    virtual bool count_read_rows() { return false; }
+
 protected:
     virtual Status _set_read_one_line_impl() {
         return Status::NotSupported("set_read_lines_mode is not implemented for this reader.");

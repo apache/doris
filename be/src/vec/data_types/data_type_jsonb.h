@@ -41,7 +41,6 @@ namespace doris::vectorized {
 
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 class DataTypeJsonb final : public IDataType {
 public:
@@ -63,10 +62,15 @@ public:
                             int data_version) const override;
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override;
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }
@@ -77,9 +81,9 @@ public:
     bool can_be_inside_low_cardinality() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeJsonbSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeJsonbSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 
 private:

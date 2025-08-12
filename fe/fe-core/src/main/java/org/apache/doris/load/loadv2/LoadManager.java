@@ -118,7 +118,10 @@ public class LoadManager implements Writable {
         List<TPipelineWorkloadGroup> twgList = null;
         if (Config.enable_workload_group) {
             try {
-                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get());
+                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
             } catch (Throwable t) {
                 LOG.info("Get workload group failed when create load job,", t);
                 throw t;
@@ -167,7 +170,10 @@ public class LoadManager implements Writable {
         List<TPipelineWorkloadGroup> twgList = null;
         if (Config.enable_workload_group) {
             try {
-                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get());
+                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
             } catch (Throwable t) {
                 LOG.info("Get workload group failed when create load job,", t);
                 throw t;
@@ -669,7 +675,10 @@ public class LoadManager implements Writable {
                     throw new DdlException("Label does not exist: " + label);
                 }
             } else {
-                throw new DdlException("Database does not exist");
+                // If dbId is not found in dbIdToLabelToLoadJobs,
+                // it means the database has no label records,
+                // so throw a "Label does not exist" error.
+                throw new DdlException("Label does not exist: " + label);
             }
             return result;
         } finally {

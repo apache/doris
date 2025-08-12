@@ -45,6 +45,7 @@
 #include "util/jni-util.h"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
 bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
@@ -78,7 +79,7 @@ public:
     HdfsWriteMemUsageRecorder() = default;
     ~HdfsWriteMemUsageRecorder() = default;
     size_t max_usage() const {
-        return static_cast<size_t>(max_jvm_heap_size() *
+        return static_cast<size_t>(static_cast<double>(max_jvm_heap_size()) *
                                    config::max_hdfs_wirter_jni_heap_usage_ratio);
     }
     Status acquire_memory(size_t memory_size, int try_time) {
@@ -90,8 +91,8 @@ public:
         }
         auto unit = config::hdfs_jni_write_sleep_milliseconds;
         std::default_random_engine rng = make_random_engine();
-        std::uniform_int_distribution<uint32_t> u(unit, 2 * unit);
-        std::uniform_int_distribution<uint32_t> u2(2 * unit, 4 * unit);
+        std::uniform_int_distribution<int64_t> u(unit, 2 * unit);
+        std::uniform_int_distribution<int64_t> u2(2 * unit, 4 * unit);
         auto duration_ms =
                 try_time < (config::hdfs_jni_write_max_retry_time / 2) ? u(rng) : u2(rng);
         std::unique_lock lck {cur_memory_latch};
@@ -364,8 +365,11 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
         {
             TEST_INJECTION_POINT_CALLBACK("HdfsFileWriter::append_hdfs_file_delay");
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_write_latency);
+            int64_t max_to_write = content.size();
+            tSize to_write = static_cast<tSize>(std::min(
+                    max_to_write, static_cast<int64_t>(std::numeric_limits<tSize>::max())));
             written_bytes = SYNC_POINT_HOOK_RETURN_VALUE(
-                    hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), content.size()),
+                    hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), to_write),
                     "HdfsFileWriter::append_hdfs_file::hdfsWrite", content);
             {
                 TEST_INJECTION_POINT_RETURN_WITH_VALUE(
@@ -470,5 +474,6 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
     inflight_hdfs_file_writer << 1;
     return std::make_unique<HdfsFileWriter>(std::move(path), handler, hdfs_file, fs_name, opts);
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

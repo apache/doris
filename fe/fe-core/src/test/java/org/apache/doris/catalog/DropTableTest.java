@@ -17,13 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -67,8 +67,12 @@ public class DropTableTest {
     }
 
     private static void createDb(String sql) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void createTable(String sql) throws Exception {
@@ -81,9 +85,23 @@ public class DropTableTest {
     }
 
     private static void dropTable(String sql) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().dropTable(dropTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropTableCommand) {
+            ((DropTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
+
+    private static void recoverTable(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof RecoverTableCommand) {
+            ((RecoverTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
 
     @Test
     public void testNormalDropTable() throws Exception {
@@ -96,8 +114,7 @@ public class DropTableTest {
         List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover table test.tbl1";
-        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
-        Env.getCurrentEnv().recoverTable(recoverTableStmt);
+        recoverTable(recoverDbSql);
         table = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertNotNull(table);
         Assert.assertEquals("tbl1", table.getName());
@@ -117,9 +134,8 @@ public class DropTableTest {
         // List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         // Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover table test.tbl2";
-        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown table 'tbl2' or table id '-1' in test",
-                () -> Env.getCurrentEnv().recoverTable(recoverTableStmt));
+                () -> recoverTable(recoverDbSql));
     }
 }

@@ -67,7 +67,7 @@ suite("test_partial_update_mow_with_sync_mv") {
     createMV ("""
         CREATE MATERIALIZED VIEW mv
         AS
-                select l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate,
+                select l_orderkey as a1, l_linenumber as a2, l_partkey as a3, l_suppkey as a4, l_shipdate as a5,
             substring(concat(l_returnflag, l_linestatus), 1)
             from test_partial_update_mow_with_sync_mv;
     """)

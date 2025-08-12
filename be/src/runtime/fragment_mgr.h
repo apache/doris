@@ -46,6 +46,7 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+#include "common/compile_check_begin.h"
 extern bvar::Adder<uint64_t> g_fragment_executing_count;
 extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
@@ -175,7 +176,7 @@ public:
     // and other module that use fragment mgr's thread pool should get this signal and exit.
     bool shutting_down() { return _stop_background_threads_latch.count() == 0; }
 
-    int32_t running_query_num() { return _query_ctx_map.num_items(); }
+    int32_t running_query_num() { return cast_set<int32_t>(_query_ctx_map.num_items()); }
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
     std::string dump_pipeline_tasks(TUniqueId& query_id);
@@ -227,5 +228,5 @@ private:
 
 uint64_t get_fragment_executing_count();
 uint64_t get_fragment_last_active_time();
-
+#include "common/compile_check_end.h"
 } // namespace doris

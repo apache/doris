@@ -18,14 +18,13 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -37,7 +36,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
@@ -72,6 +70,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantField;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -116,7 +116,7 @@ public class CreateTableInfo {
             ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
     private static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
-
+    protected TableNameInfo tableNameInfo;
     private final boolean ifNotExists;
     private String ctlName;
     private String dbName;
@@ -140,6 +140,12 @@ public class CreateTableInfo {
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private PartitionTableInfo partitionTableInfo; // get when validate
+    private PartitionDesc partitionDesc;
+    private DistributionDesc distributionDesc;
+
+    // get when validate
+    private Map<ColumnDefinition, Map<IndexType, List<IndexDefinition>>> columnToIndexes = new HashMap<>();
+    private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
 
     /**
      * constructor for create table
@@ -157,6 +163,7 @@ public class CreateTableInfo {
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
+        this.tableNameInfo = new TableNameInfo(ctlName, dbName, tableName);
         this.ctasColumns = null;
         this.columns = Utils.copyRequiredMutableList(columns);
         this.indexes = Utils.copyRequiredMutableList(indexes);
@@ -189,6 +196,7 @@ public class CreateTableInfo {
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
+        this.tableNameInfo = new TableNameInfo(ctlName, dbName, tableName);
         this.ctasColumns = cols;
         this.columns = null;
         this.indexes = Lists.newArrayList();
@@ -233,7 +241,7 @@ public class CreateTableInfo {
     }
 
     public String getTableName() {
-        return tableName;
+        return tableNameInfo.getTbl();
     }
 
     public String getEngineName() {
@@ -242,6 +250,10 @@ public class CreateTableInfo {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     /**
@@ -334,17 +346,35 @@ public class CreateTableInfo {
         Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), "catalog name is null or empty");
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName), "database name is null or empty");
 
-        //check datev1 and decimalv2
+        //check datatype: datev1, decimalv2, variant
+        boolean allZero = false;
+        boolean allPositive = false;
         for (ColumnDefinition columnDef : columns) {
             String columnNameUpperCase = columnDef.getName().toUpperCase();
             if (columnNameUpperCase.startsWith("__DORIS_")) {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
-            if (columnDef.getType().isVariantType() && columnNameUpperCase.indexOf('.') != -1) {
-                throw new AnalysisException(
+            if (columnDef.getType().isVariantType()) {
+                if (columnNameUpperCase.indexOf('.') != -1) {
+                    throw new AnalysisException(
                         "Disable to create table of `VARIANT` type column named with a `.` character: "
                                 + columnNameUpperCase);
+                }
+                VariantType variantType = (VariantType) columnDef.getType();
+                if (variantType.getVariantMaxSubcolumnsCount() == 0) {
+                    allZero = true;
+                    if (allPositive) {
+                        throw new AnalysisException("The variant_max_subcolumns_count must either be 0"
+                            + " in all columns, or greater than 0 in all columns");
+                    }
+                } else {
+                    allPositive = true;
+                    if (allZero) {
+                        throw new AnalysisException("The variant_max_subcolumns_count must either be 0"
+                            + " in all columns, or greater than 0 in all columns");
+                    }
+                }
             }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
@@ -672,8 +702,6 @@ public class CreateTableInfo {
         // validate index
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
                 invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
                         new HashMap<>(properties));
@@ -694,6 +722,9 @@ public class CreateTableInfo {
                             indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
                                     invertedIndexFileStorageFormat);
                             found = true;
+                            columnToIndexes.computeIfAbsent(column, k -> new HashMap<>())
+                                .computeIfAbsent(indexDef.getIndexType(), k -> new ArrayList<>())
+                                    .add(indexDef);
                             break;
                         }
                     }
@@ -703,18 +734,14 @@ public class CreateTableInfo {
                     }
                 }
                 distinct.add(indexDef.getIndexName());
-                distinctCol.add(Pair.of(indexDef.getIndexType(), indexDef.getColumnNames().stream()
-                        .map(String::toUpperCase).collect(Collectors.toList())));
             }
             if (distinct.size() != indexes.size()) {
                 throw new AnalysisException("index name must be unique.");
             }
-            if (distinctCol.size() != indexes.size()) {
-                throw new AnalysisException(
-                        "same index columns have multiple same type index is not allowed.");
-            }
         }
+        columnToIndexesCheck();
         generatedColumnCheck(ctx);
+        analyzeEngine();
     }
 
     private void paddingEngineName(String ctlName, ConnectContext ctx) {
@@ -919,26 +946,13 @@ public class CreateTableInfo {
     }
 
     /**
-     * translate to catalog create table stmt
+     * analyzeEngine
      */
-    public CreateTableStmt translateToLegacyStmt() {
-        PartitionDesc partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
-        List<AlterClause> addRollups = Lists.newArrayList();
-        if (!rollups.isEmpty()) {
-            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
-                    .collect(Collectors.toList()));
-        }
+    public void analyzeEngine() {
+        this.partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
+        this.distributionDesc =
+            distribution != null ? distribution.translateToCatalogStyle() : null;
 
-        List<Column> catalogColumns = columns.stream()
-                .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
-
-        List<Index> catalogIndexes = indexes.stream().map(IndexDefinition::translateToCatalogStyle)
-                .collect(Collectors.toList());
-        DistributionDesc distributionDesc =
-                distribution != null ? distribution.translateToCatalogStyle() : null;
-
-        // TODO should move this code to validate function
-        // EsUtil.analyzePartitionAndDistributionDesc only accept DistributionDesc and PartitionDesc
         if (engineName.equals(ENGINE_ELASTICSEARCH)) {
             try {
                 EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
@@ -952,16 +966,9 @@ public class CreateTableInfo {
             }
             if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG) && partitionDesc != null) {
                 throw new AnalysisException("Create " + engineName
-                        + " table should not contain partition desc");
+                    + " table should not contain partition desc");
             }
         }
-
-        return new CreateTableStmt(ifNotExists, isExternal, isTemp,
-                new TableName(ctlName, dbName, tableName),
-                catalogColumns, catalogIndexes, engineName,
-                new KeysDesc(keysType, keys, clusterKeysColumnNames),
-                partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
-                comment, addRollups, null);
     }
 
     public void setIsExternal(boolean isExternal) {
@@ -1182,5 +1189,135 @@ public class CreateTableInfo {
     public boolean isTemp() {
         return isTemp;
     }
-}
 
+    public PartitionDesc getPartitionDesc() {
+        return partitionDesc;
+    }
+
+    public List<Column> getColumns() {
+        return columns.stream()
+            .map(ColumnDefinition::translateToCatalogStyle).collect(Collectors.toList());
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public DistributionDesc getDistributionDesc() {
+        return distributionDesc;
+    }
+
+    public boolean isExternal() {
+        return isExternal;
+    }
+
+    public Map<String, String> getExtProperties() {
+        return extProperties;
+    }
+
+    public List<Index> getIndexes() {
+        return indexes.stream().map(IndexDefinition::translateToCatalogStyle)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * getRollupAlterClauseList
+     */
+    public List<AlterClause> getRollupAlterClauseList() {
+        List<AlterClause> addRollups = Lists.newArrayList();
+        if (!rollups.isEmpty()) {
+            addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
+                    .collect(Collectors.toList()));
+        }
+        return addRollups;
+    }
+
+    public KeysDesc getKeysDesc() {
+        return new KeysDesc(keysType, keys, clusterKeysColumnNames);
+    }
+
+    // 1. if the column is variant type, check it's field pattern is valid
+    // 2. if the column is not variant type, check it's index def is valid
+    private void columnToIndexesCheck() {
+        for (Map.Entry<ColumnDefinition, Map<IndexType, List<IndexDefinition>>> entry : columnToIndexes.entrySet()) {
+            ColumnDefinition column = entry.getKey();
+            Map<IndexType, List<IndexDefinition>> indexTypeToIndexDefs = entry.getValue();
+            for (Map.Entry<IndexType, List<IndexDefinition>> indexDefEntry : indexTypeToIndexDefs.entrySet()) {
+                IndexType indexType = indexDefEntry.getKey();
+                List<IndexDefinition> indexDefs = indexDefEntry.getValue();
+                if (indexType != IndexType.INVERTED) {
+                    if (indexDefs.size() > 1) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                    + " cannot have multiple indexes, index type: " + indexType);
+                    } else {
+                        continue;
+                    }
+                }
+
+                // check inverted index
+                if (column.getType().isVariantType()) {
+                    Map<String, List<IndexDefinition>> fieldPatternToIndexDef = new HashMap<>();
+                    Map<String, DataType> fieldPatternToDataType = new HashMap<>();
+                    for (IndexDefinition indexDef : indexDefs) {
+                        String fieldPattern = InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties());
+                        if (fieldPattern.isEmpty()) {
+                            fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>()).add(indexDef);
+                            fieldPatternToDataType.put(fieldPattern, column.getType());
+                            continue;
+                        }
+                        boolean findFieldPattern = false;
+                        VariantType variantType = (VariantType) column.getType();
+                        List<VariantField> predefinedFields = variantType.getPredefinedFields();
+                        for (VariantField field : predefinedFields) {
+                            if (field.getPattern().equals(fieldPattern)) {
+                                findFieldPattern = true;
+                                if (!IndexDefinition.isSupportIdxType(field.getDataType())) {
+                                    throw new AnalysisException("field pattern: "
+                                            + fieldPattern + " is not supported for inverted index"
+                                            + " of column: " + column.getName());
+                                }
+                                fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
+                                                                                                    .add(indexDef);
+                                fieldPatternToDataType.put(fieldPattern, field.getDataType());
+                                break;
+                            }
+                        }
+                        if (!findFieldPattern) {
+                            throw new AnalysisException("can not find field pattern: " + fieldPattern
+                                        + " in column: " + column.getName());
+                        }
+                    }
+                    for (Map.Entry<String, List<IndexDefinition>> fieldIndexEntry : fieldPatternToIndexDef.entrySet()) {
+                        String fieldPattern = fieldIndexEntry.getKey();
+                        List<IndexDefinition> fieldPatternIndexDefs = fieldIndexEntry.getValue();
+                        DataType dataType = fieldPatternToDataType.get(fieldPattern);
+                        if (!InvertedIndexUtil.canHaveMultipleInvertedIndexes(dataType, fieldPatternIndexDefs)) {
+                            throw new AnalysisException("column: "
+                                + column.getName()
+                                + " cannot have multiple inverted indexes with field pattern: "
+                                + fieldPattern);
+                        }
+                    }
+                } else {
+                    for (IndexDefinition indexDef : indexDefs) {
+                        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
+                            throw new AnalysisException("column: " + column.getName()
+                                                                + " cannot have field pattern in index.");
+                        }
+                    }
+                    if (!InvertedIndexUtil.canHaveMultipleInvertedIndexes(column.getType(), indexDefs)) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                                + " cannot have multiple inverted indexes.");
+                    }
+                    if (invertedIndexFileStorageFormat != null
+                                && invertedIndexFileStorageFormat.compareTo(TInvertedIndexFileStorageFormat.V2) < 0
+                                && indexDefs.size() > 1) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                + " cannot have multiple inverted indexes with file storage format: "
+                                                + invertedIndexFileStorageFormat);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -221,9 +221,9 @@ public class TimeV2Literal extends Literal {
 
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
-        DateTimeV2Literal time = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(
-                LocalDateTime.now(DateUtils.getTimeZone()).plusHours(getHour()).plusMinutes(getMinute())
-                        .plusSeconds(getSecond()).plusNanos(getMicroSecond() * 1000),
+        DateTimeV2Literal time = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(LocalDateTime
+                .now(DateUtils.getTimeZone()).withHour(0).withMinute(0).withSecond(0).withNano(0).plusHours(getHour())
+                .plusMinutes(getMinute()).plusSeconds(getSecond()).plusNanos(getMicroSecond() * 1000),
                 ((TimeV2Type) dataType).getScale());
         if (targetType.isDateType()) {
             return new DateLiteral(time.getYear(), time.getMonth(), time.getDay());

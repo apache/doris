@@ -21,6 +21,7 @@ import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -46,7 +47,7 @@ public class NereidsCoordinatorTest extends TestWithFeService {
     public void testNereidsCoordinatorScanRangeNum() throws IOException {
         NereidsPlanner planner = plan("select * from test.tbl");
         NereidsCoordinator coordinator = (NereidsCoordinator) EnvFactory.getInstance()
-                .createCoordinator(connectContext, null, planner, null);
+                .createCoordinator(connectContext, planner, null);
         int scanRangeNum = coordinator.getScanRangeNum();
         Assertions.assertEquals(10, scanRangeNum);
     }
@@ -55,13 +56,36 @@ public class NereidsCoordinatorTest extends TestWithFeService {
     public void testNereidsCoordinatorScanRangeNum2() throws IOException {
         NereidsPlanner planner = plan("select * from information_schema.columns");
         NereidsCoordinator coordinator = (NereidsCoordinator) EnvFactory.getInstance()
-                .createCoordinator(connectContext, null, planner, null);
+                .createCoordinator(connectContext, planner, null);
         int scanRangeNum = coordinator.getScanRangeNum();
         Assertions.assertEquals(0, scanRangeNum);
     }
 
-    private NereidsPlanner plan(String sql) throws IOException {
+    @Test
+    public void testSimpleQueryUseOneInstance() throws IOException {
         ConnectContext connectContext = createDefaultCtx();
+        connectContext.getSessionVariable().parallelPipelineTaskNum = 10;
+        NereidsPlanner planner = plan("select * from test.tbl", connectContext);
+        for (PlanFragment fragment : planner.getFragments()) {
+            Assertions.assertEquals(1, fragment.getParallelExecNum());
+        }
+
+        planner = plan("select * from test.tbl where id=1", connectContext);
+        for (PlanFragment fragment : planner.getFragments()) {
+            Assertions.assertEquals(1, fragment.getParallelExecNum());
+        }
+
+        planner = plan("select id, id + 1 from test.tbl where id = 2 limit 1", connectContext);
+        for (PlanFragment fragment : planner.getFragments()) {
+            Assertions.assertEquals(1, fragment.getParallelExecNum());
+        }
+    }
+
+    private NereidsPlanner plan(String sql) throws IOException {
+        return plan(sql, createDefaultCtx());
+    }
+
+    private NereidsPlanner plan(String sql, ConnectContext connectContext) throws IOException {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION,OLAP_SCAN_TABLET_PRUNE");
         connectContext.setThreadLocalInfo();
 

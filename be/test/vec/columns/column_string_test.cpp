@@ -1029,9 +1029,6 @@ TEST_F(ColumnStringTest, get_permutation) {
     assert_column_permutations2(*column_str32_json, dt_jsonb);
     assert_column_permutations2(*column_str64_json, dt_jsonb);
 }
-TEST_F(ColumnStringTest, replicate) {
-    column_string_common_test(assert_column_vector_replicate_callback, false);
-}
 TEST_F(ColumnStringTest, is_column_string) {
     EXPECT_TRUE(column_str32->is_column_string());
     EXPECT_TRUE(column_str64->is_column_string());

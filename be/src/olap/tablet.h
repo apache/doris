@@ -57,6 +57,7 @@ class Adder;
 }
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Tablet;
 class CumulativeCompactionPolicy;
@@ -146,8 +147,8 @@ public:
     size_t tablet_remote_size();
 
     size_t num_rows();
-    int version_count() const;
-    int stale_version_count() const;
+    size_t version_count() const;
+    size_t stale_version_count() const;
     bool exceed_version_limit(int32_t limit) override;
     uint64_t segment_count() const;
     Version max_version() const;
@@ -508,6 +509,10 @@ public:
         _compaction_score -= score;
     }
 
+    Status prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                       const PUniqueId& load_id, bool ingest);
+    // TODO: commit_txn
+
 private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
@@ -711,12 +716,12 @@ inline size_t Tablet::num_rows() {
     return _tablet_meta->num_rows();
 }
 
-inline int Tablet::version_count() const {
+inline size_t Tablet::version_count() const {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->version_count();
 }
 
-inline int Tablet::stale_version_count() const {
+inline size_t Tablet::stale_version_count() const {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->stale_version_count();
 }
@@ -771,4 +776,5 @@ inline int64_t Tablet::avg_rs_meta_serialize_size() const {
     return _tablet_meta->avg_rs_meta_serialize_size();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

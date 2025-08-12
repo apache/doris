@@ -33,6 +33,7 @@
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "common/status.h"
 #include "olap/lru_cache.h"
@@ -62,6 +63,8 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 class PointQueryResultBlockBuffer final : public vectorized::MySQLResultBlockBuffer {
 public:
@@ -290,17 +293,17 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         auto reusable_ptr = std::make_shared<Reusable>();
         TDescriptorTable t_desc_tbl;
         TExprList t_output_exprs;
-        uint32_t len = request->desc_tbl().size();
+        auto len = cast_set<uint32_t>(request->desc_tbl().size());
         RETURN_IF_ERROR(
                 deserialize_thrift_msg(reinterpret_cast<const uint8_t*>(request->desc_tbl().data()),
                                        &len, false, &t_desc_tbl));
-        len = request->output_expr().size();
+        len = cast_set<uint32_t>(request->output_expr().size());
         RETURN_IF_ERROR(deserialize_thrift_msg(
                 reinterpret_cast<const uint8_t*>(request->output_expr().data()), &len, false,
                 &t_output_exprs));
         _reusable = reusable_ptr;
         TQueryOptions t_query_options;
-        len = request->query_options().size();
+        len = cast_set<uint32_t>(request->query_options().size());
         if (request->has_query_options()) {
             RETURN_IF_ERROR(deserialize_thrift_msg(
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
@@ -384,7 +387,7 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
     // 1. get primary key from conditions
     std::vector<OlapTuple> olap_tuples;
     olap_tuples.resize(request->key_tuples().size());
-    for (size_t i = 0; i < request->key_tuples().size(); ++i) {
+    for (int i = 0; i < request->key_tuples().size(); ++i) {
         const KeyTuple& key_tuple = request->key_tuples(i);
         for (const std::string& key_col : key_tuple.key_column_rep()) {
             olap_tuples[i].add_value(key_col);
@@ -536,7 +539,7 @@ Status PointQueryExecutor::_lookup_row_data() {
         // thus missing in include_col_uids and missing_col_uids
         for (size_t i = 0; i < _result_block->columns(); ++i) {
             auto column = _result_block->get_by_position(i).column;
-            int padding_rows = _row_hits - column->size();
+            int padding_rows = _row_hits - cast_set<int>(column->size());
             if (padding_rows > 0) {
                 column->assume_mutable()->insert_many_defaults(padding_rows);
             }
@@ -606,5 +609,7 @@ Status PointQueryExecutor::_output_data() {
     _reusable->return_block(_result_block);
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

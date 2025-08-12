@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <iostream>
+#include <memory>
 #include <type_traits>
 
 #include "agent/be_exec_version_manager.h"
@@ -41,7 +42,6 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -297,7 +297,7 @@ TEST_F(DataTypeStringTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));
@@ -307,7 +307,7 @@ TEST_F(DataTypeStringTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));
@@ -322,7 +322,7 @@ TEST_F(DataTypeStringTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));
@@ -397,4 +397,21 @@ TEST_F(DataTypeStringTest, escape_string_for_csv) {
         EXPECT_EQ(std::string(test_str, len), "");
     }
 }
+
+TEST_F(DataTypeStringTest, GetFieldWithDataTypeTest) {
+    auto column_str = dt_str.create_column();
+    column_str->insert_data("a", 1);
+    EXPECT_EQ(dt_str.get_field_with_data_type(*column_str, 0).field,
+              Field::create_field<TYPE_STRING>("a"));
+
+    // wrap with nullable
+    auto nullable_dt = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    auto nullable_column = nullable_dt->create_column();
+    nullable_column->insert_data("a", 1);
+    nullable_column->insert_default();
+    EXPECT_EQ(nullable_dt->get_field_with_data_type(*nullable_column, 0).field,
+              Field::create_field<TYPE_STRING>("a"));
+    EXPECT_EQ(nullable_dt->get_field_with_data_type(*nullable_column, 1).field, Field());
+}
+
 } // namespace doris::vectorized

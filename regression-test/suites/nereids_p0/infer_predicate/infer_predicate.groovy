@@ -41,15 +41,20 @@ suite("test_infer_predicate") {
         contains "PREDICATES: (k2"
     }
 
-// not support infer predicate downcast
-//    explain {
-//        sql "select * from infer_tb1 inner join infer_tb2 where cast(infer_tb2.k4 as int) = infer_tb1.k2  and infer_tb2.k4 = 1;"
-//        contains "PREDICATES: (CAST(k2"
-//    }
+    // InferPredicate not support infer predicate downcast
+    // but ConstantPropagation rewrite cast(k4 as int) = k2 to cast(1 as int) = k2,
+    // then expression opt rwrite it to k2 = 1
+    explain {
+        sql "select * from infer_tb1 inner join infer_tb2 where cast(infer_tb2.k4 as int) = infer_tb1.k2  and infer_tb2.k4 = 1;"
+        contains "PREDICATES: (k2"
+    }
 
+    // InferPredicate not infer k2 = 123, because k1 is string type, k2 is int type
+    // but ConstantPropagation rewrite cast(k1 as double) = cast(k2 as double) to cast('123' as double) = cast(k2 as double),
+    // then expression opt rewrite it to k2 = 123
     explain {
         sql "select * from infer_tb1 inner join infer_tb3 where infer_tb3.k1 = infer_tb1.k2  and infer_tb3.k1 = '123';"
-        notContains "PREDICATES: (k2"
+        contains "PREDICATES: (k2"
     }
 
     explain {

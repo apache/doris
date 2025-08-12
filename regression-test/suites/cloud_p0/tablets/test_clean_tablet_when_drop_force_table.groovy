@@ -127,7 +127,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
         }
         def start = System.currentTimeMillis() / 1000
         // tablet can't find in be 
-        dockerAwaitUntil(500) {
+        awaitUntil(500) {
             def beTablets = getTabletAndBeHostFromBe(cluster.getAllBackends()).keySet()
             logger.info("before drop tablets {}, after tablets {}", beforeGetFromFe, beTablets)
             beforeGetFromFe.keySet().every { !getTabletAndBeHostFromBe(cluster.getAllBackends()).containsKey(it) }

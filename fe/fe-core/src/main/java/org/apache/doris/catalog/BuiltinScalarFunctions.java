@@ -19,6 +19,16 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
@@ -130,16 +140,17 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CosineDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountSubstring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32Internal;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Csc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
@@ -184,6 +195,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsLarge
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsSmallInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
@@ -201,10 +213,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
@@ -246,7 +256,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
@@ -267,22 +276,15 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractI
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractLargeint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParse;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToInvalid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnull;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToValue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullable;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
@@ -380,6 +382,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RtrimIn;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecToTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
@@ -393,6 +396,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sinh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -626,7 +630,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ConvertTo.class, "convert_to"),
             scalar(ConvertTz.class, "convert_tz"),
             scalar(Cos.class, "cos"),
-            scalar(Cosec.class, "cosec"),
+            scalar(Csc.class, "csc"),
             scalar(Cosh.class, "cosh"),
             scalar(Cot.class, "cot"),
             scalar(CosineDistance.class, "cosine_distance"),
@@ -651,8 +655,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(DayFloor.class, "day_floor"),
             scalar(DayName.class, "dayname"),
             scalar(DayOfMonth.class, "day", "dayofmonth"),
-            scalar(DayOfWeek.class, "dayofweek"),
-            scalar(DayOfYear.class, "dayofyear"),
+            scalar(DayOfWeek.class, "dayofweek", "dow"),
+            scalar(DayOfYear.class, "dayofyear", "doy"),
             scalar(DaysAdd.class, "days_add", "date_add", "adddate"),
             scalar(DaysDiff.class, "days_diff"),
             scalar(DaysSub.class, "days_sub", "date_sub", "subdate"),
@@ -679,6 +683,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(EncodeAsLargeInt.class, "encode_as_largeint"),
             scalar(EndsWith.class, "ends_with"),
             scalar(EsQuery.class, "esquery"),
+            scalar(Even.class, "even"),
             scalar(Exp.class, "exp"),
             scalar(ExtractUrlParameter.class, "extract_url_parameter"),
             scalar(Field.class, "field"),
@@ -692,10 +697,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FromIso8601Date.class, "from_iso8601_date"),
             scalar(FromUnixtime.class, "from_unixtime"),
             scalar(G.class, "g"),
-            scalar(GetJsonBigInt.class, "get_json_bigint"),
-            scalar(GetJsonDouble.class, "get_json_double"),
-            scalar(GetJsonInt.class, "get_json_int"),
-            scalar(GetJsonString.class, "get_json_string"),
+            scalar(Gcd.class, "gcd"),
+            scalar(GetVariantType.class, "variant_type"),
             scalar(Greatest.class, "greatest"),
             scalar(Grouping.class, "grouping"),
             scalar(GroupingId.class, "grouping_id"),
@@ -739,50 +742,24 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonObject.class, "json_object", "jsonb_object"),
             scalar(JsonQuote.class, "json_quote"),
             scalar(JsonUnQuote.class, "json_unquote"),
-            scalar(JsonExtract.class, "json_extract"),
             scalar(JsonExtractNoQuotes.class, "json_extract_no_quotes"),
-            scalar(JsonInsert.class, "json_insert"),
-            scalar(JsonReplace.class, "json_replace"),
-            scalar(JsonSet.class, "json_set"),
+            scalar(JsonInsert.class, "json_insert", "jsonb_insert"),
+            scalar(JsonReplace.class, "json_replace", "jsonb_replace"),
+            scalar(JsonSet.class, "json_set", "jsonb_set"),
             scalar(JsonbExistsPath.class, "json_exists_path"),
             scalar(JsonbExistsPath.class, "jsonb_exists_path"),
-            scalar(JsonbExtract.class, "jsonb_extract"),
-            scalar(JsonbExtractBigint.class, "json_extract_bigint"),
-            scalar(JsonbExtractBigint.class, "jsonb_extract_bigint"),
-            scalar(JsonbExtractLargeint.class, "json_extract_largeint"),
-            scalar(JsonbExtractLargeint.class, "jsonb_extract_largeint"),
-            scalar(JsonbExtractBool.class, "json_extract_bool"),
-            scalar(JsonbExtractBool.class, "jsonb_extract_bool"),
-            scalar(JsonbExtractDouble.class, "json_extract_double"),
-            scalar(JsonbExtractDouble.class, "jsonb_extract_double"),
-            scalar(JsonbExtractInt.class, "json_extract_int"),
-            scalar(JsonbExtractInt.class, "jsonb_extract_int"),
+            scalar(JsonbExtract.class, "jsonb_extract", "json_extract"),
+            scalar(JsonbExtractBigint.class, "jsonb_extract_bigint", "json_extract_bigint", "get_json_bigint"),
+            scalar(JsonbExtractLargeint.class, "jsonb_extract_largeint", "json_extract_largeint"),
+            scalar(JsonbExtractBool.class, "jsonb_extract_bool", "json_extract_bool"),
+            scalar(JsonbExtractDouble.class, "jsonb_extract_double", "json_extract_double", "get_json_double"),
+            scalar(JsonbExtractInt.class, "jsonb_extract_int", "json_extract_int", "get_json_int"),
             scalar(JsonbExtractIsnull.class, "json_extract_isnull"),
             scalar(JsonbExtractIsnull.class, "jsonb_extract_isnull"),
-            scalar(JsonbExtractString.class, "json_extract_string"),
-            scalar(JsonbExtractString.class, "jsonb_extract_string"),
-            scalar(JsonbParse.class, "json_parse"),
-            scalar(JsonbParse.class, "jsonb_parse"),
-            scalar(JsonbParseErrorToInvalid.class, "json_parse_error_to_invalid"),
-            scalar(JsonbParseErrorToInvalid.class, "jsonb_parse_error_to_invalid"),
-            scalar(JsonbParseErrorToNull.class, "json_parse_error_to_null"),
-            scalar(JsonbParseErrorToNull.class, "jsonb_parse_error_to_null"),
-            scalar(JsonbParseErrorToValue.class, "json_parse_error_to_value"),
-            scalar(JsonbParseErrorToValue.class, "jsonb_parse_error_to_value"),
-            scalar(JsonbParseNotnull.class, "json_parse_notnull"),
-            scalar(JsonbParseNotnull.class, "jsonb_parse_notnull"),
-            scalar(JsonbParseNotnullErrorToInvalid.class, "json_parse_notnull_error_to_invalid"),
-            scalar(JsonbParseNotnullErrorToInvalid.class, "jsonb_parse_notnull_error_to_invalid"),
-            scalar(JsonbParseNotnullErrorToValue.class, "json_parse_notnull_error_to_value"),
-            scalar(JsonbParseNotnullErrorToValue.class, "jsonb_parse_notnull_error_to_value"),
-            scalar(JsonbParseNullable.class, "json_parse_nullable"),
-            scalar(JsonbParseNullable.class, "jsonb_parse_nullable"),
-            scalar(JsonbParseNullableErrorToInvalid.class, "json_parse_nullable_error_to_invalid"),
-            scalar(JsonbParseNullableErrorToInvalid.class, "jsonb_parse_nullable_error_to_invalid"),
-            scalar(JsonbParseNullableErrorToNull.class, "json_parse_nullable_error_to_null"),
-            scalar(JsonbParseNullableErrorToNull.class, "jsonb_parse_nullable_error_to_null"),
-            scalar(JsonbParseNullableErrorToValue.class, "json_parse_nullable_error_to_value"),
-            scalar(JsonbParseNullableErrorToValue.class, "jsonb_parse_nullable_error_to_value"),
+            scalar(JsonbExtractString.class, "jsonb_extract_string", "json_extract_string", "get_json_string"),
+            scalar(JsonbParse.class, "jsonb_parse", "json_parse"),
+            scalar(JsonbParseErrorToNull.class, "jsonb_parse_error_to_null", "json_parse_error_to_null"),
+            scalar(JsonbParseErrorToValue.class, "jsonb_parse_error_to_value", "json_parse_error_to_value"),
             scalar(JsonSearch.class, "json_search"),
             scalar(JsonbValid.class, "json_valid"),
             scalar(JsonbValid.class, "jsonb_valid"),
@@ -794,10 +771,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(L1Distance.class, "l1_distance"),
             scalar(L2Distance.class, "l2_distance"),
             scalar(LastDay.class, "last_day"),
+            scalar(Lcm.class, "lcm"),
             scalar(Least.class, "least"),
             scalar(Left.class, "left", "strleft"),
             scalar(Length.class, "length"),
             scalar(Crc32.class, "crc32"),
+            scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln", "dlog1"),
             scalar(Locate.class, "locate"),
@@ -890,6 +869,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Rpad.class, "rpad"),
             scalar(Rtrim.class, "rtrim"),
             scalar(RtrimIn.class, "rtrim_in"),
+            scalar(Score.class, "score"),
             scalar(Sec.class, "sec"),
             scalar(Second.class, "second"),
             scalar(SecondCeil.class, "second_ceil"),
@@ -908,6 +888,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Sha1.class, "sha1", "sha"),
             scalar(Sha2.class, "sha2"),
             scalar(Sign.class, "sign"),
+            scalar(SignBit.class, "signbit"),
             scalar(Sin.class, "sin"),
             scalar(Sinh.class, "sinh"),
             scalar(Sleep.class, "sleep"),
@@ -1022,7 +1003,17 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SessionUser.class, "session_user"),
             scalar(LastQueryId.class, "last_query_id"),
             scalar(Compress.class, "compress"),
-            scalar(Uncompress.class, "uncompress"));
+            scalar(Uncompress.class, "uncompress"),
+            scalar(LLMTranslate.class, "llm_translate"),
+            scalar(LLMSentiment.class, "llm_sentiment"),
+            scalar(LLMFilter.class, "llm_filter"),
+            scalar(LLMFixGrammar.class, "llm_fixgrammar"),
+            scalar(LLMExtract.class, "llm_extract"),
+            scalar(LLMGenerate.class, "llm_generate"),
+            scalar(LLMClassify.class, "llm_classify"),
+            scalar(LLMMask.class, "llm_mask"),
+            scalar(LLMSummarize.class, "llm_summarize"),
+            scalar(LLMSimilarity.class, "llm_similarity"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

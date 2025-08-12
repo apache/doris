@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.EnvUtils;
@@ -48,12 +46,9 @@ public class JdbcResourceTest {
 
     private Map<String, String> jdbcProperties;
 
-    private Analyzer analyzer;
-
     @Before
     public void setUp() {
         FeConstants.runningUnitTest = true;
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         jdbcProperties = Maps.newHashMap();
         jdbcProperties.put("type", "jdbc");
         jdbcProperties.put("user", "postgres");

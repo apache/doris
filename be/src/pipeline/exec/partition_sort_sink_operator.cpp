@@ -152,7 +152,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
             local_state._value_places[i]->_blocks.clear();
-            RETURN_IF_ERROR(sorter->prepare_for_read());
+            RETURN_IF_ERROR(sorter->prepare_for_read(false));
             INJECT_MOCK_SLEEP(std::unique_lock<std::mutex> lc(
                     local_state._shared_state->prepared_finish_lock));
             sorter->set_prepared_finish();
@@ -218,7 +218,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         using AggState = typename HashMethodType::State;
 
                         AggState state(key_columns);
-                        size_t num_rows = input_block->rows();
+                        uint32_t num_rows = (uint32_t)input_block->rows();
                         agg_method.init_serialized_keys(key_columns, num_rows);
 
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {

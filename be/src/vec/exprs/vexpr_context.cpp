@@ -64,6 +64,8 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
         // We should first check the status, as some expressions might incorrectly set result_column_id, even if the st is not ok.
         if (st.ok() && _last_result_column_id != -1) {
             block->get_by_position(*result_column_id).column->sanity_check();
+            RETURN_IF_ERROR(
+                    block->get_by_position(*result_column_id).check_type_and_column_match());
         }
     });
     return st;
@@ -128,6 +130,7 @@ int VExprContext::register_function_context(RuntimeState* state, const DataTypeP
                                             const std::vector<DataTypePtr>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
+    _fn_contexts.back()->set_enable_strict_mode(state->enable_strict_mode());
     return static_cast<int>(_fn_contexts.size()) - 1;
 }
 

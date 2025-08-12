@@ -135,6 +135,7 @@ namespace ErrorCode {
     E(QUERY_MEMORY_EXCEEDED, -257, false);                   \
     E(WORKLOAD_GROUP_MEMORY_EXCEEDED, -258, false);          \
     E(PROCESS_MEMORY_EXCEEDED, -259, false);                 \
+    E(INVALID_INPUT_SYNTAX, -260, false);                    \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \
@@ -606,7 +607,7 @@ public:
             return false;
         }
         error_st_ = new_status;
-        error_code_.store(new_status.code(), std::memory_order_release);
+        error_code_.store(static_cast<int16_t>(new_status.code()), std::memory_order_release);
         return true;
     }
 
@@ -742,6 +743,16 @@ using ResultError = unexpected<Status>;
         }                                        \
         std::forward<T>(res).value();            \
     });
+
+#define TEST_TRY(stmt)                                                                          \
+    ({                                                                                          \
+        auto&& res = (stmt);                                                                    \
+        using T = std::decay_t<decltype(res)>;                                                  \
+        if (!res.has_value()) [[unlikely]] {                                                    \
+            ASSERT_TRUE(res.has_value()) << "Expected success, but got error: " << res.error(); \
+        }                                                                                       \
+        std::forward<T>(res).value();                                                           \
+    })
 
 } // namespace doris
 

@@ -85,6 +85,11 @@ public class Histogram extends NotNullableAggregateFunction
         super("histogram", distinct, arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Histogram(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!(child(0).getDataType() instanceof PrimitiveType)) {
@@ -97,7 +102,7 @@ public class Histogram extends NotNullableAggregateFunction
      */
     @Override
     public Histogram withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        return new Histogram(distinct, children);
+        return new Histogram(getFunctionParams(distinct, children));
     }
 
     @Override

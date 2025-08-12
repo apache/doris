@@ -44,7 +44,7 @@ suite ("onlyGroupBy") {
     sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view onlyGroupBy_mv as select deptno, count(salary) from onlyGroupBy group by deptno;")
+    createMV("create materialized view onlyGroupBy_mv as select deptno as a1, count(salary) from onlyGroupBy group by deptno;")
 
     sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
 

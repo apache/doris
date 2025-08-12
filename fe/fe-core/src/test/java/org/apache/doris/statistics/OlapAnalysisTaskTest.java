@@ -36,6 +36,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
@@ -50,11 +51,13 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.apache.commons.text.StringSubstitutor;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -209,7 +212,7 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public boolean isPartitionColumn(String columnName) {
+            public boolean isPartitionColumn(Column column) {
                 return true;
             }
         };
@@ -665,7 +668,7 @@ public class OlapAnalysisTaskTest {
         };
         new MockUp<OlapTable>() {
             @Mock
-            boolean isPartitionColumn(String columnName) {
+            boolean isPartitionColumn(Column column) {
                 return false;
             }
 
@@ -714,5 +717,35 @@ public class OlapAnalysisTaskTest {
         Assertions.assertEquals(1, sampleTablets.first.size());
         Assertions.assertEquals(10002, sampleTablets.first.get(0));
         Assertions.assertEquals(100000000L, sampleTablets.second);
+    }
+
+    @Test
+    public void testMergePartitionSql() {
+        Map<String, String> params = new HashMap<>();
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
+        params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
+        params.put("catalogId", "0");
+        params.put("dbId", "1");
+        params.put("tblId", "2");
+        params.put("idxId", "3");
+        params.put("colId", "col1");
+        params.put("dataSizeFunction", "100");
+        params.put("catalogName", "internal");
+        params.put("dbName", "db1");
+        params.put("colName", "col1");
+        params.put("tblName", "tbl1");
+        params.put("index", "index1");
+        params.put("preAggHint", "");
+        params.put("min", "min");
+        params.put("max", "max");
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(BaseAnalysisTask.MERGE_PARTITION_TEMPLATE);
+        Assertions.assertEquals("SELECT CONCAT(2, '-', 3, '-', 'col1') AS `id`, 0 AS `catalog_id`, 1 AS `db_id`, "
+                + "2 AS `tbl_id`, 3 AS `idx_id`, 'col1' AS `col_id`, NULL AS `part_id`, SUM(count) AS `row_count`, "
+                + "HLL_CARDINALITY(HLL_UNION(ndv)) AS `ndv`, SUM(null_count) AS `null_count`, MIN(min) AS `min`, "
+                + "MAX(max) AS `max`, SUM(data_size_in_bytes) AS `data_size`, NOW() AS `update_time`,null as `hot_value` "
+                + "FROM internal.__internal_schema.partition_statistics "
+                + "WHERE `catalog_id` = 0  AND `db_id` = 1  AND `tbl_id` = 2  AND `idx_id` = 3  AND `col_id` = 'col1'",
+                sql);
     }
 }

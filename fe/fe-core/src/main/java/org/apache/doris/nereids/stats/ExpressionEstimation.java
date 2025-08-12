@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
@@ -95,12 +96,13 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -109,6 +111,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -132,7 +135,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             return columnStatistic;
         } catch (Exception e) {
             // in regression test, feDebug is true so that the exception is thrown in order to detect problems.
-            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+            if (SessionVariable.isFeDebug()) {
                 throw e;
             }
             LOG.warn("ExpressionEstimation failed : " + expression, e);
@@ -264,6 +267,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             return ColumnStatistic.UNKNOWN;
         }
         double literalVal = literal.getDouble();
+        HashMap<Literal, Float> hotValues = Maps.newHashMap();
+        hotValues.put(literal, 100.0f);
         return new ColumnStatisticBuilder()
                 .setMaxValue(literalVal)
                 .setMinValue(literalVal)
@@ -272,12 +277,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 .setAvgSizeByte(literal.getDataType().width())
                 .setMinExpr(literal.toLegacyLiteral())
                 .setMaxExpr(literal.toLegacyLiteral())
+                .setHotValues(hotValues)
                 .build();
     }
 
     @Override
     public ColumnStatistic visitSlotReference(SlotReference slotReference, Statistics context) {
         return context.findColumnStatistics(slotReference);
+    }
+
+    @Override
+    public ColumnStatistic visitNonNullable(NonNullable nonNullable, Statistics context) {
+        ColumnStatistic childColStats = nonNullable.child().accept(this, context);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(childColStats);
+        return builder.setNumNulls(0).build();
     }
 
     @Override

@@ -34,7 +34,7 @@ suite ("testQueryOnStar") {
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
 
-    createMV("create materialized view emps_mv as select time_col, deptno,empid, name, salary, commission from emps order by time_col, deptno, empid;")
+    createMV("create materialized view emps_mv as select time_col as a1, deptno as aa,empid as a2, name as a3, salary as a4, commission as a5 from emps order by time_col, deptno, empid;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 

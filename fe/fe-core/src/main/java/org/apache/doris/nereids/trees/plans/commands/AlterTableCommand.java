@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -243,6 +244,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterClause instanceof AddColumnOp
                     || alterClause instanceof AddColumnsOp
                     || alterClause instanceof DropColumnOp
+                    || alterClause instanceof RenameColumnOp
                     || alterClause instanceof ModifyColumnOp
                     || alterClause instanceof ReorderColumnsOp
                     || alterClause instanceof ModifyEngineOp

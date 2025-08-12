@@ -97,8 +97,8 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     read_options.record_rowids = record_rowids;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
-        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(ctx.rowset_id, *segments,
-                                                                    delete_bitmap));
+        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+                ctx.tablet_schema, ctx.rowset_id, *segments, delete_bitmap));
         for (auto& seg_ptr : *segments) {
             auto d = delete_bitmap->get_agg(
                     {ctx.rowset_id, seg_ptr->id(), DeleteBitmap::TEMP_VERSION_COMMON});
@@ -178,7 +178,8 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         }
         // Delete inverted index files
         for (auto&& column : schema->columns()) {
-            if (const auto* index_info = schema->inverted_index(*column); index_info != nullptr) {
+            auto index_infos = schema->inverted_indexs(*column);
+            for (const auto& index_info : index_infos) {
                 auto index_id = index_info->index_id();
                 if (schema->get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {
@@ -339,8 +340,8 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
     RETURN_IF_ERROR(_delete_original_segments(begin, end));
     if (_rowid_conversion != nullptr) {
-        convert_segment_delete_bitmap(ctx.mow_context->delete_bitmap, begin, end,
-                                      _writer->_num_segcompacted);
+        RETURN_IF_ERROR(convert_segment_delete_bitmap(segments, ctx.mow_context->delete_bitmap,
+                                                      begin, end, _writer->_num_segcompacted));
     }
     RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end));
     if (_index_file_writer != nullptr) {
@@ -366,6 +367,21 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
               << "us. update segcompacted_point:" << _writer->_segcompacted_point
               << " segment num:" << segments->size() << " begin:" << begin << " end:" << end;
 
+    return Status::OK();
+}
+
+Status SegcompactionWorker::_wait_calc_delete_bitmap(const SegCompactionCandidates& segments) {
+    for (const auto& segment : segments) {
+        auto* calc_task = _writer->calc_delete_bitmap_task(segment->id());
+        if (auto st = calc_task->get_status() /* blocking */; !st.ok()) {
+            LOG_WARNING("failed to wait for segment calc dbm task")
+                    .tag("tablet_id", _writer->context().tablet_id)
+                    .tag("rowset_id", segment->rowset_id().to_string())
+                    .tag("segment_id", segment->id())
+                    .tag("error", st.to_string());
+            return st;
+        }
+    }
     return Status::OK();
 }
 
@@ -414,8 +430,12 @@ bool SegcompactionWorker::need_convert_delete_bitmap() {
            tablet->tablet_schema()->has_sequence_col();
 }
 
-void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap,
-                                                        uint32_t src_seg_id, uint32_t dest_seg_id) {
+Status SegcompactionWorker::convert_segment_delete_bitmap(segment_v2::SegmentSharedPtr segment,
+                                                          DeleteBitmapPtr src_delete_bitmap,
+                                                          uint32_t src_seg_id,
+                                                          uint32_t dest_seg_id) {
+    // should wait until delete bitmaps on input segments are generated before converting them
+    RETURN_IF_ERROR(_wait_calc_delete_bitmap({segment}));
     // lazy init
     if (nullptr == _converted_delete_bitmap) {
         _converted_delete_bitmap = std::make_shared<DeleteBitmap>(_writer->context().tablet_id);
@@ -427,11 +447,16 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
         _converted_delete_bitmap->set({rowset_id, dest_seg_id, DeleteBitmap::TEMP_VERSION_COMMON},
                                       *seg_map);
     }
+    DBUG_EXECUTE_IF("SegcompactionWorker::convert_segment_delete_bitmap.after", DBUG_BLOCK);
+    return Status::OK();
 }
 
-void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_delete_bitmap,
-                                                        uint32_t src_begin, uint32_t src_end,
-                                                        uint32_t dst_seg_id) {
+Status SegcompactionWorker::convert_segment_delete_bitmap(SegCompactionCandidatesSharedPtr segments,
+                                                          DeleteBitmapPtr src_delete_bitmap,
+                                                          uint32_t src_begin, uint32_t src_end,
+                                                          uint32_t dst_seg_id) {
+    // should wait until delete bitmaps on input segments are generated before converting them
+    RETURN_IF_ERROR(_wait_calc_delete_bitmap(*segments));
     // lazy init
     if (nullptr == _converted_delete_bitmap) {
         _converted_delete_bitmap = std::make_shared<DeleteBitmap>(_writer->context().tablet_id);
@@ -455,6 +480,8 @@ void SegcompactionWorker::convert_segment_delete_bitmap(DeleteBitmapPtr src_dele
                     {rowset_id, dst_seg_id, DeleteBitmap::TEMP_VERSION_COMMON}, dst_row_id);
         }
     }
+    DBUG_EXECUTE_IF("SegcompactionWorker::convert_segment_delete_bitmap.after", DBUG_BLOCK);
+    return Status::OK();
 }
 
 bool SegcompactionWorker::cancel() {

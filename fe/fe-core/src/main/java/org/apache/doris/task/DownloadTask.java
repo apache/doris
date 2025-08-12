@@ -39,10 +39,13 @@ public class DownloadTask extends AgentTask {
     private List<TRemoteTabletSnapshot> remoteTabletSnapshots;
     private boolean isFromLocalSnapshot = false;
 
+    // for cloud mode
+    private String storageVaultId;
+
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
             Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
-            StorageBackend.StorageType storageType, String location) {
+            StorageBackend.StorageType storageType, String location, String storageVaultId) {
         super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
@@ -51,6 +54,7 @@ public class DownloadTask extends AgentTask {
         this.storageType = storageType;
         this.location = location;
         this.isFromLocalSnapshot = false;
+        this.storageVaultId = storageVaultId;
     }
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
@@ -98,6 +102,7 @@ public class DownloadTask extends AgentTask {
             req.setBrokerProp(brokerProperties);
             req.setStorageBackend(storageType.toThrift());
             req.setLocation(location);
+            req.setVaultId(storageVaultId);
         }
         return req;
     }

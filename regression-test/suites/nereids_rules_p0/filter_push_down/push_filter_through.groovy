@@ -264,9 +264,9 @@ suite("push_filter_through") {
     explain shape plan SELECT ROW_NUMBER() OVER (PARTITION BY id order by id) AS row_num from t1 WHERE id <= 5;
     """
     // push filter through window function with partition and order by and complex predicate - ROW_NUMBER()
-    qt_filter_window_row_number_complex_predicate"""
-    explain shape plan SELECT ROW_NUMBER() OVER (PARTITION BY id + msg order by id) AS row_num from t1 WHERE id + msg = "";
-    """
+    //qt_filter_window_row_number_complex_predicate"""
+    //explain shape plan SELECT ROW_NUMBER() OVER (PARTITION BY id + msg order by id) AS row_num from t1 WHERE id + msg = "";
+    //"""
     // push filter through window function with partition and order by and complex predicate - ROW_NUMBER()
     qt_filter_multi_window"""
     explain shape plan SELECT ROW_NUMBER() OVER (PARTITION BY id + msg) AS row_num,

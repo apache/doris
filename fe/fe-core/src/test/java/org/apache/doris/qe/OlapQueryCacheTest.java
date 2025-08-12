@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -100,7 +99,6 @@ public class OlapQueryCacheTest {
 
     private List<PartitionRange.PartitionSingle> newRangeList;
     private Cache.HitRange hitRange;
-    private Analyzer analyzer;
     private Database db;
     private Env env;
     private ConnectContext ctx;
@@ -253,7 +251,6 @@ public class OlapQueryCacheTest {
             }
         };
 
-        analyzer = new Analyzer(env, ctx);
         newRangeList = Lists.newArrayList();
 
         db = ((InternalCatalog) env.getCurrentCatalog()).getDbNullable(fullDbName);

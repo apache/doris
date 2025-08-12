@@ -35,6 +35,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -68,6 +69,30 @@ bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
 bvar::Adder<int64_t> g_unused_rowsets_bytes("unused_rowsets_bytes");
 
 static constexpr int LOAD_INITIATOR_ID = -1;
+
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_segment_size(
+        "file_cache_cloud_tablet_submitted_segment_size");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_segment_num(
+        "file_cache_cloud_tablet_submitted_segment_num");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_index_size(
+        "file_cache_cloud_tablet_submitted_index_size");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_index_num(
+        "file_cache_cloud_tablet_submitted_index_num");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_finished_segment_size(
+        "file_cache_cloud_tablet_finished_segment_size");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_finished_segment_num(
+        "file_cache_cloud_tablet_finished_segment_num");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_finished_index_size(
+        "file_cache_cloud_tablet_finished_index_size");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_finished_index_num(
+        "file_cache_cloud_tablet_finished_index_num");
+
+bvar::Adder<uint64_t> g_file_cache_recycle_cached_data_segment_num(
+        "file_cache_recycle_cached_data_segment_num");
+bvar::Adder<uint64_t> g_file_cache_recycle_cached_data_segment_size(
+        "file_cache_recycle_cached_data_segment_size");
+bvar::Adder<uint64_t> g_file_cache_recycle_cached_data_index_num(
+        "file_cache_recycle_cached_data_index_num");
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
         : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
@@ -276,6 +301,11 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     ? 0
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
+                    g_file_cache_cloud_tablet_submitted_segment_num << 1;
+                    if (rs->rowset_meta()->segment_file_size(seg_id) > 0) {
+                        g_file_cache_cloud_tablet_submitted_segment_size
+                                << rs->rowset_meta()->segment_file_size(seg_id);
+                    }
                     // clang-format off
                     _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
                             .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
@@ -293,10 +323,10 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                             }},
                     });
 
-                    auto download_idx_file = [&](const io::Path& idx_path) {
+                    auto download_idx_file = [&](const io::Path& idx_path, int64_t idx_size) {
                         io::DownloadFileMeta meta {
                                 .path = idx_path,
-                                .file_size = -1,
+                                .file_size = idx_size,
                                 .file_system = storage_resource.value()->fs,
                                 .ctx =
                                         {
@@ -310,22 +340,42 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                 }},
                         };
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+                        g_file_cache_cloud_tablet_submitted_index_num << 1;
+                        g_file_cache_cloud_tablet_submitted_index_size << idx_size;
                     };
                     // clang-format on
                     auto schema_ptr = rowset_meta->tablet_schema();
                     auto idx_version = schema_ptr->get_inverted_index_storage_format();
                     if (idx_version == InvertedIndexStorageFormatPB::V1) {
+                        std::unordered_map<int64_t, int64_t> index_size_map;
+                        auto&& inverted_index_info = rowset_meta->inverted_index_file_info(seg_id);
+                        for (const auto& info : inverted_index_info.index_info()) {
+                            if (info.index_file_size() != -1) {
+                                index_size_map[info.index_id()] = info.index_file_size();
+                            } else {
+                                VLOG_DEBUG << "Invalid index_file_size for segment_id " << seg_id
+                                           << ", index_id " << info.index_id();
+                            }
+                        }
                         for (const auto& index : schema_ptr->inverted_indexes()) {
                             auto idx_path = storage_resource.value()->remote_idx_v1_path(
                                     *rowset_meta, seg_id, index->index_id(),
                                     index->get_index_suffix());
-                            download_idx_file(idx_path);
+                            download_idx_file(idx_path, index_size_map[index->index_id()]);
                         }
                     } else {
                         if (schema_ptr->has_inverted_index()) {
+                            auto&& inverted_index_info =
+                                    rowset_meta->inverted_index_file_info(seg_id);
+                            int64_t idx_size = 0;
+                            if (inverted_index_info.has_index_size()) {
+                                idx_size = inverted_index_info.index_size();
+                            } else {
+                                VLOG_DEBUG << "index_size is not set for segment " << seg_id;
+                            }
                             auto idx_path = storage_resource.value()->remote_idx_v2_path(
                                     *rowset_meta, seg_id);
-                            download_idx_file(idx_path);
+                            download_idx_file(idx_path, idx_size);
                         }
                     }
                 }
@@ -494,8 +544,8 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     }
 
     add_unused_rowsets(expired_rowsets);
-    if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write() &&
-        !deleted_stale_rowsets.empty()) {
+    if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap && keys_type() == UNIQUE_KEYS &&
+        enable_unique_key_merge_on_write() && !deleted_stale_rowsets.empty()) {
         // agg delete bitmap for pre rowsets; record unused delete bitmap key ranges
         OlapStopWatch watch;
         for (const auto& [version, unused_rowsets] : deleted_stale_rowsets) {
@@ -535,53 +585,84 @@ void CloudTablet::add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets
 }
 
 void CloudTablet::remove_unused_rowsets() {
-    int64_t removed_rowsets_num = 0;
+    std::vector<std::shared_ptr<Rowset>> removed_rowsets;
     int64_t removed_delete_bitmap_num = 0;
     OlapStopWatch watch;
-    std::lock_guard<std::mutex> lock(_gc_mutex);
-    // 1. remove unused rowsets's cache data and delete bitmap
-    for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-        // it->second is std::shared_ptr<Rowset>
-        auto&& rs = it->second;
-        if (rs.use_count() > 1) {
-            LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id() << " has "
-                         << rs.use_count() << " references, it cannot be removed";
-            ++it;
-            continue;
+    {
+        std::lock_guard<std::mutex> lock(_gc_mutex);
+        // 1. remove unused rowsets's cache data and delete bitmap
+        for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
+            auto& rs = it->second;
+            if (rs.use_count() > 1) {
+                LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id()
+                             << " has " << rs.use_count() << " references, it cannot be removed";
+                ++it;
+                continue;
+            }
+            tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+            rs->clear_cache();
+            g_unused_rowsets_count << -1;
+            g_unused_rowsets_bytes << -rs->total_disk_size();
+            removed_rowsets.push_back(std::move(rs));
+            it = _unused_rowsets.erase(it);
         }
-        tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
-        rs->clear_cache();
-        g_unused_rowsets_count << -1;
-        g_unused_rowsets_bytes << -rs->total_disk_size();
-        it = _unused_rowsets.erase(it);
-        removed_rowsets_num++;
     }
 
-    // 2. remove delete bitmap of pre rowsets
-    for (auto it = _unused_delete_bitmap.begin(); it != _unused_delete_bitmap.end();) {
-        auto& rowset_ids = std::get<0>(*it);
-        bool find_unused_rowset = false;
-        for (const auto& rowset_id : rowset_ids) {
-            if (_unused_rowsets.find(rowset_id) != _unused_rowsets.end()) {
-                LOG(INFO) << "can not remove pre rowset delete bitmap because rowset is in use"
-                          << ", tablet_id=" << tablet_id() << ", rowset_id=" << rowset_id;
-                find_unused_rowset = true;
-                break;
+    {
+        std::vector<RowsetId> rowset_ids;
+        std::vector<int64_t> num_segments;
+        std::vector<std::vector<std::string>> index_file_names;
+
+        for (auto& rs : removed_rowsets) {
+            rowset_ids.push_back(rs->rowset_id());
+            num_segments.push_back(rs->num_segments());
+            auto index_names = rs->get_index_file_names();
+            index_file_names.push_back(index_names);
+            int64_t segment_size_sum = 0;
+            for (int32_t i = 0; i < rs->num_segments(); i++) {
+                segment_size_sum += rs->rowset_meta()->segment_file_size(i);
             }
+            g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
+            g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
+            g_file_cache_recycle_cached_data_index_num << index_names.size();
         }
-        if (find_unused_rowset) {
-            ++it;
-            continue;
+
+        if (removed_rowsets.size() > 0) {
+            auto& manager =
+                    ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+            manager.recycle_cache(tablet_id(), rowset_ids, num_segments, index_file_names);
         }
-        auto& key_ranges = std::get<1>(*it);
-        tablet_meta()->delete_bitmap().remove(key_ranges);
-        it = _unused_delete_bitmap.erase(it);
-        removed_delete_bitmap_num++;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_gc_mutex);
+        // 2. remove delete bitmap of pre rowsets
+        for (auto it = _unused_delete_bitmap.begin(); it != _unused_delete_bitmap.end();) {
+            auto& rowset_ids = std::get<0>(*it);
+            bool find_unused_rowset = false;
+            for (const auto& rowset_id : rowset_ids) {
+                if (_unused_rowsets.find(rowset_id) != _unused_rowsets.end()) {
+                    LOG(INFO) << "can not remove pre rowset delete bitmap because rowset is in use"
+                              << ", tablet_id=" << tablet_id() << ", rowset_id=" << rowset_id;
+                    find_unused_rowset = true;
+                    break;
+                }
+            }
+            if (find_unused_rowset) {
+                ++it;
+                continue;
+            }
+            auto& key_ranges = std::get<1>(*it);
+            tablet_meta()->delete_bitmap().remove(key_ranges);
+            it = _unused_delete_bitmap.erase(it);
+            removed_delete_bitmap_num++;
+            // TODO(kaijie): recycle cache for unused delete bitmap
+        }
     }
 
     LOG(INFO) << "tablet_id=" << tablet_id() << ", unused_rowset size=" << _unused_rowsets.size()
               << ", unused_delete_bitmap size=" << _unused_delete_bitmap.size()
-              << ", removed_rowsets_num=" << removed_rowsets_num
+              << ", removed_rowsets_num=" << removed_rowsets.size()
               << ", removed_delete_bitmap_num=" << removed_delete_bitmap_num
               << ", cost(us)=" << watch.get_elapse_time_us();
 }
@@ -599,14 +680,33 @@ void CloudTablet::clear_cache() {
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
+    std::vector<RowsetId> rowset_ids;
+    std::vector<int64_t> num_segments;
+    std::vector<std::vector<std::string>> index_file_names;
     for (const auto& rs : rowsets) {
         // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
         if (rs.use_count() > 2) {
             LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has " << rs.use_count()
                          << " references. File Cache won't be recycled when query is using it.";
-            return;
+            continue;
         }
         rs->clear_cache();
+        rowset_ids.push_back(rs->rowset_id());
+        num_segments.push_back(rs->num_segments());
+        auto index_names = rs->get_index_file_names();
+        index_file_names.push_back(index_names);
+        int64_t segment_size_sum = 0;
+        for (int32_t i = 0; i < rs->num_segments(); i++) {
+            segment_size_sum += rs->rowset_meta()->segment_file_size(i);
+        }
+        g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
+        g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
+        g_file_cache_recycle_cached_data_index_num << index_names.size();
+    }
+    if (!rowsets.empty()) {
+        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+        manager.recycle_cache(rowsets.front()->rowset_meta()->tablet_id(), rowset_ids, num_segments,
+                              index_file_names);
     }
 }
 

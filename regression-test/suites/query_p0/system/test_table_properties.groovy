@@ -36,6 +36,7 @@ suite("test_table_properties") {
 	UNIQUE KEY(`user_id`, `username`)
 	DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 	PROPERTIES (
+    "enable_mow_light_delete" = "false",
 	"replication_allocation" = "tag.location.default: 1"
 	);
         """

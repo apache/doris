@@ -50,13 +50,18 @@ public class ToDays extends ScalarFunction
         super("to_days", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToDays(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToDays withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToDays(children.get(0));
+        return new ToDays(getFunctionParams(children));
     }
 
     @Override

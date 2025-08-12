@@ -17,17 +17,17 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -63,9 +63,13 @@ public class RecoverTest {
     }
 
     private static void createDb(String db) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "create database " + db, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        String createDbStmtStr = "create database " + db;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void createTable(String sql) throws Exception {
@@ -78,56 +82,77 @@ public class RecoverTest {
     }
 
     private static void dropDb(String db) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt("drop database " + db, connectContext);
-        Env.getCurrentEnv().dropDb(dropDbStmt);
+        String sql = "drop database " + db;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void dropTable(String db, String tbl) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "drop table " + db + "." + tbl, connectContext);
-        Env.getCurrentEnv().dropTable(dropTableStmt);
+        String sql = "drop table " + db + "." + tbl;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropTableCommand) {
+            ((DropTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void dropPartition(String db, String tbl, String part) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "alter table " + db + "." + tbl + " drop partition " + part, connectContext);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        String sql = "alter table " + db + "." + tbl + " drop partition " + part;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void recoverDb(String db, long dbId) throws Exception {
+        String sql;
         if (dbId != -1) {
-            RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                    "recover database " + db + " " + String.valueOf(dbId), connectContext);
-            Env.getCurrentEnv().recoverDatabase(recoverDbStmt);
+            sql = "recover database " + db + " " + String.valueOf(dbId);
         } else {
-            RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                    "recover database " + db, connectContext);
-            Env.getCurrentEnv().recoverDatabase(recoverDbStmt);
+            sql = "recover database " + db;
+        }
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof RecoverDatabaseCommand) {
+            ((RecoverDatabaseCommand) parsed).run(connectContext, stmtExecutor);
         }
     }
 
     private static void recoverTable(String db, String tbl, long tableId) throws Exception {
+        String sql;
         if (tableId != -1) {
-            RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                    "recover table " + db + "." + tbl + " " + String.valueOf(tableId), connectContext);
-            Env.getCurrentEnv().recoverTable(recoverTableStmt);
+            sql = "recover table " + db + "." + tbl + " " + String.valueOf(tableId);
         } else {
-            RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                    "recover table " + db + "." + tbl, connectContext);
-            Env.getCurrentEnv().recoverTable(recoverTableStmt);
+            sql = "recover table " + db + "." + tbl;
+        }
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof RecoverTableCommand) {
+            ((RecoverTableCommand) parsed).run(connectContext, stmtExecutor);
         }
     }
 
     private static void recoverPartition(String db, String tbl, String part, long partId) throws Exception {
+        String sql;
         if (partId != -1) {
-            RecoverPartitionStmt recoverPartitionStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                    "recover partition " + part + " " + String.valueOf(partId) + " from " + db + "." + tbl,
-                    connectContext);
-            Env.getCurrentEnv().recoverPartition(recoverPartitionStmt);
+            sql = "recover partition " + part + " " + String.valueOf(partId) + " from " + db + "." + tbl;
         } else {
-            RecoverPartitionStmt recoverPartitionStmt = (RecoverPartitionStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                    "recover partition " + part + " from " + db + "." + tbl, connectContext);
-            Env.getCurrentEnv().recoverPartition(recoverPartitionStmt);
+            sql = "recover partition " + part + " from " + db + "." + tbl;
+        }
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof RecoverPartitionCommand) {
+            ((RecoverPartitionCommand) parsed).run(connectContext, stmtExecutor);
         }
     }
 

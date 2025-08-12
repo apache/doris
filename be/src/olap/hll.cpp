@@ -29,7 +29,7 @@ using std::string;
 using std::stringstream;
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 HyperLogLog::HyperLogLog(const Slice& src) {
     // When deserialize return false, we make this object a empty
     if (!deserialize(src)) {
@@ -194,7 +194,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
             encode_fixed32_le(ptr, num_non_zero_registers);
             ptr += 4;
 
-            for (uint32_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            for (uint16_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
                 if (_registers[i] == 0) {
                     continue;
                 }
@@ -354,7 +354,8 @@ int64_t HyperLogLog::estimate_cardinality() const {
     if (estimate <= num_streams * 2.5 && num_zero_registers != 0) {
         // Estimated cardinality is too low. Hll is too inaccurate here, instead use
         // linear counting.
-        estimate = num_streams * log(static_cast<float>(num_streams) / num_zero_registers);
+        estimate = num_streams *
+                   log(static_cast<double>(num_streams) / static_cast<double>(num_zero_registers));
     } else if (num_streams == 16384 && estimate < 72000) {
         // when Linear Couint change to HyperLogLog according to HyperLogLog Correction,
         // there are relatively large fluctuations, we fixed the problem refer to redis.
@@ -366,5 +367,5 @@ int64_t HyperLogLog::estimate_cardinality() const {
     }
     return (int64_t)(estimate + 0.5);
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

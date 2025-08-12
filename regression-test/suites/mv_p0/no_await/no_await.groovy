@@ -60,110 +60,110 @@ suite ("no_await") {
     """
     sql "insert into ${tblName} select e1, -4, -4, 'd' from (select 1 k1) as t lateral view explode_numbers(10000) tmp1 as e1;"
     // do not await
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2) as a2,max(k2) as a3 from ${tblName} group by k1;"
 
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a4,sum(k2) as a5,max(k2) as a6 from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as b1,sum(k2) as b2,max(k2) as b3 from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as b4,sum(k2) as b5,max(k2) as b6 from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as c1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
 
     waitDrop()
-    sql "create materialized view k12s3m as select k1,sum(k2),max(k2) from ${tblName} group by k1;"
+    sql "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from ${tblName} group by k1;"
     sql "insert into ${tblName} select -4, -4, -4, \'d\'"
     sql "sync;"
     qt_mv "select sum(k1) from ${tblName}"
