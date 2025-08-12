@@ -1631,21 +1631,22 @@ struct Prefix {
 bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
     PrimitiveType base_type_id = least_common_type.get_base_type_id();
     const DataTypePtr& type = least_common_type.get();
-    DCHECK(type->get_primitive_type() == PrimitiveType::TYPE_ARRAY);
-    // check if it is empty nested json array, then skip
-    FieldWithDataType field;
-    get(row, field);
-    if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
-        const auto& array = field.field.get<Array>();
-        bool only_nulls_inside = true;
-        for (const auto& elem : array) {
-            if (elem.get_type() != PrimitiveType::TYPE_NULL) {
-                only_nulls_inside = false;
-                break;
+    if (type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+        // check if it is empty nested json array, then skip
+        FieldWithDataType field;
+        get(row, field);
+        if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
+            const auto& array = field.field.get<Array>();
+            bool only_nulls_inside = true;
+            for (const auto& elem : array) {
+                if (elem.get_type() != PrimitiveType::TYPE_NULL) {
+                    only_nulls_inside = false;
+                    break;
+                }
             }
+            // if only nulls then skip
+            return only_nulls_inside;
         }
-        // if only nulls then skip
-        return only_nulls_inside;
     }
     // skip nothing type
     if (base_type_id == PrimitiveType::INVALID_TYPE) {
