@@ -65,37 +65,6 @@ public:
         return rowset;
     }
 
-    // void add_new_version_rowset(CloudTabletSPtr tablet, int64_t version, bool warmed_up,
-    //                             time_point<system_clock> visible_timestamp) {
-    //     auto rowset = create_rowset(Version {version, version}, visible_timestamp);
-    //     if (warmed_up) {
-    //         tablet->add_warmed_up_rowset(rowset->rowset_id());
-    //     }
-    //     std::unique_lock wlock {tablet->get_header_lock()};
-    //     tablet->add_rowsets({rowset}, false, wlock, false);
-    // }
-
-    // void do_cumu_compaction(CloudTabletSPtr tablet, int64_t start_version, int64_t end_version,
-    //                         bool warmed_up, time_point<system_clock> visible_timestamp) {
-    //     std::unique_lock wrlock {tablet->get_header_lock()};
-    //     std::vector<RowsetSharedPtr> input_rowsets;
-    //     auto output_rowset = create_rowset(Version {start_version, end_version}, visible_timestamp);
-    //     if (warmed_up) {
-    //         tablet->add_warmed_up_rowset(output_rowset->rowset_id());
-    //     }
-    //     std::ranges::copy_if(std::views::values(tablet->rowset_map()),
-    //                          std::back_inserter(input_rowsets), [=](const RowsetSharedPtr& rowset) {
-    //                              return rowset->version().first >= start_version &&
-    //                                     rowset->version().first <= end_version;
-    //                          });
-    //     if (input_rowsets.size() == 1) {
-    //         tablet->add_rowsets({output_rowset}, true, wrlock);
-    //     } else {
-    //         tablet->delete_rowsets(input_rowsets, wrlock);
-    //         tablet->add_rowsets({output_rowset}, false, wrlock);
-    //     }
-    // }
-
 protected:
     std::string _json_rowset_meta;
     TabletMetaSharedPtr _tablet_meta;
