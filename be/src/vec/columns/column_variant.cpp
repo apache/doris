@@ -767,11 +767,6 @@ bool ColumnVariant::Subcolumn::is_null_at(size_t n) const {
     for (const auto& part : data) {
         if (ind < part->size()) {
             const auto* nullable = check_and_get_column<ColumnNullable>(part.get());
-            if (nullable) {
-                std::cout << "nullable: " << (nullable->is_null_at(ind) ? "true" : "false") << std::endl;
-            } else {
-                std::cout << "column is not nullable" << std::endl;
-            }
             return nullable ? nullable->is_null_at(ind) : false;
         }
         ind -= part->size();

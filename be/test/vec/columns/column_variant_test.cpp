@@ -149,26 +149,6 @@ TEST_F(ColumnVariantTest, insert_try_insert) {
     sub->insert(Field::create_field<TYPE_BIGINT>(value), info);
 }
 
-TEST_F(ColumnVariantTest, test_small) {
-    // 1. create an empty variant column
-    auto variant = ColumnVariant::create(5);
-
-    std::vector<std::pair<std::string, doris::vectorized::Field>> data;
-
-    // 2. subcolumn path
-    data.emplace_back("v.a", doris::vectorized::Field::create_field<TYPE_INT>(20));
-    data.emplace_back("v.b",
-                      doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
-    data.emplace_back("v.c", doris::vectorized::Field::create_field<TYPE_INT>(20));
-    data.emplace_back("v.f", doris::vectorized::Field::create_field<TYPE_INT>(20));
-    data.emplace_back("v.e",
-                      doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
-    for (int i = 0; i < 2; ++i) {
-        auto field = VariantUtil::construct_variant_map(data);
-        variant->try_insert(field);
-    }
-}
-
 TEST_F(ColumnVariantTest, basic_finalize) {
     auto variant = VariantUtil::construct_basic_varint_column();
     // 4. finalize
