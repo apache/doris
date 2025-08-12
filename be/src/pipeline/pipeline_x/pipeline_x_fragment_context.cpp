@@ -1617,14 +1617,14 @@ Status PipelineXFragmentContext::send_report(bool done) {
     }
 
     std::string load_eror_url = _query_ctx->get_load_error_url().empty()
-                                    ? get_load_error_url()
-                                    : _query_ctx->get_load_error_url();
+                                        ? get_load_error_url()
+                                        : _query_ctx->get_load_error_url();
 
     return _report_status_cb(
             {true, exec_status, runtime_states, _runtime_profile.get(),
              _runtime_state->load_channel_profile(), done || !exec_status.ok(),
              _query_ctx->coord_addr, _query_id, _fragment_id, TUniqueId(), _backend_num,
-             _runtime_state.get(), load_eror_url,[this](Status st) { return update_status(st); },
+             _runtime_state.get(), load_eror_url, [this](Status st) { return update_status(st); },
              [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
                  cancel(reason, msg);
              }},
