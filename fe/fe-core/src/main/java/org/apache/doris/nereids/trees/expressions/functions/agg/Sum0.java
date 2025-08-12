@@ -134,8 +134,8 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        if (getArgument(0).getDataType() instanceof NullType ||
-            getArgument(0).getDataType() instanceof BooleanType) {
+        if (getArgument(0).getDataType() instanceof NullType 
+            || getArgument(0).getDataType() instanceof BooleanType) {
             return FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE);
         } else if (getArgument(0).getDataType() instanceof DecimalV2Type) {
             return FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD);
