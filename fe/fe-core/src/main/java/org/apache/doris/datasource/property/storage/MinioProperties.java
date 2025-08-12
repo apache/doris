@@ -89,12 +89,6 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
         return IDENTIFIERS.stream().map(origProps::get).anyMatch(value -> value != null && !value.isEmpty());
     }
 
-    @Override
-    public void initializeHadoopStorageConfig() {
-        super.initializeHadoopStorageConfig();
-        hadoopStorageConfig.set("fs.s3a.path.style.access", "true");
-    }
-
 
     @Override
     protected Set<Pattern> endpointPatterns() {
