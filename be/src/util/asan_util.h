@@ -15,27 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#pragma once
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.qe.ShowResultSetMetaData;
+#include <sanitizer/asan_interface.h>
 
-// Show Warning stmt
-public class ShowWarningStmt extends ShowStmt implements NotFallbackInParser {
-    private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Level", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Code", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Message", ScalarType.createVarchar(20)))
-                    .build();
-
-    @Override
-    public void analyze() {
+class AsanPoisonDefer {
+#ifdef ADDRESS_SANITIZER
+public:
+    // Poison the memory region to prevent accidental access
+    // during the lifetime of this object.
+    AsanPoisonDefer(const void* start, size_t len) : start(start), len(len) {
+        ASAN_POISON_MEMORY_REGION(start, len);
     }
+    // Unpoison the memory region when this object goes out of scope.
+    ~AsanPoisonDefer() { ASAN_UNPOISON_MEMORY_REGION(start, len); }
 
-    @Override
-    public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
-    }
-}
+private:
+    const void* start;
+    size_t len;
+#else
+public:
+    // No-op for platforms without ASAN_DEFINE_REGION_MACROS
+    AsanPoisonDefer(const void*, size_t) {}
+    ~AsanPoisonDefer() = default;
+#endif
+};

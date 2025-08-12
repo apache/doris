@@ -39,6 +39,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "inverted_index_query_type.h"
+#include "olap/field.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -58,47 +59,6 @@
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
-
-template <PrimitiveType PT>
-Status InvertedIndexQueryParamFactory::create_query_value(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
-    using CPP_TYPE = typename PrimitiveTypeTraits<PT>::CppType;
-    std::unique_ptr<InvertedIndexQueryParam<PT>> param =
-            InvertedIndexQueryParam<PT>::create_unique();
-    auto&& storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(
-            *reinterpret_cast<const CPP_TYPE*>(value));
-    param->set_value(&storage_val);
-    result_param = std::move(param);
-    return Status::OK();
-};
-
-#define CREATE_QUERY_VALUE_TEMPLATE(PT)                                     \
-    template Status InvertedIndexQueryParamFactory::create_query_value<PT>( \
-            const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_BOOLEAN)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_TINYINT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_SMALLINT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_INT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_BIGINT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_LARGEINT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_FLOAT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DOUBLE)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_VARCHAR)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATE)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATEV2)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATETIME)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATETIMEV2)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_CHAR)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMALV2)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL32)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL64)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL128I)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL256)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_HLL)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_STRING)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV4)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV6)
 
 std::string InvertedIndexReader::get_index_file_path() {
     return _index_file_reader->get_index_file_path(&_index_meta);
@@ -309,7 +269,12 @@ Status InvertedIndexReader::match_index_search(
 }
 
 Status FullTextIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(shared_from_this());
+    if (*iterator == nullptr) {
+        *iterator = InvertedIndexIterator::create_unique();
+    }
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::FULLTEXT,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 
@@ -404,7 +369,12 @@ InvertedIndexReaderType FullTextIndexReader::type() {
 }
 
 Status StringTypeInvertedIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(shared_from_this());
+    if (*iterator == nullptr) {
+        *iterator = InvertedIndexIterator::create_unique();
+    }
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::STRING_TYPE,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 
@@ -533,7 +503,12 @@ InvertedIndexReaderType StringTypeInvertedIndexReader::type() {
 }
 
 Status BkdIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(shared_from_this());
+    if (*iterator == nullptr) {
+        *iterator = InvertedIndexIterator::create_unique();
+    }
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::BKD,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 

@@ -26,7 +26,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 #include "vec/runtime/ipv6_value.h"
 
 namespace doris::vectorized {

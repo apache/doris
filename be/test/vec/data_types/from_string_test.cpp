@@ -23,7 +23,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/serde_utils.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -197,7 +196,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 std::cout << "the ith : " << i << std::endl;
                 std::string test_str = std::get<1>(type_pair)[i];
                 // data_type from_string
-                ReadBuffer rb_test(test_str.data(), test_str.size());
+                StringRef rb_test(test_str.data(), test_str.size());
                 Status st = data_type_ptr->from_string(rb_test, col.get());
                 if (std::get<3>(type_pair)[i].empty()) {
                     EXPECT_EQ(st.ok(), false);
@@ -246,9 +245,9 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             std::string max_s = max_wf->to_string();
             std::string rand_date = rand_wf->to_string();
 
-            ReadBuffer min_rb(min_s.data(), min_s.size());
-            ReadBuffer max_rb(max_s.data(), max_s.size());
-            ReadBuffer rand_rb(rand_date.data(), rand_date.size());
+            StringRef min_rb(min_s.data(), min_s.size());
+            StringRef max_rb(max_s.data(), max_s.size());
+            StringRef rand_rb(rand_date.data(), rand_date.size());
 
             auto col = data_type_ptr->create_column();
             Status st = data_type_ptr->from_string(min_rb, col.get());
@@ -312,7 +311,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
             Status st = rand_wf->from_string(pair.second, 0, 0);
             std::string rand_ip = rand_wf->to_string();
-            ReadBuffer rand_rb(rand_ip.data(), rand_ip.size());
+            StringRef rand_rb(rand_ip.data(), rand_ip.size());
             auto col = data_type_ptr->create_column();
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), true);
@@ -329,7 +328,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
             Status st = rand_wf->from_string(pair.second, 0, 0);
             EXPECT_EQ(st.ok(), false);
-            ReadBuffer rand_rb(pair.second.data(), pair.second.size());
+            StringRef rand_rb(pair.second.data(), pair.second.size());
             auto col = data_type_ptr->create_column();
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), false);

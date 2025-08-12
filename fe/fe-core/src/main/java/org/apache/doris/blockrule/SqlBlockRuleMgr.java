@@ -18,7 +18,6 @@
 package org.apache.doris.blockrule;
 
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -189,13 +188,6 @@ public class SqlBlockRuleMgr implements Writable {
 
     private void unprotectedAdd(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
-    }
-
-    /**
-     * Drop SqlBlockRule for drop stmt.
-     **/
-    public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws DdlException {
-        dropSqlBlockRule(stmt.getRuleNames(), stmt.isIfExists());
     }
 
     public void dropSqlBlockRule(List<String> ruleNames, boolean isIfExists) throws DdlException {

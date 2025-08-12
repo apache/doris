@@ -17,29 +17,11 @@
 
 #pragma once
 
-#include "vec/common/string_utils/string_utils.h"
+#include "common/status.h"
 
 namespace doris::vectorized {
-
-class ReadBuffer {
-public:
-    ReadBuffer(char* d, size_t n) : _start(d), _end(d + n) {}
-
-    ReadBuffer(const unsigned char* d, size_t n) : _start((char*)(d)), _end((char*)(d) + n) {}
-
-    bool eof() { return _start == _end; }
-
-    char*& position() { return _start; }
-
-    char* end() { return _end; }
-
-    size_t count() { return _end - _start; }
-
-    std::string to_string() { return std::string(_start, (_end - _start)); }
-
-private:
-    char* _start = nullptr;
-    char* _end = nullptr;
+struct CastParameters {
+    Status status = Status::OK();
+    bool is_strict = false;
 };
-
 } // namespace doris::vectorized
