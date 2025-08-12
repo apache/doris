@@ -69,7 +69,7 @@ static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
 
 using CompactionParam = std::tuple<KeysType, bool, bool, bool>;
-using SpillParam = std::tuple<bool, int64_t>;
+using SpillParam = std::tuple<int64_t>;
 
 class TestRowIdConversion : public testing::TestWithParam<std::tuple<CompactionParam, SpillParam>> {
 protected:
@@ -88,13 +88,14 @@ protected:
         auto engine = std::make_unique<StorageEngine>(options);
         engine_ref = engine.get();
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
-        config::enable_rowid_conversion_spill = false;
+        config::rowid_conversion_max_bytes = -1;
     }
 
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        config::rowid_conversion_max_bytes = -1;
     }
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
@@ -290,7 +291,7 @@ protected:
     void check_rowid_conversion(KeysType keys_type, bool enable_unique_key_merge_on_write,
                                 uint32_t num_input_rowset, uint32_t num_segments,
                                 uint32_t rows_per_segment, const SegmentsOverlapPB& overlap,
-                                bool has_delete_handler, bool is_vertical_merger, bool check_spill,
+                                bool has_delete_handler, bool is_vertical_merger, bool enable_spill,
                                 int64_t rowid_conversion_max_memory) {
         // generate input data
         std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
@@ -350,7 +351,7 @@ protected:
         }
 
         Merger::Statistics stats;
-        RowIdConversion rowid_conversion(config::enable_rowid_conversion_spill, tablet->tablet_id(),
+        RowIdConversion rowid_conversion(enable_spill, tablet->tablet_id(),
                                          writer_context.tablet_path);
         EXPECT_TRUE(rowid_conversion.init().ok());
         stats.rowid_conversion = &rowid_conversion;
@@ -387,7 +388,7 @@ protected:
                 output_data.emplace_back(columns[0].column->get_int(i),
                                          columns[1].column->get_int(i));
             }
-            if (check_spill) {
+            if (enable_spill) {
                 ASSERT_LE(rowid_conversion._mem_used, rowid_conversion_max_memory);
             }
         } while (s.ok());
@@ -559,9 +560,8 @@ TEST_F(TestRowIdConversion, Basic) {
 }
 
 std::string MyNameGenerator(const testing::TestParamInfo<TestRowIdConversion::ParamType>& info) {
-    bool enable_spill = std::get<0>(std::get<1>(info.param));
-    int64_t spill_threshold = std::get<1>(std::get<1>(info.param));
-    return fmt::format("{}_{}_{}", info.index, enable_spill, spill_threshold);
+    int64_t spill_threshold = std::get<0>(std::get<1>(info.param));
+    return fmt::format("{}_{}", info.index, spill_threshold);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -582,7 +582,7 @@ INSTANTIATE_TEST_SUITE_P(
                                                       {UNIQUE_KEYS, true, true, true}}),
                 ::testing::ValuesIn(
                         // Parameters: enable_spill, spill_threshold
-                        std::vector<SpillParam> {{false, 0}, {true, 1000000}, {true, 1000}})),
+                        std::vector<SpillParam> {{0}, {1000000}, {1000}})),
         MyNameGenerator);
 
 TEST_P(TestRowIdConversion, Conversion) {
@@ -592,8 +592,8 @@ TEST_P(TestRowIdConversion, Conversion) {
     bool has_delete_handler = std::get<2>(compaction_param);
     bool is_vertical_merger = std::get<3>(compaction_param);
 
-    config::enable_rowid_conversion_spill = std::get<0>(spill_param);
-    config::rowid_conversion_max_mb = std::get<1>(spill_param);
+    config::rowid_conversion_max_bytes = std::get<0>(spill_param);
+    bool enable_spill = (config::rowid_conversion_max_bytes > 0);
 
     // if num_input_rowset = 2, VCollectIterator::Level1Iterator::_merge = flase
     // if num_input_rowset = 3, VCollectIterator::Level1Iterator::_merge = true
@@ -605,8 +605,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = NONOVERLAPPING;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
-                                   is_vertical_merger, std::get<0>(spill_param),
-                                   std::get<1>(spill_param));
+                                   is_vertical_merger, enable_spill,
+                                   config::rowid_conversion_max_bytes);
         }
         // RowsetReader: VMergeIterator
         {
@@ -614,8 +614,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = OVERLAPPING;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
-                                   is_vertical_merger, std::get<0>(spill_param),
-                                   std::get<1>(spill_param));
+                                   is_vertical_merger, enable_spill,
+                                   config::rowid_conversion_max_bytes);
         }
         // RowsetReader: VUnionIterator
         {
@@ -623,8 +623,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = NONOVERLAPPING;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
-                                   is_vertical_merger, std::get<0>(spill_param),
-                                   std::get<1>(spill_param));
+                                   is_vertical_merger, enable_spill,
+                                   config::rowid_conversion_max_bytes);
         }
         // RowsetReader: VUnionIterator + VMergeIterator
         {
@@ -632,8 +632,8 @@ TEST_P(TestRowIdConversion, Conversion) {
             SegmentsOverlapPB overlap = OVERLAP_UNKNOWN;
             check_rowid_conversion(keys_type, enable_unique_key_merge_on_write, num_input_rowset,
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
-                                   is_vertical_merger, std::get<0>(spill_param),
-                                   std::get<1>(spill_param));
+                                   is_vertical_merger, enable_spill,
+                                   config::rowid_conversion_max_bytes);
         }
     }
 }

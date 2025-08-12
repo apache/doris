@@ -1575,8 +1575,7 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum number of threads supported when executing LLMFunction
 DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
-DEFINE_mBool(enable_rowid_conversion_spill, "true");
-DEFINE_mInt64(rowid_conversion_max_mb, "1024");
+DEFINE_mInt64(rowid_conversion_max_bytes, "-1");
 
 // clang-format off
 #ifdef BE_TEST

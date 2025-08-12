@@ -136,7 +136,7 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _rowid_conversion = std::make_unique<RowIdConversion>(
-            config::enable_rowid_conversion_spill, _tablet->tablet_id(), _tablet->tablet_path());
+            config::rowid_conversion_max_bytes > 0, _tablet->tablet_id(), _tablet->tablet_path());
 }
 
 Compaction::~Compaction() {

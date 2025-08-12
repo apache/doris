@@ -23,6 +23,7 @@
 
 #include "cloud/config.h"
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_common.h"
@@ -75,7 +76,8 @@ public:
                 file_path = fmt::format("{}/rowid_conversion_{}", _tablet_path, _tablet_id);
             }
 
-            _storage = std::make_unique<detail::RowIdSpillableStorage>(file_path);
+            _storage = std::make_unique<detail::RowIdSpillableStorage>(
+                    config::rowid_conversion_max_bytes, file_path);
         } else {
             _storage = std::make_unique<detail::RowIdMemoryStorage>();
         }

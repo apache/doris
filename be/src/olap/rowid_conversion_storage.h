@@ -141,8 +141,9 @@ public:
         RowIdMappingType mapping {resource.get()};
     };
 
-    RowIdSpillableStorage(const std::string& path)
-            : _spill_manager {std::make_unique<RowIdSpillManager>(path)} {}
+    RowIdSpillableStorage(int64_t memory_limit, const std::string& path)
+            : _memory_limit(memory_limit),
+              _spill_manager {std::make_unique<RowIdSpillManager>(path)} {}
 
     Status init() override { return _spill_manager->init(); }
 
@@ -227,8 +228,8 @@ private:
     Status _spill_segment(uint32_t internal_id) {
         auto& segment = _segments[internal_id];
         LOG_INFO(
-                "begin to spill segment mapping, internal_id={}, current memory usage={}, totoal "
-                "memory usage={}, segment info={}",
+                "[verbose] begin to spill segment mapping, internal_id={}, current memory "
+                "usage={}, totoal memory usage={}, segment info={}",
                 internal_id, segment.resource->bytes_allocated(), memory_usage(),
                 _spill_manager->dump_segment_info(internal_id));
         RETURN_IF_ERROR(_spill_manager->spill_segment_mapping(internal_id, segment.mapping));
@@ -236,23 +237,22 @@ private:
         segment.mapping.clear();
         segment.resource->reset();
         LOG_INFO(
-                "after spilling segment mapping, internal_id={}, current memory usage={}, totoal "
-                "memory usage={}, segment info={}",
+                "[verbose] after spilling segment mapping, internal_id={}, current memory "
+                "usage={}, totoal memory usage={}, segment info={}",
                 internal_id, segment.resource->bytes_allocated(), memory_usage(),
                 _spill_manager->dump_segment_info(internal_id));
         return Status::OK();
     }
 
     Status check_and_spill_segment(uint32_t internal_id) {
-        if (_segments[internal_id].resource->bytes_allocated() >=
-            config::rowid_conversion_max_mb * 1024 * 1024) {
+        if (_segments[internal_id].resource->bytes_allocated() >= memory_limit()) {
             RETURN_IF_ERROR(_spill_segment(internal_id));
         }
         return Status::OK();
     }
 
     Status check_and_spill_all() {
-        if (memory_usage() >= config::rowid_conversion_max_mb * 1024 * 1024) {
+        if (memory_usage() >= memory_limit()) {
             for (std::size_t i = 0; i < _segments.size(); ++i) {
                 if (!_segments[i].mapping.empty()) {
                     RETURN_IF_ERROR(_spill_segment(i));
@@ -262,6 +262,9 @@ private:
         return Status::OK();
     }
 
+    int64_t memory_limit() const { return _memory_limit; }
+
+    int64_t _memory_limit;
     std::vector<SegmentData> _segments;
     std::unique_ptr<RowIdSpillManager> _spill_manager;
 };
