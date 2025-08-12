@@ -215,9 +215,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
                 }
             }
         }
-        // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
-        _set_ready_to_finish();
     }
+    // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
+    _set_ready_to_finish();
 }
 
 void AsyncResultWriter::_set_ready_to_finish() {
