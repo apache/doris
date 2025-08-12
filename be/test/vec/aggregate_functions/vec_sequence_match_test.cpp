@@ -52,7 +52,7 @@ public:
     void SetUp() {
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         DataTypes data_types = {
-                std::make_shared<DataTypeString>(), std::make_shared<DataTypeDateTime>(),
+                std::make_shared<DataTypeString>(), std::make_shared<DataTypeDateTimeV2>(),
                 std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>()};
         agg_function_sequence_match = factory.get("sequence_match", data_types, false, -1);
@@ -191,8 +191,8 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
 TEST_F(VSequenceMatchTest, testCountSerialize) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {std::make_shared<DataTypeString>(),
-                            std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
-                            std::make_shared<DataTypeUInt8>()};
+                            std::make_shared<DataTypeDateTimeV2>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
     agg_function_sequence_count = factory.get("sequence_count", data_types, false, -1);
     EXPECT_NE(agg_function_sequence_count, nullptr);
 
@@ -256,8 +256,8 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
 TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {std::make_shared<DataTypeString>(),
-                            std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
-                            std::make_shared<DataTypeUInt8>()};
+                            std::make_shared<DataTypeDateTimeV2>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
     agg_function_sequence_match = factory.get("sequence_match", data_types, false, -1);
     EXPECT_NE(agg_function_sequence_match, nullptr);
 
@@ -345,8 +345,8 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
 TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {std::make_shared<DataTypeString>(),
-                            std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
-                            std::make_shared<DataTypeUInt8>()};
+                            std::make_shared<DataTypeDateTimeV2>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
     agg_function_sequence_count = factory.get("sequence_count", data_types, false, -1);
     EXPECT_NE(agg_function_sequence_count, nullptr);
 
