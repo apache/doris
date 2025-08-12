@@ -17,7 +17,6 @@
 
 package org.apache.doris.blockrule;
 
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -29,6 +28,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -136,13 +136,6 @@ public class SqlBlockRuleMgr implements Writable {
         LOG.info("replay create sql block rule: {}", sqlBlockRule);
     }
 
-    /**
-     * Alter SqlBlockRule for alter stmt.
-     **/
-    public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws AnalysisException, DdlException {
-        alterSqlBlockRule(SqlBlockRule.fromAlterStmt(stmt));
-    }
-
     public void alterSqlBlockRule(SqlBlockRule sqlBlockRule) throws AnalysisException, DdlException {
         writeLock();
         try {
@@ -158,13 +151,13 @@ public class SqlBlockRuleMgr implements Writable {
             if (sqlBlockRule.getSqlHash().equals(CreateSqlBlockRuleStmt.STRING_NOT_SET)) {
                 sqlBlockRule.setSqlHash(originRule.getSqlHash());
             }
-            if (sqlBlockRule.getPartitionNum().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getPartitionNum().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setPartitionNum(originRule.getPartitionNum());
             }
-            if (sqlBlockRule.getTabletNum().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getTabletNum().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setTabletNum(originRule.getTabletNum());
             }
-            if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setCardinality(originRule.getCardinality());
             }
             if (sqlBlockRule.getGlobal() == null) {
