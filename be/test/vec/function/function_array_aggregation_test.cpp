@@ -93,6 +93,22 @@ TEST(VFunctionArrayAggregationTest, TestArrayMin) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE));
+    // test ipv4
+    IntDataSet data_set1 = {
+            {{}, nullptr},
+            {{"192.168.1.1", "192.168.1.2", "192.168.1.3"}, "192.168.1.1"},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv4>(
+            func_name, data_set1, PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV4));
+    // test ipv6
+    IntDataSet data_set2 = {
+            {{}, nullptr},
+            {{"2001:db8:3333:4444:5555:6666:7777:8888", "2001:db8:3333:4444:5555:6666:7777:8888",
+              "2001:db8:3333:4444:5555:6666:7777:8888"},
+             "2001:db8:3333:4444:5555:6666:7777:8888"},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv6>(
+            func_name, data_set2, PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_IPV6));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMinNullable) {
@@ -116,6 +132,24 @@ TEST(VFunctionArrayAggregationTest, TestArrayMinNullable) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE, true));
+    // test ipv4
+    IntDataSet data_set1 = {
+            {{}, nullptr},
+            {{nullptr}, nullptr},
+            {{"192.168.1.1", nullptr, "192.168.1.3"}, "192.168.1.1"},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv4>(
+            func_name, data_set1, PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV4, true));
+    // test ipv6
+    IntDataSet data_set2 = {
+            {{}, nullptr},
+            {{nullptr}, nullptr},
+            {{"2001:db8:3333:4444:5555:6666:7777:8888", nullptr,
+              "2001:db8:3333:4444:5555:6666:7777:8888"},
+             "2001:db8:3333:4444:5555:6666:7777:8888"},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv6>(
+            func_name, data_set2, PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_IPV6, true));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMax) {
@@ -138,6 +172,22 @@ TEST(VFunctionArrayAggregationTest, TestArrayMax) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE));
+    // test ipv4
+    IntDataSet data_set1 = {
+            {{}, nullptr},
+            {{"192.168.1.1", "192.168.1.2", "192.168.1.3"}, "192.168.1.3"},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv4>(
+            func_name, data_set1, PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV4));
+    // test ipv6
+    IntDataSet data_set2 = {
+            {{}, nullptr},
+            {{"2001:db8:3333:4444:5555:6666:7777:8888", "2001:db8:3333:4444:5555:6666:7777:8888",
+              "2001:db8:3333:4444:5555:6666:7777:8888"},
+             "2001:db8:3333:4444:5555:6666:7777:8888"},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv6>(
+            func_name, data_set2, PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_IPV6));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMaxNullable) {
@@ -161,6 +211,24 @@ TEST(VFunctionArrayAggregationTest, TestArrayMaxNullable) {
             func_name, data_set, PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE, true));
+    // test ipv4
+    IntDataSet data_set1 = {
+            {{}, nullptr},
+            {{nullptr}, nullptr},
+            {{"192.168.1.1", nullptr, "192.168.1.3"}, "192.168.1.3"},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv4>(
+            func_name, data_set1, PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV4, true));
+    // test ipv6
+    IntDataSet data_set2 = {
+            {{}, nullptr},
+            {{nullptr}, nullptr},
+            {{"2001:db8:3333:4444:5555:6666:7777:8888", nullptr,
+              "2001:db8:3333:4444:5555:6666:7777:8888"},
+             "2001:db8:3333:4444:5555:6666:7777:8888"},
+    };
+    static_cast<void>(check_function_array_wrapper<DataTypeIPv6>(
+            func_name, data_set2, PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_IPV6, true));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArraySum) {

@@ -239,7 +239,8 @@ struct ArrayAggregateImpl {
         const IColumn* data = array.get_data_ptr().get();
 
         const auto& offsets = array.get_offsets();
-        if constexpr (operation == AggregateOperation::MAX || operation == AggregateOperation::MIN) {
+        if constexpr (operation == AggregateOperation::MAX ||
+                      operation == AggregateOperation::MIN) {
             // min/max can only be applied on ip type
             if (execute_type<TYPE_IPV4>(res, type, data, offsets) ||
                 execute_type<TYPE_IPV6>(res, type, data, offsets)) {
