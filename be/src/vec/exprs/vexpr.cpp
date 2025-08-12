@@ -60,6 +60,7 @@
 #include "vec/exprs/vmatch_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
+#include "vec/exprs/vtry_expr.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -479,7 +480,11 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::NULL_AWARE_BINARY_PRED:
         case TExprNodeType::FUNCTION_CALL:
         case TExprNodeType::COMPUTE_FUNCTION_CALL: {
-            expr = VectorizedFnCall::create_shared(expr_node);
+            if (expr_node.fn.name.function_name == "try") {
+                expr = TryExpr::create_shared(expr_node);
+            } else {
+                expr = VectorizedFnCall::create_shared(expr_node);
+            }
             break;
         }
         case TExprNodeType::MATCH_PRED: {

@@ -207,6 +207,8 @@ public:
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
+    void insert_from_maybe_not_nullable(const IColumn& src, size_t n);
+
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void append_data_by_selector(IColumn::MutablePtr& res,
