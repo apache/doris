@@ -84,7 +84,21 @@ suite("test_aggregate_all_functions2") {
     qt_select_topn_array6 """ select topn_array(k11,3,100) from baseall; """ 
     qt_select_count1 """ select count(distinct k1,k2,k5) from baseall; """ 
     qt_select_count2 """ select count(distinct k1,k2,cast(k5 as decimalv3(38,18))) from baseall; """ 
+    qt_select_percentile_reservoir1 """ select percentile_reservoir(k8,0.5) from baseall; """ 
+    qt_select_percentile_reservoir2 """ select percentile_reservoir(k8,0.99) from baseall; """ 
+    qt_select_percentile_reservoir3 """ select percentile_reservoir(k8,0.5) from baseall group by k6 order by 1; """ 
+    qt_select_percentile_reservoir4 """ select percentile_reservoir(k8,0.99) from baseall group by k6 order by 1; """ 
+    qt_select_percentile_reservoir4 """ select percentile_reservoir(k1,1) from baseall; """ 
 
+    test {
+        sql """ select percentile_reservoir(k8,k1) from baseall; """ 
+        exception "percentile_reservoir requires second parameter must be a constant"
+    }
+
+    test {
+        sql """ select percentile_reservoir(k8,2) from baseall; """ 
+        exception "percentile_reservoir level must be in [0, 1]"
+    }
 
     sql "DROP DATABASE IF EXISTS metric_table"
     sql """
