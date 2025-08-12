@@ -20,7 +20,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_distinct.h"
 
-#include <ostream>
+#include <algorithm>
 
 #include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -80,16 +80,14 @@ public:
     }
 };
 
-const std::string DISTINCT_FUNCTION_PREFIX = "multi_distinct_";
-
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
         // 1. we should get not nullable types;
         DataTypes nested_types(types.size());
-        std::transform(types.begin(), types.end(), nested_types.begin(),
-                       [](const auto& e) { return remove_nullable(e); });
+        std::ranges::transform(types, nested_types.begin(),
+                               [](const auto& e) { return remove_nullable(e); });
         auto function_combinator = std::make_shared<AggregateFunctionCombinatorDistinct>();
         auto transform_arguments = function_combinator->transform_arguments(nested_types);
         auto nested_function_name = name.substr(DISTINCT_FUNCTION_PREFIX.size());

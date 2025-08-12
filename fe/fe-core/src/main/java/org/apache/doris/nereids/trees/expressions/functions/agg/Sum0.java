@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -66,8 +65,7 @@ public class Sum0 extends NotNullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
