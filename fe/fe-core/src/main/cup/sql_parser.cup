@@ -1224,14 +1224,6 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshTableStmt(tbl);
     :}
-    | KW_REFRESH KW_DATABASE ident:db opt_properties:properties
-    {:
-        RESULT = new RefreshDbStmt(db, properties);
-    :}
-    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db opt_properties:properties
-    {:
-        RESULT = new RefreshDbStmt(ctl, db, properties);
-    :}
     ;
 
 uninstall_plugin_stmt ::=
