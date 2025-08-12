@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -115,7 +116,7 @@ public class DistinctAggregateSplitter extends OneRewriteRuleFactory {
         // 满足条件了,开始写拆分的代码
         // 先构造下面进行去重的AGG
         // group by key为group by key + distinct key
-        List<Expression> groupByKeys = ImmutableList.<Expression>builder()
+        Set<Expression> groupByKeys = ImmutableSet.<Expression>builder()
                 .addAll(aggregate.getGroupByExpressions())
                 .addAll(distinctAggFuncs.iterator().next().getDistinctArguments())
                 .build();
@@ -129,11 +130,12 @@ public class DistinctAggregateSplitter extends OneRewriteRuleFactory {
         }
 
         List<NamedExpression> aggOutput = ImmutableList.<NamedExpression>builder()
-                .addAll((List) groupByKeys)
+                .addAll((Set) groupByKeys)
                 .addAll(bottomAggOtherFunctions.build())
                 .build();
 
-        LogicalAggregate<Plan> bottomAgg = new LogicalAggregate<>(groupByKeys, aggOutput, aggregate.child());
+        LogicalAggregate<Plan> bottomAgg = new LogicalAggregate<>(Utils.fastToImmutableList(groupByKeys),
+                aggOutput, aggregate.child());
 
         // 然后构造上面的AGG
         List<NamedExpression> topAggOutput = ExpressionUtils.rewriteDownShortCircuit(aggregate.getOutputExpressions(),

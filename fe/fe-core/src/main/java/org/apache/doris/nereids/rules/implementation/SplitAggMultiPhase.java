@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -189,6 +190,7 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
         }
     }
 
+    // inputToResultParamSecond这个参数在调用的时候传入的都是一样的，可以考虑删除参数
     private PhysicalHashAggregate<? extends Plan> splitDistinctOnePhase(LogicalAggregate<? extends Plan> aggregate,
             AggregateParam inputToResultParamSecond, Map<AggregateFunction, Alias> childAggFuncMap, Plan child) {
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
@@ -197,9 +199,14 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
                         AggregateFunction aggFunc = (AggregateFunction) expr;
                         if (aggFunc.isDistinct()) {
                             // 测试一下为什么需要checkArgument here
-                            return new AggregateExpression(
-                                    aggFunc.withDistinctAndChildren(false, aggFunc.children()),
-                                    inputToResultParamSecond);
+                            if (aggFunc instanceof Count && aggFunc.arity() > 1) {
+                                Expression countIf = AggregateUtils.countDistinctMultiExprToCountIf((Count) aggFunc);
+                                return new AggregateExpression((Count) countIf, inputToResultParamSecond);
+                            } else {
+                                return new AggregateExpression(
+                                        aggFunc.withDistinctAndChildren(false, aggFunc.children()),
+                                        inputToResultParamSecond);
+                            }
                         } else {
                             return new AggregateExpression(aggFunc,
                                     new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT),

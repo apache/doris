@@ -786,3 +786,33 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalOlapScan[t_gbykey_2_dstkey_10_30_id]
 
+-- !with_gby_split_in_rewrite --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !with_gby_split_in_cascades --
+1	13.0
+1	18.0
+1	27.0
+1	33.0
+1	42.0
+1	55.0
+1	64.0
+1	76.0
+1	91.0
+1	100.0
+
+-- !without_gby --
+10
+
+-- !without_gby_satisfy --
+10
+

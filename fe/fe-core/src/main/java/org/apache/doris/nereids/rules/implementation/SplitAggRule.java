@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -125,8 +126,13 @@ public abstract class SplitAggRule {
             if (!func.isDistinct()) {
                 continue;
             }
-            aggFuncToAliasThird.put(func, new Alias(new AggregateExpression(
-                    func.withDistinctAndChildren(false, func.children()), thirdParam)));
+            if (func instanceof Count && func.arity() > 1) {
+                Expression countIf = AggregateUtils.countDistinctMultiExprToCountIf((Count) func);
+                aggFuncToAliasThird.put(func, new Alias(new AggregateExpression((Count) countIf, thirdParam)));
+            } else {
+                aggFuncToAliasThird.put(func, new Alias(new AggregateExpression(
+                        func.withDistinctAndChildren(false, func.children()), thirdParam)));
+            }
         }
         List<NamedExpression> thirdAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll((List) aggregate.getGroupByExpressions())
@@ -143,9 +149,14 @@ public abstract class SplitAggRule {
                         AggregateFunction aggFunc = (AggregateFunction) expr;
                         if (aggFunc.isDistinct()) {
                             Alias alias = aggFuncToAliasThird.get(aggFunc);
-                            return new AggregateExpression(
-                                    aggFunc.withDistinctAndChildren(false, aggFunc.children()),
-                                    fourthParam, alias.toSlot());
+                            if (aggFunc instanceof Count && aggFunc.arity() > 1) {
+                                return new AggregateExpression(((AggregateExpression) alias.child()).getFunction(),
+                                        fourthParam, alias.toSlot());
+                            } else {
+                                return new AggregateExpression(
+                                        aggFunc.withDistinctAndChildren(false, aggFunc.children()),
+                                        fourthParam, alias.toSlot());
+                            }
                         } else {
                             return new AggregateExpression(aggFunc,
                                     new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT),
