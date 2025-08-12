@@ -32,7 +32,6 @@ import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
@@ -122,8 +121,6 @@ public class DdlExecutor {
             env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
-            env.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {
             RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
             env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
