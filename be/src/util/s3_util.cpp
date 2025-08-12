@@ -82,11 +82,16 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     }
 
     if (conf.role_arn.empty()) {
-        if (conf.ak.empty()) {
-            return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
-        }
-        if (conf.sk.empty()) {
+        // Allow anonymous access when both ak and sk are empty
+        bool hasAk = !conf.ak.empty();
+        bool hasSk = !conf.sk.empty();
+
+        // Either both credentials are provided or both are empty (anonymous access)
+        if (hasAk && conf.sk.empty()) {
             return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
+        }
+        if (hasSk && conf.ak.empty()) {
+            return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
         }
     }
     return Status::OK();
@@ -282,6 +287,12 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
                 s3_conf.role_arn, Aws::String(), s3_conf.external_id,
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
     }
+
+    // Support anonymous access for public datasets when no credentials are provided
+    if (s3_conf.ak.empty() && s3_conf.sk.empty()) {
+        return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
+    }
+
     return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 }
 
