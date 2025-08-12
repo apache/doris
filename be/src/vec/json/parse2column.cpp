@@ -155,6 +155,16 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
     size_t old_num_rows = column_object.size();
+    if (config.enable_flatten_nested) {
+        // here we should check the paths in variant and paths in result,
+        // if two paths which same prefix have different structure, we should throw an exception
+        std::vector<PathInData> check_paths;
+        for (const auto& entry : column_object.get_subcolumns()) {
+            check_paths.push_back(entry->path);
+        }
+        check_paths.insert(check_paths.end(), paths.begin(), paths.end());
+        THROW_IF_ERROR(vectorized::schema_util::check_variant_has_no_ambiguous_paths(check_paths));
+    }
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         get_field_info(values[i], &field_info);
