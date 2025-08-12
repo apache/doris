@@ -177,7 +177,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
 
         if (!fragmentTask.processReportExecStatus(params)) {
-            LOG.info("Fragment {} is not done, ignore report status: {}",
+            LOG.debug("Fragment {} is not done, ignore report status: {}",
                     params.getFragmentId(), params.toString());
             return;
         }

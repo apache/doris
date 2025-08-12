@@ -2412,7 +2412,7 @@ public class Coordinator implements CoordInterface {
 
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
         if (ctx == null || !ctx.updatePipelineStatus(params)) {
-            LOG.info("Fragment {} is not done, ignore report status: {}",
+            LOG.debug("Fragment {} is not done, ignore report status: {}",
                     params.getFragmentId(), params.toString());
             return;
         }
