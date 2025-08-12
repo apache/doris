@@ -4776,7 +4776,8 @@ public class Env {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Table table = info.getTable();
-            getInternalCatalog().replayCreateTable(info.getDbName(), table);
+            long dbId = info.getDbId();
+            getInternalCatalog().replayCreateTable(info.getDbName(), dbId, table);
             if (table instanceof MTMV) {
                 ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
             }
