@@ -2295,8 +2295,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 if (fn == null) {
                     // Refain:
-                    // For expression-based partitioning, we don't actually analyze the parameter types of the expressions
-                    // but in practice this doesn't cause any operational issues.
+                    // For expression-based partitioning, we don't actually analyze the parameter types of the
+                    // expressions but in practice this doesn't cause any operational issues.
                     // throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
             } else if (expr instanceof SlotRef) {
