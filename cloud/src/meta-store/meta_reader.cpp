@@ -560,4 +560,63 @@ TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t 
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode MetaReader::get_index_index(int64_t index_id, IndexIndexPB* index, bool snapshot) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_index_index(txn.get(), index_id, index, snapshot);
+}
+
+TxnErrorCode MetaReader::get_index_index(Transaction* txn, int64_t index_id, IndexIndexPB* index,
+                                         bool snapshot) {
+    std::string index_index_key = versioned::index_index_key({instance_id_, index_id});
+    std::string value;
+    TxnErrorCode err = txn->get(index_index_key, &value, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    if (index && !index->ParseFromString(value)) {
+        LOG_ERROR("Failed to parse IndexIndexPB")
+                .tag("instance_id", instance_id_)
+                .tag("index_id", index_id)
+                .tag("key", hex(index_index_key));
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_partition_index(int64_t partition_id,
+                                             PartitionIndexPB* partition_index, bool snapshot) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_partition_index(txn.get(), partition_id, partition_index, snapshot);
+}
+
+TxnErrorCode MetaReader::get_partition_index(Transaction* txn, int64_t partition_id,
+                                             PartitionIndexPB* partition_index, bool snapshot) {
+    std::string partition_index_key = versioned::partition_index_key({instance_id_, partition_id});
+    std::string value;
+    TxnErrorCode err = txn->get(partition_index_key, &value, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    if (partition_index && !partition_index->ParseFromString(value)) {
+        LOG_ERROR("Failed to parse PartitionIndexPB")
+                .tag("instance_id", instance_id_)
+                .tag("partition_id", partition_id)
+                .tag("key", hex(partition_index_key));
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
 } // namespace doris::cloud

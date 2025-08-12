@@ -1221,3 +1221,82 @@ TEST(MetaReaderTest, GetPartitionPendingTxnId) {
         ASSERT_EQ(first_txn_id, 2001);
     }
 }
+
+TEST(MetaReaderTest, GetIndexIndex) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+    int64_t index_id = 3001;
+
+    {
+        // NOT FOUND
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        IndexIndexPB index;
+        TxnErrorCode err = meta_reader.get_index_index(index_id, &index);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    {
+        // Put an index index
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string index_index_key = versioned::index_index_key({instance_id, index_id});
+        IndexIndexPB index_index;
+        index_index.set_db_id(1001);
+        index_index.set_table_id(2001);
+        txn->put(index_index_key, index_index.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        IndexIndexPB index;
+        TxnErrorCode err = meta_reader.get_index_index(index_id, &index);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(index.db_id(), 1001);
+        ASSERT_EQ(index.table_id(), 2001);
+    }
+}
+
+TEST(MetaReaderTest, GetPartitionIndex) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+    int64_t partition_id = 4001;
+
+    {
+        // NOT FOUND
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        PartitionIndexPB partition_index;
+        TxnErrorCode err = meta_reader.get_partition_index(partition_id, &partition_index);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    {
+        // Put a partition index
+        PartitionIndexPB partition_index_pb;
+        partition_index_pb.set_db_id(100);
+        partition_index_pb.set_table_id(200);
+
+        std::string partition_index_value;
+        ASSERT_TRUE(partition_index_pb.SerializeToString(&partition_index_value));
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string partition_index_key =
+                versioned::partition_index_key({instance_id, partition_id});
+        txn->put(partition_index_key, partition_index_value);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        PartitionIndexPB partition_index;
+        TxnErrorCode err = meta_reader.get_partition_index(partition_id, &partition_index);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(partition_index.db_id(), 100);
+        ASSERT_EQ(partition_index.table_id(), 200);
+    }
+}
