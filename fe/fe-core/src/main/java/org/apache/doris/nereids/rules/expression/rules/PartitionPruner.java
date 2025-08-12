@@ -147,7 +147,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
             return ImmutableList.of();
         }
-
+        // (TODO) Refrain :  we need a right range for expr(col)
         if (sortedPartitionRanges.isPresent()) {
             RangeSet<MultiColumnBound> predicateRanges = partitionPredicate.accept(
                     new PartitionPredicateToRange(partitionSlots), null);
@@ -197,12 +197,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             int midIndex;
             MultiColumnBound predicateUpperBound = predicateRange.upperEndpoint();
             MultiColumnBound predicateLowerBound = predicateRange.lowerEndpoint();
-
+            // Refrain: 根据区间的上限和下限进行二分查找
             while (leftIndex + 1 < rightIndex) {
                 midIndex = (leftIndex + rightIndex) / 2;
                 PartitionItemAndRange<K> partition = sortedPartitions.get(midIndex);
                 Range<MultiColumnBound> partitionSpan = partition.range;
-
+                // Refrain 这里的二分查找好像有些问题
                 if (predicateUpperBound.compareTo(partitionSpan.lowerEndpoint()) < 0) {
                     rightIndex = midIndex;
                 } else if (predicateLowerBound.compareTo(partitionSpan.upperEndpoint()) > 0) {

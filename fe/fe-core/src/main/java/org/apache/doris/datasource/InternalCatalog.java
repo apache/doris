@@ -2272,13 +2272,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             throws AnalysisException {
         for (Expr expr : partitionDesc.getPartitionExprs()) {
             if (expr instanceof FunctionCallExpr) { // test them
-                if (!partitionDesc.isAutoCreatePartitions() || partitionDesc.getType() != PartitionType.RANGE) {
-                    throw new AnalysisException("only Auto Range Partition support FunctionCallExpr");
-                }
-
                 FunctionCallExpr func = (FunctionCallExpr) expr;
                 ArrayList<Expr> children = func.getChildren();
                 Type[] childTypes = new Type[children.size()];
+                // (TODO Refrain) maybe we need to really analyze the type of children
                 for (int i = 0; i < children.size(); i++) {
                     if (children.get(i) instanceof LiteralExpr) {
                         childTypes[i] = children.get(i).getType();
@@ -2297,14 +2294,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
                 if (fn == null) {
-                    throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
+                    // throw new AnalysisException("partition expr " + func.getExprName() + " is illegal!");
                 }
             } else if (expr instanceof SlotRef) {
-                if (partitionDesc.isAutoCreatePartitions() && partitionDesc.getType() == PartitionType.RANGE) {
-                    throw new AnalysisException("Auto Range Partition need FunctionCallExpr");
+                if (partitionDesc.isAutoCreatePartitions()) {
+                    throw new AnalysisException("Auto Partition need FunctionCallExpr");
                 }
-            } else {
-                throw new AnalysisException("partition expr " + expr.getExprName() + " is illegal!");
             }
         }
     }
@@ -2313,9 +2308,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             throws AnalysisException {
         for (Expr expr : partitionDesc.getPartitionExprs()) {
             if (expr instanceof FunctionCallExpr) { // test them
-                if (!partitionDesc.isAutoCreatePartitions() || partitionDesc.getType() != PartitionType.RANGE) {
-                    throw new AnalysisException("only Auto Range Partition support FunctionCallExpr");
-                }
+                // if (!partitionDesc.isAutoCreatePartitions() || partitionDesc.getType() != PartitionType.RANGE) {
+                //     throw new AnalysisException("only Auto Range Partition support FunctionCallExpr");
+                // }
 
                 FunctionCallExpr func = (FunctionCallExpr) expr;
                 ArrayList<Expr> children = func.getChildren();
