@@ -4853,6 +4853,224 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
     ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
 
+TEST(CheckerTest, check_txn_info_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    // Create normal txn info keys
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    // Add some valid txn info keys
+    for (int64_t db_id = 1000; db_id < 1005; db_id++) {
+        for (int64_t txn_id = 1000; txn_id < 1010; txn_id++) {
+            std::string key = txn_info_key({instance_id, db_id, txn_id});
+            std::string label = "test_label_" + std::to_string(txn_id);
+
+            TxnInfoPB txn_info;
+            txn_info.set_txn_id(txn_id);
+            txn_info.set_db_id(db_id);
+            txn_info.set_label(label);
+            txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+            txn->put(key, txn_info.SerializeAsString());
+
+            key = txn_label_key({instance_id, db_id, label});
+            TxnLabelPB txn_label;
+            txn_label.add_txn_ids(txn_id);
+            txn->atomic_set_ver_value(key, txn_label.SerializeAsString());
+        }
+    }
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Test normal case
+    std::string start_key = txn_label_key({instance_id, 0, ""});
+    std::string end_key = txn_label_key({instance_id, INT64_MAX, ""});
+    ASSERT_EQ(checker.check_txn_info_key(start_key, end_key), 0);
+
+    // Add some invalid txn info keys
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string invalid_key = txn_info_key({instance_id, 2000, 2000});
+    txn->put(invalid_key, "invalid data");
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Test with invalid data
+    ASSERT_NE(checker.check_txn_info_key(start_key, end_key), 0);
+}
+
+TEST(CheckerTest, check_txn_label_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    // Create normal txn label keys
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    // Add some valid txn label keys
+    for (int64_t db_id = 1000; db_id < 1005; db_id++) {
+        for (int i = 0; i < 10; i++) {
+            std::string label = "test_label_" + std::to_string(i);
+            std::string key = txn_info_key({instance_id, db_id, i});
+
+            TxnInfoPB txn_info;
+            txn_info.set_txn_id(i);
+            txn_info.set_db_id(db_id);
+            txn_info.set_label(label);
+            txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+            txn->put(key, txn_info.SerializeAsString());
+
+            key = txn_label_key({instance_id, db_id, label});
+            TxnLabelPB txn_label;
+            txn_label.add_txn_ids(i);
+            txn->atomic_set_ver_value(key, txn_label.SerializeAsString());
+        }
+    }
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Test normal case
+    std::string start_key = txn_info_key({instance_id, 0, 0});
+    std::string end_key = txn_info_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(checker.check_txn_label_key(start_key, end_key), 0);
+
+    // Add some invalid txn label keys
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string key = txn_label_key({instance_id, 1000, "test_label_0"});
+    TxnLabelPB txn_label;
+    txn_label.add_txn_ids(20);
+    txn->atomic_set_ver_value(key, txn_label.SerializeAsString());
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Test with invalid data
+    start_key = txn_info_key({instance_id, 0, 0});
+    end_key = txn_info_key({instance_id, INT64_MAX, 0});
+    ASSERT_NE(checker.check_txn_label_key(start_key, end_key), 0);
+}
+
+TEST(CheckerTest, check_txn_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    // Create normal txn index keys
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    // Add some valid txn index keys
+    for (int64_t txn_id = 1000; txn_id < 1010; txn_id++) {
+        for (int64_t index_id = 100; index_id < 105; index_id++) {
+            std::string label = "test_label_" + std::to_string(txn_id);
+            std::string key = txn_info_key({instance_id, db_id, txn_id});
+
+            TxnInfoPB txn_info;
+            txn_info.set_txn_id(txn_id);
+            txn_info.set_db_id(db_id);
+            txn_info.set_label(label);
+            txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+            txn->put(key, txn_info.SerializeAsString());
+
+            key = txn_index_key({instance_id, txn_id});
+            TxnIndexPB txn_index;
+            txn_index.mutable_tablet_index()->set_index_id(index_id);
+            txn_index.mutable_tablet_index()->set_tablet_id(10000 + index_id);
+            txn_index.mutable_tablet_index()->set_db_id(db_id);
+            txn->put(key, txn_index.SerializeAsString());
+        }
+    }
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Test normal case
+    std::string start_key = txn_info_key({instance_id, 0, 0});
+    std::string end_key = txn_info_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(checker.check_txn_index_key(start_key, end_key), 0);
+
+    // Add some invalid txn index keys
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string invalid_key = txn_index_key({instance_id, 1000});
+    TxnIndexPB txn_index;
+    txn_index.mutable_tablet_index()->set_index_id(2000);
+    txn_index.mutable_tablet_index()->set_tablet_id(3000);
+    txn_index.mutable_tablet_index()->set_db_id(db_id + 10);
+    txn->put(invalid_key, txn_index.SerializeAsString());
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Test with invalid data
+    start_key = txn_info_key({instance_id, 0, 0});
+    end_key = txn_info_key({instance_id, INT64_MAX, 0});
+    ASSERT_NE(checker.check_txn_index_key(start_key, end_key), 0);
+}
+
+TEST(CheckerTest, check_txn_running_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    // Create normal txn running keys
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    // Add some valid txn running keys
+    int64_t current_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::system_clock::now().time_since_epoch())
+                                      .count();
+
+    for (int64_t db_id = 1000; db_id < 1005; db_id++) {
+        for (int64_t txn_id = 1000; txn_id < 1010; txn_id++) {
+            std::string key = txn_running_key({instance_id, db_id, txn_id});
+            TxnRunningPB txn_running;
+            txn_running.set_timeout_time(current_time_ms + 3600000); // 1 hour later
+            txn->put(key, txn_running.SerializeAsString());
+        }
+    }
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Test normal case
+    std::string start_key = txn_running_key({instance_id, 0, 0});
+    std::string end_key = txn_running_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(checker.check_txn_running_key(start_key, end_key), 0);
+
+    // Add some invalid txn running keys
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string invalid_key = txn_running_key({instance_id, db_id, 1000});
+    TxnRunningPB txn_running;
+    txn_running.set_timeout_time(current_time_ms - 50000);
+    txn->put(invalid_key, txn_running.SerializeAsString());
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Test with invalid data
+    start_key = txn_running_key({instance_id, 0, 0});
+    end_key = txn_running_key({instance_id, INT64_MAX, 0});
+    ASSERT_NE(checker.check_txn_running_key(start_key, end_key), 0);
+}
+
 TEST(RecyclerTest, delete_rowset_data) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
