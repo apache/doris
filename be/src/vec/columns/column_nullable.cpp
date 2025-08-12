@@ -252,8 +252,19 @@ size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
 }
 
 void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
-    for (size_t i = 0; i < num_rows; ++i) {
-        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+    const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+        }
+    } else {
+        const auto& arr = get_null_map_data();
+        for (size_t i = 0; i < num_rows; ++i) {
+            memcpy_fixed<NullMap::value_type>(const_cast<char*>(keys[i].data + keys[i].size),
+                                              (char*)&arr[i]);
+            keys[i].size += sizeof(NullMap::value_type);
+        }
+        nested_column->serialize_vec(keys, num_rows);
     }
 }
 
@@ -539,12 +550,6 @@ bool ColumnNullable::has_enough_capacity(const IColumn& src) const {
     const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     return get_nested_column().has_enough_capacity(src_concrete.get_nested_column()) &&
            get_null_map_column().has_enough_capacity(src_concrete.get_null_map_column());
-}
-
-ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {
-    ColumnPtr replicated_data = get_nested_column().replicate(offsets);
-    ColumnPtr replicated_null_map = get_null_map_column().replicate(offsets);
-    return ColumnNullable::create(replicated_data, replicated_null_map);
 }
 
 template <bool negative>

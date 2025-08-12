@@ -93,6 +93,7 @@ using std::stringstream;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 extern void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
@@ -110,8 +111,8 @@ BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
         : _type(type),
           _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
           _stop_background_threads_latch(1) {
-    _memory_limitation_bytes_for_schema_change =
-            static_cast<int64_t>(MemInfo::soft_mem_limit() * config::schema_change_mem_limit_frac);
+    _memory_limitation_bytes_for_schema_change = static_cast<int64_t>(
+            static_cast<double>(MemInfo::soft_mem_limit()) * config::schema_change_mem_limit_frac);
     _tablet_max_delete_bitmap_score_metrics =
             std::make_shared<bvar::Status<size_t>>("tablet_max", "delete_bitmap_score", 0);
     _tablet_max_base_rowset_delete_bitmap_score_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -164,21 +165,22 @@ void CompactionSubmitRegistry::jsonfy_compaction_status(std::string* result) {
 
     auto add_node = [&root](const std::string& name, const Registry& registry) {
         rapidjson::Value key;
-        key.SetString(name.c_str(), name.length(), root.GetAllocator());
+        key.SetString(name.c_str(), cast_set<uint32_t>(name.length()), root.GetAllocator());
         rapidjson::Document path_obj;
         path_obj.SetObject();
         for (const auto& it : registry) {
             const auto& dir = it.first->path();
             rapidjson::Value path_key;
-            path_key.SetString(dir.c_str(), dir.length(), root.GetAllocator());
+            path_key.SetString(dir.c_str(), cast_set<uint32_t>(dir.length()), root.GetAllocator());
 
             rapidjson::Document arr;
             arr.SetArray();
 
             for (const auto& tablet : it.second) {
-                rapidjson::Value key;
+                rapidjson::Value temp_key;
                 auto key_str = std::to_string(tablet->tablet_id());
-                key.SetString(key_str.c_str(), key_str.length(), root.GetAllocator());
+                temp_key.SetString(key_str.c_str(), cast_set<uint32_t>(key_str.length()),
+                                   root.GetAllocator());
                 arr.PushBack(key, root.GetAllocator());
             }
             path_obj.AddMember(path_key, arr, root.GetAllocator());
@@ -241,7 +243,7 @@ static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
     int num_threads = config::load_data_dirs_threads;
     if (num_threads <= 0) {
-        num_threads = data_dirs.size();
+        num_threads = cast_set<int>(data_dirs.size());
     }
 
     auto st = ThreadPoolBuilder("load_data_dir")
@@ -296,7 +298,7 @@ Status StorageEngine::_open() {
     auto dirs = get_stores();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
-    _disk_num = dirs.size();
+    _disk_num = cast_set<int>(dirs.size());
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
     _memtable_flush_executor->init(_disk_num);
 
@@ -354,7 +356,8 @@ void StorageEngine::_update_storage_medium_type_count() {
         }
     }
 
-    _available_storage_medium_type_count = available_storage_medium_types.size();
+    _available_storage_medium_type_count =
+            cast_set<uint32_t>(available_storage_medium_types.size());
 }
 
 Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id) {
@@ -640,7 +643,7 @@ void get_round_robin_stores(int64_t curr_index, const std::vector<DirInfo>& dir_
         // data dirs [i, end) have the same tablet size, round robin range [i, end)
         size_t count = end - i;
         for (size_t k = 0; k < count; k++) {
-            size_t index = i + (k + curr_index) % count;
+            size_t index = i + ((k + curr_index) % count);
             stores.push_back(dir_infos[index].data_dir);
         }
         i = end;
@@ -844,7 +847,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
             continue;
         }
 
-        double curr_usage = (double)(info.disk_capacity - info.available) / info.disk_capacity;
+        double curr_usage =
+                (double)(info.disk_capacity - info.available) / (double)info.disk_capacity;
         tmp_usage = std::max(tmp_usage, curr_usage);
 
         Status curr_res = Status::OK();
@@ -992,7 +996,8 @@ void StorageEngine::_clean_unused_binlog_metas() {
                                                                        bool need_check) -> bool {
         if (need_check) {
             BinlogMetaEntryPB binlog_meta_pb;
-            if (UNLIKELY(!binlog_meta_pb.ParseFromArray(value.data(), value.size()))) {
+            if (UNLIKELY(!binlog_meta_pb.ParseFromArray(value.data(),
+                                                        cast_set<int>(value.size())))) {
                 LOG(WARNING) << "parse rowset meta string failed for binlog meta key: " << key;
             } else if (_tablet_manager->get_tablet(binlog_meta_pb.tablet_id()) == nullptr) {
                 LOG(INFO) << "failed to find tablet " << binlog_meta_pb.tablet_id()
@@ -1550,7 +1555,11 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (result.tablet_replica_infos.contains(tablet_id)) {
         std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
-        DCHECK_NE(reps.size(), 0);
+        if (reps.empty()) [[unlikely]] {
+            VLOG_DEBUG << "get_peers_replica_backends reps is empty, maybe this tablet is in "
+                          "schema change. Go to FE to see more info. Tablet id: "
+                       << tablet_id;
+        }
         for (const auto& rep : reps) {
             if (rep.replica_id != tablet->replica_id()) {
                 TBackend backend;
@@ -1746,5 +1755,5 @@ void CreateTabletRRIdxCache::set_index(const std::string& key, int next_idx) {
     auto* lru_handle = insert(key, value, 1, sizeof(int), CachePriority::NORMAL);
     release(lru_handle);
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("modify_replica_use_partition_by_hdfs") {
 if (!enableHdfs()) {
-    logger.info("skip this case because hdfs is not enabled");
+    throw new RuntimeException("Hdfs is not enabled, if you want to skip this case, please mute it in regression-conf.groovy");
 }
 def replicaNum = getFeConfig("force_olap_table_replication_num")
 setFeConfig("force_olap_table_replication_num", 0)

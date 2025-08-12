@@ -43,7 +43,6 @@ public:
     std::string get_name() const override { return "Nothing"; }
     MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
 
-    size_t serialize_size_at(size_t row) const override { return 0; }
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnNothing);
     }

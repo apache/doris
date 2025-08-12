@@ -37,8 +37,8 @@ suite ("k123p") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("""create materialized view k123p1w as select k1,k2+k3 from d_table where k1 = 1;""")
-    createMV ("""create materialized view k123p4w as select k1,k2+k3 from d_table where k4 = "b";""")
+    createMV ("""create materialized view k123p1w as select k1 as a1,k2+k3 as a2 from d_table where k1 = 1;""")
+    createMV ("""create materialized view k123p4w as select k1 as a3,k2+k3 as a4 from d_table where k4 = "b";""")
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"

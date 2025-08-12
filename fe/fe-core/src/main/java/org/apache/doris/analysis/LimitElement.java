@@ -108,7 +108,7 @@ public class LimitElement {
         return sb.toString();
     }
 
-    public void analyze(Analyzer analyzer) {
+    public void analyze() {
     }
 
     public void reset() {

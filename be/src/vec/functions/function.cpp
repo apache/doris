@@ -24,6 +24,7 @@
 #include <memory>
 #include <numeric>
 
+#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -38,7 +39,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            uint32_t result, size_t input_rows_count) {
     ColumnPtr result_null_map_column;
@@ -142,7 +143,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
     // now all columns are const.
     Block temporary_block;
 
-    size_t arguments_size = args.size();
+    int arguments_size = (int)args.size();
     for (size_t arg_num = 0; arg_num < arguments_size; ++arg_num) {
         const ColumnWithTypeAndName& column = block.get_by_position(args[arg_num]);
         // Columns in const_list --> column_const,    others --> nested_column
@@ -161,7 +162,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
     temporary_block.insert(block.get_by_position(result));
 
     ColumnNumbers temporary_argument_numbers(arguments_size);
-    for (size_t i = 0; i < arguments_size; ++i) {
+    for (int i = 0; i < arguments_size; ++i) {
         temporary_argument_numbers[i] = i;
     }
 
@@ -257,9 +258,15 @@ void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) 
 
     size_t expected_number_of_arguments = get_number_of_arguments();
 
-    CHECK_EQ(number_of_arguments, expected_number_of_arguments) << fmt::format(
+    DCHECK_EQ(number_of_arguments, expected_number_of_arguments) << fmt::format(
             "Number of arguments for function {} doesn't match: passed {} , should be {}",
             get_name(), number_of_arguments, expected_number_of_arguments);
+    if (number_of_arguments != expected_number_of_arguments) {
+        throw Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "Number of arguments for function {} doesn't match: passed {} , should be {}",
+                get_name(), number_of_arguments, expected_number_of_arguments);
+    }
 }
 
 DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& arguments) const {
@@ -325,4 +332,5 @@ bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
     }
     return false;
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

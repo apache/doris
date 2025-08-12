@@ -1413,7 +1413,9 @@ TEST_F(BlockFileCacheTest, reset_range) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
-    doris::config::enable_file_cache_query_limit = true;
+    config::file_cache_enter_disk_resource_limit_mode_percent =
+            config::file_cache_exit_disk_resource_limit_mode_percent = 99;
+
     fs::create_directories(cache_base_path);
     io::FileCacheSettings settings;
     settings.index_queue_elements = 0;
@@ -1453,8 +1455,8 @@ TEST_F(BlockFileCacheTest, reset_range) {
         auto holder = cache.get_or_set(key, 0, 9, context); /// Add range [0, 8]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 2);
-        assert_range(1, blocks[0], io::FileBlock::Range(0, 5), io::FileBlock::State::DOWNLOADED);
-        assert_range(2, blocks[1], io::FileBlock::Range(6, 8), io::FileBlock::State::EMPTY);
+        assert_range(3, blocks[0], io::FileBlock::Range(0, 5), io::FileBlock::State::DOWNLOADED);
+        assert_range(4, blocks[1], io::FileBlock::Range(6, 8), io::FileBlock::State::EMPTY);
     }
     std::cout << cache.dump_structure(key) << std::endl;
     if (fs::exists(cache_base_path)) {
@@ -4390,8 +4392,8 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_1) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::BlockFileCache cache(cache_base_path, settings);
-    config::file_cache_enter_disk_resource_limit_mode_percent =
-            config::file_cache_exit_disk_resource_limit_mode_percent = 50;
+    config::file_cache_enter_disk_resource_limit_mode_percent = 49;
+    config::file_cache_exit_disk_resource_limit_mode_percent = 50;
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
         if (cache.get_async_open_success()) {
@@ -5106,96 +5108,96 @@ TEST_F(BlockFileCacheTest, change_cache_type2) {
 }
 
 /*
-TEST_F(BlockFileCacheTest, load_cache1) {
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-    fs::create_directories(cache_base_path);
-    test_file_cache(FileCacheType::NORMAL);
-    int64_t cur_time = UnixSeconds();
-    int64_t expiration_time = cur_time + 120;
-    auto key1 = io::BlockFileCache::hash("key1");
-    ASSERT_TRUE(global_local_filesystem()
-                        ->rename(cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
-                                         key1.to_string() + "_0",
-                                 cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
-                                         key1.to_string() + "_" + std::to_string(expiration_time))
-                        .ok());
-    io::FileCacheSettings settings;
-    settings.query_queue_size = 30;
-    settings.query_queue_elements = 5;
-    settings.capacity = 30;
-    settings.max_file_block_size = 30;
-    settings.max_query_cache_size = 30;
-    io::BlockFileCache cache(cache_base_path, settings);
-    ASSERT_TRUE(cache.initialize());
-    for (int i = 0; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        };
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    EXPECT_EQ(cache._normal_queue.cache_size, 0);
-    EXPECT_TRUE(cache._key_to_time.contains(key1));
-    auto& offset = cache._files[key1];
-    for (auto& [offset, cell] : offset) {
-        EXPECT_EQ(cell.file_block->cache_type(), FileCacheType::TTL);
-        std::string cur_path;
-        if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
-            storage != nullptr) {
-            std::string dir =
-                    storage->get_path_in_local_cache(key1, cell.file_block->expiration_time());
-            cur_path = storage->get_path_in_local_cache(dir, cell.file_block->offset(),
-                                                        cell.file_block->cache_type());
-        }
-        EXPECT_EQ(cur_path, cache_base_path + key1.to_string().substr(0, 3) + "/" +
-                                    key1.to_string() + "_" + std::to_string(expiration_time) + "/" +
-                                    std::to_string(offset) + "_ttl");
-    }
-}
-TEST_F(BlockFileCacheTest, load_cache2) {
-    if (fs::exists(cache_base_path)) {
-        fs::remove_all(cache_base_path);
-    }
-    fs::create_directories(cache_base_path);
-    test_file_cache(FileCacheType::NORMAL);
-    auto key1 = io::BlockFileCache::hash("key1");
-    ASSERT_TRUE(global_local_filesystem()
-                        ->rename(cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
-                                         key1.to_string() + "_0/0",
-                                 cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
-                                         key1.to_string() + "_0/0_ttl")
-                        .ok());
-    io::FileCacheSettings settings;
-    settings.query_queue_size = 30;
-    settings.query_queue_elements = 5;
-    settings.capacity = 30;
-    settings.max_file_block_size = 30;
-    settings.max_query_cache_size = 30;
-    io::BlockFileCache cache(cache_base_path, settings);
-    ASSERT_TRUE(cache.initialize());
-    for (int i = 0; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        };
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    auto& offset = cache._files[key1];
-    for (auto& [offset, cell] : offset) {
-        EXPECT_EQ(cell.file_block->cache_type(), FileCacheType::NORMAL);
-        std::string cur_path;
-        if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
-            storage != nullptr) {
-            std::string dir =
-                    storage->get_path_in_local_cache(key1, cell.file_block->expiration_time());
-            cur_path = storage->get_path_in_local_cache(dir, cell.file_block->offset(),
-                                                        cell.file_block->cache_type());
-        }
-        EXPECT_EQ(cur_path, cache_base_path + key1.to_string().substr(0, 3) + "/" +
-                                    key1.to_string() + "_0/" + std::to_string(offset));
-    }
-}
-*/
+ TEST_F(BlockFileCacheTest, load_cache1) {
+     if (fs::exists(cache_base_path)) {
+         fs::remove_all(cache_base_path);
+     }
+     fs::create_directories(cache_base_path);
+     test_file_cache(FileCacheType::NORMAL);
+     int64_t cur_time = UnixSeconds();
+     int64_t expiration_time = cur_time + 120;
+     auto key1 = io::BlockFileCache::hash("key1");
+     ASSERT_TRUE(global_local_filesystem()
+                         ->rename(cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
+                                          key1.to_string() + "_0",
+                                  cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
+                                          key1.to_string() + "_" + std::to_string(expiration_time))
+                         .ok());
+     io::FileCacheSettings settings;
+     settings.query_queue_size = 30;
+     settings.query_queue_elements = 5;
+     settings.capacity = 30;
+     settings.max_file_block_size = 30;
+     settings.max_query_cache_size = 30;
+     io::BlockFileCache cache(cache_base_path, settings);
+     ASSERT_TRUE(cache.initialize());
+     for (int i = 0; i < 100; i++) {
+         if (cache.get_async_open_success()) {
+             break;
+         };
+         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+     }
+     EXPECT_EQ(cache._normal_queue.cache_size, 0);
+     EXPECT_TRUE(cache._key_to_time.contains(key1));
+     auto& offset = cache._files[key1];
+     for (auto& [offset, cell] : offset) {
+         EXPECT_EQ(cell.file_block->cache_type(), FileCacheType::TTL);
+         std::string cur_path;
+         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+             storage != nullptr) {
+             std::string dir =
+                     storage->get_path_in_local_cache(key1, cell.file_block->expiration_time());
+             cur_path = storage->get_path_in_local_cache(dir, cell.file_block->offset(),
+                                                         cell.file_block->cache_type());
+         }
+         EXPECT_EQ(cur_path, cache_base_path + key1.to_string().substr(0, 3) + "/" +
+                                     key1.to_string() + "_" + std::to_string(expiration_time) + "/" +
+                                     std::to_string(offset) + "_ttl");
+     }
+ }
+ TEST_F(BlockFileCacheTest, load_cache2) {
+     if (fs::exists(cache_base_path)) {
+         fs::remove_all(cache_base_path);
+     }
+     fs::create_directories(cache_base_path);
+     test_file_cache(FileCacheType::NORMAL);
+     auto key1 = io::BlockFileCache::hash("key1");
+     ASSERT_TRUE(global_local_filesystem()
+                         ->rename(cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
+                                          key1.to_string() + "_0/0",
+                                  cache_base_path + "/" + key1.to_string().substr(0, 3) + "/" +
+                                          key1.to_string() + "_0/0_ttl")
+                         .ok());
+     io::FileCacheSettings settings;
+     settings.query_queue_size = 30;
+     settings.query_queue_elements = 5;
+     settings.capacity = 30;
+     settings.max_file_block_size = 30;
+     settings.max_query_cache_size = 30;
+     io::BlockFileCache cache(cache_base_path, settings);
+     ASSERT_TRUE(cache.initialize());
+     for (int i = 0; i < 100; i++) {
+         if (cache.get_async_open_success()) {
+             break;
+         };
+         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+     }
+     auto& offset = cache._files[key1];
+     for (auto& [offset, cell] : offset) {
+         EXPECT_EQ(cell.file_block->cache_type(), FileCacheType::NORMAL);
+         std::string cur_path;
+         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+             storage != nullptr) {
+             std::string dir =
+                     storage->get_path_in_local_cache(key1, cell.file_block->expiration_time());
+             cur_path = storage->get_path_in_local_cache(dir, cell.file_block->offset(),
+                                                         cell.file_block->cache_type());
+         }
+         EXPECT_EQ(cur_path, cache_base_path + key1.to_string().substr(0, 3) + "/" +
+                                     key1.to_string() + "_0/" + std::to_string(offset));
+     }
+ }
+ */
 
 TEST_F(BlockFileCacheTest, test_load) {
     // test both path formats when loading file cache into memory
@@ -5932,7 +5934,7 @@ TEST_F(BlockFileCacheTest, seize_after_full) {
             if (cache.get_async_open_success()) {
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         ASSERT_TRUE(cache.get_async_open_success());
 

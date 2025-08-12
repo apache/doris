@@ -63,7 +63,11 @@ suite("test_lower_case_meta_include", "p0,external,doris,external_docker,externa
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "external_INCLUDE"
+            "include_database_list" = "external_INCLUDE",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -93,7 +97,11 @@ suite("test_lower_case_meta_include", "p0,external,doris,external_docker,externa
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "exclude_database_list" = "external_EXCLUDE"
+            "exclude_database_list" = "external_EXCLUDE",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -120,7 +128,11 @@ suite("test_lower_case_meta_include", "p0,external,doris,external_docker,externa
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             'meta_names_mapping' = '${mapping_db}',
-            "include_database_list" = "external_INCLUDE"
+            "include_database_list" = "external_INCLUDE",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {
@@ -151,7 +163,11 @@ suite("test_lower_case_meta_include", "p0,external,doris,external_docker,externa
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
             'meta_names_mapping' = '${mapping_db}',
-            "exclude_database_list" = "external_EXCLUDE"
+            "exclude_database_list" = "external_EXCLUDE",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     test {

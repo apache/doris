@@ -140,6 +140,10 @@ suite("test_nereids_show_partitions") {
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
             "where Buckets = 16 and PartitionName = 'p_dongbei' and PartitionId != 1748353297225 limit 100,1")
 
+    // state
+    checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl where state = 'NORMAL'")
+    checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl where state like '%NORMAL%'")
+
    def res1 = sql """show partitions from test_show_partitions.test_show_partitions_tbl"""
    assertEquals(3, res1.size())
    def res2 = sql """show partitions from test_show_partitions.test_show_partitions_tbl limit 1"""
@@ -189,6 +193,12 @@ suite("test_nereids_show_partitions") {
    // test for offset value is bigger than partitions' number
    def res23 = sql """show partitions from test_show_partitions.test_show_partitions_tbl where Buckets = 16 limit 100,1"""
    assertEquals(0, res23.size())
+
+    // test for state
+    def res24 = sql """show partitions from test_show_partitions.test_show_partitions_tbl where state = 'NORMAL'"""
+    assertEquals(3, res24.size())
+    def res25 = sql """show partitions from test_show_partitions.test_show_partitions_tbl where state like '%NORMAL%'"""
+    assertEquals(3, res25.size())
 
    assertThrows(Exception.class, {
       sql """show partitions from test_show_partitions.test_show_partitions_tbl where VisibleVersion = 1"""

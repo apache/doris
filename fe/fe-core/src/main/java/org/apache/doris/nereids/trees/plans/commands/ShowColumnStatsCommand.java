@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -270,7 +271,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             List<String> row = Lists.newArrayList();
             // p data structure is Pair<Pair<IndexName, ColumnName>, ColumnStatistic>
             row.add(p.first.second);
-            row.add(p.first.first);
+            row.add(Util.getTempTableDisplayName(p.first.first));
             row.add(String.valueOf(p.second.count));
             row.add(String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));
@@ -287,7 +288,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.updatedRows));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.rowCount));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.tableVersion));
-            row.add(String.valueOf(colStatsMeta == null ? "N/A" : p.second.getStringHotValues()));
+            row.add(String.valueOf(p.second.getStringHotValues()));
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);

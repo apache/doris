@@ -38,6 +38,7 @@ class StreamLoadContext;
 class CloudTablet;
 class TabletMeta;
 class TabletSchema;
+class TabletMetaPB;
 class RowsetMeta;
 
 namespace cloud {
@@ -58,7 +59,7 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
 
 // An async wrap of `bthread_fork_join` declared previously using promise-future
 // return OK if fut successfully created, otherwise return error
-Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency,
+Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concurrency,
                          std::future<Status>* fut);
 
 class CloudMetaMgr {
@@ -81,7 +82,7 @@ public:
     Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
+    Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
@@ -91,6 +92,21 @@ public:
     Status abort_txn(const StreamLoadContext& ctx);
 
     Status precommit_txn(const StreamLoadContext& ctx);
+
+    /**
+     * Prepares a restore job for a tablet to meta-service
+     */
+    Status prepare_restore_job(const TabletMetaPB& tablet_meta);
+
+    /**
+     * Commits a restore job for a tablet to meta-service
+     */
+    Status commit_restore_job(const int64_t tablet_id);
+
+    /**
+     * Remove a restore job for a tablet from meta-service
+     */
+    Status finish_restore_job(const int64_t tablet_id);
 
     /**
      * Gets storage vault (storage backends) from meta-service

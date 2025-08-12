@@ -83,7 +83,9 @@ struct Map : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-using VariantMap = std::map<PathInData, Field>;
+struct FieldWithDataType;
+
+using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -189,7 +191,6 @@ public:
 
     operator T() const { return dec; }
     T get_value() const { return dec; }
-    T get_scale_multiplier() const;
     UInt32 get_scale() const { return scale; }
 
     template <typename U>
@@ -511,6 +512,15 @@ private:
     }
 };
 
+struct FieldWithDataType {
+    Field field;
+    // used for nested type of array
+    PrimitiveType base_scalar_type_id = PrimitiveType::INVALID_TYPE;
+    uint8_t num_dimensions = 0;
+    int precision = -1;
+    int scale = -1;
+};
+
 template <typename T>
 T get(const Field& field) {
     return field.template get<T>();
@@ -526,7 +536,7 @@ T get(Field& field) {
 /// signedness of char is different in Linux on x86 and Linux on ARM.
 template <>
 struct NearestFieldTypeImpl<char> {
-    using Type = std::conditional_t<std::is_signed_v<char>, Int64, UInt64>;
+    using Type = std::conditional_t<IsSignedV<char>, Int64, UInt64>;
 };
 template <>
 struct NearestFieldTypeImpl<signed char> {

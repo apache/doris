@@ -33,7 +33,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 template <typename Impl>
 struct PlusMinusIntegralImpl {
     static constexpr PrimitiveType Type = Impl::PType;
@@ -345,7 +345,7 @@ struct PlusMinusDecimalImpl {
         auto result_scale = type_result.get_scale();
         DCHECK(orig_result_scale >= result_scale);
         auto scale_diff_multiplier =
-                DataTypeDecimal<PT>::get_scale_multiplier(orig_result_scale - result_scale).value;
+                DataTypeDecimal<PT>::get_scale_multiplier(orig_result_scale - result_scale);
         return {typename PrimitiveTypeTraits<PT>::ColumnItemType(max_result_number),
                 typename PrimitiveTypeTraits<PT>::ColumnItemType(scale_diff_multiplier)};
     }
@@ -618,5 +618,5 @@ private:
         return res;
     }
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

@@ -23,8 +23,7 @@
 #include "CLucene/_ApiHeader.h"
 #include "CLucene/util/Misc.h"
 #include "Lexeme.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/util/IKMemoryPool.h"
-
+#include "vec/common/arena.h"
 namespace doris::segment_v2 {
 
 class Cell {
@@ -42,8 +41,6 @@ public:
     Lexeme& getLexeme() { return lexeme_; }
 
 private:
-    // Do not change the position of the declarations of next_ and prev_, as this is related to the
-    // mergeFreeList in IKMemoryPool.
     Cell* next_ = nullptr;
     Cell* prev_ = nullptr;
     Lexeme lexeme_;
@@ -61,9 +58,9 @@ protected:
     size_t cell_size_ = 0;
 
 public:
-    IKMemoryPool<Cell>& pool_;
+    vectorized::Arena& arena_;
 
-    QuickSortSet(IKMemoryPool<Cell>& pool) : pool_(pool) {}
+    QuickSortSet(vectorized::Arena& arena) : arena_(arena) {}
     virtual ~QuickSortSet();
 
     QuickSortSet(const QuickSortSet&) = delete;

@@ -22,7 +22,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <PrimitiveType Type>
 struct PlusImpl {
     static constexpr auto name = "add";
@@ -47,7 +47,8 @@ struct PlusDecimalImpl {
         requires(is_decimal(Result) && Result != TYPE_DECIMALV2)
     static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(ArgNativeTypeA a,
                                                                             ArgNativeTypeB b) {
-        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) + b;
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) + b);
     }
 
     static inline DecimalV2Value apply(const DecimalV2Value& a, const DecimalV2Value& b) {
@@ -113,5 +114,5 @@ void register_function_plus(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<PlusImpl<TYPE_DOUBLE>>>>();
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<PlusImpl<TYPE_FLOAT>>>>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

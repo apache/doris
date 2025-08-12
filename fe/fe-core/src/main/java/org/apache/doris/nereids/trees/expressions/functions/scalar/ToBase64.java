@@ -47,13 +47,18 @@ public class ToBase64 extends ScalarFunction
         super("to_base64", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToBase64(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToBase64 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToBase64(children.get(0));
+        return new ToBase64(getFunctionParams(children));
     }
 
     @Override

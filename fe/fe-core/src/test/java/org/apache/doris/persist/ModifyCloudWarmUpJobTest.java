@@ -56,6 +56,7 @@ public class ModifyCloudWarmUpJobTest {
         long createTimeMs = 11111;
         String errMsg = "testMsg";
         long finishedTimesMs = 22222;
+        String srcClusterName = "cloudSrc";
         String clusterName = "cloudTest";
         long lastBatchId = 33333;
         Map<Long, List<List<Long>>> beToTabletIdBatches = new HashMap<>();
@@ -68,7 +69,7 @@ public class ModifyCloudWarmUpJobTest {
         beToThriftAddress.put(998L, "address");
         CloudWarmUpJob.JobType jobType = JobType.TABLE;
 
-        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, clusterName, beToTabletIdBatches, jobType);
+        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, srcClusterName, clusterName, beToTabletIdBatches, jobType);
         warmUpJob.setJobState(jobState);
         warmUpJob.setCreateTimeMs(createTimeMs);
         warmUpJob.setErrMsg(errMsg);
@@ -93,7 +94,7 @@ public class ModifyCloudWarmUpJobTest {
         Assert.assertEquals(createTimeMs, warmUpJob2.getCreateTimeMs());
         Assert.assertEquals(errMsg, warmUpJob2.getErrMsg());
         Assert.assertEquals(finishedTimesMs, warmUpJob2.getFinishedTimeMs());
-        Assert.assertEquals(clusterName, warmUpJob2.getCloudClusterName());
+        Assert.assertEquals(clusterName, warmUpJob2.getDstClusterName());
         Assert.assertEquals(lastBatchId, warmUpJob2.getLastBatchId());
         Map<Long, List<List<Long>>> beToTabletIdBatches2 = warmUpJob2.getBeToTabletIdBatches();
         Assert.assertEquals(1, beToTabletIdBatches2.size());

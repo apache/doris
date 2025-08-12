@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,8 +68,18 @@ public class MinioPropertiesTest {
     public void testMissingAccessKey() {
         origProps.put("s3.endpoint", "http://localhost:9000");
         origProps.put("s3.secret_key", "minioSecretKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () ->
-                StorageProperties.createPrimary(origProps), "Property s3.access_key is required.");
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
+                         StorageProperties.createPrimary(origProps),
+                         "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+    }
+
+    @Test
+    public void testMissingSecretKey() {
+        origProps.put("s3.endpoint", "http://localhost:9000");
+        origProps.put("s3.access_key", "minioAccessKey");
+        Assertions.assertThrows(StoragePropertiesException.class, () ->
+                         StorageProperties.createPrimary(origProps),
+                         "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     @Test

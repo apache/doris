@@ -17,14 +17,10 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -121,12 +117,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             ((ExternalCatalog) catalog).resetToUninitialized(false);
         }
-        if (!Strings.isNullOrEmpty(catalog.getResource())) {
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
-            if (resource != null) {
-                resource.addReference(catalog.getName(), ReferenceType.CATALOG);
-            }
-        }
     }
 
     private CatalogIf removeCatalog(long catalogId) {
@@ -139,12 +129,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 ConnectContext.get().removeLastDBOfCatalog(catalog.getName());
             }
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getId());
-            if (!Strings.isNullOrEmpty(catalog.getResource())) {
-                Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
-                if (catalogResource != null) {
-                    catalogResource.removeReference(catalog.getName(), ReferenceType.CATALOG);
-                }
-            }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
         }
         return catalog;
@@ -183,6 +167,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             throw e.apply(name);
         }
         return catalog;
+    }
+
+    public CatalogIf getCatalogOrDdlException(String name) throws DdlException {
+        return getCatalogOrException(name,
+                catalog -> new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
     }
 
     public CatalogIf getCatalogOrAnalysisException(String name) throws AnalysisException {
@@ -259,15 +249,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Create and hold the catalog instance and write the meta log.
-     */
-    public void createCatalog(CreateCatalogStmt stmt) throws UserException {
-        long id = Env.getCurrentEnv().getNextId();
-        CatalogIf catalog = CatalogFactory.createFromStmt(id, stmt);
-        createCatalogImpl(catalog, stmt.getCatalogName(), stmt.isSetIfNotExists());
-    }
-
-    /**
      * Remove the catalog instance by name and write the meta log.
      */
     public void dropCatalog(String catalogName, boolean ifExists) throws UserException {
@@ -294,13 +275,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Remove the catalog instance by name and write the meta log.
-     */
-    public void dropCatalog(DropCatalogStmt stmt) throws UserException {
-        dropCatalog(stmt.getCatalogName(), stmt.isSetIfExists());
     }
 
     /**
@@ -429,9 +403,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                             ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(),
                             catalog.getName());
-                }
-                if (!Strings.isNullOrEmpty(catalog.getResource())) {
-                    rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
                 Map<String, String> sortedMap = getCatalogPropertiesWithPrintable(catalog);
                 sortedMap.forEach((k, v) -> rows.add(Arrays.asList(k, v)));

@@ -25,11 +25,15 @@ add_executable(recycler_test
 
 add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
 
+add_executable(meta_reader_test meta_reader_test.cpp)
+
 add_executable(meta_service_test
    meta_service_test.cpp
    meta_service_job_test.cpp
    meta_service_http_test.cpp
+   meta_service_operation_log_test.cpp
    meta_service_tablet_stats_test.cpp
+   meta_service_versioned_read_test.cpp
    schema_kv_test.cpp
 )
 
@@ -77,6 +81,8 @@ message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 target_link_libraries(codec_test ${TEST_LINK_LIBS})
 
 target_link_libraries(keys_test ${TEST_LINK_LIBS})
+
+target_link_libraries(meta_reader_test ${TEST_LINK_LIBS})
 
 target_link_libraries(meta_service_test ${TEST_LINK_LIBS})
 

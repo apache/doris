@@ -48,7 +48,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 enum class ScaleMode {
     Positive, // round to a number with N decimal places after the decimal point
     Negative, // round to an integer with N zero characters
@@ -857,5 +857,5 @@ struct DecimalRoundOneImpl {
         return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 };
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

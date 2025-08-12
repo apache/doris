@@ -39,8 +39,8 @@ public class UninstallPluginStmt extends DdlStmt implements NotFallbackInParser 
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException, UserException {
+        super.analyze();
 
         if (!Config.plugin_enable) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_OPERATION_DISABLED, "UNINSTALL PLUGIN",

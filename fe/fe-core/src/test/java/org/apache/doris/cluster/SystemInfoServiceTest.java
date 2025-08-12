@@ -18,7 +18,6 @@
 package org.apache.doris.cluster;
 
 import org.apache.doris.analysis.AddBackendClause;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -31,7 +30,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -64,7 +62,6 @@ public class SystemInfoServiceTest {
     @Mocked
     private Table table;
 
-    private Analyzer analyzer;
 
     private String hostPort;
 
@@ -132,7 +129,6 @@ public class SystemInfoServiceTest {
             }
         };
 
-        analyzer = new Analyzer(env, new ConnectContext());
     }
 
     public void mkdir(String dirString) {
@@ -212,7 +208,7 @@ public class SystemInfoServiceTest {
     public void addBackendTest() throws UserException {
         clearAllBackend();
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
-        stmt.analyze(analyzer);
+        stmt.analyze();
         try {
             Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
         } catch (DdlException e) {
@@ -241,7 +237,7 @@ public class SystemInfoServiceTest {
     public void removeBackendTest() throws UserException {
         clearAllBackend();
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
-        stmt.analyze(analyzer);
+        stmt.analyze();
         try {
             Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
         } catch (DdlException e) {
@@ -249,7 +245,7 @@ public class SystemInfoServiceTest {
         }
 
         DropBackendClause dropStmt = new DropBackendClause(Lists.newArrayList("192.168.0.1:1234"));
-        dropStmt.analyze(analyzer);
+        dropStmt.analyze();
         try {
             Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
         } catch (DdlException e) {
@@ -268,7 +264,7 @@ public class SystemInfoServiceTest {
     public void removeBackendTestByBackendId() throws UserException {
         clearAllBackend();
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
-        stmt.analyze(analyzer);
+        stmt.analyze();
         try {
             Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
         } catch (DdlException e) {
@@ -276,7 +272,7 @@ public class SystemInfoServiceTest {
         }
 
         DropBackendClause dropStmt = new DropBackendClause(Lists.newArrayList(String.valueOf(backendId)));
-        dropStmt.analyze(analyzer);
+        dropStmt.analyze();
         try {
             Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
         } catch (DdlException e) {

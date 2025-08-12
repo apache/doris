@@ -23,6 +23,7 @@
 #include <utility>
 
 namespace doris::cloud {
+#include "common/compile_check_begin.h"
 
 RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB& in) {
     RowsetMetaCloudPB out;
@@ -546,17 +547,17 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
         doris_tablet_schema_to_cloud(out->mutable_schema(), std::move(*in.mutable_schema()));
     }
     if (in.rs_metas_size()) {
-        size_t rs_metas_size = in.rs_metas_size();
+        int32_t rs_metas_size = in.rs_metas_size();
         out->mutable_rs_metas()->Reserve(rs_metas_size);
-        for (size_t i = 0; i < rs_metas_size; ++i) {
+        for (int i = 0; i < rs_metas_size; ++i) {
             doris_rowset_meta_to_cloud(out->add_rs_metas(), std::move(*in.mutable_rs_metas(i)));
         }
     }
     // ATTN: inc_rs_metas are deprecated, here is for conversion check
     if (in.inc_rs_metas_size()) {
-        size_t rs_metas_size = in.inc_rs_metas_size();
+        int rs_metas_size = in.inc_rs_metas_size();
         out->mutable_inc_rs_metas()->Reserve(rs_metas_size);
-        for (size_t i = 0; i < rs_metas_size; ++i) {
+        for (int i = 0; i < rs_metas_size; ++i) {
             doris_rowset_meta_to_cloud(out->add_inc_rs_metas(),
                                        std::move(*in.mutable_inc_rs_metas(i)));
         }
@@ -570,9 +571,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     out->set_preferred_rowset_type(in.preferred_rowset_type());
     out->set_tablet_type(in.tablet_type());
     if (in.stale_rs_metas_size()) {
-        size_t rs_metas_size = in.stale_rs_metas_size();
+        int rs_metas_size = in.stale_rs_metas_size();
         out->mutable_stale_rs_metas()->Reserve(rs_metas_size);
-        for (size_t i = 0; i < rs_metas_size; i++) {
+        for (int i = 0; i < rs_metas_size; i++) {
             doris_rowset_meta_to_cloud(out->add_stale_rs_metas(),
                                        std::move(*in.mutable_stale_rs_metas(i)));
         }
@@ -701,17 +702,17 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
         cloud_tablet_schema_to_doris(out->mutable_schema(), std::move(*in.mutable_schema()));
     }
     if (in.rs_metas_size()) {
-        size_t rs_metas_size = in.rs_metas_size();
+        int rs_metas_size = in.rs_metas_size();
         out->mutable_rs_metas()->Reserve(rs_metas_size);
-        for (size_t i = 0; i < rs_metas_size; ++i) {
+        for (int i = 0; i < rs_metas_size; ++i) {
             cloud_rowset_meta_to_doris(out->add_rs_metas(), std::move(*in.mutable_rs_metas(i)));
         }
     }
     // ATTN: inc_rs_metas are deprecated, here is for conversion check
     if (in.inc_rs_metas_size()) {
-        size_t rs_metas_size = in.inc_rs_metas_size();
+        int rs_metas_size = in.inc_rs_metas_size();
         out->mutable_inc_rs_metas()->Reserve(rs_metas_size);
-        for (size_t i = 0; i < rs_metas_size; i++) {
+        for (int i = 0; i < rs_metas_size; i++) {
             cloud_rowset_meta_to_doris(out->add_inc_rs_metas(),
                                        std::move(*in.mutable_inc_rs_metas(i)));
         }
@@ -725,9 +726,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     out->set_preferred_rowset_type(in.preferred_rowset_type());
     out->set_tablet_type(in.tablet_type());
     if (in.stale_rs_metas_size()) {
-        size_t rs_metas_size = in.stale_rs_metas_size();
+        int rs_metas_size = in.stale_rs_metas_size();
         out->mutable_stale_rs_metas()->Reserve(rs_metas_size);
-        for (size_t i = 0; i < rs_metas_size; i++) {
+        for (int i = 0; i < rs_metas_size; i++) {
             cloud_rowset_meta_to_doris(out->add_stale_rs_metas(),
                                        std::move(*in.mutable_stale_rs_metas(i)));
         }
@@ -760,5 +761,6 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
         out->set_schema_version(in.schema_version());
     }
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::cloud

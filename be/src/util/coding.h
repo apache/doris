@@ -9,6 +9,7 @@
 #pragma once
 
 #include <bit>
+
 #ifndef __APPLE__
 #include <endian.h>
 #endif
@@ -17,6 +18,7 @@
 
 #include "olap/olap_common.h"
 #include "util/slice.h"
+#include "vec/common/endian.h"
 
 namespace doris {
 

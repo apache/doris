@@ -22,9 +22,11 @@
 
 #include <functional>
 
+#include "pdqsort.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/sort_block.h"
 
 class SipHash;
 namespace doris {
@@ -86,15 +88,6 @@ ColumnStruct::MutablePtr ColumnStruct::create(const TupleColumns& tuple_columns)
     auto column_struct = ColumnStruct::create(MutableColumns());
     column_struct->columns = tuple_columns;
     return column_struct;
-}
-
-MutableColumnPtr ColumnStruct::clone_empty() const {
-    const size_t tuple_size = columns.size();
-    MutableColumns new_columns(tuple_size);
-    for (size_t i = 0; i < tuple_size; ++i) {
-        new_columns[i] = columns[i]->clone_empty();
-    }
-    return ColumnStruct::create(std::move(new_columns));
 }
 
 MutableColumnPtr ColumnStruct::clone_resized(size_t new_size) const {
@@ -249,8 +242,18 @@ void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
 void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
                                           uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
-    for (const auto& column : columns) {
-        column->update_crcs_with_value(hash, type, rows, offset, null_data);
+    auto s = size();
+    if (null_data) {
+        for (size_t i = 0; i < s; ++i) {
+            // every row
+            if (null_data[i] == 0) {
+                update_crc_with_value(i, i + 1, hash[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_crc_with_value(i, i + 1, hash[i], nullptr);
+        }
     }
 }
 
@@ -316,17 +319,6 @@ MutableColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) co
 
     for (size_t i = 0; i < tuple_size; ++i) {
         new_columns[i] = columns[i]->permute(perm, limit);
-    }
-
-    return ColumnStruct::create(new_columns);
-}
-
-ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
-    const size_t tuple_size = columns.size();
-    Columns new_columns(tuple_size);
-
-    for (size_t i = 0; i < tuple_size; ++i) {
-        new_columns[i] = columns[i]->replicate(offsets);
     }
 
     return ColumnStruct::create(new_columns);
@@ -401,6 +393,67 @@ bool ColumnStruct::structure_equals(const IColumn& rhs) const {
     } else {
         return false;
     }
+}
+
+template <bool positive>
+struct ColumnStruct::less {
+    const ColumnStruct& parent;
+    const int nan_direction_hint;
+    explicit less(const ColumnStruct& parent_, int nan_direction_hint_)
+            : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
+    bool operator()(size_t lhs, size_t rhs) const {
+        int res = 0;
+        for (auto& col : parent.get_columns()) {
+            if (res = col->compare_at(lhs, rhs, *col.get(), nan_direction_hint); res) {
+                // if res != 0 , here is something different ,just return
+                break;
+            }
+        }
+        return positive ? (res < 0) : (res > 0);
+    }
+};
+
+void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                                   IColumn::Permutation& res) const {
+    size_t s = size();
+    res.resize(s);
+    for (size_t i = 0; i < s; ++i) {
+        res[i] = i;
+    }
+
+    if (reverse) {
+        pdqsort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
+    } else {
+        pdqsort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
+    }
+}
+
+void ColumnStruct::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
+                               IColumn::Permutation& perms, EqualRange& range,
+                               bool last_column) const {
+    sorter->sort_column(static_cast<const ColumnStruct&>(*this), flags, perms, range, last_column);
+}
+
+void ColumnStruct::serialize_vec(StringRef* keys, size_t num_rows) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+    }
+}
+
+void ColumnStruct::deserialize_vec(StringRef* keys, const size_t num_rows) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
+    }
+}
+
+size_t ColumnStruct::get_max_row_byte_size() const {
+    size_t max_row_byte_sz = 0;
+    for (const auto& col : columns) {
+        max_row_byte_sz += col->get_max_row_byte_size();
+    }
+    return max_row_byte_sz;
 }
 
 } // namespace doris::vectorized

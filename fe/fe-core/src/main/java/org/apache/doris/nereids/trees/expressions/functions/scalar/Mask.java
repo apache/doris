@@ -47,14 +47,25 @@ public class Mask extends ScalarFunction implements ExplicitlyCastableSignature,
         super("mask", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Mask(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Mask withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Mask(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Mask(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        if (arity() > 4) {
+            throw new IllegalArgumentException("mask function only supports 1 to 4 arguments, but got: " + arity());
+        }
     }
 
     @Override

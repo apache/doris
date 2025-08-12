@@ -125,6 +125,24 @@ xxx_request_count{region="west",service="search"} 1
 put() and get() methods must match in count. Also, all supported bvar types
 have different behaviors for how values are processed and retrieved.
 */
+
+template <typename T>
+struct is_valid_bvar_type : std::false_type {};
+template <typename T>
+struct is_valid_bvar_type<bvar::Adder<T>> : std::true_type {};
+template <>
+struct is_valid_bvar_type<bvar::IntRecorder> : std::true_type {};
+template <typename T>
+struct is_valid_bvar_type<bvar::Maxer<T>> : std::true_type {};
+template <typename T>
+struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
+template <>
+struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
+template <typename T>
+struct is_bvar_status : std::false_type {};
+template <typename T>
+struct is_bvar_status<bvar::Status<T>> : std::true_type {};
+
 template <typename BvarType>
 class mBvarWrapper {
 public:
@@ -158,23 +176,6 @@ public:
     }
 
 private:
-    template <typename T>
-    struct is_valid_bvar_type : std::false_type {};
-    template <typename T>
-    struct is_valid_bvar_type<bvar::Adder<T>> : std::true_type {};
-    template <>
-    struct is_valid_bvar_type<bvar::IntRecorder> : std::true_type {};
-    template <typename T>
-    struct is_valid_bvar_type<bvar::Maxer<T>> : std::true_type {};
-    template <typename T>
-    struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
-    template <>
-    struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
-    template <typename T>
-    struct is_bvar_status : std::false_type {};
-    template <typename T>
-    struct is_bvar_status<bvar::Status<T>> : std::true_type {};
-
     bvar::MultiDimension<BvarType> counter_;
 };
 
@@ -217,6 +218,9 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_commit_index;
 extern BvarLatencyRecorderWithTag g_bvar_ms_prepare_partition;
 extern BvarLatencyRecorderWithTag g_bvar_ms_commit_partition;
 extern BvarLatencyRecorderWithTag g_bvar_ms_drop_partition;
+extern BvarLatencyRecorderWithTag g_bvar_ms_prepare_restore_job;
+extern BvarLatencyRecorderWithTag g_bvar_ms_commit_restore_job;
+extern BvarLatencyRecorderWithTag g_bvar_ms_finish_restore_job;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info;
 extern BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info;
@@ -261,6 +265,7 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts;
 
 // recycler's mbvars
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;

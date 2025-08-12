@@ -96,17 +96,6 @@ public class AggregationNode extends PlanNode {
         this.compactData = on;
     }
 
-    /**
-     * Have this node materialize the aggregation's intermediate tuple instead of
-     * the output tuple.
-     */
-    public void setIntermediateTuple() {
-        Preconditions.checkState(!tupleIds.isEmpty());
-        Preconditions.checkState(tupleIds.get(0).equals(aggInfo.getOutputTupleId()));
-        tupleIds.clear();
-        tupleIds.add(aggInfo.getIntermediateTupleId());
-    }
-
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
         sb.append("VAGGREGATE");
@@ -154,7 +143,7 @@ public class AggregationNode extends PlanNode {
 
         msg.agg_node = new TAggregationNode(
                 aggregateFunctions,
-                aggInfo.getIntermediateTupleId().asInt(),
+                aggInfo.getOutputTupleId().asInt(),
                 aggInfo.getOutputTupleId().asInt(), needsFinalize);
         msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
@@ -177,8 +166,6 @@ public class AggregationNode extends PlanNode {
         //     throw new IllegalStateException("Too many grouping expressions, not use query cache");
         // }
 
-        normalizedAggregateNode.setIntermediateTupleId(
-                normalizer.normalizeTupleId(aggInfo.getIntermediateTupleId().asInt()));
         normalizedAggregateNode.setOutputTupleId(
                 normalizer.normalizeTupleId(aggInfo.getOutputTupleId().asInt()));
         normalizedAggregateNode.setGroupingExprs(normalizeExprs(aggInfo.getGroupingExprs(), normalizer));
@@ -186,7 +173,6 @@ public class AggregationNode extends PlanNode {
         normalizedAggregateNode.setIsFinalize(needsFinalize);
         normalizedAggregateNode.setUseStreamingPreaggregation(useStreamingPreagg);
 
-        normalizeAggIntermediateProjects(normalizedAggregateNode, normalizer);
         normalizeAggOutputProjects(normalizedAggregateNode, normalizer);
 
         normalizedPlan.setNodeType(TPlanNodeType.AGGREGATION_NODE);
@@ -212,17 +198,6 @@ public class AggregationNode extends PlanNode {
 
         List<TExpr> projectThrift = normalizeProjects(outputSlots, projectList, normalizer);
         normalizedPlanNode.setProjects(projectThrift);
-    }
-
-    private void normalizeAggIntermediateProjects(TNormalizedAggregateNode aggregateNode, Normalizer normalizer) {
-        List<Expr> projectToIntermediateTuple = ImmutableList.<Expr>builder()
-                .addAll(aggInfo.getGroupingExprs())
-                .addAll(aggInfo.getAggregateExprs())
-                .build();
-
-        List<SlotDescriptor> intermediateSlots = aggInfo.getIntermediateTupleDesc().getSlots();
-        List<TExpr> projects = normalizeProjects(intermediateSlots, projectToIntermediateTuple, normalizer);
-        aggregateNode.setProjectToAggIntermediateTuple(projects);
     }
 
     private void normalizeAggOutputProjects(TNormalizedAggregateNode aggregateNode, Normalizer normalizer) {

@@ -46,6 +46,20 @@ struct MockQueryContext : public QueryContext {
         ctx->init_query_task_controller();
         return ctx;
     }
+
+    void set_mock_llm_resource() {
+        TLLMResource llm_resource;
+        llm_resource.provider_type = "LOCAL";
+        llm_resource.model_name = "mock_model";
+        llm_resource.endpoint = "http://localhost";
+        llm_resource.api_key = "xxx";
+        llm_resource.temperature = 0.5;
+        llm_resource.max_tokens = 16;
+        llm_resource.max_retries = 1;
+        llm_resource.retry_delay_second = 1;
+
+        set_llm_resources(std::map<std::string, TLLMResource> {{"mock_resource", llm_resource}});
+    }
 };
 
 } // namespace doris

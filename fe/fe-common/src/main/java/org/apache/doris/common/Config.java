@@ -253,7 +253,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {
             "攒批写 EditLog。", "Batch EditLog writing"})
-    public static boolean enable_batch_editlog = false;
+    public static boolean enable_batch_editlog = true;
 
     @ConfField(description = {"元数据同步的容忍延迟时间，单位为秒。如果元数据的延迟超过这个值，非主 FE 会停止提供服务",
             "The toleration delay time of meta data synchronization, in seconds. "
@@ -560,7 +560,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"是否启用并行发布版本",
             "Whether to enable parallel publish version"})
-    public static boolean enable_parallel_publish_version = false;
+    public static boolean enable_parallel_publish_version = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
@@ -1700,6 +1700,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static long backup_handler_update_interval_millis = 3000;
 
+
+    /**
+     * Whether to enable cloud restore job.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {"是否开启存算分离恢复功能。",
+        "Whether to enable cloud restore job."}, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_cloud_restore_job = false;
+
     /**
      * Control the default max num of the instance for a user.
      */
@@ -1968,9 +1976,6 @@ public class Config extends ConfigBase {
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = true;
-
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_wg_memory_sum_limit = true;
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
@@ -2267,7 +2272,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg"})
+    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg", "external"})
     public static String fuzzy_test_type = "";
 
     /**
@@ -2641,7 +2646,7 @@ public class Config extends ConfigBase {
             "Deprecated. Use session variable table_replica_count_override instead"})
     public static int force_olap_table_replication_num = 0;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
+    @ConfField(mutable = true, description = {
             "用于强制设定内表的副本分布，如果该参数不为空，则用户在建表或者创建分区时指定的副本数及副本标签将被忽略，而使用本参数设置的值。"
                     + "该参数影响包括创建分区、修改表属性、动态分区等操作。该参数建议仅用于测试环境",
             "Used to force set the replica allocation of the internal table. If the config is not empty, "
@@ -3357,6 +3362,9 @@ public class Config extends ConfigBase {
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
     @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_warm_up_force_all_partitions = false;
+
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_fetch_cluster_cache_hotspot = true;
 
     @ConfField(mutable = true)
@@ -3434,12 +3442,12 @@ public class Config extends ConfigBase {
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
 
-    @ConfField(mutable = true, description = {"存算分离模式下schema change失败是否重试",
-            "Whether to enable retry when schema change failed in cloud model, default is true."})
-    public static boolean enable_schema_change_retry_in_cloud_mode = true;
+    @ConfField(mutable = true, description = {"schema change job 失败是否重试",
+            "Whether to enable retry when a schema change job fails, default is true."})
+    public static boolean enable_schema_change_retry = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
-            "Max retry times when schema change failed in cloud model, default is 3."})
+    @ConfField(mutable = true, description = {"schema change job 重试次数",
+            "Max retry times when a schema change job fails, default is 3."})
     public static int schema_change_max_retry_time = 3;
 
     @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",
@@ -3466,6 +3474,18 @@ public class Config extends ConfigBase {
             + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"
             })
     public static String[] auto_start_ignore_resume_db_names = {"__internal_schema", "information_schema"};
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_mow_load_force_take_ms_lock = true;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_load_force_take_ms_lock_threshold_ms = 500;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_base = 20;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

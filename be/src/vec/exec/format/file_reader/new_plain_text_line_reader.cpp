@@ -219,12 +219,8 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
           _more_input_bytes(0),
           _more_output_bytes(0),
           _current_offset(current_offset),
-          _bytes_read_counter(nullptr),
-          _read_timer(nullptr),
           _bytes_decompress_counter(nullptr),
           _decompress_timer(nullptr) {
-    _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
-    _read_timer = ADD_TIMER(_profile, "FileReadTime");
     _bytes_decompress_counter = ADD_COUNTER(_profile, "BytesDecompressed", TUnit::BYTES);
     _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
 }
@@ -382,16 +378,12 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     }
                 }
 
-                {
-                    SCOPED_TIMER(_read_timer);
-                    Slice file_slice(file_buf, buffer_len);
-                    RETURN_IF_ERROR(
-                            _file_reader->read_at(_current_offset, file_slice, &read_len, io_ctx));
-                    _current_offset += read_len;
-                    if (read_len == 0) {
-                        _file_eof = true;
-                    }
-                    COUNTER_UPDATE(_bytes_read_counter, read_len);
+                Slice file_slice(file_buf, buffer_len);
+                RETURN_IF_ERROR(
+                        _file_reader->read_at(_current_offset, file_slice, &read_len, io_ctx));
+                _current_offset += read_len;
+                if (read_len == 0) {
+                    _file_eof = true;
                 }
                 if (_file_eof || read_len == 0) {
                     if (!stream_end) {
@@ -429,10 +421,11 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                 _more_input_bytes = 0;
                 _more_output_bytes = 0;
                 RETURN_IF_ERROR(_decompressor->decompress(
-                        _input_buf + _input_buf_pos,                        /* input */
-                        _input_buf_limit - _input_buf_pos,                  /* input_len */
-                        &input_read_bytes, _output_buf + _output_buf_limit, /* output */
-                        _output_buf_size - _output_buf_limit,               /* output_max_len */
+                        _input_buf + _input_buf_pos,                           /* input */
+                        cast_set<uint32_t>(_input_buf_limit - _input_buf_pos), /* input_len */
+                        &input_read_bytes, _output_buf + _output_buf_limit,    /* output */
+                        cast_set<uint32_t>(_output_buf_size -
+                                           _output_buf_limit), /* output_max_len */
                         &decompressed_len, &stream_end, &_more_input_bytes, &_more_output_bytes));
 
                 VLOG_DEBUG << "after decompress:"

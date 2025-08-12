@@ -893,8 +893,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         // Note: Exact string representation may vary by platform
         EXPECT_TRUE(string_col.get_data_at(0).to_string().find("3.14159") == 0);
         EXPECT_TRUE(string_col.get_data_at(1).to_string().find("-2.71828") == 0);
-        EXPECT_TRUE(string_col.get_data_at(2).to_string().find("inf") != std::string::npos);
-        EXPECT_TRUE(string_col.get_data_at(3).to_string().find("nan") != std::string::npos);
+        EXPECT_TRUE(string_col.get_data_at(2).to_string().find("Infinity") != std::string::npos);
+        EXPECT_TRUE(string_col.get_data_at(3).to_string().find("NaN") != std::string::npos);
     }
 
     // Test string to numeric conversions with invalid input
@@ -1468,7 +1468,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
 
     auto parse_datetimev2_str = [](const std::string& datetime_str) {
         UInt64 x = 0;
-        ReadBuffer buf((char*)datetime_str.data(), datetime_str.size());
+        StringRef buf((char*)datetime_str.data(), datetime_str.size());
         bool ok = read_datetime_v2_text_impl(x, buf, 6);
         CHECK(ok) << "parse_datetimev2_str failed for: " << datetime_str;
         return x;

@@ -53,7 +53,7 @@ protected:
     io::FileSystemSPtr _fs;
     std::string directory;
 
-    void priv_getFN(char* buffer, const char* name) const;
+    std::string priv_getFN(const std::string& name) const;
     /// Removes an existing file in the directory.
     bool doDeleteFile(const char* name) override;
 
@@ -79,7 +79,7 @@ public:
     void renameFile(const char* from, const char* to) override;
     void touchFile(const char* name) override;
     lucene::store::IndexOutput* createOutput(const char* name) override;
-    lucene::store::IndexOutput* createOutputV2(io::FileWriter* file_writer);
+    std::unique_ptr<lucene::store::IndexOutput> createOutputV2(io::FileWriter* file_writer);
     void close() override;
     std::string toString() const override;
     static const char* getClassName();
@@ -96,6 +96,8 @@ public:
 private:
     int32_t filemode;
     io::FileWriterOptions _opts;
+
+    friend class DorisFSDirectoryTest;
 };
 
 class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {

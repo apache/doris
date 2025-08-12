@@ -86,7 +86,9 @@ private:
     friend class COWHelper<IColumn, Self>;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using value_type =
+            typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
+    using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
     using Container = DecimalPaddedPODArray<value_type>;
 
 private:
@@ -191,7 +193,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    bool get_bool(size_t n) const override { return bool(data[n]); }
     Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }
@@ -201,10 +202,6 @@ public:
     size_t filter(const IColumn::Filter& filter) override;
 
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
-
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     bool structure_equals(const IColumn& rhs) const override {
         if (auto rhs_concrete = typeid_cast<const ColumnDecimal<T>*>(&rhs))
@@ -234,9 +231,8 @@ public:
 
     UInt32 get_scale() const { return scale; }
 
-    value_type get_scale_multiplier() const;
-    value_type get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
-    value_type get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
+    CppNativeType get_intergral_part(size_t n) const;
+    CppNativeType get_fractional_part(size_t n) const;
 
     void erase(size_t start, size_t length) override {
         if (start >= data.size() || length == 0) {

@@ -74,6 +74,7 @@ public class SlotDescriptor {
     // materialize them.Used to optimize to read less data and less memory usage
     private boolean needMaterialize = true;
     private boolean isAutoInc = false;
+    private Expr virtualColumn = null;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
         this.id = id;
@@ -268,6 +269,14 @@ public class SlotDescriptor {
         return column.getUniqueId();
     }
 
+    public Expr getVirtualColumn() {
+        return virtualColumn;
+    }
+
+    public void setVirtualColumn(Expr virtualColumn) {
+        this.virtualColumn = virtualColumn;
+    }
+
     /**
      * Initializes a slot by setting its source expression information
      */
@@ -322,6 +331,9 @@ public class SlotDescriptor {
         if (subColPath != null) {
             tSlotDescriptor.setColumnPaths(subColPath);
         }
+        if (virtualColumn != null) {
+            tSlotDescriptor.setVirtualColumnExpr(virtualColumn.treeToThrift());
+        }
         return tSlotDescriptor;
     }
 
@@ -332,7 +344,8 @@ public class SlotDescriptor {
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
                 .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable())
-                .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath).toString();
+                .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath)
+                .add("virtualColumn", virtualColumn == null ? null : virtualColumn.toSql()).toString();
     }
 
     @Override
@@ -350,6 +363,7 @@ public class SlotDescriptor {
                 .append(", nullable=").append(isNullable)
                 .append(", isAutoIncrement=").append(isAutoInc)
                 .append(", subColPath=").append(subColPath)
+                .append(", virtualColumn=").append(virtualColumn)
                 .append("}")
                 .toString();
     }

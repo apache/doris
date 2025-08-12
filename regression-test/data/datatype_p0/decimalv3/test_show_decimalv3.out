@@ -5,7 +5,7 @@ dd	decimal(15,6)	Yes	false	\N	NONE
 
 -- !select2 --
 showdb	UNIQUE_KEYS	id	int	int	No	true	\N		true		
-		dd	DECIMAL(15, 6)	decimalv3(15,6)	Yes	false	\N	NONE	true		
+		dd	decimal(15,6)	decimalv3(15,6)	Yes	false	\N	NONE	true		
 
 -- !select3 --
 id	int	No	true	\N	
@@ -13,5 +13,5 @@ dd	decimal(38,9)	Yes	false	\N	NONE
 
 -- !select4 --
 showdb	UNIQUE_KEYS	id	int	int	No	true	\N		true		
-		dd	DECIMAL(38, 9)	decimalv3(38,9)	Yes	false	\N	NONE	true		
+		dd	decimal(38,9)	decimalv3(38,9)	Yes	false	\N	NONE	true		
 
