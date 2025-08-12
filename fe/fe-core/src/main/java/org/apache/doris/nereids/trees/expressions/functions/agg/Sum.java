@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindow
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -135,7 +136,8 @@ public class Sum extends NullableAggregateFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        if (getArgument(0).getDataType() instanceof NullType) {
+        if (getArgument(0).getDataType() instanceof NullType ||
+            getArgument(0).getDataType() instanceof BooleanType) {
             return FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE);
         } else if (getArgument(0).getDataType() instanceof DecimalV2Type) {
             return FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD);
