@@ -20,3 +20,24 @@
 -- !sql --
 893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160415
 
+-- !sql --
+3	3	abc def	0.0
+
+-- !sql --
+3	3	abc def	0.0
+
+-- !sql --
+
+-- !sql --
+2	2	{"key":"abc hhh"}	0.0
+
+-- !sql --
+4	4	hello world
+3	3	this is a test
+
+-- !sql --
+4	4	hello world	0.0
+
+-- !sql --
+4	4	hello world
+

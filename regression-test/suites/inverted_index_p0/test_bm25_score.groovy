@@ -158,7 +158,7 @@ suite("test_bm25_score", "p0") {
 
         test {
             sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """
-            exception " score() function can only be used in SELECT clause, not in WHERE clause"
+            exception "score() function can only be used in SELECT clause, not in WHERE clause"
         }
 
         test {
@@ -168,5 +168,58 @@ suite("test_bm25_score", "p0") {
 
         log.info("All exception test cases completed successfully")
     } finally {
+    }
+
+    try {
+        sql """ create table t(a int, b int, s text) PROPERTIES ("replication_allocation" = "tag.location.default: 1"); """
+        sql """ insert into t values(3,3, "abc def"); """
+
+        sql """ sync """
+        sql """ set enable_common_expr_pushdown = true; """
+
+        test {
+            sql """ select *, score() from t where s match_any  "hello abc abc"  order by score() asc limit 11; """
+            exception "Score query is not supported without inverted index for column"
+        }
+        
+        sql """ alter table t add index idx_s(s) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
+        qt_sql """ select *, score() from t where s match_any  "hello abc abc"  order by score() asc limit 11; """
+        sql """ build index idx_s on t; """
+        qt_sql """ select *, score() from t where s match_any  "hello abc abc"  order by score() asc limit 11; """
+        qt_sql """ select *, score() from t where s match_any  "hello abc abc"  and  a = 10 order by score() asc limit 11; """
+    } finally {
+        sql "DROP TABLE IF EXISTS t"
+    }
+
+    try {
+        sql """ create table t(a int, b int, v variant) DISTRIBUTED BY HASH(a) buckets 1 PROPERTIES ("replication_allocation" = "tag.location.default: 1"); """
+        sql """ insert into t values(2, 2, '{"key": "abc hhh"}'); """
+
+        sql """ sync """
+        sql """ set enable_common_expr_pushdown = true; """
+
+        sql """ alter table t  add index idx_v(v) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
+        qt_sql """ select *, score() from t where cast(v["key"] as string) match_phrase "abc"  order by score() asc limit 11; """
+    } finally {
+        sql "DROP TABLE IF EXISTS t"
+    }
+
+    try {
+        sql """ create table t(a int, b int, s text) unique key(a) DISTRIBUTED BY HASH(a) buckets 1 PROPERTIES ("replication_allocation" = "tag.location.default: 1"); """
+        sql """ insert into t values(3,3, "abc def"); """
+        sql """ insert into t values(4,4, "hello world"); """
+
+        sql """ sync """
+        sql """ set enable_common_expr_pushdown = true; """
+
+        sql """ alter table t add index idx_s(s) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
+        sql """ build index idx_s on t; """
+
+        sql """ update t set s = "this is a test" where a = 3; """
+        qt_sql """ select * from t; """
+        qt_sql """ select *, score() from t where s match_any  "hello abc abc" order by score() limit 11; """
+        qt_sql """ select * from t where s match_any  "hello abc abc"; """
+    } finally {
+        sql "DROP TABLE IF EXISTS t"
     }
 }

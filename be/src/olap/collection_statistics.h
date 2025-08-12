@@ -87,6 +87,7 @@ private:
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, float>> _idf_by_col_term;
 
     MOCK_DEFINE(friend class BM25SimilarityTest;)
+    MOCK_DEFINE(friend class CollectionStatisticsTest;)
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
 
