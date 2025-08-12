@@ -22,12 +22,14 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Optional;
 
 public class S3PropertyUtils {
-
+    private static final Logger LOG = LogManager.getLogger(S3PropertyUtils.class);
 
     private static final String URI_KEY = "uri";
 
@@ -107,7 +109,6 @@ public class S3PropertyUtils {
                     + " forceParsingByStandardUri: " + forceParsingByStandardUri, e);
         }
         return s3uri.getRegion().orElse(null);
-
     }
 
     /**

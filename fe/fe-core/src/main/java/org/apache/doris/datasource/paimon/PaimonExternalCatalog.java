@@ -39,12 +39,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+// The subclasses of this class are all deprecated, only for meta persistence compatibility.
 public class PaimonExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PaimonExternalCatalog.class);
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";
     public static final String PAIMON_FILESYSTEM = "filesystem";
     public static final String PAIMON_HMS = "hms";
     public static final String PAIMON_DLF = "dlf";
+    public static final String PAIMON_REST = "rest";
     protected String catalogType;
     protected Catalog catalog;
 
