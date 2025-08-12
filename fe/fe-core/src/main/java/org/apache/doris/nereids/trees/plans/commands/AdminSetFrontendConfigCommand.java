@@ -59,11 +59,13 @@ public class AdminSetFrontendConfigCommand extends Command implements ForwardWit
         }
         this.applyToAll = applyToAll;
 
-        // we have to analyze configs here to determine whether to forward it to master
-        for (String key : this.configs.keySet()) {
-            if (ConfigBase.checkIsMasterOnly(key)) {
-                redirectStatus = RedirectStatus.FORWARD_NO_SYNC;
-                this.applyToAll = false;
+        if (!this.applyToAll) {
+            // we have to analyze configs here to determine whether to forward it to master
+            for (String key : this.configs.keySet()) {
+                if (ConfigBase.checkIsMasterOnly(key)) {
+                    redirectStatus = RedirectStatus.FORWARD_NO_SYNC;
+                    break;
+                }
             }
         }
     }
