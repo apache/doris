@@ -37,6 +37,7 @@
 #include "common/configbase.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/network_util.h"
 #include "meta-service/meta_server.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
@@ -228,6 +229,10 @@ int main(int argc, char** argv) {
     LOG(INFO) << "try to start " << process_name;
     LOG(INFO) << build_info();
     std::cout << build_info() << std::endl;
+
+    // Check the local ip before starting the meta service or recycler.
+    std::string ip = get_local_ip(config::priority_networks);
+    std::cout << "local ip: " << ip << std::endl;
 
     if (!args.get<bool>(ARG_META_SERVICE) && !args.get<bool>(ARG_RECYCLER)) {
         std::get<0>(args.args()[ARG_META_SERVICE]) = true;
