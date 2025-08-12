@@ -267,13 +267,15 @@ suite("test_create_view_nereids") {
     qt_test_create_view_from_view "select * from test_view_from_view order by c1,c2,c3"
     qt_test_create_view_from_view_sql "show create view test_view_from_view"
 
+    // test mv prefix in name
+    sql "drop view if exists test_mv_prefix_in_view_define;"
+    sql "create view test_mv_prefix_in_view_define(`mva_hello`, c2) as select a,b from mal_test_view;"
+    qt_test_mv_prefix_in_view_define "select * from test_mv_prefix_in_view_define order by mva_hello, c2;"
+    qt_test_mv_prefix_in_view_define_sql "show create view test_mv_prefix_in_view_define;"
+    
+
     // test backquote in name
     sql "drop view if exists test_backquote_in_view_define;"
-    test {
-        sql "create view test_backquote_in_view_define(`mva_hello`, c2) as select a,b from mal_test_view;"
-        exception "Incorrect column name"
-    }
-
     sql "create view test_backquote_in_view_define(`abc`, c2) as select a,b from mal_test_view;"
     qt_test_backquote_in_view_define "select * from test_backquote_in_view_define order by abc, c2;"
     qt_test_backquote_in_view_define_sql "show create view test_backquote_in_view_define;"
@@ -295,11 +297,8 @@ suite("test_create_view_nereids") {
     order_qt_test_invalid_column_name_in_table "select * from test_invalid_column_name_in_table"
     order_qt_test_invalid_column_name_in_table_define_sql "show create view test_invalid_column_name_in_table;"
 
-    test {
-        // alter view should fail if contains invalid column name
-        sql "alter view test_invalid_column_name_in_table as select a as 'mv_hello',b from mal_test_view;"
-        exception "Incorrect column name"
-    }
+    sql "alter view test_invalid_column_name_in_table as select a as 'mv_hello',b from mal_test_view;"
+
     sql """set enable_unicode_name_support = false;"""
 
     sql "drop table if exists create_view_table1"

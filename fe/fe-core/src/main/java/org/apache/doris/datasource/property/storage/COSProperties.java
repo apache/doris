@@ -25,7 +25,6 @@ import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
@@ -130,17 +129,11 @@ public class COSProperties extends AbstractS3CompatibleProperties {
 
     @Override
     public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
+        super.initializeHadoopStorageConfig();
         hadoopStorageConfig.set("fs.cos.impl", "org.apache.hadoop.fs.CosFileSystem");
         hadoopStorageConfig.set("fs.cosn.impl", "org.apache.hadoop.fs.CosFileSystem");
-        hadoopStorageConfig.set("fs.AbstractFileSystem.cos.impl", "org.apache.hadoop.fs.Cos");
-        hadoopStorageConfig.set("fs.cos.secretId", accessKey);
-        hadoopStorageConfig.set("fs.cos.secretKey", secretKey);
-        hadoopStorageConfig.set("fs.cos.region", region);
-        hadoopStorageConfig.set("fs.cos.endpoint", endpoint);
-        hadoopStorageConfig.set("fs.cos.connection.timeout", connectionTimeoutS);
-        hadoopStorageConfig.set("fs.cos.connection.request.timeout", requestTimeoutS);
-        hadoopStorageConfig.set("fs.cos.connection.maximum", maxConnections);
-        hadoopStorageConfig.set("fs.cos.use.path.style", usePathStyle);
+        hadoopStorageConfig.set("fs.cosn.bucket.region", region);
+        hadoopStorageConfig.set("fs.cosn.userinfo.secretId", accessKey);
+        hadoopStorageConfig.set("fs.cosn.userinfo.secretKey", secretKey);
     }
 }

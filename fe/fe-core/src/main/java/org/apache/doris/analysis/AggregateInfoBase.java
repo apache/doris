@@ -20,10 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Type;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -50,15 +46,6 @@ public abstract class AggregateInfoBase {
     // AnalyticExprs of a select block.
     protected ArrayList<FunctionCallExpr> aggregateExprs;
 
-    // The tuple into which the intermediate output of an aggregation is materialized.
-    // Contains groupingExprs.size() + aggregateExprs.size() slots, the first of which
-    // contain the values of the grouping exprs, followed by slots into which the
-    // aggregateExprs' update()/merge() symbols materialize their output, i.e., slots
-    // of the aggregate functions' intermediate types.
-    // Identical to outputTupleDesc_ if no aggregateExpr has an output type that is
-    // different from its intermediate type.
-    protected TupleDescriptor intermediateTupleDesc;
-
     // The tuple into which the final output of the aggregation is materialized.
     // Contains groupingExprs.size() + aggregateExprs.size() slots, the first of which
     // contain the values of the grouping exprs, followed by slots into which the
@@ -78,7 +65,6 @@ public abstract class AggregateInfoBase {
         Preconditions.checkState(groupingExprs != null || aggExprs != null);
         this.groupingExprs =
                 groupingExprs != null ? Expr.cloneList(groupingExprs) : new ArrayList<Expr>();
-        Preconditions.checkState(aggExprs != null || !(this instanceof AnalyticInfo));
         aggregateExprs =
                 aggExprs != null ? Expr.cloneList(aggExprs) : new ArrayList<FunctionCallExpr>();
     }
@@ -91,7 +77,6 @@ public abstract class AggregateInfoBase {
                 (other.groupingExprs != null) ? Expr.cloneList(other.groupingExprs) : null;
         aggregateExprs =
                 (other.aggregateExprs != null) ? Expr.cloneList(other.aggregateExprs) : null;
-        intermediateTupleDesc = other.intermediateTupleDesc;
         outputTupleDesc = other.outputTupleDesc;
         materializedSlots = Lists.newArrayList(other.materializedSlots);
         materializedSlotLabels = Lists.newArrayList(other.materializedSlotLabels);
@@ -109,14 +94,6 @@ public abstract class AggregateInfoBase {
         return outputTupleDesc;
     }
 
-    public TupleDescriptor getIntermediateTupleDesc() {
-        return intermediateTupleDesc;
-    }
-
-    public TupleId getIntermediateTupleId() {
-        return intermediateTupleDesc.getId();
-    }
-
     public TupleId getOutputTupleId() {
         return outputTupleDesc.getId();
     }
@@ -125,51 +102,11 @@ public abstract class AggregateInfoBase {
         return Lists.newArrayList(materializedSlotLabels);
     }
 
-    public boolean requiresIntermediateTuple() {
-        Preconditions.checkNotNull(intermediateTupleDesc);
-        Preconditions.checkNotNull(outputTupleDesc);
-        return intermediateTupleDesc != outputTupleDesc;
-    }
-
-    /**
-     * Returns true if evaluating the given aggregate exprs requires an intermediate tuple,
-     * i.e., whether one of the aggregate functions has an intermediate type different from
-     * its output type.
-     */
-    public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs) {
-        for (Expr aggExpr : aggExprs) {
-            Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
-            if (intermediateType != null) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * output tuple maybe different from intermediate when noGrouping and fn null mode
-     * is depend on argument
-     */
-    public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs, boolean noGrouping) {
-        for (Expr aggExpr : aggExprs) {
-            Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
-            if (intermediateType != null) {
-                return true;
-            }
-            if (noGrouping && aggExpr.fn.getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     public String debugString() {
         StringBuilder out = new StringBuilder();
         out.append(MoreObjects.toStringHelper(this)
                 .add("grouping_exprs", Expr.debugString(groupingExprs))
                 .add("aggregate_exprs", Expr.debugString(aggregateExprs))
-                .add("intermediate_tuple", (intermediateTupleDesc == null)
-                        ? "null" : intermediateTupleDesc.debugString())
                 .add("output_tuple", (outputTupleDesc == null)
                         ? "null" : outputTupleDesc.debugString())
                 .toString());

@@ -3369,6 +3369,9 @@ public class Config extends ConfigBase {
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
     @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_warm_up_force_all_partitions = false;
+
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_fetch_cluster_cache_hotspot = true;
 
     @ConfField(mutable = true)
@@ -3446,12 +3449,12 @@ public class Config extends ConfigBase {
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
 
-    @ConfField(mutable = true, description = {"存算分离模式下schema change失败是否重试",
-            "Whether to enable retry when schema change failed in cloud model, default is true."})
-    public static boolean enable_schema_change_retry_in_cloud_mode = true;
+    @ConfField(mutable = true, description = {"schema change job 失败是否重试",
+            "Whether to enable retry when a schema change job fails, default is true."})
+    public static boolean enable_schema_change_retry = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
-            "Max retry times when schema change failed in cloud model, default is 3."})
+    @ConfField(mutable = true, description = {"schema change job 重试次数",
+            "Max retry times when a schema change job fails, default is 3."})
     public static int schema_change_max_retry_time = 3;
 
     @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",

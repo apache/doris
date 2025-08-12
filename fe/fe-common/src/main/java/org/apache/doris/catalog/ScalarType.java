@@ -202,8 +202,6 @@ public class ScalarType extends Type {
                 return DEFAULT_DATETIMEV2;
             case TIMEV2:
                 return TIMEV2;
-            case TIME:
-                return TIME;
             case DECIMAL32:
                 return DEFAULT_DECIMAL32;
             case DECIMAL64:
@@ -277,7 +275,8 @@ public class ScalarType extends Type {
             case "DATETIMEV2":
                 return DATETIMEV2;
             case "TIME":
-                return TIME;
+            case "TIMEV2":
+                return TIMEV2;
             case "DECIMAL":
             case "DECIMALV2":
                 return createDecimalType();
@@ -487,9 +486,6 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeType() {
-        if (!Config.enable_date_conversion) {
-            return new ScalarType(PrimitiveType.TIME);
-        }
         ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
         type.precision = DATETIME_PRECISION;
         type.scale = 0;
@@ -550,10 +546,10 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVariantType() {
-        // length checked in analysis
-        ScalarType type = new ScalarType(PrimitiveType.VARIANT);
-        type.len = MAX_STRING_LENGTH;
-        return type;
+        // Not return ScalarType return VariantType instead for compatibility reason
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        return new VariantType();
     }
 
     public static ScalarType createVarchar(int len) {
@@ -660,9 +656,6 @@ public class ScalarType extends Type {
             case DATETIMEV2:
                 stringBuilder.append("datetimev2").append("(").append(scale).append(")");
                 break;
-            case TIME:
-                stringBuilder.append("time");
-                break;
             case TIMEV2:
                 stringBuilder.append("time").append("(").append(scale).append(")");
                 break;
@@ -727,8 +720,7 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSONB:
-            case VARIANT: {
+            case JSONB: {
                 scalarType.setLen(getLength());
                 break;
             }
@@ -903,6 +895,9 @@ public class ScalarType extends Type {
             return precision == scalarType.precision && scale == scalarType.scale;
         }
         if (isDatetimeV2() && scalarType.isDatetimeV2()) {
+            return true;
+        }
+        if (isVariantType() && scalarType.isVariantType()) {
             return true;
         }
         return false;
@@ -1120,6 +1115,14 @@ public class ScalarType extends Type {
             return finalType;
         }
 
+        if (t1.isVariantType() && t2.isVariantType()) {
+            if (t1.equals(t2)) {
+                return t1;
+            } else {
+                return Type.UNSUPPORTED;
+            }
+        }
+
         PrimitiveType smallerType =
                 (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType largerType =
@@ -1204,5 +1207,23 @@ public class ScalarType extends Type {
         result = 31 * result + precision;
         result = 31 * result + scale;
         return result;
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantMaxSubcolumnsCount();
+        }
+        return 0; // The old variant type had a default value of 0.
+    }
+
+    public boolean getVariantEnableTypedPathsToSparse() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getEnableTypedPathsToSparse();
+        }
+        return false; // The old variant type had a default value of false.
     }
 }

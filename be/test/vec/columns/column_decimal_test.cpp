@@ -556,10 +556,6 @@ TEST_F(ColumnDecimalTest, permute) {
     assert_column_vector_permute(columns, UINT64_MAX);
 }
 
-TEST_F(ColumnDecimalTest, replicate) {
-    _column_decimal_common_test_with_type(assert_column_vector_replicate_callback, false);
-}
-
 template <PrimitiveType T>
 void insert_value_test(ColumnDecimal<T>* src_col) {
     auto col = src_col->clone_empty();

@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -88,10 +87,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     T getDbNullable(long dbId);
 
     Map<String, String> getProperties();
-
-    default String getResource() {
-        return null;
-    }
 
     default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
@@ -175,7 +170,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         CatalogLog log = new CatalogLog();
         log.setCatalogId(getId());
         log.setCatalogName(getName());
-        log.setResource(Strings.nullToEmpty(getResource()));
+        log.setResource("");
         log.setComment(getComment());
         log.setProps(getProperties());
         return log;

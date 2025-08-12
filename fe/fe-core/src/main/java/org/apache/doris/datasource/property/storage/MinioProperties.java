@@ -24,7 +24,6 @@ import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 import java.util.Set;
@@ -94,19 +93,5 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     @Override
     protected Set<Pattern> endpointPatterns() {
         return ImmutableSet.of(Pattern.compile("^(?:https?://)?[a-zA-Z0-9.-]+(?::\\d+)?$"));
-    }
-
-    @Override
-    public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
-        hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        hadoopStorageConfig.set("fs.s3a.endpoint", endpoint);
-        hadoopStorageConfig.set("fs.s3a.access.key", accessKey);
-        hadoopStorageConfig.set("fs.s3a.secret.key", secretKey);
-        hadoopStorageConfig.set("fs.s3a.connection.maximum", maxConnections);
-        hadoopStorageConfig.set("fs.s3a.connection.request.timeout", requestTimeoutS);
-        hadoopStorageConfig.set("fs.s3a.connection.timeout", connectionTimeoutS);
-        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
     }
 }

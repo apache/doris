@@ -48,13 +48,18 @@ public class ExplodeJsonArrayDouble extends TableGeneratingFunction implements U
         super("explode_json_array_double", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayDouble(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayDouble withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayDouble(children.get(0));
+        return new ExplodeJsonArrayDouble(getFunctionParams(children));
     }
 
     @Override

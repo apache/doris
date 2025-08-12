@@ -47,6 +47,8 @@ extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
                                               int64_t version, int num_rows);
 extern void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                           CreateRowsetResponse& res);
+extern void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
+                       int64_t partition_id, int64_t tablet_id);
 
 // Convert a string to a hex-escaped string.
 // A non-displayed character is represented as \xHH where HH is the hexadecimal value of the character.
@@ -135,7 +137,7 @@ TEST(MetaServiceOperationLogTest, CommitPartitionLog) {
     }
 
     {
-        // Prepare transaction
+        // Prepare partition
         brpc::Controller ctrl;
         PartitionRequest req;
         PartitionResponse res;
@@ -381,6 +383,345 @@ TEST(MetaServiceOperationLogTest, DropPartitionLog) {
     ASSERT_EQ(version1, version2);
 }
 
+TEST(MetaServiceOperationLogTest, CommitIndexLog) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "commit_index_log";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t db_id = 123;
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+
+    {
+        // write instance
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    {
+        // Prepare index
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    {
+        // Commit index
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.set_is_new_table(true);
+        meta_service->commit_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    auto txn_kv = meta_service->txn_kv();
+    Versionstamp version1;
+    {
+        // Verify index meta/index/inverted indexes are exists
+        std::string index_meta_key = versioned::meta_index_key({instance_id, index_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), index_meta_key, &version1, &value),
+                  TxnErrorCode::TXN_OK);
+
+        std::string index_inverted_key =
+                versioned::index_inverted_key({instance_id, db_id, table_id, index_id});
+        ASSERT_EQ(txn->get(index_inverted_key, &value), TxnErrorCode::TXN_OK);
+
+        std::string index_index_key = versioned::index_index_key({instance_id, index_id});
+        ASSERT_EQ(txn->get(index_index_key, &value), TxnErrorCode::TXN_OK);
+        IndexIndexPB index_index;
+        ASSERT_TRUE(index_index.ParseFromString(value));
+        ASSERT_EQ(index_index.db_id(), db_id);
+        ASSERT_EQ(index_index.table_id(), table_id);
+    }
+
+    Versionstamp version2;
+    {
+        // Verify table version exists
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        ASSERT_EQ(meta_reader.get_table_version(table_id, &version2), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_EQ(version1, version2);
+
+    {
+        // verify commit index log
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string log_key = versioned::log_key({instance_id});
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), log_key, &version2, &value), TxnErrorCode::TXN_OK);
+        OperationLogPB operation_log;
+        ASSERT_TRUE(operation_log.ParseFromString(value));
+        ASSERT_TRUE(operation_log.has_commit_index());
+    }
+
+    ASSERT_EQ(version1, version2);
+
+    {
+        // Prepare index2
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id + 1);
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    {
+        // Commit index2 without set_is_new_table(true)
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id + 1);
+        meta_service->commit_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    {
+        // Verify index1 meta/index/inverted indexes are exists
+        std::string index_meta_key = versioned::meta_index_key({instance_id, index_id + 1});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), index_meta_key, &version1, &value),
+                  TxnErrorCode::TXN_OK);
+
+        std::string index_inverted_key =
+                versioned::index_inverted_key({instance_id, db_id, table_id, index_id + 1});
+        ASSERT_EQ(txn->get(index_inverted_key, &value), TxnErrorCode::TXN_OK);
+
+        std::string index_index_key = versioned::index_index_key({instance_id, index_id + 1});
+        ASSERT_EQ(txn->get(index_index_key, &value), TxnErrorCode::TXN_OK);
+        IndexIndexPB index_index;
+        ASSERT_TRUE(index_index.ParseFromString(value));
+        ASSERT_EQ(index_index.db_id(), db_id);
+        ASSERT_EQ(index_index.table_id(), table_id);
+    }
+
+    Versionstamp version3;
+    {
+        // Verify table version exists and does not update
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        ASSERT_EQ(meta_reader.get_table_version(table_id, &version3), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_EQ(version3, version2);
+    ASSERT_NE(version3, version1);
+}
+
+TEST(MetaServiceOperationLogTest, DropIndexLog) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "drop_index_log";
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t db_id = 123;
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+
+    {
+        // write instance
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    {
+        // Prepare index 0,1,2,3
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        req.add_index_ids(index_id + 1);
+        req.add_index_ids(index_id + 2);
+        req.add_index_ids(index_id + 3);
+        meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    {
+        // Commit index 2,3
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id + 2);
+        req.add_index_ids(index_id + 3);
+        meta_service->commit_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+    }
+
+    auto txn_kv = meta_service->txn_kv();
+    size_t num_logs = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                  versioned::log_key(instance_id) + "\xFF");
+
+    {
+        // Drop index 0
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id);
+        meta_service->drop_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+
+        // No operation log are generated for drop index 0 (it is not committed).
+        size_t new_num_logs = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                          versioned::log_key(instance_id) + "\xFF");
+        ASSERT_EQ(new_num_logs, num_logs)
+                << "Expected no new operation logs for drop index 0, but found "
+                << new_num_logs - num_logs << dump_range(txn_kv.get());
+
+        // The recycle index key must exists.
+        std::string recycle_key = recycle_index_key({instance_id, index_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Drop index 1,2, it should generate operation logs.
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id + 1);
+        req.add_index_ids(index_id + 2);
+        meta_service->drop_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+        // Check that new operation logs are generated.
+        size_t new_num_logs = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                          versioned::log_key(instance_id) + "\xFF");
+        ASSERT_GT(new_num_logs, num_logs)
+                << "Expected new operation logs for drop index 1,2, but found "
+                << new_num_logs - num_logs << dump_range(txn_kv.get());
+        num_logs = new_num_logs;
+
+        // The recycle index 1 key must exists.
+        std::string recycle_key = recycle_index_key({instance_id, index_id + 1});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        // The recycle index 2 key should not be exists.
+        recycle_key = recycle_index_key({instance_id, index_id + 2});
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Expected recycle index key to not exist, but found it: " << hex(recycle_key)
+                << " with value: " << escape_hex(value);
+    }
+
+    {
+        // Drop index 3, it should generate operation logs.
+        brpc::Controller ctrl;
+        IndexRequest req;
+        IndexResponse res;
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.add_index_ids(index_id + 3);
+        meta_service->drop_index(&ctrl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+        // Check that new operation logs are generated.
+        size_t new_num_logs = count_range(txn_kv.get(), versioned::log_key(instance_id),
+                                          versioned::log_key(instance_id) + "\xFF");
+        ASSERT_GT(new_num_logs, num_logs)
+                << "Expected new operation logs for drop index 3, but found "
+                << new_num_logs - num_logs << dump_range(txn_kv.get());
+        num_logs = new_num_logs;
+
+        // The recycle index key should not be exists.
+        std::string recycle_key = recycle_index_key({instance_id, index_id + 3});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        TxnErrorCode err = txn->get(recycle_key, &value);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Expected recycle index key to not exist, but found it: " << hex(recycle_key)
+                << " with value: " << escape_hex(value);
+    }
+
+    {
+        // Verify table version not exists
+        Versionstamp version;
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        ASSERT_EQ(meta_reader.get_table_version(table_id, &version),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    {
+        // verify last drop index log
+        Versionstamp version;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string log_key = versioned::log_key({instance_id});
+        std::string value;
+        ASSERT_EQ(versioned_get(txn.get(), log_key, &version, &value), TxnErrorCode::TXN_OK);
+        OperationLogPB operation_log;
+        ASSERT_TRUE(operation_log.ParseFromString(value));
+        ASSERT_TRUE(operation_log.has_drop_index());
+        ASSERT_EQ(operation_log.drop_index().index_ids_size(), 1);
+        ASSERT_EQ(operation_log.drop_index().index_ids(0), index_id + 3);
+    }
+}
+
 TEST(MetaServiceOperationLogTest, CommitTxn) {
     auto meta_service = get_meta_service(false);
     std::string instance_id = "commit_txn_versioned_write";
@@ -577,6 +918,7 @@ TEST(MetaServiceOperationLogTest, CommitTxn) {
         ASSERT_EQ(commit_log.recycle_txn().label(), label);
         ASSERT_GT(commit_log.tablet_to_partition_map_size(), 0);
         ASSERT_GT(commit_log.partition_version_map_size(), 0);
+        ASSERT_EQ(commit_log.db_id(), db_id);
 
         // Verify tablet to partition mapping
         for (const auto& [tablet_id, partition_id_in_map] : commit_log.tablet_to_partition_map()) {
@@ -726,6 +1068,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnEventually) {
         ASSERT_EQ(commit_log.recycle_txn().label(), label);
         ASSERT_GT(commit_log.tablet_to_partition_map_size(), 0);
         ASSERT_GT(commit_log.partition_version_map_size(), 0);
+        ASSERT_EQ(commit_log.db_id(), db_id);
     }
 
     {
@@ -1019,6 +1362,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         ASSERT_EQ(commit_log.recycle_txn().label(), label);
         ASSERT_GT(commit_log.tablet_to_partition_map_size(), 0);
         ASSERT_GT(commit_log.partition_version_map_size(), 0);
+        ASSERT_EQ(commit_log.db_id(), db_id);
 
         // Verify tablet to partition mapping
         for (const auto& [tablet_id, partition_id_in_map] : commit_log.tablet_to_partition_map()) {
@@ -1031,6 +1375,120 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         ASSERT_NE(it, commit_log.partition_version_map().end());
         ASSERT_GT(it->second, 0);
     }
+}
+
+TEST(MetaServiceOperationLogTest, UpdateVersionedTabletMeta) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "commit_partition_log";
+    std::string cloud_unique_id = "1:" + instance_id + ":1";
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    constexpr int64_t tablet_id1 = 10004;
+    constexpr int64_t tablet_id2 = 10005;
+
+    {
+        // write instance
+        InstanceInfoPB instance_info;
+        instance_info.set_instance_id(instance_id);
+        instance_info.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(instance_key(instance_id), instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(instance_id));
+    }
+
+    {
+        // Create tablets
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id1);
+        create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id2);
+    }
+
+    // Update tablets
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        TabletMetaInfoPB* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        tablet_meta_info->set_ttl_seconds(300);
+        tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id2);
+        tablet_meta_info->set_ttl_seconds(3000);
+        meta_service->update_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify versioned tablet meta keys exist and have same commit_versionstamp
+    Versionstamp versionstamp1;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Check versioned tablet meta for tablet_id1
+        std::string tablet_meta_key1 = versioned::meta_tablet_key({instance_id, tablet_id1});
+        doris::TabletMetaCloudPB tablet_meta1;
+        TxnErrorCode err =
+                versioned::document_get(txn.get(), tablet_meta_key1, &tablet_meta1, &versionstamp1);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        EXPECT_EQ(tablet_meta1.ttl_seconds(), 300);
+    }
+
+    // Check versioned tablet meta for tablet_id2
+    Versionstamp versionstamp2;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string tablet_meta_key2 = versioned::meta_tablet_key({instance_id, tablet_id2});
+        doris::TabletMetaCloudPB tablet_meta2;
+        TxnErrorCode err =
+                versioned::document_get(txn.get(), tablet_meta_key2, &tablet_meta2, &versionstamp2);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        EXPECT_EQ(tablet_meta2.ttl_seconds(), 3000);
+    }
+
+    // Check operation log exists
+    Versionstamp log_versionstamp;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string log_key = versioned::log_key(instance_id);
+        OperationLogPB operation_log;
+        TxnErrorCode err =
+                versioned::document_get(txn.get(), log_key, &operation_log, &log_versionstamp);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(operation_log.has_update_tablet());
+        EXPECT_EQ(operation_log.update_tablet().tablet_ids_size(), 2);
+        EXPECT_TRUE(std::find(operation_log.update_tablet().tablet_ids().begin(),
+                              operation_log.update_tablet().tablet_ids().end(),
+                              tablet_id1) != operation_log.update_tablet().tablet_ids().end());
+        EXPECT_TRUE(std::find(operation_log.update_tablet().tablet_ids().begin(),
+                              operation_log.update_tablet().tablet_ids().end(),
+                              tablet_id2) != operation_log.update_tablet().tablet_ids().end());
+    }
+
+    // Verify all versioned keys have the same commit_versionstamp
+    EXPECT_EQ(versionstamp1, versionstamp2);
+    EXPECT_EQ(versionstamp1, log_versionstamp);
+    EXPECT_EQ(versionstamp2, log_versionstamp);
 }
 
 } // namespace doris::cloud

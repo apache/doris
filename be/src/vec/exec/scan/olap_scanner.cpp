@@ -69,32 +69,32 @@ using ReadSource = TabletReader::ReadSource;
 OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
-          _tablet_reader_params({
-                  .tablet = std::move(params.tablet),
-                  .tablet_schema {},
-                  .aggregation = params.aggregation,
-                  .version = {0, params.version},
-                  .start_key {},
-                  .end_key {},
-                  .conditions {},
-                  .bloom_filters {},
-                  .bitmap_filters {},
-                  .in_filters {},
-                  .function_filters {},
-                  .delete_predicates {},
-                  .target_cast_type_for_variants {},
-                  .rs_splits {},
-                  .return_columns {},
-                  .output_columns {},
-                  .remaining_conjunct_roots {},
-                  .common_expr_ctxs_push_down {},
-                  .topn_filter_source_node_ids {},
-                  .filter_block_conjuncts {},
-                  .key_group_cluster_key_idxes {},
-                  .virtual_column_exprs {},
-                  .vir_cid_to_idx_in_block {},
-                  .vir_col_idx_to_type {},
-          }) {
+          _tablet_reader_params({.tablet = std::move(params.tablet),
+                                 .tablet_schema {},
+                                 .aggregation = params.aggregation,
+                                 .version = {0, params.version},
+                                 .start_key {},
+                                 .end_key {},
+                                 .conditions {},
+                                 .bloom_filters {},
+                                 .bitmap_filters {},
+                                 .in_filters {},
+                                 .function_filters {},
+                                 .delete_predicates {},
+                                 .target_cast_type_for_variants {},
+                                 .rs_splits {},
+                                 .return_columns {},
+                                 .output_columns {},
+                                 .remaining_conjunct_roots {},
+                                 .common_expr_ctxs_push_down {},
+                                 .topn_filter_source_node_ids {},
+                                 .filter_block_conjuncts {},
+                                 .key_group_cluster_key_idxes {},
+                                 .virtual_column_exprs {},
+                                 .vir_cid_to_idx_in_block {},
+                                 .vir_col_idx_to_type {},
+                                 .score_runtime {},
+                                 .collection_statistics {}}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _is_init = false;
 }
@@ -128,6 +128,11 @@ Status OlapScanner::init() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
+        LOG_WARNING("CloudTablet.capture_rs_readers.return e-230 init")
+                .tag("tablet_id", tablet->tablet_id());
+        return Status::Error<false>(-230, "injected error");
+    });
 
     for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
@@ -144,6 +149,7 @@ Status OlapScanner::init() {
 
     _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
     _slot_id_to_col_type = local_state->_slot_id_to_col_type;
+    _score_runtime = local_state->_score_runtime;
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -237,6 +243,13 @@ Status OlapScanner::init() {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
+    if (_tablet_reader_params.score_runtime) {
+        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                _tablet_reader_params.common_expr_ctxs_push_down));
+    }
+
     return Status::OK();
 }
 
@@ -299,12 +312,12 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
     _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
+    _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns =
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
-        _tablet_reader_params.target_cast_type_for_variants[ele.first] =
-                ele.second->get_primitive_type();
+        _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     // Condition
     for (auto& filter : filters) {
@@ -459,7 +472,9 @@ Status OlapScanner::_init_variant_columns() {
             // add them into tablet_schema for later column indexing.
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
-                    slot->column_paths(), slot->col_unique_id());
+                    slot->column_paths(), slot->col_unique_id(),
+                    assert_cast<const vectorized::DataTypeVariant&>(*remove_nullable(slot->type()))
+                            .variant_max_subcolumns_count());
             if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }

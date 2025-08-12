@@ -246,7 +246,7 @@ DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for agent report disk state to FE
-DEFINE_mInt32(report_disk_state_interval_seconds, "60");
+DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
 // the max download speed(KB/s)
@@ -642,7 +642,7 @@ DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_min, "16");
-DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "512");
+DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "2048");
 DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
@@ -1021,7 +1021,6 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
@@ -1344,6 +1343,8 @@ DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
+DEFINE_mInt32(variant_max_sparse_column_statistics_size, "10000");
+
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
@@ -1570,6 +1571,9 @@ DEFINE_String(fuzzy_test_type, "");
 DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
 DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
+
+// The maximum number of threads supported when executing LLMFunction
+DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
 // clang-format off
 #ifdef BE_TEST

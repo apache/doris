@@ -361,8 +361,6 @@ public:
 
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }

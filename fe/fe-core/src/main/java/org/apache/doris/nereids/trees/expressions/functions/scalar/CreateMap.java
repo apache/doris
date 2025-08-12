@@ -50,6 +50,11 @@ public class CreateMap extends ScalarFunction
         super("map", varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CreateMap(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public DataType getDataType() {
         if (arity() >= 2) {
@@ -65,9 +70,9 @@ public class CreateMap extends ScalarFunction
                     valueExpressions.add(children.get(i));
                 }
             }
-            Array keyArr = new Array().withChildren(keyExpressions);
+            Array keyArr = new Array(keyExpressions);
             DataType keyType = ((ArrayType) keyArr.getDataType()).getItemType();
-            Array valueArr = new Array().withChildren(valueExpressions);
+            Array valueArr = new Array(valueExpressions);
             DataType valueType = ((ArrayType) valueArr.getDataType()).getItemType();
             return MapType.of(keyType, valueType);
         }
@@ -86,7 +91,7 @@ public class CreateMap extends ScalarFunction
      */
     @Override
     public CreateMap withChildren(List<Expression> children) {
-        return new CreateMap(children.toArray(new Expression[0]));
+        return new CreateMap(getFunctionParams(children));
     }
 
     @Override

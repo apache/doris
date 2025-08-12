@@ -1269,18 +1269,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
-    | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
-    :}
-    | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
-    {:
-        RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
-    :}
-    | KW_ALTER KW_WORKLOAD KW_POLICY ident_or_text:policyName opt_properties:properties
-    {:
-        RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
-    :}
     | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
     opt_properties:properties
     {:
@@ -1290,10 +1278,6 @@ alter_stmt ::=
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
         RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
-    :}
-    | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
-    {:
-        RESULT = new AlterRepositoryStmt(repoName, properties);
     :}
     ;
 
@@ -1631,33 +1615,8 @@ opt_intermediate_type ::=
 
 // Create Statement
 create_stmt ::=
-    /* Catalog */
-    KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_comment:comment opt_properties:properties
-    {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties, comment);
-    :}
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_comment:comment opt_properties:properties
-    {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties, comment);
-    :}
-    /* Function */
-    | KW_CREATE opt_var_type:type opt_aggregate:isAggregate KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
-    {:
-        RESULT = new CreateFunctionStmt(type, ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
-    :}
-    | KW_CREATE opt_var_type:type KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_WITH KW_PARAMETER LPAREN opt_ident_list:parameters RPAREN KW_AS expr:func
-    {:
-        RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, parameters, func);
-    :}
-    | KW_CREATE opt_var_type:type KW_TABLES KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
-    {:
-        RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, returnType, intermediateType, properties);
-    :}
     /* Table */
-    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
+    KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
     {:
         RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, rollupNames, false);
     :}
@@ -1728,11 +1687,6 @@ create_stmt ::=
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
-    :}
-    /* workload schedule policy */
-    | KW_CREATE KW_WORKLOAD KW_POLICY opt_if_not_exists:ifNotExists ident_or_text:workloadPolicyName opt_conditions:conditions opt_actions:actions opt_properties:properties
-    {:
-        RESULT = new CreateWorkloadSchedPolicyStmt(ifNotExists, workloadPolicyName, conditions, actions, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -2047,18 +2001,6 @@ job_label ::=
     | ident:db DOT ident:label
     {:
         RESULT = new LabelName(db, label);
-    :}
-    ;
-
-// Copy Statement
-copy_stmt ::=
-    KW_COPY KW_INTO opt_select_hints:hints table_name:name opt_col_list:cols KW_FROM copy_from_param:copyFromParam KW_PROPERTIES opt_key_value_map:properties
-    {:
-        RESULT = new CopyStmt(name, cols, copyFromParam, properties, hints);
-    :}
-    | KW_COPY KW_INTO opt_select_hints:hints table_name:name opt_col_list:cols KW_FROM copy_from_param:copyFromParam
-    {:
-        RESULT = new CopyStmt(name, cols, copyFromParam, new HashMap(), hints);
     :}
     ;
 
@@ -2443,26 +2385,7 @@ create_job_stmt ::=
      {:  
           RESULT = endTime;  
      :}
-     ;        
-pause_job_stmt ::=
-    KW_PAUSE KW_JOB opt_wild_where
-    {:
-       RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.PAUSED);
-    :}
-    ;
-
-stop_job_stmt ::=
-    KW_DROP KW_JOB opt_if_exists:ifExists opt_wild_where 
-    {:
-      RESULT = new AlterJobStatusStmt(parser.where,true,ifExists);
-    :}
-    ;    
-resume_job_stmt ::=
-    KW_RESUME KW_JOB  opt_wild_where
-    {:
-        RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.RUNNING);
-    :}
-    ;                          
+     ;
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -2525,13 +2448,6 @@ load_property ::=
     :}
     ;
 
-show_create_load_stmt ::=
-    KW_SHOW KW_CREATE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowCreateLoadStmt(jobLabel);
-    :}
-    ;
-
 tbl_pattern ::=
     ident_or_star:db
     {:
@@ -2582,27 +2498,8 @@ ident_or_star ::=
 
 // Drop statement
 drop_stmt ::=
-    /* Database */
-    KW_DROP KW_DATABASE opt_if_exists:ifExists db_name:db opt_force:force
-    {:
-        RESULT = new DropDbStmt(ifExists, db, force);
-    :}
-    | KW_DROP KW_SCHEMA opt_if_exists:ifExists db_name:db opt_force:force
-    {:
-        RESULT = new DropDbStmt(ifExists, db, force);
-    :}
-    /* Catalog */
-    | KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
-    {:
-        RESULT = new DropCatalogStmt(ifExists, catalogName);
-    :}
-    /* Function */
-    | KW_DROP opt_var_type:type KW_FUNCTION opt_if_exists:ifExists function_name:functionName LPAREN func_args_def:args RPAREN
-    {:
-        RESULT = new DropFunctionStmt(type, ifExists, functionName, args);
-    :}
     /* Table */
-    | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
+    KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
     {:
         RESULT = new DropTableStmt(ifExists, name, force);
     :}
@@ -2616,10 +2513,6 @@ drop_stmt ::=
     {:
         RESULT = new DropTableStmt(ifExists, name, true, false);
     :}
-    | KW_DROP KW_REPOSITORY ident:repoName
-    {:
-        RESULT = new DropRepositoryStmt(repoName);
-    :}
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
@@ -2627,14 +2520,6 @@ drop_stmt ::=
     | KW_DROP KW_WORKLOAD KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
     {:
         RESULT = new DropWorkloadSchedPolicyStmt(ifExists, policyName);
-    :}
-    | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
-    {:
-        RESULT = new DropEncryptKeyStmt(ifExists, keyName);
-    :}
-    | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
-    {:
-        RESULT = new DropSqlBlockRuleStmt(ifExists, ruleNames);
     :}
     | KW_DROP KW_INVERTED KW_INDEX KW_ANALYZER opt_if_exists:ifExists ident:policyName
     {:
@@ -3546,10 +3431,6 @@ show_param ::=
     {:
         RESULT = new ShowEnginesStmt();
     :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:table
-    {:
-        RESULT = new ShowCreateMTMVStmt(table);
-    :}
     | KW_WARNINGS limit_clause
     {:
         RESULT = new ShowWarningStmt();
@@ -3562,11 +3443,6 @@ show_param ::=
     | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
-    :}
-    /* show column stats */
-    | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
-    {:
-        RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
     :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
@@ -4014,10 +3890,6 @@ set_stmt ::=
     | KW_SET KW_PROPERTY opt_user:user user_property_list:property_list
     {:
         RESULT = new SetUserPropertyStmt(user, property_list);
-    :}
-    | KW_SET ident:vaultName KW_AS KW_DEFAULT KW_STORAGE KW_VAULT
-    {:
-        RESULT = new SetDefaultStorageVaultStmt(vaultName);
     :}
     ;
 

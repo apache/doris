@@ -19,6 +19,16 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
@@ -136,6 +146,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountSubstring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Crc32Internal;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
@@ -203,6 +214,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
@@ -370,6 +382,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RtrimIn;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecToTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
@@ -685,6 +698,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FromUnixtime.class, "from_unixtime"),
             scalar(G.class, "g"),
             scalar(Gcd.class, "gcd"),
+            scalar(GetVariantType.class, "variant_type"),
             scalar(Greatest.class, "greatest"),
             scalar(Grouping.class, "grouping"),
             scalar(GroupingId.class, "grouping_id"),
@@ -762,6 +776,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Left.class, "left", "strleft"),
             scalar(Length.class, "length"),
             scalar(Crc32.class, "crc32"),
+            scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln", "dlog1"),
             scalar(Locate.class, "locate"),
@@ -854,6 +869,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Rpad.class, "rpad"),
             scalar(Rtrim.class, "rtrim"),
             scalar(RtrimIn.class, "rtrim_in"),
+            scalar(Score.class, "score"),
             scalar(Sec.class, "sec"),
             scalar(Second.class, "second"),
             scalar(SecondCeil.class, "second_ceil"),
@@ -987,7 +1003,17 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SessionUser.class, "session_user"),
             scalar(LastQueryId.class, "last_query_id"),
             scalar(Compress.class, "compress"),
-            scalar(Uncompress.class, "uncompress"));
+            scalar(Uncompress.class, "uncompress"),
+            scalar(LLMTranslate.class, "llm_translate"),
+            scalar(LLMSentiment.class, "llm_sentiment"),
+            scalar(LLMFilter.class, "llm_filter"),
+            scalar(LLMFixGrammar.class, "llm_fixgrammar"),
+            scalar(LLMExtract.class, "llm_extract"),
+            scalar(LLMGenerate.class, "llm_generate"),
+            scalar(LLMClassify.class, "llm_classify"),
+            scalar(LLMMask.class, "llm_mask"),
+            scalar(LLMSummarize.class, "llm_summarize"),
+            scalar(LLMSimilarity.class, "llm_similarity"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

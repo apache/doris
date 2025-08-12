@@ -23,6 +23,7 @@ namespace doris::vectorized {
 template <PrimitiveType Type>
 struct CorrMoment {
     using T = typename PrimitiveTypeTraits<Type>::CppType;
+    static_assert(std::is_same_v<T, double>, "CorrMoment only support double");
     T m0 {};
     T x1 {};
     T y1 {};

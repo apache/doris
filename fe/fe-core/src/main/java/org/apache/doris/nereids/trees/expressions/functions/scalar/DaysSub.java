@@ -63,10 +63,15 @@ public class DaysSub extends ScalarFunction
         super("days_sub", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DaysSub(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public DaysSub withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new DaysSub(children.get(0), children.get(1));
+        return new DaysSub(getFunctionParams(children));
     }
 
     @Override

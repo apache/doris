@@ -203,10 +203,6 @@ public:
 
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
-
     bool structure_equals(const IColumn& rhs) const override {
         if (auto rhs_concrete = typeid_cast<const ColumnDecimal<T>*>(&rhs))
             return scale == rhs_concrete->scale;

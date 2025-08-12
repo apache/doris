@@ -24,6 +24,7 @@ import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -175,14 +176,34 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        setEndpointIfNotSet();
-        if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
-        }
+        checkEndpoint();
         checkRequiredProperties();
         initRegionIfNecessary();
         if (StringUtils.isBlank(getRegion())) {
             throw new IllegalArgumentException("region is required");
+        }
+    }
+
+    /**
+     * Checks and validates the configured endpoint.
+     * <p>
+     * All object storage implementations must have an explicitly set endpoint.
+     * However, for compatibility with legacy behavior—especially when using DLF
+     * as the catalog—some logic may derive the endpoint based on the region.
+     * <p>
+     * To support such cases, this method is exposed as {@code protected} to allow
+     * subclasses to override it with custom logic if necessary.
+     * <p>
+     * That said, we strongly recommend users to explicitly configure both
+     * {@code endpoint} and {@code region} to ensure predictable behavior
+     * across all storage backends.
+     *
+     * @throws IllegalArgumentException if the endpoint format is invalid
+     */
+    protected void checkEndpoint() {
+        setEndpointIfNotSet();
+        if (!isValidEndpoint(getEndpoint())) {
+            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
         }
     }
 
@@ -239,9 +260,19 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         }
         String endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
         if (StringUtils.isBlank(endpoint)) {
+            endpoint = getEndpointFromRegion();
+        }
+        if (StringUtils.isBlank(endpoint)) {
             throw new IllegalArgumentException("endpoint is required");
         }
         setEndpoint(endpoint);
+    }
+
+    // This method should be overridden by subclasses to provide a default endpoint based on the region.
+    // Because for aws s3, only region is needed, the endpoint can be constructed from the region.
+    // But for other s3 compatible storage, the endpoint may need to be specified explicitly.
+    protected String getEndpointFromRegion() {
+        return "";
     }
 
     @Override
@@ -257,8 +288,23 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     @Override
     public void initializeHadoopStorageConfig() {
-        throw new UnsupportedOperationException("Hadoop storage config initialization is not"
-                + " supported for S3 compatible storage.");
+        hadoopStorageConfig = new Configuration();
+        // Compatibility note: Due to historical reasons, even when the underlying
+        // storage is OSS, OBS, etc., users may still configure the schema as "s3://".
+        // To ensure backward compatibility, we append S3-related properties by default.
+        appendS3HdfsProperties(hadoopStorageConfig);
+    }
+
+    private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
+        hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
+        hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
+        hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+        hadoopStorageConfig.set("fs.s3a.connection.maximum", getMaxConnections());
+        hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
+        hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());
+        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
     }
 
     @Override

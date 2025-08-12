@@ -531,44 +531,6 @@ void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_directi
 }
 
 template <typename T>
-ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) const {
-    size_t col_size = size();
-    column_match_offsets_size(col_size, replicate_offsets.size());
-
-    auto res = ColumnStr<T>::create();
-
-    if (0 == col_size) {
-        return res;
-    }
-
-    Chars& res_chars = res->chars;
-    auto& res_offsets = res->offsets;
-    res_chars.reserve(chars.size() / col_size * replicate_offsets.back());
-    res_offsets.reserve(replicate_offsets.back());
-
-    T current_new_offset = 0;
-    for (size_t i = 0; i < col_size; ++i) {
-        size_t size_to_replicate = replicate_offsets[i] - replicate_offsets[i - 1];
-        T string_size = offsets[i] - offsets[i - 1];
-
-        check_chars_length(res_chars.size() + size_to_replicate * string_size,
-                           res_offsets.size() + size_to_replicate, col_size);
-
-        res_chars.resize(res_chars.size() + size_to_replicate * string_size);
-        for (size_t j = 0; j < size_to_replicate; ++j) {
-            memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
-                                                     &chars[offsets[i - 1]], string_size);
-            current_new_offset += string_size;
-            res_offsets.push_back(current_new_offset);
-        }
-    }
-
-    check_chars_length(res_chars.size(), res_offsets.size(), col_size);
-    sanity_check_simple();
-    return res;
-}
-
-template <typename T>
 void ColumnStr<T>::reserve(size_t n) {
     offsets.reserve(n);
     chars.reserve(n);

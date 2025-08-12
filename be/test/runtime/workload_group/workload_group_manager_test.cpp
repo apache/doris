@@ -304,10 +304,9 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed5) {
 }
 
 TEST_F(WorkloadGroupManagerTest, overcommit) {
-    WorkloadGroupInfo wg_info {.id = 1, .enable_memory_overcommit = true};
+    WorkloadGroupInfo wg_info {.id = 1};
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
     EXPECT_EQ(wg->id(), wg_info.id);
-    EXPECT_EQ(wg->enable_memory_overcommit(), true);
 
     auto query_context = _generate_on_query(wg);
 
@@ -329,12 +328,9 @@ TEST_F(WorkloadGroupManagerTest, overcommit) {
 }
 
 TEST_F(WorkloadGroupManagerTest, slot_memory_policy_disabled) {
-    WorkloadGroupInfo wg_info {.id = 1,
-                               .enable_memory_overcommit = false,
-                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    WorkloadGroupInfo wg_info {.id = 1, .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
     auto wg = _wg_manager->get_or_create_workload_group(wg_info);
     EXPECT_EQ(wg->id(), wg_info.id);
-    EXPECT_EQ(wg->enable_memory_overcommit(), false);
     EXPECT_EQ(wg->slot_memory_policy(), TWgSlotMemoryPolicy::NONE);
 
     auto query_context = _generate_on_query(wg);
@@ -388,29 +384,20 @@ TEST_F(WorkloadGroupManagerTest, query_released) {
 }
 
 TEST_F(WorkloadGroupManagerTest, overcommit1) {
-    WorkloadGroupInfo wg1_info {
-            .id = 1, .memory_limit = 1024L * 1024 * 100, .enable_memory_overcommit = true};
-    WorkloadGroupInfo wg2_info {
-            .id = 2, .memory_limit = 1024L * 1024 * 100, .enable_memory_overcommit = true};
-    WorkloadGroupInfo wg3_info {
-            .id = 3, .memory_limit = 1024L * 1024 * 100, .enable_memory_overcommit = true};
-    WorkloadGroupInfo wg4_info {
-            .id = 4, .memory_limit = 1024L * 1024 * 1024 * 10, .enable_memory_overcommit = true};
-    WorkloadGroupInfo wg5_info {
-            .id = 5, .memory_limit = 1024L * 1024 * 1024 * 100, .enable_memory_overcommit = false};
+    WorkloadGroupInfo wg1_info {.id = 1, .memory_limit = 1024L * 1024 * 100};
+    WorkloadGroupInfo wg2_info {.id = 2, .memory_limit = 1024L * 1024 * 100};
+    WorkloadGroupInfo wg3_info {.id = 3, .memory_limit = 1024L * 1024 * 100};
+    WorkloadGroupInfo wg4_info {.id = 4, .memory_limit = 1024L * 1024 * 1024 * 10};
+    WorkloadGroupInfo wg5_info {.id = 5, .memory_limit = 1024L * 1024 * 1024 * 100};
     auto wg1 = _wg_manager->get_or_create_workload_group(wg1_info);
     auto wg2 = _wg_manager->get_or_create_workload_group(wg2_info);
     auto wg3 = _wg_manager->get_or_create_workload_group(wg3_info);
     auto wg4 = _wg_manager->get_or_create_workload_group(wg4_info);
     auto wg5 = _wg_manager->get_or_create_workload_group(wg5_info);
     EXPECT_EQ(wg1->id(), wg1_info.id);
-    EXPECT_EQ(wg1->enable_memory_overcommit(), true);
     EXPECT_EQ(wg2->id(), wg2_info.id);
-    EXPECT_EQ(wg2->enable_memory_overcommit(), true);
     EXPECT_EQ(wg3->id(), wg3_info.id);
-    EXPECT_EQ(wg3->enable_memory_overcommit(), true);
     EXPECT_EQ(wg5->id(), wg5_info.id);
-    EXPECT_EQ(wg5->enable_memory_overcommit(), false);
 
     auto query_context11 = _generate_on_query(wg1);
 

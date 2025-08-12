@@ -1013,6 +1013,20 @@ public final class MetricRepo {
         queryErrCounter.setLabels(labels);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(queryErrCounter);
 
+        LongCounterMetric warmUpJobExecCounter = CloudMetrics.CLUSTER_WARM_UP_JOB_EXEC_COUNT.getOrAdd(clusterId);
+        warmUpJobExecCounter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(warmUpJobExecCounter);
+
+        LongCounterMetric warmUpJobRequestedTablets =
+                CloudMetrics.CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS.getOrAdd(clusterId);
+        warmUpJobRequestedTablets.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(warmUpJobRequestedTablets);
+
+        LongCounterMetric warmUpJobFinishedTablets =
+                CloudMetrics.CLUSTER_WARM_UP_JOB_FINISHED_TABLETS.getOrAdd(clusterId);
+        warmUpJobFinishedTablets.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(warmUpJobFinishedTablets);
+
         GaugeMetricImpl<Double> requestPerSecondGauge = CloudMetrics.CLUSTER_REQUEST_PER_SECOND_GAUGE
                 .getOrAdd(clusterId);
         requestPerSecondGauge.setLabels(labels);
@@ -1082,6 +1096,90 @@ public final class MetricRepo {
         labels.add(new MetricLabel("cluster_name", clusterName));
         counter.setLabels(labels);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void increaseClusterWarmUpJobExecCount(String clusterName) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_WARM_UP_JOB_EXEC_COUNT.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(1L);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void increaseClusterWarmUpJobRequestedTablets(String clusterName, long tablets) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(tablets);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void increaseClusterWarmUpJobFinishedTablets(String clusterName, long bytes) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterName)) {
+            return;
+        }
+        String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterNameToId().get(clusterName);
+        if (Strings.isNullOrEmpty(clusterId)) {
+            return;
+        }
+        LongCounterMetric counter = CloudMetrics.CLUSTER_WARM_UP_JOB_FINISHED_TABLETS.getOrAdd(clusterId);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(bytes);
+        labels.add(new MetricLabel("cluster_id", clusterId));
+        labels.add(new MetricLabel("cluster_name", clusterName));
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
+    public static void updateClusterWarmUpJobLatestStartTime(
+            String jobId, String srcClusterName, String dstClusterName, long timeMs) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(jobId)) {
+            return;
+        }
+        LongCounterMetric time = CloudMetrics.CLUSTER_WARM_UP_JOB_LATEST_START_TIME.getOrAdd(jobId);
+        List<MetricLabel> labels = new ArrayList<>();
+        time.update(timeMs);
+        labels.add(new MetricLabel("job_id", jobId));
+        labels.add(new MetricLabel("src_cluster_name", srcClusterName));
+        labels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+        time.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(time);
+    }
+
+    public static void updateClusterWarmUpJobLastFinishTime(
+            String jobId, String srcClusterName, String dstClusterName, long timeMs) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(jobId)) {
+            return;
+        }
+        LongCounterMetric time = CloudMetrics.CLUSTER_WARM_UP_JOB_LAST_FINISH_TIME.getOrAdd(jobId);
+        List<MetricLabel> labels = new ArrayList<>();
+        time.update(timeMs);
+        labels.add(new MetricLabel("job_id", jobId));
+        labels.add(new MetricLabel("src_cluster_name", srcClusterName));
+        labels.add(new MetricLabel("dst_cluster_name", dstClusterName));
+        time.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(time);
     }
 
     public static void updateClusterRequestPerSecond(String clusterId, double value, List<MetricLabel> labels) {

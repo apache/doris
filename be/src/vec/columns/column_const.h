@@ -140,16 +140,31 @@ public:
 
     bool is_null_at(size_t) const override { return data->is_null_at(0); }
 
-    void insert_range_from(const IColumn&, size_t /*start*/, size_t length) override {
+    void insert_range_from(const IColumn& src, size_t /*start*/, size_t length) override {
+        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "ColumnConst::insert_indices_from: src is not const or not equal to dst");
+        }
         s += length;
     }
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override {
+        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "ColumnConst::insert_indices_from: src is not const or not equal to dst");
+        }
         s += length;
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
+        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "ColumnConst::insert_indices_from: src is not const or not equal to dst");
+        }
         s += (indices_end - indices_begin);
     }
 
@@ -157,7 +172,14 @@ public:
 
     void insert_data(const char*, size_t) override { ++s; }
 
-    void insert_from(const IColumn&, size_t) override { ++s; }
+    void insert_from(const IColumn& src, size_t) override {
+        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "ColumnConst::insert_indices_from: src is not const or not equal to dst");
+        }
+        ++s;
+    }
 
     void clear() override { s = 0; }
 
@@ -206,8 +228,6 @@ public:
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-
-    ColumnPtr replicate(const Offsets& offsets) const override;
 
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;

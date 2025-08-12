@@ -40,6 +40,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t s) const override { return clone_dummy(s); }
     size_t size() const override { return s; }
+    void resize(size_t _s) override { s = _s; }
     void insert_default() override { ++s; }
     void pop_back(size_t n) override { s -= n; }
     size_t byte_size() const override { return 0; }
@@ -112,12 +113,6 @@ public:
                          Permutation& res) const override {
         res.resize(s);
         for (size_t i = 0; i < s; ++i) res[i] = i;
-    }
-
-    ColumnPtr replicate(const Offsets& offsets) const override {
-        column_match_offsets_size(s, offsets.size());
-
-        return clone_dummy(offsets.back());
     }
 
     void append_data_by_selector(MutableColumnPtr& res,

@@ -149,7 +149,7 @@ suite("with_table_operator") {
     createMV("""
     create materialized view query_index_test 
     as
-    select o_orderdate, count(*)
+    select o_orderdate as a1, count(*) as a2
     from orders
     group by o_orderdate;
     """)

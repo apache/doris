@@ -175,26 +175,39 @@ void CgroupCpuCtl::get_cgroup_cpu_info(uint64_t* cpu_shares, int* cpu_hard_limit
     *cpu_hard_limit = this->_cpu_hard_limit;
 }
 
-void CgroupCpuCtl::update_cpu_hard_limit(int cpu_hard_limit) {
+void CgroupCpuCtl::update_cpu_hard_limit(int max_cpu_percent) {
     if (!_init_succ) {
         return;
     }
+    if (max_cpu_percent < 0 || max_cpu_percent > 100) {
+        LOG(WARNING) << "invalid max_cpu_percent: " << max_cpu_percent;
+        return;
+    }
     std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
-    if (_cpu_hard_limit != cpu_hard_limit) {
-        Status ret = modify_cg_cpu_hard_limit_no_lock(cpu_hard_limit);
+    if (_cpu_hard_limit != max_cpu_percent) {
+        Status ret = modify_cg_cpu_hard_limit_no_lock(max_cpu_percent);
         if (ret.ok()) {
-            _cpu_hard_limit = cpu_hard_limit;
+            _cpu_hard_limit = max_cpu_percent;
         } else {
-            LOG(WARNING) << "update cpu hard limit failed, cpu hard limit: " << cpu_hard_limit
+            LOG(WARNING) << "update cpu hard limit failed, cpu hard limit: " << max_cpu_percent
                          << ", error: " << ret;
         }
     }
 }
 
-void CgroupCpuCtl::update_cpu_soft_limit(int cpu_shares) {
+void CgroupCpuCtl::update_cpu_soft_limit(int min_cpu_percent) {
     if (!_init_succ) {
         return;
     }
+    if (min_cpu_percent < 0 || min_cpu_percent > 100) {
+        LOG(WARNING) << "min_cpu_percent is invalid, min_cpu_percent: " << min_cpu_percent;
+        return;
+    }
+    // cgroup v1: cpu_shares is a value between 2 and 262144
+    // cgroup v2: cpu_shares is a value between 1 and 10000
+    // so mapping the cpu percent to 64 to 6400
+    // if cpu percent == 0, then set it to 2, it is a min value for cgroup v1 and v2
+    int cpu_shares = min_cpu_percent == 0 ? 2 : min_cpu_percent * 64;
     std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
     if (_cpu_shares != cpu_shares) {
         Status ret = modify_cg_cpu_soft_limit_no_lock(cpu_shares);
@@ -340,10 +353,12 @@ Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
 }
 
 Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
-    if (cpu_hard_limit <= 0) {
-        return Status::InternalError<false>("cpu hard limit must be greater than 0");
+    // If cpu_hard_limit == 0, we do not know the actual behavior of CGroup
+    // just set it to 1% of the cpu core.
+    uint64_t val = _cpu_cfs_period_us / 100;
+    if (cpu_hard_limit > 0) {
+        val = _cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100;
     }
-    uint64_t val = _cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100;
     std::string str_val = std::to_string(val);
     std::string msg = "modify cpu quota value to " + str_val;
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_quota_file, str_val, msg, false);
@@ -404,13 +419,14 @@ Status CgroupV2CpuCtl::init() {
 }
 
 Status CgroupV2CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {
-    if (cpu_hard_limit <= 0) {
-        return Status::InternalError<false>("cpu hard limit must be greater than 0");
+    // If cpu_hard_limit is 0, we set the cpu.max to 1000 100000.
+    // Means 1% of one cpu core.
+    uint64_t int_val = _cpu_cfs_period_us / 100;
+    if (cpu_hard_limit > 0) {
+        int_val = _cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100;
     }
-    std::string value = "";
-    uint64_t int_val = _cpu_cfs_period_us * _cpu_core_num * cpu_hard_limit / 100;
-    value = std::to_string(int_val) + " 100000";
-    std::string msg = "modify cpu.max to [" + value + "]";
+    std::string value = fmt::format("{} {}", int_val, _cpu_cfs_period_us);
+    std::string msg = fmt::format("modify cpu.max to [{}]", value);
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v2_query_wg_cpu_max_file, value, msg, false);
 }
 

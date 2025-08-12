@@ -42,7 +42,9 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
@@ -59,11 +61,18 @@ import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
+import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -116,12 +125,23 @@ public class PaimonUtil {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Partition> nameToPartition = Maps.newHashMap();
         PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+        List<Type> types = partitionColumns.stream()
+                .map(Column::getType)
+                .collect(Collectors.toList());
+        Map<String, Type> columnNameToType = partitionColumns.stream()
+                .collect(Collectors.toMap(Column::getName, Column::getType));
 
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
-                sb.append(entry.getKey()).append("=").append(entry.getValue()).append("/");
+                sb.append(entry.getKey()).append("=");
+                // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the integer to a date string.
+                if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
+                    sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
+                } else {
+                    sb.append(entry.getValue()).append("/");
+                }
             }
             if (sb.length() > 0) {
                 sb.deleteCharAt(sb.length() - 1);
@@ -131,7 +151,7 @@ public class PaimonUtil {
             try {
                 // partition values return by paimon api, may have problem,
                 // to avoid affecting the query, we catch exceptions here
-                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, types));
             } catch (Exception e) {
                 LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
                         partitionColumns, partition.spec(), e);
@@ -140,11 +160,8 @@ public class PaimonUtil {
         return partitionInfo;
     }
 
-    public static ListPartitionItem toListPartitionItem(String partitionName, List<Column> partitionColumns)
+    public static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types)
             throws AnalysisException {
-        List<Type> types = partitionColumns.stream()
-                .map(Column::getType)
-                .collect(Collectors.toList());
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
@@ -371,4 +388,82 @@ public class PaimonUtil {
         }
     }
 
+    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<String> partitionKeys = table.partitionKeys();
+        RowType partitionType = table.rowType().project(partitionKeys);
+        RowDataToObjectArrayConverter toObjectArrayConverter = new RowDataToObjectArrayConverter(
+                partitionType);
+        Object[] partitionValuesArray = toObjectArrayConverter.convert(partitionValues);
+        for (int i = 0; i < partitionKeys.size(); i++) {
+            try {
+                String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
+                        partitionValuesArray[i], timeZone);
+                partitionInfoMap.put(partitionKeys.get(i), partitionValue);
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
+                        partitionKeys.get(i), e.getMessage());
+                return null;
+            }
+        }
+        return partitionInfoMap;
+    }
+
+    private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
+            String timeZone) {
+        switch (type.getTypeRoot()) {
+            case BOOLEAN:
+            case INTEGER:
+            case BIGINT:
+            case SMALLINT:
+            case TINYINT:
+            case DECIMAL:
+            case VARCHAR:
+            case CHAR:
+                if (value == null) {
+                    return null;
+                }
+                return value.toString();
+            case BINARY:
+            case VARBINARY:
+                if (value == null) {
+                    return null;
+                }
+                return new String((byte[]) value, StandardCharsets.UTF_8);
+            case DATE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon date is stored as days since epoch
+                LocalDate date = LocalDate.ofEpochDay((Integer) value);
+                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            case TIME_WITHOUT_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon time is stored as microseconds since midnight in utc
+                long micros = (Long) value;
+                LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
+                return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon timestamp is stored as Timestamp type in utc
+                return ((Timestamp) value).toLocalDateTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (value == null) {
+                    return null;
+                }
+                // Paimon timestamp with local time zone is stored as Timestamp type in utc
+                Timestamp timestamp = (Timestamp) value;
+                return timestamp.toLocalDateTime()
+                        .atZone(ZoneId.of("UTC"))
+                        .withZoneSameInstant(ZoneId.of(timeZone))
+                        .toLocalDateTime()
+                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            default:
+                throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
+        }
+    }
 }

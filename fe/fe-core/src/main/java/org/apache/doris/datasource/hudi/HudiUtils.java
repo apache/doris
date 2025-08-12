@@ -32,6 +32,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -50,9 +51,7 @@ import org.apache.avro.Schema.Field;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
@@ -60,46 +59,14 @@ import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
-import java.text.ParseException;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class HudiUtils {
-    private static final DateTimeFormatter DEFAULT_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-
-    /**
-     * Convert different query instant time format to the commit time format.
-     * Currently we support three kinds of instant time format for time travel query:
-     * 1、yyyy-MM-dd HH:mm:ss
-     * 2、yyyy-MM-dd
-     * This will convert to 'yyyyMMdd000000'.
-     * 3、yyyyMMddHHmmss
-     */
-    public static String formatQueryInstant(String queryInstant) throws ParseException {
-        int instantLength = queryInstant.length();
-        if (instantLength == 19 || instantLength == 23) { // for yyyy-MM-dd HH:mm:ss[.SSS]
-            if (instantLength == 19) {
-                queryInstant += ".000";
-            }
-            return HoodieInstantTimeGenerator.getInstantForDateString(queryInstant);
-        } else if (instantLength == HoodieInstantTimeGenerator.SECS_INSTANT_ID_LENGTH
-                || instantLength == HoodieInstantTimeGenerator.MILLIS_INSTANT_ID_LENGTH) { // for yyyyMMddHHmmss[SSS]
-            HoodieActiveTimeline.parseDateFromInstantTime(queryInstant); // validate the format
-            return queryInstant;
-        } else if (instantLength == 10) { // for yyyy-MM-dd
-            LocalDate date = LocalDate.parse(queryInstant, DEFAULT_DATE_FORMATTER);
-            return HoodieActiveTimeline.formatDate(java.sql.Date.valueOf(date));
-        } else {
-            throw new IllegalArgumentException("Unsupported query instant time format: " + queryInstant
-                    + ", Supported time format are: 'yyyy-MM-dd HH:mm:ss[.SSS]' "
-                    + "or 'yyyy-MM-dd' or 'yyyyMMddHHmmss[SSS]'");
-        }
-    }
-
     public static String convertAvroToHiveType(Schema schema) {
         Schema.Type type = schema.getType();
         LogicalType logicalType = schema.getLogicalType();
@@ -308,7 +275,7 @@ public class HudiUtils {
         if (!snapshotInstant.isPresent()) {
             return 0L;
         }
-        return Long.parseLong(snapshotInstant.get().getTimestamp());
+        return Long.parseLong(snapshotInstant.get().requestedTime());
     }
 
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
@@ -438,4 +405,14 @@ public class HudiUtils {
         return tschema;
     }
 
+    public static Map<String, String> getPartitionInfoMap(HMSExternalTable table, HivePartition partition) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<Column> partitionColumns = table.getPartitionColumns();
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            String partitionName = partitionColumns.get(i).getName();
+            String partitionValue = partition.getPartitionValues().get(i);
+            partitionInfoMap.put(partitionName, partitionValue);
+        }
+        return partitionInfoMap;
+    }
 }

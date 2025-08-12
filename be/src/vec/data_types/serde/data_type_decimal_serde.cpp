@@ -25,8 +25,11 @@
 #include <type_traits>
 
 #include "arrow/type.h"
+#include "common/consts.h"
+#include "olap/tablet_schema.h"
 #include "orc/Int128.hh"
 #include "util/jsonb_document.h"
+#include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -99,6 +102,44 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(
         }
         current_offset = next_offset;
     }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                            const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+    FieldType to;
+
+    CastParameters params;
+    params.is_strict = false;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+
+    if (!CastToDecimal::from_string(str, to, arg_precision, arg_scale, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str.to_string());
+    }
+    column_to.insert_value(to);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                        const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+    FieldType to;
+
+    CastParameters params;
+    params.is_strict = true;
+
+    auto arg_precision = static_cast<UInt32>(precision);
+    auto arg_scale = static_cast<UInt32>(scale);
+
+    if (!CastToDecimal::from_string(str, to, arg_precision, arg_scale, params)) {
+        return Status::InvalidArgument("parse Decimal fail, string: '{}'", str.to_string());
+    }
+    column_to.insert_value(to);
     return Status::OK();
 }
 
@@ -485,6 +526,27 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& 
 }
 
 template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
+                                                              const JsonbValue* jsonb_value,
+                                                              CastParameters& castParms) const {
+    if constexpr (T == TYPE_DECIMALV2) {
+        return Status::NotSupported("DECIMALV2 does not support deserialize_column_from_jsonb");
+    } else {
+        if (jsonb_value->isString()) {
+            RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
+            return Status::OK();
+        }
+        auto& data = assert_cast<ColumnDecimal<T>&>(column).get_data();
+        FieldType to;
+        if (!JsonbCast::cast_from_json_to_decimal(jsonb_value, to, precision, scale, castParms)) {
+            return JsonbCast::report_error(jsonb_value, T);
+        }
+        data.push_back(to);
+        return Status::OK();
+    }
+}
+
+template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
@@ -505,6 +567,31 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "read_one_cell_from_jsonb with type " + column.get_name());
     }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
+                                                       ColumnString::Chars& chars,
+                                                       int64_t row_num) const {
+    const uint8_t type = (const uint8_t)TabletColumn::get_field_type_by_type(T);
+    const auto& data_ref = assert_cast<const ColumnDecimal<T>&>(src_column).get_data_at(row_num);
+    const auto& prec = static_cast<uint8_t>(precision);
+    const auto& sc = static_cast<uint8_t>(scale);
+
+    const size_t old_size = chars.size();
+    // FieldType + precision + scale + value
+    const size_t new_size =
+            old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    // FieldType + precision + scale + value
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&prec),
+           sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t),
+           reinterpret_cast<const char*>(&sc), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t),
+           data_ref.data, data_ref.size);
 }
 
 template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;

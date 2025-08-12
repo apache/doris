@@ -38,9 +38,12 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -127,8 +130,8 @@ static std::string next_rowset_id() {
     return std::to_string(++cnt);
 }
 
-static void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
-                       int64_t partition_id, int64_t tablet_id) {
+void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id, int64_t partition_id,
+                int64_t tablet_id) {
     auto tablet = req.add_tablet_metas();
     tablet->set_table_id(table_id);
     tablet->set_index_id(index_id);
@@ -149,6 +152,7 @@ void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t ind
     brpc::Controller cntl;
     CreateTabletsRequest req;
     CreateTabletsResponse res;
+    req.set_db_id(1); // default db_id
     add_tablet(req, table_id, index_id, partition_id, tablet_id);
     meta_service->create_tablets(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
@@ -274,8 +278,8 @@ static void get_delete_bitmap_update_lock(MetaServiceProxy* meta_service,
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
 }
 
-static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
-                          int64_t table_id, int64_t partition_id, int64_t tablet_id) {
+void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
+                   int64_t table_id, int64_t partition_id, int64_t tablet_id) {
     int64_t txn_id = 0;
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service, db_id, label, table_id, txn_id));
     CreateRowsetResponse res;
@@ -1748,6 +1752,10 @@ TEST(MetaServiceTest, PrecommitTxnTest2) {
 
 TEST(MetaServiceTest, CommitTxnTest) {
     auto meta_service = get_meta_service();
+    int64_t table_id = 1234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
     // case: first version of rowset
     {
         int64_t txn_id = -1;
@@ -1772,8 +1780,8 @@ TEST(MetaServiceTest, CommitTxnTest) {
         // mock rowset and tablet
         int64_t tablet_id_base = 1103;
         for (int i = 0; i < 5; ++i) {
-            create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
-            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1845,6 +1853,10 @@ TEST(MetaServiceTest, CommitTxnTest) {
 TEST(MetaServiceTest, CommitTxnExpiredTest) {
     auto meta_service = get_meta_service();
 
+    int64_t table_id = 1234789234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
     // case: first version of rowset
     {
         int64_t txn_id = -1;
@@ -1870,8 +1882,8 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
         // mock rowset and tablet
         int64_t tablet_id_base = 1103;
         for (int i = 0; i < 5; ++i) {
-            create_tablet(meta_service.get(), 1234789234, 1235, 1236, tablet_id_base + i);
-            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -2046,8 +2058,8 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         ASSERT_EQ(res.versions()[1], 2);
 
         ASSERT_EQ(res.table_ids()[2], t1);
-        ASSERT_EQ(res.partition_ids()[2], t1_p1);
-        ASSERT_EQ(res.versions()[2], 3);
+        ASSERT_EQ(res.partition_ids()[2], t1_p1) << res.ShortDebugString();
+        ASSERT_EQ(res.versions()[2], 3) << res.ShortDebugString();
     }
 
     // doubly commit txn
@@ -6989,23 +7001,25 @@ TEST(MetaServiceTest, BatchGetVersion) {
                 insert_rowsets;
     };
 
+    // table ids: 2, 3, 4, 5
+    // partition ids: 6, 7, 8, 9
     std::vector<TestCase> cases = {
             // all version are missing
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {-1, -1, -1, -1}, {}},
-            // update table 1, partition 1
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, -1, -1, -1}, {{1, 1, 1}}},
-            // update table 2, partition 1
-            // update table 3, partition 2
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, -1, 2, 2}, {{2, 1, 3}, {3, 2, 4}}},
-            // update table 1, partition 2 twice
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, 3, 2, 2}, {{1, 2, 2}, {1, 2, 2}}},
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {-1, -1, -1, -1}, {}},
+            // update table 1, partition 6
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, -1, -1, -1}, {{1, 6, 1}}},
+            // update table 2, partition 6
+            // update table 3, partition 7
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, -1, 2, 2}, {{3, 8, 3}, {4, 9, 4}}},
+            // update table 1, partition 7 twice
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, 3, 2, 2}, {{2, 7, 2}, {2, 7, 2}}},
     };
 
     auto service = get_meta_service();
-    create_tablet(service.get(), 1, 1, 1, 1);
-    create_tablet(service.get(), 1, 1, 2, 2);
-    create_tablet(service.get(), 2, 1, 1, 3);
-    create_tablet(service.get(), 3, 1, 2, 4);
+    create_tablet(service.get(), 1, 1, 6, 1);
+    create_tablet(service.get(), 2, 1, 7, 2);
+    create_tablet(service.get(), 3, 1, 8, 3);
+    create_tablet(service.get(), 4, 1, 9, 4);
 
     size_t num_cases = cases.size();
     size_t label_index = 0;
@@ -7013,7 +7027,7 @@ TEST(MetaServiceTest, BatchGetVersion) {
         auto& [table_ids, partition_ids, expected_versions, insert_rowsets] = cases[i];
         for (auto [table_id, partition_id, tablet_id] : insert_rowsets) {
             LOG(INFO) << "insert rowset for table " << table_id << " partition " << partition_id
-                      << " table_id " << tablet_id;
+                      << " tablet_id " << tablet_id;
             insert_rowset(service.get(), 1, std::to_string(++label_index), table_id, partition_id,
                           tablet_id);
         }
@@ -8967,6 +8981,131 @@ TEST(MetaServiceTest, GetObjStoreInfoTest) {
                             return name == vault.name();
                         }) != vaults.end());
         }
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
+TEST(MetaServiceTest, CreateVersionedTablet) {
+    auto meta_service = get_meta_service(false);
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string instance_id = "test_instance";
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key;
+        std::string val;
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+
+        InstanceInfoPB instance;
+        instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+    }
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+
+    {
+        brpc::Controller cntl;
+        CreateTabletsRequest req;
+        CreateTabletsResponse res;
+        req.set_cloud_unique_id(fmt::format("1:{}:1", instance_id));
+        req.set_db_id(db_id);
+        add_tablet(req, table_id, index_id, partition_id, tablet_id);
+        meta_service->create_tablets(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
+    }
+
+    Versionstamp commit_versionstamp;
+    {
+        // verify versioned tablet meta is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        std::string key = versioned::meta_tablet_key({instance_id, tablet_id});
+        ASSERT_EQ(versioned_get(txn.get(), key, &commit_versionstamp, &val), TxnErrorCode::TXN_OK)
+                << hex(key);
+        TabletMetaCloudPB versioned_tablet_meta;
+        versioned_tablet_meta.ParseFromString(val);
+        ASSERT_EQ(versioned_tablet_meta.table_id(), table_id);
+        ASSERT_EQ(versioned_tablet_meta.index_id(), index_id)
+                << versioned_tablet_meta.ShortDebugString();
+        ASSERT_EQ(versioned_tablet_meta.partition_id(), partition_id);
+        ASSERT_EQ(versioned_tablet_meta.tablet_id(), tablet_id);
+    }
+
+    {
+        // verify versioned tablet index/inverted index is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_index_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        TabletIndexPB tablet_index;
+        tablet_index.ParseFromString(val);
+        ASSERT_EQ(tablet_index.db_id(), db_id);
+        ASSERT_EQ(tablet_index.table_id(), table_id);
+        ASSERT_EQ(tablet_index.index_id(), index_id);
+        ASSERT_EQ(tablet_index.partition_id(), partition_id);
+        ASSERT_EQ(tablet_index.tablet_id(), tablet_id);
+
+        key = versioned::tablet_inverted_index_key(
+                {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // verify the first versioned rowset meta is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        int64_t end_version = 1; // from add_tablet
+        std::string key = versioned::meta_rowset_load_key({instance_id, tablet_id, end_version});
+        RowsetMetaCloudPB rowset_meta;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &rowset_meta, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+    }
+
+    {
+        // verify the tablet load stats is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+        TabletStatsPB load_stats;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &load_stats, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+    }
+
+    {
+        // verify the tablet compact stats is written
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = versioned::tablet_compact_stats_key({instance_id, tablet_id});
+        TabletStatsPB compact_stats;
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), key, &compact_stats, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(versionstamp, commit_versionstamp);
+        EXPECT_EQ(compact_stats.cumulative_point(), 2);
     }
 
     SyncPoint::get_instance()->disable_processing();
