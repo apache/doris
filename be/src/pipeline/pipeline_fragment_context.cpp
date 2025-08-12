@@ -207,6 +207,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
     auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
     if (stream_load_ctx != nullptr) {
         stream_load_ctx->pipe->cancel(reason.to_string());
+        // Set error URL here because after pipe is cancelled, stream load execution may return early.
+        // We need to set the error URL at this point to ensure error information is properly
+        // propagated to the client.
+        stream_load_ctx->error_url = get_load_error_url();
     }
 
     for (auto& tasks : _tasks) {
