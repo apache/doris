@@ -31,6 +31,7 @@
 #include "common/status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class TrackableResource : public std::pmr::memory_resource {
 public:
@@ -100,24 +101,8 @@ public:
             uint32_t internal_id,
             const std::function<void(uint32_t, uint32_t, uint32_t)>& callback);
 
-    std::string dump_info() const {
-        std::string info = fmt::format("RowIdSpillManager: path={}, segment_count={}", _path,
-                                       _header.segment_count);
-        for (const auto& [id, seg_info] : _segment_infos) {
-            info.append(fmt::format("\n  Segment {}: row_count={}, offset={}, size={}", id,
-                                    seg_info.row_count, seg_info.offset, seg_info.size));
-        }
-        return info;
-    }
-
-    std::string dump_segment_info(int64_t internal_id) const {
-        if (auto it = _segment_infos.find(internal_id); it != _segment_infos.end()) {
-            const auto& seg_info = it->second;
-            return fmt::format("Segment {}: row_count={}, offset={}, size={}", internal_id,
-                               seg_info.row_count, seg_info.offset, seg_info.size);
-        }
-        return fmt::format("Segment {} not found", internal_id);
-    }
+    std::string dump_info() const;
+    std::string dump_segment_info(uint32_t internal_id) const;
 
 private:
     std::string _path;
@@ -129,4 +114,5 @@ private:
     std::unordered_map<uint32_t, SegmentInfo> _segment_infos;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

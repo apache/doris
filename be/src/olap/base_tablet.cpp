@@ -1706,7 +1706,9 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                                                      dst.row_id);
                 }
             }
-            rowid_conversion.prune_segment_mapping(src.rowset_id, seg_id);
+            if (rowid_conversion.can_prune()) {
+                rowid_conversion.prune_segment_mapping(src.rowset_id, seg_id);
+            }
         }
     }
 }

@@ -351,9 +351,11 @@ protected:
         }
 
         Merger::Statistics stats;
-        RowIdConversion rowid_conversion(enable_spill, tablet->tablet_id(),
-                                         writer_context.tablet_path);
-        EXPECT_TRUE(rowid_conversion.init().ok());
+        RowIdConversion rowid_conversion;
+        EXPECT_TRUE(rowid_conversion
+                            .init(enable_spill, rowid_conversion_max_memory, tablet->tablet_id(),
+                                  writer_context.tablet_path, true)
+                            .ok());
         stats.rowid_conversion = &rowid_conversion;
         Status s;
         if (is_vertical_merger) {
@@ -392,6 +394,8 @@ protected:
                 ASSERT_LE(rowid_conversion._mem_used, rowid_conversion_max_memory);
             }
         } while (s.ok());
+        std::cout << fmt::format("output_rows={}, rowid_conversion memory used={}",
+                                 out_rowset->rowset_meta()->num_rows(), rowid_conversion._mem_used);
         EXPECT_TRUE(s.is<END_OF_FILE>()) << s;
         EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
         auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(out_rowset);
@@ -582,7 +586,7 @@ INSTANTIATE_TEST_SUITE_P(
                                                       {UNIQUE_KEYS, true, true, true}}),
                 ::testing::ValuesIn(
                         // Parameters: enable_spill, spill_threshold
-                        std::vector<SpillParam> {{0}, {1000000}, {1000}})),
+                        std::vector<SpillParam> {{0}, {1000000}, {40000}})),
         MyNameGenerator);
 
 TEST_P(TestRowIdConversion, Conversion) {

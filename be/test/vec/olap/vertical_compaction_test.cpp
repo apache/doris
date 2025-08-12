@@ -99,6 +99,7 @@ protected:
 
         _data_dir = new DataDir(*engine_ref, absolute_dir, 100000000);
         static_cast<void>(_data_dir->init());
+        config::rowid_conversion_max_bytes = -1;
     }
     void TearDown() override {
         SAFE_DELETE(_data_dir);
