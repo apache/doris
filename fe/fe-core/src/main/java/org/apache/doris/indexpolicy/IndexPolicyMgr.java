@@ -232,6 +232,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             case "keyword":
                 validator = new KeywordTokenizerValidator();
                 break;
+            case "char_group":
+                validator = new CharGroupTokenizerValidator();
+                break;
             default:
                 throw new DdlException("Unsupported tokenizer type: " + type
                         + ". Supported types: " + IndexPolicy.BUILTIN_TOKENIZERS);
