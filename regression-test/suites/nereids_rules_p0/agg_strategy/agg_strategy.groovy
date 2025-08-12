@@ -133,4 +133,13 @@ suite("agg_strategy") {
     qt_with_gby_split_in_cascades "select count(distinct dst_key1,dst_key2),avg(dst_key2) from t_gbykey_10_dstkey_10_1000_id group by gby_key order by 1,2;"
     qt_without_gby "select count(distinct dst_key1,dst_key2) from t_gbykey_10_dstkey_10_1000_id;"
     qt_without_gby_satisfy "select count(distinct id,dst_key1) from t_gbykey_10_dstkey_10_1000_id;"
+
+    qt_group_concat_with_order_by_without_gby_with_distinct "select group_concat(distinct dst_key1 order by id separator ',') FROM t_gbykey_10_dstkey_10_1000_id;"
+    qt_group_concat_with_order_by_with_gby_with_distinct "select group_concat(distinct dst_key1 order by id separator ',') FROM t_gbykey_10_dstkey_10_1000_id group by gby_key order by 1;"
+    qt_group_concat_with_order_by_without_gby "select group_concat(dst_key1 order by id separator ',') FROM t_gbykey_10_dstkey_10_1000_id;"
+    qt_group_concat_with_order_by_with_gby "select group_concat(dst_key1 order by id separator ',') FROM t_gbykey_10_dstkey_10_1000_id group by gby_key order by 1;"
+    qt_group_concat_with_multi_order_by_without_gby_with_distinct "select group_concat(distinct dst_key1 order by id,dst_key2 separator ',') FROM t_gbykey_10_dstkey_10_1000_id;"
+    qt_group_concat_with_multi_order_by_with_gby_with_distinct "select group_concat(distinct dst_key1 order by id,dst_key2 separator ',') FROM t_gbykey_10_dstkey_10_1000_id group by gby_key order by 1;"
+
+
 }

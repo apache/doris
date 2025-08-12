@@ -100,7 +100,6 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
      * */
     List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
         // 这里还要再加上限制不能有其他的不带distinct的聚合函数,
-        // group concat不能有order by
         if (canUseFinalMultiDistinct(aggregate)) {
             // 为啥我这里twoPhaseAggregateWithFinalMultiDistinct和splitToThreePhase都要实现一下？我有点忘了
             return ImmutableList.of(

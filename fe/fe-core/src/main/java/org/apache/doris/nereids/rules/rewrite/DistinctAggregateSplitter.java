@@ -58,7 +58,7 @@ import java.util.Set;
  *     SELECT a, b, count(c) cnt FROM t GROUP BY a, b
  *   ) GROUP BY b
  */
-public class DistinctAggregateSplitter extends OneRewriteRuleFactory {
+public class DistinctAggregateSplitter implements RewriteRuleFactory {
     public static final DistinctAggregateSplitter INSTANCE = new DistinctAggregateSplitter();
     private static final Set<Class<? extends AggregateFunction>> supportSplitOtherFunctions = ImmutableSet.of(
             Sum.class, Min.class, Max.class, Count.class, Sum0.class, AnyValue.class);
@@ -74,24 +74,32 @@ public class DistinctAggregateSplitter extends OneRewriteRuleFactory {
                     );
 
     @Override
-    public Rule build() {
-        return logicalAggregate()
-                .whenNot(agg -> agg.getGroupByExpressions().isEmpty())
-                .then(this::apply).toRule(RuleType.DISTINCT_AGGREGATE_SPLIT);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalAggregate()
+                        .whenNot(agg -> agg.getGroupByExpressions().isEmpty())
+                        .then(this::rewrite).toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
+                logicalAggregate()
+                        .when(agg -> agg.getGroupByExpressions().isEmpty()
+                                && agg.mustUseMultiDistinctAgg())
+                        .then(this::convertToMultiDistinct).toRule(RuleType.DISTINCT_AGGREGATE_SPLIT)
+        );
     }
 
-    private boolean checkByStatistics(LogicalAggregate<? extends Plan> aggregate) {
+    private boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
         // 带group by的场景, group by key ndv低, distinct key ndv高, 则转为multi_distinct
         //      其他情况都拆分
         // 不带group by的场景, distinct key的ndv低,使用multi_distinct, ndv高,使用cte拆分
-        return true;
+        if (aggregate.mustUseMultiDistinctAgg()) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
-    private Plan apply(LogicalAggregate<? extends Plan> aggregate) {
+    private Plan rewrite(LogicalAggregate<? extends Plan> aggregate) {
         Set<AggregateFunction> aggFuncs = aggregate.getAggregateFunctions();
-        //这个函数同时也要处理count(distinct a,b)这种
         // 需要保证1.只有一个count(distinct)函数
-        // 如果是multi_distinct不处理
         Set<AggregateFunction> distinctAggFuncs = new HashSet<>();
         Set<AggregateFunction> otherFunctions = new HashSet<>();
         for (AggregateFunction aggFunc : aggFuncs) {
@@ -113,7 +121,19 @@ public class DistinctAggregateSplitter extends OneRewriteRuleFactory {
             }
         }
 
-        // 满足条件了,开始写拆分的代码
+        if (shouldUseMultiDistinct(aggregate)) {
+            return convertToMultiDistinct(aggregate);
+        } else {
+            return splitDistinctAgg(aggregate, distinctAggFuncs, otherFunctions);
+        }
+    }
+
+    private Plan convertToMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
+        return MultiDistinctFunctionStrategy.rewrite(aggregate);
+    }
+
+    private Plan splitDistinctAgg(LogicalAggregate<? extends Plan> aggregate, Set<AggregateFunction> distinctAggFuncs,
+            Set<AggregateFunction> otherFunctions) {
         // 先构造下面进行去重的AGG
         // group by key为group by key + distinct key
         Set<Expression> groupByKeys = ImmutableSet.<Expression>builder()
@@ -144,10 +164,10 @@ public class DistinctAggregateSplitter extends OneRewriteRuleFactory {
                         AggregateFunction aggFunc = (AggregateFunction) expr;
                         // 如果是distinct function,那么直接把distinct去掉
                         if (aggFunc.isDistinct()) {
-                            if (aggFunc.arity() == 1) {
-                                return aggFunc.withDistinctAndChildren(false, aggFunc.children());
-                            } else if (aggFunc instanceof Count && aggFunc.arity() > 1) {
+                            if (aggFunc instanceof Count && aggFunc.arity() > 1) {
                                 return AggregateUtils.countDistinctMultiExprToCountIf((Count) aggFunc);
+                            } else {
+                                return aggFunc.withDistinctAndChildren(false, aggFunc.children());
                             }
                         } else {
                             if (aggFuncToSlot.get(aggFunc) != null) {
