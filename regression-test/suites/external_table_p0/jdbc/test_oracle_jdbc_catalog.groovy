@@ -457,6 +457,41 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
             exception """Failed to parse push down rules: invalid_json"""
         }
 
+        // test synonym
+        sql """drop catalog if exists oracle_test_synonym"""
+        sql """create catalog oracle_test_synonym properties(
+            "type"="jdbc",
+            "user"="doris_test",
+            "password"="123456",
+            "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "oracle.jdbc.driver.OracleDriver"
+        );"""
+
+        // TEST_SYNONYM_STUDENT is a synonym of "student" table in DORIS_TEST
+        order_qt_sql_syn01 """select * from oracle_test_synonym.DORIS_TEST.TEST_SYNONYM_STUDENT"""
+        // should be empty, because user "doris_test" has no priv on SYNONYM_TEST_USER
+        qt_sql_syn02 """show tables from oracle_test_synonym.SYNONYM_TEST_USER;"""
+
+        // create catalog with admin priv
+        sql """drop catalog if exists oracle_test_synonym_sys"""
+        sql """create catalog oracle_test_synonym_sys properties(
+            "type"="jdbc",
+            "user"="system",
+            "password"="oracle",
+            "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "oracle.jdbc.driver.OracleDriver"
+        );"""
+
+        // can still see synonym in DORIS_TEST
+        order_qt_sql_syn01 """select * from oracle_test_synonym_sys.DORIS_TEST.TEST_SYNONYM_STUDENT"""
+        // should has priv to see 2 synonym in SYNONYM_TEST_USER
+        qt_sql_syn02 """show tables from oracle_test_synonym_sys.SYNONYM_TEST_USER;"""
+        order_qt_sql_syn03 """select * from oracle_test_synonym_sys.SYNONYM_TEST_USER.TEST_SYNONYM_STUDENT"""
+        order_qt_sql_syn04 """select * from oracle_test_synonym_sys.SYNONYM_TEST_USER.TEST_SYNONYM_STUDENT2"""
+        
+
         // sql """ drop catalog if exists oracle_null_operator; """
 
     }
