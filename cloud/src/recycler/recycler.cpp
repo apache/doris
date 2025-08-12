@@ -1004,8 +1004,9 @@ int64_t calculate_restore_job_expired_time(
     // not final state, wait much longer than the FE's timeout(1 day)
     int64_t last_modified_s =
             restore_job.has_mtime_s() ? restore_job.mtime_s() : restore_job.ctime_s();
-    int64_t expiration = restore_job.expired_at_s() > 0 ? last_modified_s + restore_job.expired_at_s()
-                                                      : last_modified_s;
+    int64_t expiration = restore_job.expired_at_s() > 0
+                                 ? last_modified_s + restore_job.expired_at_s()
+                                 : last_modified_s;
     int64_t final_expiration = expiration + config::retention_seconds;
     if (*earlest_ts > final_expiration) {
         *earlest_ts = final_expiration;
