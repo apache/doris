@@ -1026,21 +1026,23 @@ suite("aggregate_with_roll_up") {
             "o_orderdate, " +
             "o_shippriority, " +
             "o_comment "
-    def query2_0 = "select o_shippriority, o_comment, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*) " +
-            "from orders " +
-            "where o_shippriority = 2 " +
-            "group by " +
-            "o_shippriority, " +
-            "o_comment "
-
+    def query2_0 = """
+            select o_shippriority, o_comment,
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1,
+            count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*)
+            from orders
+            where o_shippriority = 2
+            group by
+            o_shippriority,
+            o_comment;
+            """
     order_qt_query2_0_before "${query2_0}"
-    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0", [NOT_IN_RBO])
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 

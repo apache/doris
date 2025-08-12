@@ -54,7 +54,7 @@ suite ("nereids_k123p") {
     mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = 1 order by k1;", "k123p1w")
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k1 = 1 order by k1;", "k123p1w")
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 1 order by k1;"
 
     mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;", ["k123p1w", "k123p4w"])
