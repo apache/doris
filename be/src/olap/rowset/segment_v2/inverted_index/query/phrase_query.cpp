@@ -272,12 +272,15 @@ void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_
     }
 }
 
-void PhraseQuery::parser_info(std::string& query,
+void PhraseQuery::parser_info(OlapReaderStatistics* stats, std::string& query,
                               const std::map<std::string, std::string>& properties,
                               InvertedIndexQueryInfo& query_info) {
     parser_slop(query, query_info);
-    query_info.term_infos =
-            inverted_index::InvertedIndexAnalyzer::get_analyse_result(query, properties);
+    {
+        SCOPED_RAW_TIMER(&stats->inverted_index_analyzer_timer);
+        query_info.term_infos =
+                inverted_index::InvertedIndexAnalyzer::get_analyse_result(query, properties);
+    }
 }
 
 } // namespace doris::segment_v2

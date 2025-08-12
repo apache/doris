@@ -35,6 +35,7 @@ namespace doris::cloud {
 // throughout the lifetime of the MetaReader instance.
 class MetaReader {
 public:
+    MetaReader(std::string_view instance_id) : MetaReader(instance_id, nullptr) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv)
             : MetaReader(instance_id, txn_kv, Versionstamp::max(), false) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv, Versionstamp snapshot_version)
@@ -254,6 +255,30 @@ public:
     TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
                                               int64_t* first_txn_id) {
         return get_partition_pending_txn_id(txn, partition_id, first_txn_id, snapshot_);
+    }
+
+    // Get the index of the given index id.
+    TxnErrorCode get_index_index(int64_t index_id, IndexIndexPB* index, bool snapshot);
+    TxnErrorCode get_index_index(Transaction* txn, int64_t index_id, IndexIndexPB* index,
+                                 bool snapshot);
+    TxnErrorCode get_index_index(int64_t index_id, IndexIndexPB* index) {
+        return get_index_index(index_id, index, snapshot_);
+    }
+    TxnErrorCode get_index_index(Transaction* txn, int64_t index_id, IndexIndexPB* index) {
+        return get_index_index(txn, index_id, index, snapshot_);
+    }
+
+    // Get the partition index for the given partition_id.
+    TxnErrorCode get_partition_index(int64_t partition_id, PartitionIndexPB* partition_index,
+                                     bool snapshot);
+    TxnErrorCode get_partition_index(Transaction* txn, int64_t partition_id,
+                                     PartitionIndexPB* partition_index, bool snapshot);
+    TxnErrorCode get_partition_index(int64_t partition_id, PartitionIndexPB* partition_index) {
+        return get_partition_index(partition_id, partition_index, snapshot_);
+    }
+    TxnErrorCode get_partition_index(Transaction* txn, int64_t partition_id,
+                                     PartitionIndexPB* partition_index) {
+        return get_partition_index(txn, partition_id, partition_index, snapshot_);
     }
 
 private:

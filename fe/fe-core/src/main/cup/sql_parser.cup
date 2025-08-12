@@ -1269,11 +1269,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
-    | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
-    opt_properties:properties
-    {:
-        RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
-    :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
@@ -1692,18 +1687,6 @@ create_stmt ::=
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
     {:
         RESULT = new CreateEncryptKeyStmt(ifNotExists, keyName, keyString);
-    :}
-    | KW_CREATE KW_INVERTED KW_INDEX KW_ANALYZER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
-    {:
-        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.ANALYZER, properties);
-    :}
-    | KW_CREATE KW_INVERTED KW_INDEX KW_TOKENIZER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
-    {:
-        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.TOKENIZER, properties);
-    :}
-    | KW_CREATE KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
-    {:
-        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.TOKEN_FILTER, properties);
     :}
     | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
     {:

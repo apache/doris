@@ -18,7 +18,6 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
@@ -50,6 +49,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -770,8 +770,12 @@ public abstract class TestWithFeService {
     }
 
     protected void alterSqlBlockRule(String sql) throws Exception {
+        NereidsParser parser = new NereidsParser();
+        AlterSqlBlockRuleCommand command = (AlterSqlBlockRuleCommand) parser.parseSingle(sql);
         Env.getCurrentEnv().getSqlBlockRuleMgr()
-                .alterSqlBlockRule((AlterSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+                .alterSqlBlockRule(new SqlBlockRule(command.getRuleName(), command.getSql(), command.getSqlHash(),
+                command.getPartitionNum(), command.getTabletNum(), command.getCardinality(),
+                command.getGlobal(), command.getEnable()));
     }
 
     protected void dropSqlBlockRule(String sql) throws Exception {
