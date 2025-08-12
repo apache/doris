@@ -1541,8 +1541,10 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     }
 
     // Use the storage resource of the previous rowset
-    ctx.storage_resource =
-            *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
+    if (!_input_rowsets.back()->rowset_meta()->resource_id().empty()) {
+        ctx.storage_resource =
+                *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
+    }
 
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive

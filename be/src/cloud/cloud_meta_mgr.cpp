@@ -1606,8 +1606,8 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
 
     if (tablet->tablet_meta()->tablet_state() != TabletState::TABLET_RUNNING) {
         LOG(INFO) << "tablet is not running, skip fill version holes, tablet_id: "
-                  << tablet->tablet_id() << ", tablet_state: "
-                  << tablet->tablet_meta()->tablet_state();
+                  << tablet->tablet_id()
+                  << ", tablet_state: " << tablet->tablet_meta()->tablet_state();
         return Status::OK();
     }
 
@@ -1694,17 +1694,7 @@ Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t v
     rs_meta->set_rowset_type(prev_rowset_meta->rowset_type());
     rs_meta->set_tablet_schema_hash(prev_rowset_meta->tablet_schema_hash());
     std::string resource_id = prev_rowset_meta->resource_id();
-    auto storage_resource =
-            ExecEnv::GetInstance()->storage_engine().to_cloud().get_storage_resource(resource_id);
-    if (!storage_resource) {
-        LOG(WARNING) << "Failed to get storage resource for resource_id: " << resource_id
-                     << ", tablet_id: " << tablet->tablet_id() << ", version: " << version;
-        return Status::InternalError("vault id not found, maybe not sync, vault id {}",
-                                     resource_id);
-    }
-    rs_meta->set_remote_storage_resource(storage_resource.value());
-    LOG(INFO) << "create_empty_rowset_for_hole, tablet_id: " << tablet->tablet_id()
-              << ", version: " << version << ", resource_id: " << resource_id;
+    rs_meta->set_resource_id(resource_id);
 
     // Set as empty rowset - override size and segment information
     rs_meta->set_num_rows(0);

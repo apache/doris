@@ -1127,19 +1127,20 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     TEST_SYNC_POINT_CALLBACK("process_compaction_job::loop_input_done", &num_rowsets);
 
-    // if (num_rowsets < 1) {
-    //     SS << "too few input rowsets, tablet_id=" << tablet_id << " num_rowsets=" << num_rowsets;
-    //     code = MetaServiceCode::UNDEFINED_ERR;
-    //     msg = ss.str();
-    //     recorded_job.mutable_compaction()->erase(recorded_compaction);
-    //     auto job_val = recorded_job.SerializeAsString();
-    //     txn->put(job_key, job_val);
-    //     INSTANCE_LOG(INFO) << "remove compaction job, tablet_id=" << tablet_id
-    //                        << " key=" << hex(job_key);
-    //     need_commit = true;
-    //     TEST_SYNC_POINT_CALLBACK("process_compaction_job::too_few_rowsets", &need_commit);
-    //     return;
-    // }
+    // compaction.num_input_rowsets is 0 when multiple hole rowsets are compacted
+    if (num_rowsets < 1 && compaction.num_input_rowsets() > 0) {
+        SS << "too few input rowsets, tablet_id=" << tablet_id << " num_rowsets=" << num_rowsets;
+        code = MetaServiceCode::UNDEFINED_ERR;
+        msg = ss.str();
+        recorded_job.mutable_compaction()->erase(recorded_compaction);
+        auto job_val = recorded_job.SerializeAsString();
+        txn->put(job_key, job_val);
+        INSTANCE_LOG(INFO) << "remove compaction job, tablet_id=" << tablet_id
+                           << " key=" << hex(job_key);
+        need_commit = true;
+        TEST_SYNC_POINT_CALLBACK("process_compaction_job::too_few_rowsets", &need_commit);
+        return;
+    }
 
     //==========================================================================
     //                Change tmp rowset to formal rowset
