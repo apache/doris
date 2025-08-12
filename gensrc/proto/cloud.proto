@@ -441,6 +441,8 @@ message TxnInfoPB {
     // for transaction load, used for recycler
     repeated int64 sub_txn_ids = 18;
     // TODO: There are more fields TBD
+    optional bool versioned_write = 19;  // versioned write, don't need to write RecycleTxnPB again
+    optional bool versioned_read = 20;  // whether to read versioned keys
 }
 
 // For check txn conflict and txn timeout
@@ -474,6 +476,7 @@ message RecycleIndexPB {
     optional int64 creation_time = 2;
     optional int64 expiration = 3; // expiration timestamp
     optional State state = 4;
+    optional int64 db_id = 5;
 }
 
 message RecyclePartitionPB {
@@ -512,6 +515,23 @@ message RecycleStagePB {
     optional StagePB stage = 3;
 }
 
+message RestoreJobCloudPB {
+    enum State {
+        UNKNOWN = 0;
+        PREPARED = 1;
+        DROPPED = 2;
+    }
+    optional int64 tablet_id = 1;
+    optional int64 creation_time = 2;
+    optional int64 expiration = 3; // expiration timestamp
+    optional doris.TabletMetaCloudPB tablet_meta = 4;
+    optional State state = 5;
+    optional int64 total_rowset_num = 6;
+    optional int64 total_row_num = 7;
+    optional int64 total_segment_num = 8;
+    optional int64 total_disk_size = 9;
+}
+
 message JobRecyclePB {
     enum Status {
         IDLE = 0;
@@ -535,6 +555,11 @@ message TabletIndexPB {
 }
 
 message PartitionIndexPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+}
+
+message IndexIndexPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
 }
@@ -635,13 +660,14 @@ message CompactionLogPB {
 }
 
 message CommitTxnLogPB {
-    optional int64 table_id = 1;
+    repeated int64 table_ids = 1;
     map<int64, int64> partition_version_map = 2;
     map<int64, int64> tablet_to_partition_map = 3;
 
     // for recycle txn key
     optional int64 txn_id = 4;
     optional RecycleTxnPB recycle_txn = 5;
+    optional int64 db_id = 6;
 }
 
 message SchemaChangeLogPB {
@@ -661,21 +687,28 @@ message CommitPartitionLogPB {
 message DropPartitionLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
-    optional int64 partition_id = 4;
-    optional RecyclePartitionPB recycle_partition = 5;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+    optional int64 expiration = 5; // expiration timestamp
+    optional bool update_table_version = 6;
+}
+
+message CommitIndexLogPB {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    repeated int64 index_ids = 3;
+    optional bool update_table_version = 4;
 }
 
 message DropIndexLogPB {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
-    optional int64 index_id = 3;
-    optional RecycleIndexPB recycle_index = 4;
+    repeated int64 index_ids = 3;
+    optional int64 expiration = 4; // expiration timestamp
 }
 
 message UpdateTabletLogPB {
-    optional int64 tablet_id = 1;
-    optional int64 prev_timestamp = 2;
+    repeated int64 tablet_ids = 1;
 }
 
 message UpdateDeleteBitmapLogPB {
@@ -695,6 +728,7 @@ message OperationLogPB {
     optional UpdateTabletLogPB update_tablet = 7;
     optional UpdateDeleteBitmapLogPB update_delete_bitmap = 8;
     optional CommitPartitionLogPB commit_partition = 9;
+    optional CommitIndexLogPB commit_index = 10;
 }
 
 enum SnapshotType {
@@ -1228,9 +1262,22 @@ message PartitionRequest {
     optional int64 db_id = 6;
     optional bool need_update_table_version = 7;
     optional string request_ip = 8;
+    repeated int64 partition_versions = 9;
 }
 
 message PartitionResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message RestoreJobRequest {
+    optional string cloud_unique_id = 1;
+    optional int64 tablet_id = 2;
+    optional doris.TabletMetaCloudPB tablet_meta = 3;
+    optional int64 expiration = 4;
+    optional string request_ip = 5;
+}
+
+message RestoreJobResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -1915,6 +1962,10 @@ service MetaService {
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
     // DEPRECATED
     rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
+
+    rpc prepare_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc commit_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc finish_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
 
     rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);

@@ -17,8 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import java.util.Optional;
+
 /**
  * For iceberg External Table
  */
 public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandContext {
+    private Optional<String> branchName = Optional.empty();
+
+    public Optional<String> getBranchName() {
+        return branchName;
+    }
+
+    public void setBranchName(Optional<String> branchName) {
+        this.branchName = branchName;
+    }
 }

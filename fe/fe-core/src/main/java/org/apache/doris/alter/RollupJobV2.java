@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
@@ -62,7 +61,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -139,8 +137,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
 
-    private Analyzer analyzer;
-
     protected RollupJobV2() {
         super(JobType.ROLLUP);
     }
@@ -169,7 +165,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.rollupShortKeyColumnCount = rollupShortKeyColumnCount;
 
         this.origStmt = origStmt;
-        initAnalyzer();
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
@@ -200,18 +195,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     public String getBaseIndexName() {
         return baseIndexName;
-    }
-
-    protected void initAnalyzer() throws AnalysisException {
-        ConnectContext connectContext = new ConnectContext();
-        Database db;
-        try {
-            db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        } catch (MetaNotFoundException e) {
-            throw new AnalysisException("error happens when parsing create materialized view stmt: " + origStmt, e);
-        }
-        connectContext.setDatabase(db.getFullName());
-        analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
     }
 
     protected void createRollupReplica() throws AlterCancelException {
@@ -379,7 +362,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
-                rollupKeysType, origStmt, analyzer != null ? new Analyzer(analyzer) : analyzer, null);
+                rollupKeysType, origStmt, null);
         tbl.rebuildFullSchema();
     }
 
@@ -541,13 +524,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
             ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
-                int maxFailedTimes = 0;
-                if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
-                    if (task.getErrorCode() != null && task.getErrorCode()
-                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
-                        maxFailedTimes = Config.schema_change_max_retry_time;
-                    }
-                }
+                int maxFailedTimes = getRetryTimes(task);
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());

@@ -45,11 +45,11 @@ public class FunctionArgsDef {
         return isVariadic;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         argTypes = new Type[argTypeDefs.size()];
         int i = 0;
         for (TypeDef typeDef : argTypeDefs) {
-            typeDef.analyze(analyzer);
+            typeDef.analyze();
             argTypes[i++] = typeDef.getType();
         }
     }

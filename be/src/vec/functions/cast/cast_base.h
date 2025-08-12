@@ -19,31 +19,35 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "cast_parameters.h"
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
+#include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
 struct NameCast {
     static constexpr auto name = "CAST";
 };
-
-struct PrecisionScaleArg {
-    UInt32 precision;
-    UInt32 scale;
-};
-
 namespace CastUtil {
 // `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
 // Doris uses `uint8` to represent boolean values internally.
@@ -98,23 +102,31 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
                                    size_t input_rows_count,
                                    const NullMap::value_type* null_map = nullptr);
 
+Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
+                                        const ColumnNumbers& arguments, uint32_t result,
+                                        size_t input_rows_count,
+                                        const NullMap::value_type* null_map = nullptr);
+
+Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Block& block,
+                                                    const ColumnNumbers& arguments, uint32_t result,
+                                                    size_t input_rows_count,
+                                                    const NullMap::value_type* null_map = nullptr);
+
 // prepare_unpack_dictionaries -> prepare_remove_nullable -> prepare_impl
 
 WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
                                         const DataTypePtr& to_type);
 
 WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
-                                    const DataTypePtr& to_type, bool skip_not_null_check);
+                                    const DataTypePtr& to_type);
 
 WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
-                         const DataTypePtr& to_type, bool requested_result_is_nullable);
+                         const DataTypePtr& to_type);
 
 ElementWrappers get_element_wrappers(FunctionContext* context, const DataTypes& from_element_types,
                                      const DataTypes& to_element_types);
 
 WrapperType create_identity_wrapper(const DataTypePtr&);
-
-WrapperType create_nothing_wrapper(const IDataType* to_type);
 
 } // namespace CastWrapper
 

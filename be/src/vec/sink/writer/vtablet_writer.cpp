@@ -317,18 +317,24 @@ Status IndexChannel::close_wait(
                     { return Status::TimedOut("injected timeout"); });
     Status status = Status::OK();
     // 1. wait quorum success
-    std::unordered_set<int64_t> write_tablets;
-    for (const auto& [node_id, node_channel] : _node_channels) {
-        auto node_channel_write_tablets = node_channel->write_tablets();
-        write_tablets.insert(node_channel_write_tablets.begin(), node_channel_write_tablets.end());
+    std::unordered_set<int64_t> need_finish_tablets;
+    auto partition_ids = _parent->_tablet_finder->partition_ids();
+    for (const auto& part : _parent->_vpartition->get_partitions()) {
+        if (partition_ids.contains(part->id)) {
+            for (const auto& index : part->indexes) {
+                for (const auto& tablet_id : index.tablets) {
+                    need_finish_tablets.insert(tablet_id);
+                }
+            }
+        }
     }
     while (true) {
         RETURN_IF_ERROR(check_each_node_channel_close(
                 &unfinished_node_channel_ids, node_add_batch_counter_map, writer_stats, status));
-        bool quorum_success = _quorum_success(unfinished_node_channel_ids, write_tablets);
+        bool quorum_success = _quorum_success(unfinished_node_channel_ids, need_finish_tablets);
         if (unfinished_node_channel_ids.empty() || quorum_success) {
             LOG(INFO) << "quorum_success: " << quorum_success
-                      << ", is all unfinished: " << unfinished_node_channel_ids.empty()
+                      << ", is all finished: " << unfinished_node_channel_ids.empty()
                       << ", txn_id: " << _parent->_txn_id
                       << ", load_id: " << print_id(_parent->_load_id);
             break;
@@ -338,6 +344,7 @@ Status IndexChannel::close_wait(
 
     // 2. wait for all node channel to complete as much as possible
     if (!unfinished_node_channel_ids.empty() && need_wait_after_quorum_success) {
+        int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(unfinished_node_channel_ids);
         while (true) {
             RETURN_IF_ERROR(check_each_node_channel_close(&unfinished_node_channel_ids,
@@ -346,7 +353,7 @@ Status IndexChannel::close_wait(
             if (unfinished_node_channel_ids.empty()) {
                 break;
             }
-            int64_t elapsed_ms = UnixMillis() - _start_time;
+            int64_t elapsed_ms = UnixMillis() - arrival_quorum_success_time;
             if (elapsed_ms > max_wait_time_ms ||
                 _parent->_load_channel_timeout_s - elapsed_ms / 1000 <
                         config::quorum_success_remaining_timeout_seconds) {
@@ -400,28 +407,27 @@ Status IndexChannel::check_each_node_channel_close(
 }
 
 bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
-                                   const std::unordered_set<int64_t>& write_tablets) {
+                                   const std::unordered_set<int64_t>& need_finish_tablets) {
     if (!config::enable_quorum_success_write) {
         return false;
     }
-    std::unordered_map<int64_t, int64_t> finished_tablets_replica;
+    if (need_finish_tablets.empty()) [[unlikely]] {
+        return false;
+    }
 
     // 1. collect all write tablets and finished tablets
+    std::unordered_map<int64_t, int64_t> finished_tablets_replica;
     for (const auto& [node_id, node_channel] : _node_channels) {
-        auto node_channel_write_tablets = node_channel->write_tablets();
         if (unfinished_node_channel_ids.contains(node_id) || !node_channel->check_status().ok()) {
             continue;
         }
-        for (const auto& tablet_id : node_channel_write_tablets) {
+        for (const auto& tablet_id : _tablets_by_channel[node_id]) {
             finished_tablets_replica[tablet_id]++;
         }
     }
 
     // 2. check if quorum success
-    if (write_tablets.empty()) {
-        return false;
-    }
-    for (const auto& tablet_id : write_tablets) {
+    for (const auto& tablet_id : need_finish_tablets) {
         if (finished_tablets_replica[tablet_id] < _load_required_replicas_num(tablet_id)) {
             return false;
         }
@@ -465,6 +471,7 @@ int64_t IndexChannel::_calc_max_wait_time_ms(
 
     // 3. calculate max wait time
     // introduce quorum_success_min_wait_seconds to avoid jitter of small load
+    max_wait_time_ms -= UnixMillis() - _start_time;
     max_wait_time_ms =
             std::max(static_cast<int64_t>(static_cast<double>(max_wait_time_ms) *
                                           (1.0 + config::quorum_success_max_wait_multiplier)),
@@ -756,10 +763,6 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     for (auto tablet_id : payload->second) {
         _cur_add_block_request->add_tablet_ids(tablet_id);
     }
-    {
-        std::lock_guard<std::mutex> l(_write_tablets_lock);
-        _write_tablets.insert(payload->second.begin(), payload->second.end());
-    }
     _write_bytes.fetch_add(_cur_mutable_block->bytes());
 
     if (_cur_mutable_block->rows() >= _batch_size ||
@@ -1012,7 +1015,17 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
         if (!st.ok()) {
             _cancel_with_msg(st.to_string());
         } else if (ctx._is_last_rpc) {
+            bool skip_tablet_info = false;
+            DBUG_EXECUTE_IF("VNodeChannel.add_block_success_callback.incomplete_commit_info",
+                            { skip_tablet_info = true; });
             for (const auto& tablet : result.tablet_vec()) {
+                DBUG_EXECUTE_IF("VNodeChannel.add_block_success_callback.incomplete_commit_info", {
+                    if (skip_tablet_info) {
+                        LOG(INFO) << "skip tablet info: " << tablet.tablet_id();
+                        skip_tablet_info = false;
+                        continue;
+                    }
+                });
                 TTabletCommitInfo commit_info;
                 commit_info.tabletId = tablet.tablet_id();
                 commit_info.backendId = _node_id;

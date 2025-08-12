@@ -45,6 +45,9 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
+#include "runtime/raw_value.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
 #include "util/string_util.h"
@@ -3125,41 +3128,6 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     return result;
 }
 
-// Note string value must be valid decimal string which contains two digits after the decimal point
-static inline StringRef do_format_round(FunctionContext* context, const std::string& value,
-                                        Int32 decimal_places) {
-    bool is_positive = (value[0] != '-');
-    int32_t result_len =
-            value.size() +
-            (value.size() - (is_positive ? (decimal_places + 2) : (decimal_places + 3))) / 3;
-    StringRef result = context->create_temp_string_val(result_len);
-    char* result_data = const_cast<char*>(result.data);
-    if (!is_positive) {
-        *result_data = '-';
-    }
-    for (int i = value.size() - (decimal_places + 2), j = result_len - (decimal_places + 2); i >= 0;
-         i = i - 3) {
-        *(result_data + j) = *(value.data() + i);
-        if (i - 1 < 0) {
-            break;
-        }
-        *(result_data + j - 1) = *(value.data() + i - 1);
-        if (i - 2 < 0) {
-            break;
-        }
-        *(result_data + j - 2) = *(value.data() + i - 2);
-        if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
-            *(result_data + j - 3) = ',';
-            j -= 4;
-        } else {
-            j -= 3;
-        }
-    }
-    memcpy(result_data + result_len - (decimal_places + 1),
-           value.data() + value.size() - (decimal_places + 1), (decimal_places + 1));
-    return result;
-};
-
 } // namespace FormatRound
 
 struct MoneyFormatDoubleImpl {
@@ -3305,6 +3273,44 @@ struct FormatRoundDoubleImpl {
         return {std::make_shared<DataTypeFloat64>(), std::make_shared<vectorized::DataTypeInt32>()};
     }
 
+    static std::string add_thousands_separator(const std::string& formatted_num) {
+        //  Find the position of the decimal point
+        size_t dot_pos = formatted_num.find('.');
+        if (dot_pos == std::string::npos) {
+            dot_pos = formatted_num.size();
+        }
+
+        // Handle the integer part
+        int start = (formatted_num[0] == '-') ? 1 : 0;
+        int digit_count = dot_pos - start;
+
+        // There is no need to add commas.
+        if (digit_count <= 3) {
+            return formatted_num;
+        }
+
+        std::string result;
+
+        if (start == 1) result += '-';
+
+        // Add the integer part (with comma)
+        int first_group = digit_count % 3;
+        if (first_group == 0) first_group = 3;
+        result.append(formatted_num, start, first_group);
+
+        for (size_t i = start + first_group; i < dot_pos; i += 3) {
+            result += ',';
+            result.append(formatted_num, i, 3);
+        }
+
+        // Add the decimal part (keep as it is)
+        if (dot_pos != formatted_num.size()) {
+            result.append(formatted_num, dot_pos);
+        }
+
+        return result;
+    }
+
     template <bool is_const>
     static Status execute(FunctionContext* context, ColumnString* result_column,
                           const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
@@ -3322,9 +3328,14 @@ struct FormatRoundDoubleImpl {
             // round to `decimal_places` decimal places
             double value = MathFunctions::my_double_round(data_column->get_element(i),
                                                           decimal_places, false, false);
-            StringRef str = FormatRound::do_format_round(
-                    context, fmt::format("{:.{}f}", value, decimal_places), decimal_places);
-            result_column->insert_data(str.data, str.size);
+            std::string formatted_value = fmt::format("{:.{}f}", value, decimal_places);
+            if (std::isfinite(value)) {
+                result_column->insert_value(add_thousands_separator(formatted_value));
+            } else {
+                // if value is not finite, we just insert the original formatted value
+                // e.g. "inf", "-inf", "nan"
+                result_column->insert_value(formatted_value);
+            }
         }
         return Status::OK();
     }
@@ -4925,5 +4936,59 @@ private:
         return Status::OK();
     }
 };
+
+// ATTN: for debug only
+// compute crc32 hash value as the same way in `VOlapTablePartitionParam::find_tablets()`
+class FunctionCrc32Internal : public IFunction {
+public:
+    static constexpr auto name = "crc32_internal";
+    static FunctionPtr create() { return std::make_shared<FunctionCrc32Internal>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK_GE(arguments.size(), 1);
+
+        auto argument_size = arguments.size();
+        std::vector<ColumnPtr> argument_columns(argument_size);
+        std::vector<PrimitiveType> argument_primitive_types(argument_size);
+
+        for (size_t i = 0; i < argument_size; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            argument_primitive_types[i] =
+                    block.get_by_position(arguments[i]).type->get_primitive_type();
+        }
+
+        auto res_col = ColumnInt64::create();
+        auto& res_data = res_col->get_data();
+        res_data.resize_fill(input_rows_count, 0);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            uint32_t hash_val = 0;
+            for (size_t j = 0; j < argument_size; ++j) {
+                const auto& column = argument_columns[j];
+                auto primitive_type = argument_primitive_types[j];
+                auto val = column->get_data_at(i);
+                if (val.data != nullptr) {
+                    hash_val = RawValue::zlib_crc32(val.data, val.size, primitive_type, hash_val);
+                } else {
+                    hash_val = HashUtil::zlib_crc_hash_null(hash_val);
+                }
+            }
+            res_data[i] = hash_val;
+        }
+
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+};
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

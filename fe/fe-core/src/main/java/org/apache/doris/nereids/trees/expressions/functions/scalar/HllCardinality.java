@@ -52,13 +52,18 @@ public class HllCardinality extends ScalarFunction
         super("hll_cardinality", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private HllCardinality(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public HllCardinality withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new HllCardinality(children.get(0));
+        return new HllCardinality(getFunctionParams(children));
     }
 
     @Override

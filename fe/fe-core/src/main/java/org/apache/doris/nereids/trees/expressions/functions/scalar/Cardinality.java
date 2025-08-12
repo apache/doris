@@ -52,13 +52,18 @@ public class Cardinality extends ScalarFunction
         super("cardinality", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Cardinality(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Cardinality withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cardinality(children.get(0));
+        return new Cardinality(getFunctionParams(children));
     }
 
     @Override

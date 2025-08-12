@@ -45,16 +45,11 @@ public:
                                     BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
-    }
+                                          const FormatOptions& options) const override;
+
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
-                                               const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_column_from_text_vector with type " +
-                                    column.get_name());
-    }
+                                               const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override {
@@ -67,10 +62,6 @@ public:
                                  int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
-
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override;
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
@@ -91,8 +82,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               std::vector<StringRef>& buffer_list) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
 private:
     template <bool is_binary_format>

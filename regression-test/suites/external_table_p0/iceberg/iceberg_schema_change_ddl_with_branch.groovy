@@ -27,7 +27,7 @@ suite("iceberg_schema_change_ddl_with_branch", "p0,external,doris,external_docke
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String catalog_name = "iceberg_schema_change_ddl"
+    String catalog_name = "iceberg_schema_change_ddl_with_branch"
 
     sql """drop catalog if exists ${catalog_name}"""
     sql """
@@ -42,7 +42,9 @@ suite("iceberg_schema_change_ddl_with_branch", "p0,external,doris,external_docke
     );"""
 
     sql """switch ${catalog_name};"""
-    sql """ use test_db;""" 
+    sql """drop database if exists iceberg_schema_change_ddl_with_branch_db force"""
+    sql """create database iceberg_schema_change_ddl_with_branch_db"""
+    sql """ use iceberg_schema_change_ddl_with_branch_db;""" 
 
     sql """ set enable_fallback_to_original_planner=false; """
 

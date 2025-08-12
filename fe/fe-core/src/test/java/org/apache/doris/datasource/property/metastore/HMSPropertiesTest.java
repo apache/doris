@@ -19,11 +19,9 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -70,11 +68,11 @@ public class HMSPropertiesTest {
         HMSProperties hmsProperties = getHMSProperties(params);
         Assertions.assertNotNull(hmsProperties);
         Assertions.assertEquals("thrift://127.0.0.1:9083", hmsProperties.getHiveConf().get("hive.metastore.uris"));
-        Assertions.assertEquals(HadoopSimpleAuthenticator.class, hmsProperties.getHdfsAuthenticator().getClass());
+        Assertions.assertEquals(HadoopExecutionAuthenticator.class, hmsProperties.getExecutionAuthenticator().getClass());
         params.put("hadoop.security.authentication", "simple");
         hmsProperties = getHMSProperties(params);
         Assertions.assertNotNull(hmsProperties);
-        Assertions.assertEquals(HadoopSimpleAuthenticator.class, hmsProperties.getHdfsAuthenticator().getClass());
+        Assertions.assertEquals(HadoopExecutionAuthenticator.class, hmsProperties.getExecutionAuthenticator().getClass());
         params.put("hive.metastore.authentication.type", "kerberos");
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params),
                 "Hive metastore authentication type is kerberos, but service principal, client principal or client keytab is not set.");
@@ -84,7 +82,7 @@ public class HMSPropertiesTest {
         params.put("hive.metastore.client.keytab", "/path/to/keytab");
         hmsProperties = getHMSProperties(params);
         Assertions.assertNotNull(hmsProperties);
-        Assertions.assertEquals(HadoopKerberosAuthenticator.class, hmsProperties.getHdfsAuthenticator().getClass());
+        Assertions.assertEquals(HadoopExecutionAuthenticator.class, hmsProperties.getExecutionAuthenticator().getClass());
         params.put("hive.metastore.authentication.type", "simple");
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params),
                 "Hive metastore authentication type is simple, but service principal, client principal or client keytab is set.");
@@ -101,18 +99,6 @@ public class HMSPropertiesTest {
 
     private HMSProperties getHMSProperties(Map<String, String> params) throws UserException {
         return (HMSProperties) MetastoreProperties.create(params);
-    }
-
-    private void testHmsToPaimonOptions(HMSProperties hmsProperties) {
-        Options paimonOptions = new Options();
-        hmsProperties.toPaimonOptionsAndConf(paimonOptions);
-        Assertions.assertEquals("thrift://127.0.0.1:9083", paimonOptions.get("uri"));
-    }
-
-    private void testHmsToIcebergHiveCatalog(HMSProperties hmsProperties) {
-        Map<String, String> icebergMSParams = new HashMap<>();
-        hmsProperties.toIcebergHiveCatalogProperties(icebergMSParams);
-        Assertions.assertEquals("thrift://127.0.0.1:9083", icebergMSParams.get("uri"));
     }
 
     @Test

@@ -24,50 +24,12 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     sql "set debug_skip_fold_constant = true;"
     sql "set enable_decimal256 = true;"
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_0_from_decimal_75_0_overflow_10_test_data = ["""1000000000000000000000000000000000000000""","""999999999999999999999999999999999999999999999999999999999999999999999999998""","""999999999999999999999999999999999999999999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_0_from_decimal_76_0_overflow_4_test_data = ["""1000000000000000000000000000000000000000""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_0_from_decimal_75_0_overflow_10_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 0));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_0_from_decimal_75_0_overflow_10_test_data) {
-        qt_sql_test_cast_to_decimal_39_0_from_decimal_75_0_overflow_10 """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 0));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 0));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_0_from_decimal_75_1_overflow_11_test_data = ["""999999999999999999999999999999999999999.9""","""999999999999999999999999999999999999999.9""","""1000000000000000000000000000000000000000.9""","""1000000000000000000000000000000000000000.9""","""99999999999999999999999999999999999999999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999999999999999999999999999999999999999.9""","""99999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_0_from_decimal_75_1_overflow_11_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 0));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_0_from_decimal_75_1_overflow_11_test_data) {
-        qt_sql_test_cast_to_decimal_39_0_from_decimal_75_1_overflow_11 """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 0));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 0));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_0_from_decimal_76_0_overflow_15_test_data = ["""1000000000000000000000000000000000000000""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_0_from_decimal_76_0_overflow_15_test_data) {
+        for (test_str in test_cast_to_decimal_39_0_from_decimal_76_0_overflow_4_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 0));"""
                 exception ""
@@ -76,17 +38,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_0_from_decimal_76_0_overflow_15_test_data) {
-        qt_sql_test_cast_to_decimal_39_0_from_decimal_76_0_overflow_15 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 0));"""
+    for (test_str in test_cast_to_decimal_39_0_from_decimal_76_0_overflow_4_test_data) {
+        qt_sql_test_cast_to_decimal_39_0_from_decimal_76_0_overflow_4 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 0));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_0_from_decimal_76_1_overflow_16_test_data = ["""999999999999999999999999999999999999999.9""","""999999999999999999999999999999999999999.9""","""1000000000000000000000000000000000000000.9""","""1000000000000000000000000000000000000000.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
+    def test_cast_to_decimal_39_0_from_decimal_76_1_overflow_5_test_data = ["""999999999999999999999999999999999999999.9""","""999999999999999999999999999999999999999.5""","""1000000000000000000000000000000000000000.9""","""1000000000000000000000000000000000000000.5""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.5""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.5"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_0_from_decimal_76_1_overflow_16_test_data) {
+        for (test_str in test_cast_to_decimal_39_0_from_decimal_76_1_overflow_5_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 0));"""
                 exception ""
@@ -95,17 +57,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_0_from_decimal_76_1_overflow_16_test_data) {
-        qt_sql_test_cast_to_decimal_39_0_from_decimal_76_1_overflow_16 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 0));"""
+    for (test_str in test_cast_to_decimal_39_0_from_decimal_76_1_overflow_5_test_data) {
+        qt_sql_test_cast_to_decimal_39_0_from_decimal_76_1_overflow_5 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 0));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 0));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_1_from_decimal_39_0_overflow_25_test_data = ["""100000000000000000000000000000000000000""","""999999999999999999999999999999999999998""","""999999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_1_from_decimal_39_0_overflow_8_test_data = ["""100000000000000000000000000000000000000""","""999999999999999999999999999999999999998""","""999999999999999999999999999999999999999"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_1_from_decimal_39_0_overflow_25_test_data) {
+        for (test_str in test_cast_to_decimal_39_1_from_decimal_39_0_overflow_8_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 1));"""
                 exception ""
@@ -114,74 +76,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_1_from_decimal_39_0_overflow_25_test_data) {
-        qt_sql_test_cast_to_decimal_39_1_from_decimal_39_0_overflow_25 """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 1));"""
+    for (test_str in test_cast_to_decimal_39_1_from_decimal_39_0_overflow_8_test_data) {
+        qt_sql_test_cast_to_decimal_39_1_from_decimal_39_0_overflow_8 """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 1));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_1_from_decimal_75_0_overflow_30_test_data = ["""100000000000000000000000000000000000000""","""999999999999999999999999999999999999999999999999999999999999999999999999998""","""999999999999999999999999999999999999999999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_1_from_decimal_76_0_overflow_12_test_data = ["""100000000000000000000000000000000000000""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_1_from_decimal_75_0_overflow_30_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 1));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_1_from_decimal_75_0_overflow_30_test_data) {
-        qt_sql_test_cast_to_decimal_39_1_from_decimal_75_0_overflow_30 """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 1));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 1));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_1_from_decimal_75_1_overflow_31_test_data = ["""100000000000000000000000000000000000000.9""","""99999999999999999999999999999999999999999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_1_from_decimal_75_1_overflow_31_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 1));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_1_from_decimal_75_1_overflow_31_test_data) {
-        qt_sql_test_cast_to_decimal_39_1_from_decimal_75_1_overflow_31 """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 1));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 1));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_1_from_decimal_75_37_overflow_32_test_data = ["""99999999999999999999999999999999999999.9999999999999999999999999999999999999""","""99999999999999999999999999999999999999.9999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_1_from_decimal_75_37_overflow_32_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 1));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_1_from_decimal_75_37_overflow_32_test_data) {
-        qt_sql_test_cast_to_decimal_39_1_from_decimal_75_37_overflow_32 """select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 1));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 1));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_1_from_decimal_76_0_overflow_35_test_data = ["""100000000000000000000000000000000000000""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_1_from_decimal_76_0_overflow_35_test_data) {
+        for (test_str in test_cast_to_decimal_39_1_from_decimal_76_0_overflow_12_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 1));"""
                 exception ""
@@ -190,17 +95,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_1_from_decimal_76_0_overflow_35_test_data) {
-        qt_sql_test_cast_to_decimal_39_1_from_decimal_76_0_overflow_35 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 1));"""
+    for (test_str in test_cast_to_decimal_39_1_from_decimal_76_0_overflow_12_test_data) {
+        qt_sql_test_cast_to_decimal_39_1_from_decimal_76_0_overflow_12 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 1));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_1_from_decimal_76_1_overflow_36_test_data = ["""100000000000000000000000000000000000000.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
+    def test_cast_to_decimal_39_1_from_decimal_76_1_overflow_13_test_data = ["""100000000000000000000000000000000000000.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_1_from_decimal_76_1_overflow_36_test_data) {
+        for (test_str in test_cast_to_decimal_39_1_from_decimal_76_1_overflow_13_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 1));"""
                 exception ""
@@ -209,283 +114,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_1_from_decimal_76_1_overflow_36_test_data) {
-        qt_sql_test_cast_to_decimal_39_1_from_decimal_76_1_overflow_36 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 1));"""
+    for (test_str in test_cast_to_decimal_39_1_from_decimal_76_1_overflow_13_test_data) {
+        qt_sql_test_cast_to_decimal_39_1_from_decimal_76_1_overflow_13 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 1));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 1));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_1_from_decimal_76_38_overflow_37_test_data = ["""99999999999999999999999999999999999999.99999999999999999999999999999999999999""","""99999999999999999999999999999999999999.99999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_38_from_decimal_39_0_overflow_16_test_data = ["""10""","""999999999999999999999999999999999999998""","""999999999999999999999999999999999999999"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_1_from_decimal_76_38_overflow_37_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 1));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_1_from_decimal_76_38_overflow_37_test_data) {
-        qt_sql_test_cast_to_decimal_39_1_from_decimal_76_38_overflow_37 """select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 1));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 1));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_38_0_overflow_40_test_data = ["""100000000000000000000""","""99999999999999999999999999999999999998""","""99999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_38_0_overflow_40_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_38_0_overflow_40_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_38_0_overflow_40 """select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_38_1_overflow_41_test_data = ["""100000000000000000000.9""","""9999999999999999999999999999999999998.9""","""9999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_38_1_overflow_41_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_38_1_overflow_41_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_38_1_overflow_41 """select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_39_0_overflow_45_test_data = ["""100000000000000000000""","""999999999999999999999999999999999999998""","""999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_39_0_overflow_45_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_39_0_overflow_45_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_39_0_overflow_45 """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_39_1_overflow_46_test_data = ["""100000000000000000000.9""","""99999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_39_1_overflow_46_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_39_1_overflow_46_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_39_1_overflow_46 """select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_75_0_overflow_50_test_data = ["""100000000000000000000""","""999999999999999999999999999999999999999999999999999999999999999999999999998""","""999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_75_0_overflow_50_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_75_0_overflow_50_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_75_0_overflow_50 """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_75_1_overflow_51_test_data = ["""100000000000000000000.9""","""99999999999999999999999999999999999999999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_75_1_overflow_51_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_75_1_overflow_51_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_75_1_overflow_51 """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_75_37_overflow_52_test_data = ["""99999999999999999999.9999999999999999999999999999999999999""","""99999999999999999999.9999999999999999999999999999999999999""","""100000000000000000000.9999999999999999999999999999999999999""","""100000000000000000000.9999999999999999999999999999999999999""","""99999999999999999999999999999999999998.9999999999999999999999999999999999999""","""99999999999999999999999999999999999998.9999999999999999999999999999999999999""","""99999999999999999999999999999999999999.9999999999999999999999999999999999999""","""99999999999999999999999999999999999999.9999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_75_37_overflow_52_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_75_37_overflow_52_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_75_37_overflow_52 """select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_76_0_overflow_55_test_data = ["""100000000000000000000""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_76_0_overflow_55_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_76_0_overflow_55_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_76_0_overflow_55 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_76_1_overflow_56_test_data = ["""100000000000000000000.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_76_1_overflow_56_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_76_1_overflow_56_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_76_1_overflow_56 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_19_from_decimal_76_38_overflow_57_test_data = ["""99999999999999999999.99999999999999999999999999999999999999""","""99999999999999999999.99999999999999999999999999999999999999""","""100000000000000000000.99999999999999999999999999999999999999""","""100000000000000000000.99999999999999999999999999999999999999""","""99999999999999999999999999999999999998.99999999999999999999999999999999999999""","""99999999999999999999999999999999999998.99999999999999999999999999999999999999""","""99999999999999999999999999999999999999.99999999999999999999999999999999999999""","""99999999999999999999999999999999999999.99999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_19_from_decimal_76_38_overflow_57_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 19));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_19_from_decimal_76_38_overflow_57_test_data) {
-        qt_sql_test_cast_to_decimal_39_19_from_decimal_76_38_overflow_57 """select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 19));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 19));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_38_0_overflow_60_test_data = ["""10""","""99999999999999999999999999999999999998""","""99999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_38_0_overflow_60_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_38_0_overflow_60_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_38_0_overflow_60 """select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_38_1_overflow_61_test_data = ["""10.9""","""9999999999999999999999999999999999998.9""","""9999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_38_1_overflow_61_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_38_1_overflow_61_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_38_1_overflow_61 """select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_38_19_overflow_62_test_data = ["""10.9999999999999999999""","""9999999999999999998.9999999999999999999""","""9999999999999999999.9999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_38_19_overflow_62_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 19)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_38_19_overflow_62_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_38_19_overflow_62 """select cast(cast("${test_str}" as decimalv3(38, 19)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 19)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_39_0_overflow_65_test_data = ["""10""","""999999999999999999999999999999999999998""","""999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_39_0_overflow_65_test_data) {
+        for (test_str in test_cast_to_decimal_39_38_from_decimal_39_0_overflow_16_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 38));"""
                 exception ""
@@ -494,17 +133,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_39_0_overflow_65_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_39_0_overflow_65 """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 38));"""
+    for (test_str in test_cast_to_decimal_39_38_from_decimal_39_0_overflow_16_test_data) {
+        qt_sql_test_cast_to_decimal_39_38_from_decimal_39_0_overflow_16 """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 38));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 38));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_39_1_overflow_66_test_data = ["""10.9""","""99999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999.9"""]
+    def test_cast_to_decimal_39_38_from_decimal_39_1_overflow_17_test_data = ["""10.9""","""99999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999.9"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_39_1_overflow_66_test_data) {
+        for (test_str in test_cast_to_decimal_39_38_from_decimal_39_1_overflow_17_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 38));"""
                 exception ""
@@ -513,112 +152,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_39_1_overflow_66_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_39_1_overflow_66 """select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 38));"""
+    for (test_str in test_cast_to_decimal_39_38_from_decimal_39_1_overflow_17_test_data) {
+        qt_sql_test_cast_to_decimal_39_38_from_decimal_39_1_overflow_17 """select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 38));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 38));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_39_19_overflow_67_test_data = ["""10.9999999999999999999""","""99999999999999999998.9999999999999999999""","""99999999999999999999.9999999999999999999"""]
+    def test_cast_to_decimal_39_38_from_decimal_76_0_overflow_20_test_data = ["""10""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_39_19_overflow_67_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(39, 19)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_39_19_overflow_67_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_39_19_overflow_67 """select cast(cast("${test_str}" as decimalv3(39, 19)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 19)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_75_0_overflow_70_test_data = ["""10""","""999999999999999999999999999999999999999999999999999999999999999999999999998""","""999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_75_0_overflow_70_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_75_0_overflow_70_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_75_0_overflow_70 """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_75_1_overflow_71_test_data = ["""10.9""","""99999999999999999999999999999999999999999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_75_1_overflow_71_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_75_1_overflow_71_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_75_1_overflow_71 """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_75_37_overflow_72_test_data = ["""10.9999999999999999999999999999999999999""","""99999999999999999999999999999999999998.9999999999999999999999999999999999999""","""99999999999999999999999999999999999999.9999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_75_37_overflow_72_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_75_37_overflow_72_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_75_37_overflow_72 """select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_75_74_overflow_73_test_data = ["""9.99999999999999999999999999999999999999999999999999999999999999999999999999""","""9.99999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_75_74_overflow_73_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 74)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_75_74_overflow_73_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_75_74_overflow_73 """select cast(cast("${test_str}" as decimalv3(75, 74)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 74)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_76_0_overflow_75_test_data = ["""10""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_76_0_overflow_75_test_data) {
+        for (test_str in test_cast_to_decimal_39_38_from_decimal_76_0_overflow_20_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 38));"""
                 exception ""
@@ -627,17 +171,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_76_0_overflow_75_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_76_0_overflow_75 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 38));"""
+    for (test_str in test_cast_to_decimal_39_38_from_decimal_76_0_overflow_20_test_data) {
+        qt_sql_test_cast_to_decimal_39_38_from_decimal_76_0_overflow_20 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 38));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 38));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_76_1_overflow_76_test_data = ["""10.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
+    def test_cast_to_decimal_39_38_from_decimal_76_1_overflow_21_test_data = ["""10.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_76_1_overflow_76_test_data) {
+        for (test_str in test_cast_to_decimal_39_38_from_decimal_76_1_overflow_21_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 38));"""
                 exception ""
@@ -646,36 +190,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_76_1_overflow_76_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_76_1_overflow_76 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 38));"""
+    for (test_str in test_cast_to_decimal_39_38_from_decimal_76_1_overflow_21_test_data) {
+        qt_sql_test_cast_to_decimal_39_38_from_decimal_76_1_overflow_21 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 38));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 38));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_76_38_overflow_77_test_data = ["""10.99999999999999999999999999999999999999""","""99999999999999999999999999999999999998.99999999999999999999999999999999999999""","""99999999999999999999999999999999999999.99999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_38_from_decimal_76_75_overflow_22_test_data = ["""9.999999999999999999999999999999999999999999999999999999999999999999999999999""","""9.999999999999999999999999999999999999995000000000000000000000000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_76_38_overflow_77_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 38));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_76_38_overflow_77_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_76_38_overflow_77 """select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 38));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 38));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_38_from_decimal_76_75_overflow_78_test_data = ["""9.999999999999999999999999999999999999999999999999999999999999999999999999999""","""9.999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_38_from_decimal_76_75_overflow_78_test_data) {
+        for (test_str in test_cast_to_decimal_39_38_from_decimal_76_75_overflow_22_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 75)) as decimalv3(39, 38));"""
                 exception ""
@@ -684,93 +209,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_38_from_decimal_76_75_overflow_78_test_data) {
-        qt_sql_test_cast_to_decimal_39_38_from_decimal_76_75_overflow_78 """select cast(cast("${test_str}" as decimalv3(76, 75)) as decimalv3(39, 38));"""
+    for (test_str in test_cast_to_decimal_39_38_from_decimal_76_75_overflow_22_test_data) {
+        qt_sql_test_cast_to_decimal_39_38_from_decimal_76_75_overflow_22 """select cast(cast("${test_str}" as decimalv3(76, 75)) as decimalv3(39, 38));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 75)) as decimalv3(39, 38));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_38_0_overflow_80_test_data = ["""1""","""99999999999999999999999999999999999998""","""99999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_39_from_decimal_39_0_overflow_24_test_data = ["""1""","""999999999999999999999999999999999999998""","""999999999999999999999999999999999999999"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_38_0_overflow_80_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_38_0_overflow_80_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_38_0_overflow_80 """select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 0)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_38_1_overflow_81_test_data = ["""1.9""","""9999999999999999999999999999999999998.9""","""9999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_38_1_overflow_81_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_38_1_overflow_81_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_38_1_overflow_81 """select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 1)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_38_19_overflow_82_test_data = ["""1.9999999999999999999""","""9999999999999999998.9999999999999999999""","""9999999999999999999.9999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_38_19_overflow_82_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 19)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_38_19_overflow_82_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_38_19_overflow_82 """select cast(cast("${test_str}" as decimalv3(38, 19)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 19)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_38_37_overflow_83_test_data = ["""1.9999999999999999999999999999999999999""","""8.9999999999999999999999999999999999999""","""9.9999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_38_37_overflow_83_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(38, 37)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_38_37_overflow_83_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_38_37_overflow_83 """select cast(cast("${test_str}" as decimalv3(38, 37)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(38, 37)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_39_0_overflow_85_test_data = ["""1""","""999999999999999999999999999999999999998""","""999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_39_0_overflow_85_test_data) {
+        for (test_str in test_cast_to_decimal_39_39_from_decimal_39_0_overflow_24_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 39));"""
                 exception ""
@@ -779,17 +228,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_39_0_overflow_85_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_39_0_overflow_85 """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 39));"""
+    for (test_str in test_cast_to_decimal_39_39_from_decimal_39_0_overflow_24_test_data) {
+        qt_sql_test_cast_to_decimal_39_39_from_decimal_39_0_overflow_24 """select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 39));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 0)) as decimalv3(39, 39));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_39_1_overflow_86_test_data = ["""1.9""","""99999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999.9"""]
+    def test_cast_to_decimal_39_39_from_decimal_39_1_overflow_25_test_data = ["""1.9""","""99999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999.9"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_39_1_overflow_86_test_data) {
+        for (test_str in test_cast_to_decimal_39_39_from_decimal_39_1_overflow_25_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 39));"""
                 exception ""
@@ -798,36 +247,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_39_1_overflow_86_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_39_1_overflow_86 """select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 39));"""
+    for (test_str in test_cast_to_decimal_39_39_from_decimal_39_1_overflow_25_test_data) {
+        qt_sql_test_cast_to_decimal_39_39_from_decimal_39_1_overflow_25 """select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 39));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 1)) as decimalv3(39, 39));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_39_19_overflow_87_test_data = ["""1.9999999999999999999""","""99999999999999999998.9999999999999999999""","""99999999999999999999.9999999999999999999"""]
+    def test_cast_to_decimal_39_39_from_decimal_39_38_overflow_26_test_data = ["""1.99999999999999999999999999999999999999""","""8.99999999999999999999999999999999999999""","""9.99999999999999999999999999999999999999"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_39_19_overflow_87_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(39, 19)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_39_19_overflow_87_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_39_19_overflow_87 """select cast(cast("${test_str}" as decimalv3(39, 19)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 19)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_39_38_overflow_88_test_data = ["""1.99999999999999999999999999999999999999""","""8.99999999999999999999999999999999999999""","""9.99999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_39_38_overflow_88_test_data) {
+        for (test_str in test_cast_to_decimal_39_39_from_decimal_39_38_overflow_26_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(39, 38)) as decimalv3(39, 39));"""
                 exception ""
@@ -836,112 +266,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_39_38_overflow_88_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_39_38_overflow_88 """select cast(cast("${test_str}" as decimalv3(39, 38)) as decimalv3(39, 39));"""
+    for (test_str in test_cast_to_decimal_39_39_from_decimal_39_38_overflow_26_test_data) {
+        qt_sql_test_cast_to_decimal_39_39_from_decimal_39_38_overflow_26 """select cast(cast("${test_str}" as decimalv3(39, 38)) as decimalv3(39, 39));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(39, 38)) as decimalv3(39, 39));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_75_0_overflow_90_test_data = ["""1""","""999999999999999999999999999999999999999999999999999999999999999999999999998""","""999999999999999999999999999999999999999999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_39_from_decimal_76_0_overflow_28_test_data = ["""1""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_75_0_overflow_90_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_75_0_overflow_90_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_75_0_overflow_90 """select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 0)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_75_1_overflow_91_test_data = ["""1.9""","""99999999999999999999999999999999999999999999999999999999999999999999999998.9""","""99999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_75_1_overflow_91_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_75_1_overflow_91_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_75_1_overflow_91 """select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 1)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_75_37_overflow_92_test_data = ["""1.9999999999999999999999999999999999999""","""99999999999999999999999999999999999998.9999999999999999999999999999999999999""","""99999999999999999999999999999999999999.9999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_75_37_overflow_92_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_75_37_overflow_92_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_75_37_overflow_92 """select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 37)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_75_74_overflow_93_test_data = ["""0.99999999999999999999999999999999999999999999999999999999999999999999999999""","""0.99999999999999999999999999999999999999999999999999999999999999999999999999""","""1.99999999999999999999999999999999999999999999999999999999999999999999999999""","""1.99999999999999999999999999999999999999999999999999999999999999999999999999""","""8.99999999999999999999999999999999999999999999999999999999999999999999999999""","""8.99999999999999999999999999999999999999999999999999999999999999999999999999""","""9.99999999999999999999999999999999999999999999999999999999999999999999999999""","""9.99999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_75_74_overflow_93_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 74)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_75_74_overflow_93_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_75_74_overflow_93 """select cast(cast("${test_str}" as decimalv3(75, 74)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 74)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_75_75_overflow_94_test_data = ["""0.999999999999999999999999999999999999999999999999999999999999999999999999999""","""0.999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_75_75_overflow_94_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(75, 75)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_75_75_overflow_94_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_75_75_overflow_94 """select cast(cast("${test_str}" as decimalv3(75, 75)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(75, 75)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_76_0_overflow_95_test_data = ["""1""","""9999999999999999999999999999999999999999999999999999999999999999999999999998""","""9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_0_overflow_95_test_data) {
+        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_0_overflow_28_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 39));"""
                 exception ""
@@ -950,17 +285,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_0_overflow_95_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_0_overflow_95 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 39));"""
+    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_0_overflow_28_test_data) {
+        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_0_overflow_28 """select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 39));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 0)) as decimalv3(39, 39));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_76_1_overflow_96_test_data = ["""1.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
+    def test_cast_to_decimal_39_39_from_decimal_76_1_overflow_29_test_data = ["""1.9""","""999999999999999999999999999999999999999999999999999999999999999999999999998.9""","""999999999999999999999999999999999999999999999999999999999999999999999999999.9"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_1_overflow_96_test_data) {
+        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_1_overflow_29_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 39));"""
                 exception ""
@@ -969,36 +304,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_1_overflow_96_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_1_overflow_96 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 39));"""
+    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_1_overflow_29_test_data) {
+        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_1_overflow_29 """select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 39));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 1)) as decimalv3(39, 39));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_76_38_overflow_97_test_data = ["""1.99999999999999999999999999999999999999""","""99999999999999999999999999999999999998.99999999999999999999999999999999999999""","""99999999999999999999999999999999999999.99999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_39_from_decimal_76_75_overflow_30_test_data = ["""0.999999999999999999999999999999999999999999999999999999999999999999999999999""","""0.999999999999999999999999999999999999999500000000000000000000000000000000000""","""1.999999999999999999999999999999999999999999999999999999999999999999999999999""","""1.999999999999999999999999999999999999999500000000000000000000000000000000000""","""8.999999999999999999999999999999999999999999999999999999999999999999999999999""","""8.999999999999999999999999999999999999999500000000000000000000000000000000000""","""9.999999999999999999999999999999999999999999999999999999999999999999999999999""","""9.999999999999999999999999999999999999999500000000000000000000000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_38_overflow_97_test_data) {
-            test {
-                sql """select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 39));"""
-                exception ""
-            }
-        }
-    }
-    sql "set enable_strict_cast=false;"
-
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_38_overflow_97_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_38_overflow_97 """select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 39));"""
-        testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 38)) as decimalv3(39, 39));""")
-    }
-    sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_76_75_overflow_98_test_data = ["""0.999999999999999999999999999999999999999999999999999999999999999999999999999""","""0.999999999999999999999999999999999999999999999999999999999999999999999999999""","""1.999999999999999999999999999999999999999999999999999999999999999999999999999""","""1.999999999999999999999999999999999999999999999999999999999999999999999999999""","""8.999999999999999999999999999999999999999999999999999999999999999999999999999""","""8.999999999999999999999999999999999999999999999999999999999999999999999999999""","""9.999999999999999999999999999999999999999999999999999999999999999999999999999""","""9.999999999999999999999999999999999999999999999999999999999999999999999999999"""]
-    sql "set enable_strict_cast=true;"
-
-    for (b in ["false", "true"]) {
-        sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_75_overflow_98_test_data) {
+        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_75_overflow_30_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 75)) as decimalv3(39, 39));"""
                 exception ""
@@ -1007,17 +323,17 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_75_overflow_98_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_75_overflow_98 """select cast(cast("${test_str}" as decimalv3(76, 75)) as decimalv3(39, 39));"""
+    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_75_overflow_30_test_data) {
+        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_75_overflow_30 """select cast(cast("${test_str}" as decimalv3(76, 75)) as decimalv3(39, 39));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 75)) as decimalv3(39, 39));""")
     }
     sql "set debug_skip_fold_constant = true;"
-    def test_cast_to_decimal_39_39_from_decimal_76_76_overflow_99_test_data = ["""0.9999999999999999999999999999999999999999999999999999999999999999999999999999""","""0.9999999999999999999999999999999999999999999999999999999999999999999999999999"""]
+    def test_cast_to_decimal_39_39_from_decimal_76_76_overflow_31_test_data = ["""0.9999999999999999999999999999999999999999999999999999999999999999999999999999""","""0.9999999999999999999999999999999999999995000000000000000000000000000000000000"""]
     sql "set enable_strict_cast=true;"
 
     for (b in ["false", "true"]) {
         sql """set debug_skip_fold_constant = "${b}";"""
-        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_76_overflow_99_test_data) {
+        for (test_str in test_cast_to_decimal_39_39_from_decimal_76_76_overflow_31_test_data) {
             test {
                 sql """select cast(cast("${test_str}" as decimalv3(76, 76)) as decimalv3(39, 39));"""
                 exception ""
@@ -1026,8 +342,8 @@ suite("test_cast_to_decimal256_39_from_decimal256_overflow_const") {
     }
     sql "set enable_strict_cast=false;"
 
-    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_76_overflow_99_test_data) {
-        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_76_overflow_99 """select cast(cast("${test_str}" as decimalv3(76, 76)) as decimalv3(39, 39));"""
+    for (test_str in test_cast_to_decimal_39_39_from_decimal_76_76_overflow_31_test_data) {
+        qt_sql_test_cast_to_decimal_39_39_from_decimal_76_76_overflow_31 """select cast(cast("${test_str}" as decimalv3(76, 76)) as decimalv3(39, 39));"""
         testFoldConst("""select cast(cast("${test_str}" as decimalv3(76, 76)) as decimalv3(39, 39));""")
     }
 }

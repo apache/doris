@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -66,24 +64,13 @@ public class RefreshDbStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException, UserException {
+        super.analyze();
         if (Strings.isNullOrEmpty(catalogName)) {
             catalogName = ConnectContext.get().getCurrentCatalog().getName();
         }
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
-        }
-
-        // Don't allow dropping 'information_schema' database
-        if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-            ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
-        }
-        // Don't allow dropping 'mysql' database
-        if (dbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
-            ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
         // check access
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), catalogName,

@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
@@ -61,7 +61,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
     private final List<Column> schema;
     private final Map<String, String> hadoopProps;
     private final Map<String, String> paimonProps;
-    private final HadoopAuthenticator hadoopAuthenticator;
+    private final ExecutionAuthenticator hadoopAuthenticator;
     private final TableName paimonTableName;
     private final long ctlId;
     private final long dbId;
@@ -88,7 +88,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         PaimonExternalCatalog paimonExternalCatalog = (PaimonExternalCatalog) dorisCatalog;
         this.hadoopProps = paimonExternalCatalog.getCatalogProperty().getHadoopProperties();
         this.paimonProps = paimonExternalCatalog.getPaimonOptionsMap();
-        this.hadoopAuthenticator = paimonExternalCatalog.getPreExecutionAuthenticator().getHadoopAuthenticator();
+        this.hadoopAuthenticator = paimonExternalCatalog.getExecutionAuthenticator();
         this.ctlId = paimonExternalCatalog.getId();
 
         ExternalDatabase<? extends ExternalTable> database = paimonExternalCatalog.getDb(paimonTableName.getDb())
@@ -159,7 +159,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         List<Split> splits;
 
         try {
-            splits = hadoopAuthenticator.doAs(
+            splits = hadoopAuthenticator.execute(
                     () -> paimonSysTable.newReadBuilder().withProjection(projections).newScan().plan().splits());
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));

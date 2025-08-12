@@ -90,9 +90,7 @@ void versioned_put(Transaction* txn, std::string_view key, std::string_view valu
     std::string key_with_versionstamp(key);
     uint32_t offset = encode_versionstamp(Versionstamp::min(), &key_with_versionstamp);
     encode_versionstamp_end(&key_with_versionstamp);
-    bool ok = txn->atomic_set_ver_key(key_with_versionstamp, offset, value);
-    DCHECK(ok) << "Atomic set versioned key failed, key: " << hex(key)
-               << ", value size: " << value.size();
+    txn->atomic_set_ver_key(key_with_versionstamp, offset, value);
 }
 
 void versioned_put(Transaction* txn, std::string_view key, Versionstamp v, std::string_view value) {
@@ -144,6 +142,61 @@ TxnErrorCode versioned_get(Transaction* txn, std::string_view key, Versionstamp 
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode versioned_batch_get(
+        Transaction* txn, const std::vector<std::string>& keys, Versionstamp snapshot_version,
+        std::vector<std::optional<std::pair<std::string, Versionstamp>>>* values, bool snapshot) {
+    // The snapshot version is exclusive, meaning we want to get the versions that are strictly
+    // less than the snapshot version. To achieve this, we need to use the previous versionstamp
+    // as the end key for the range get operation.
+    Versionstamp prev_version = Versionstamp::prev(snapshot_version);
+
+    std::vector<std::string> keys_with_versionstamp;
+    keys_with_versionstamp.reserve(keys.size());
+    for (const auto& key : keys) {
+        keys_with_versionstamp.push_back(encode_versioned_key(key, prev_version));
+    }
+
+    Transaction::BatchGetOptions options;
+    options.snapshot = snapshot;
+    options.reverse = true; // Get the latest version first
+    std::vector<std::optional<std::pair<std::string, std::string>>> key_value_pairs;
+    TxnErrorCode code = txn->batch_scan(&key_value_pairs, keys_with_versionstamp, options);
+    if (code != TxnErrorCode::TXN_OK) {
+        return code;
+    }
+    DCHECK_EQ(key_value_pairs.size(), keys.size());
+
+    values->clear();
+    values->reserve(key_value_pairs.size());
+    for (size_t i = 0; i < key_value_pairs.size(); ++i) {
+        const auto& kv = key_value_pairs[i];
+        const auto& key = keys[i];
+        if (!kv.has_value()) {
+            values->emplace_back(std::nullopt);
+            continue;
+        }
+
+        std::string_view actual_key = kv->first;
+
+        // Ensure the key has the expected prefix
+        if (!actual_key.starts_with(key)) {
+            values->emplace_back(std::nullopt);
+            continue;
+        }
+
+        Versionstamp version;
+        if (decode_tailing_versionstamp_end(&actual_key) ||
+            decode_tailing_versionstamp(&actual_key, &version)) {
+            LOG(ERROR) << "Failed to decode tailing versionstamp from key: " << hex(kv->first);
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+
+        values->emplace_back(std::make_pair(std::move(kv->second), version));
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
 std::unique_ptr<VersionedRangeGetIterator> versioned_get_range(
         Transaction* txn, std::string_view begin, std::string_view end,
         const VersionedRangeGetOptions& opts) {
@@ -178,10 +231,12 @@ std::unique_ptr<VersionedRangeGetIterator> versioned_get_range(
 }
 
 void versioned_remove(Transaction* txn, std::string_view key, Versionstamp v) {
-    std::string key_with_versionstamp(key);
-    encode_versionstamp(v, &key_with_versionstamp);
-    encode_versionstamp_end(&key_with_versionstamp);
-    txn->remove(key_with_versionstamp);
+    txn->remove(encode_versioned_key(key, v));
+}
+
+void versioned_remove_all(Transaction* txn, std::string_view key) {
+    txn->remove(encode_versioned_key(key, Versionstamp::min()),
+                encode_versioned_key(key, Versionstamp::max()));
 }
 
 std::string encode_versioned_key(std::string_view key, Versionstamp v) {

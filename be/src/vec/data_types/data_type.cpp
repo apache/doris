@@ -82,12 +82,6 @@ std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
                            "Data type {} to_string not implement.", get_name());
     return "";
 }
-Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} from_string not implement.", get_name());
-
-    return Status::OK();
-}
 
 void IDataType::to_string_batch(const IColumn& column, ColumnString& column_to) const {
     const auto size = column.size();
@@ -222,6 +216,11 @@ const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr
         *column = const_column->get_ptr();
     }
     return buf;
+}
+
+FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, size_t row_num) const {
+    return FieldWithDataType {.field = column[row_num],
+                              .base_scalar_type_id = get_primitive_type()};
 }
 
 } // namespace doris::vectorized

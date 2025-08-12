@@ -202,7 +202,7 @@ public:
     }
 
 private:
-    void update_rowset_schema(TabletSchemaSPtr flush_schema);
+    Status update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:

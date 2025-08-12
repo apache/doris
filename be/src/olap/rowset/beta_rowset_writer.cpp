@@ -566,8 +566,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     }
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (const auto& index_info = _context.tablet_schema->inverted_index(*column);
-            index_info != nullptr) {
+        auto index_infos = _context.tablet_schema->inverted_indexs(*column);
+        for (const auto& index_info : index_infos) {
             auto index_id = index_info->index_id();
             if (_context.tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
@@ -874,13 +874,13 @@ int64_t BetaRowsetWriter::_num_seg() const {
 // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
 // _tabelt->tablet_schema:  A(bigint), B(double)
 //  => update_schema:       A(bigint), B(double), C(int), D(int)
-void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
+Status BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     std::lock_guard<std::mutex> lock(*(_context.schema_lock));
     TabletSchemaSPtr update_schema;
     if (_context.merged_tablet_schema == nullptr) {
         _context.merged_tablet_schema = _context.tablet_schema;
     }
-    static_cast<void>(vectorized::schema_util::get_least_common_schema(
+    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
             {_context.merged_tablet_schema, flush_schema}, nullptr, update_schema));
     CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
@@ -889,6 +889,7 @@ void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
             << " flush_schema: " << flush_schema->dump_structure();
     _context.merged_tablet_schema.swap(update_schema);
     VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
+    return Status::OK();
 }
 
 Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
@@ -1106,7 +1107,7 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
     }
     // tablet schema updated
     if (flush_schema != nullptr) {
-        update_rowset_schema(flush_schema);
+        RETURN_IF_ERROR(update_rowset_schema(flush_schema));
     }
     if (_context.mow_context != nullptr) {
         // ensure that the segment file writing is complete

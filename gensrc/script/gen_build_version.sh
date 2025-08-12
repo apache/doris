@@ -27,7 +27,12 @@
 
 set -eo pipefail
 
-build_version_prefix="doris"
+vendor=doris
+if [[ $1 != "" ]]; then
+    vendor=$1
+fi
+
+build_version_prefix="${vendor}"
 build_version_major=0
 build_version_minor=0
 build_version_patch=0
@@ -38,7 +43,9 @@ build_version="${build_version_prefix}-${build_version_major}.${build_version_mi
 if [[ ${build_version_hotfix} -gt 0 ]]; then
     build_version+=".${build_version_hotfix}"
 fi
-build_version+="-${build_version_rc_version}"
+if [[ -n "${build_version_rc_version}" ]]; then
+    build_version+="-${build_version_rc_version}"
+fi
 
 # This version is used to check FeMetaVersion is not changed during release
 build_fe_meta_version=0

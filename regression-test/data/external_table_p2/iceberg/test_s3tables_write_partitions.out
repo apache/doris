@@ -11,6 +11,3 @@
 -- !columns_out_of_order02 --
 1	2	3	4	5	6
 
--- !test_sql --
-0-8M	4
-

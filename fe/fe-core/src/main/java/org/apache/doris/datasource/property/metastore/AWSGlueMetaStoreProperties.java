@@ -42,7 +42,7 @@ public class AWSGlueMetaStoreProperties extends MetastoreProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         baseProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
-        baseProperties.check();
+        baseProperties.checkAndInit();
     }
 
 
@@ -57,7 +57,7 @@ public class AWSGlueMetaStoreProperties extends MetastoreProperties {
                 "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
         catalogProps.put("client.credentials-provider.glue.access_key", baseProperties.glueAccessKey);
         catalogProps.put("client.credentials-provider.glue.secret_key", baseProperties.glueSecretKey);
-        catalogProps.put("client.region", baseProperties.getRegionFromGlueEndpoint());
+        catalogProps.put("client.region", baseProperties.glueRegion);
     }
 
     @Getter

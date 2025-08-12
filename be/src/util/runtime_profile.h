@@ -42,7 +42,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "util/binary_cast.hpp"
-#include "util/container_util.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 

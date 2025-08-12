@@ -107,6 +107,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                     data_pairs.emplace_back(v_str, v);
                 }
             }
+            /*
             std::string dbg_str;
             if (!with_spaces) {
                 for (const auto& p : data_set) {
@@ -114,8 +115,9 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 }
                 std::cout << "test cast from string to int, data set: " << dbg_str << std::endl;
             }
-            check_function_for_cast<DataTypeNumber<PType>, -1, -1, true>(input_types, data_set);
-            check_function_for_cast<DataTypeNumber<PType>, -1, -1, false>(input_types, data_set);
+            */
+            check_function_for_cast<DataTypeNumber<PType>, true>(input_types, data_set, -1, -1);
+            check_function_for_cast<DataTypeNumber<PType>, false>(input_types, data_set, -1, -1);
         };
         // test leading and trailing white spaces, sign and leading zeros
         tmp_test_func(true, true, true);
@@ -208,8 +210,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         int data_index = 0;
 
         auto test_func_with_strict_cast = [&](auto enable_strict_cast) {
-            std::cout << fmt::format("test cast from string to {}, enable_strict_cast: {}\n",
-                                     type_to_string(PT), enable_strict_cast);
+            // std::cout << fmt::format("test cast from string to {}, enable_strict_cast: {}\n",
+            //                          type_to_string(PT), enable_strict_cast);
             // test leading zeros, sign, leading and trailing white spaces
             auto tmp_test_func = [&](bool with_spaces, bool with_sign, bool leading_zeros) {
                 DataSet data_set;
@@ -255,8 +257,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                         for (const auto& v_str : test_strs) {
                             DataSet tmp_data_set;
                             tmp_data_set.push_back({{v_str}, Null()});
-                            check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(
-                                    input_types, tmp_data_set, true, true);
+                            check_function_for_cast<DataTypeNumber<PT>, true>(
+                                    input_types, tmp_data_set, -1, -1, true, true);
                         }
                     } else {
                         if (with_spaces) {
@@ -280,6 +282,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                     }
                 }
                 if (!enable_strict_cast) {
+                    /*
                     std::string dbg_str;
                     for (const auto& p : data_set) {
                         dbg_str += "|" + any_cast<ut_type::STRING>(p.first[0]) + "|, ";
@@ -287,8 +290,9 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                     std::cout << fmt::format(
                             "test cast from string to {}, enable_strict_cast: {}, data set: {}\n",
                             type_to_string(PT), enable_strict_cast, dbg_str);
-                    check_function_for_cast<DataTypeNumber<PT>, -1, -1, false>(input_types,
-                                                                               data_set);
+                    */
+                    check_function_for_cast<DataTypeNumber<PT>, false>(input_types, data_set, -1,
+                                                                       -1);
                 }
             };
             // test leading and trailing white spaces, sign and leading zeros
@@ -499,7 +503,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         test_vals.push_back(fmt::format("{}", std::numeric_limits<wide::Int256>::min()));
 
         auto test_func_with_strict_cast = [&](auto enable_strict_cast) {
-            std::cout << fmt::format("{}, enable_strict_cast: {}", dbg_str0, enable_strict_cast);
+            // std::cout << fmt::format("{}, enable_strict_cast: {}", dbg_str0, enable_strict_cast);
             // test leading zeros, sign, leading and trailing white spaces for positive values
             auto tmp_test_func = [&](bool with_spaces, bool with_sign, bool leading_zeros) {
                 DataSet data_set;
@@ -524,8 +528,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                             DataSet tmp_data_set;
                             tmp_data_set.push_back(
                                     {{white_spaces_str + v_str + white_spaces_str}, Null()});
-                            check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(
-                                    input_types, tmp_data_set, true, true);
+                            check_function_for_cast<DataTypeNumber<PT>, true>(
+                                    input_types, tmp_data_set, -1, -1, true, true);
                         } else {
                             data_set.push_back(
                                     {{white_spaces_str + v_str + white_spaces_str}, Null()});
@@ -534,21 +538,23 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                         if (enable_strict_cast) {
                             DataSet tmp_data_set;
                             tmp_data_set.push_back({{v_str}, Null()});
-                            check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(
-                                    input_types, tmp_data_set, true, true);
+                            check_function_for_cast<DataTypeNumber<PT>, true>(
+                                    input_types, tmp_data_set, -1, -1, true, true);
                         } else {
                             data_set.push_back({{v_str}, Null()});
                         }
                     }
                 }
                 if (!enable_strict_cast) {
+                    /*
                     std::string dbg_str = dbg_str0 + ", data set: ";
                     for (const auto& p : data_set) {
                         dbg_str += any_cast<ut_type::STRING>(p.first[0]) + ", ";
                     }
                     std::cout << dbg_str << std::endl;
-                    check_function_for_cast<DataTypeNumber<PT>, -1, -1, false>(input_types,
-                                                                               data_set);
+                    */
+                    check_function_for_cast<DataTypeNumber<PT>, false>(input_types, data_set, -1,
+                                                                       -1);
                 }
             };
             // test leading and trailing white spaces, sign and leading zeros
@@ -695,15 +701,15 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             for (const auto& input : abnormal_inputs) {
                 data_set.push_back({{input}, Null()});
             }
-            check_function_for_cast<DataTypeNumber<PT>, -1, -1, false>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<PT>, false>(input_types, data_set, -1, -1);
         }
 
         // strict mode
         for (const auto& input : abnormal_inputs) {
             DataSet data_set;
             data_set.push_back({{input}, Null()});
-            check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(input_types, data_set, true,
-                                                                      true);
+            check_function_for_cast<DataTypeNumber<PT>, true>(input_types, data_set, -1, -1, true,
+                                                              true);
         }
         if (FLAGS_gen_regression_case) {
             std::vector<std::string> regression_invalid_inputs = {
@@ -820,8 +826,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         for (const auto& p : test_vals) {
             data_set.push_back({{p.first}, p.second});
         }
-        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1);
 
         if (FLAGS_gen_regression_case) {
             int table_index = 0;
@@ -875,8 +881,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         for (const auto& p : test_vals) {
             data_set.push_back({{p.first}, p.second});
         }
-        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1);
 
         if (FLAGS_gen_regression_case) {
             int table_index = 0;
@@ -924,7 +930,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             for (auto v : test_input_vals) {
                 data_set.push_back({{v}, Null()});
             }
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
         }
 
         // strict mode
@@ -932,8 +938,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             for (auto v : test_input_vals) {
                 DataSet data_set;
                 data_set.push_back({{v}, Null()});
-                check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set,
-                                                                            true, true);
+                check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1,
+                                                                    true, true);
             }
         }
         if (FLAGS_gen_regression_case) {
@@ -968,8 +974,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         static_assert(std::numeric_limits<ToT>::is_integer, "ToT must be an integer type");
         DataTypeNumber<FromPT> dt;
         InputTypeSet input_types = {dt.get_primitive_type()};
-        std::cout << fmt::format("test cast {} to {}\n", type_to_string(FromPT),
-                                 type_to_string(ToPT));
+        // std::cout << fmt::format("test cast {} to {}\n", type_to_string(FromPT),
+        //                          type_to_string(ToPT));
 
         DataSet data_set = {
                 // Zero and sign
@@ -1033,8 +1039,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         default:
             break;
         }
-        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1);
 
         if (FLAGS_gen_regression_case) {
             int table_index = 0;
@@ -1115,7 +1121,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             for (auto v : test_input_vals) {
                 data_set.push_back({{v}, Null()});
             }
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
         }
 
         // strict mode
@@ -1123,8 +1129,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             for (auto v : test_input_vals) {
                 DataSet data_set;
                 data_set.push_back({{v}, Null()});
-                check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set,
-                                                                            true, true);
+                check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1,
+                                                                    true, true);
             }
         }
         if (FLAGS_gen_regression_case) {
@@ -1156,8 +1162,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         }
     }
 
-    template <typename FromT, int FromPrecision, int FromScale, PrimitiveType ToPT>
-    void from_decimal_with_p_s_no_overflow_test_func() {
+    template <typename FromT, PrimitiveType ToPT>
+    void from_decimal_with_p_s_no_overflow_test_func(int FromPrecision, int FromScale) {
         using ToT = typename PrimitiveTypeTraits<ToPT>::CppType;
         static_assert(IsDecimalNumber<FromT>, "FromT must be a decimal type");
         static_assert(std::numeric_limits<ToT>::is_integer, "ToT must be an integer type");
@@ -1165,7 +1171,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         //                       FromPrecision - FromScale < NumberTraits::max_ascii_len<ToT>(),
         //               "Decimal integral part must be less than integer max ascii len");
 
-        DataTypeDecimal<FromT::PType> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt_from =
+                get_decimal_data_type<FromT>(FromPrecision, FromScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -1179,43 +1186,42 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         // from_large_integral1: 9999999
         // from_large_integral2: 90000000
         // from_large_integral3: 90000001
-        constexpr auto from_max_integral =
+        auto from_max_integral =
                 decimal_scale_multiplier<typename FromT::NativeType>(FromPrecision - FromScale) - 1;
-        constexpr auto from_large_integral1 = decimal_scale_multiplier<typename FromT::NativeType>(
-                                                      FromPrecision - FromScale - 1) -
-                                              1;
-        constexpr auto from_large_integral2 = from_max_integral - from_large_integral1;
-        constexpr auto from_large_integral3 =
+        auto from_large_integral1 = decimal_scale_multiplier<typename FromT::NativeType>(
+                                            FromPrecision - FromScale - 1) -
+                                    1;
+        auto from_large_integral2 = from_max_integral - from_large_integral1;
+        auto from_large_integral3 =
                 from_large_integral2 > 9 ? from_large_integral2 + 1 : from_large_integral2 - 1;
         // constexpr auto min_integral = -from_max_integral;
-        std::cout << "from_max_integral:\t" << fmt::format("{}", from_max_integral) << std::endl;
-        std::cout << "from_large_integral1:\t" << fmt::format("{}", from_large_integral1)
-                  << std::endl;
-        std::cout << "from_large_integral2:\t" << fmt::format("{}", from_large_integral2)
-                  << std::endl;
-        std::cout << "from_large_integral3:\t" << fmt::format("{}", from_large_integral3)
-                  << std::endl;
+        // std::cout << "from_max_integral:\t" << fmt::format("{}", from_max_integral) << std::endl;
+        // std::cout << "from_large_integral1:\t" << fmt::format("{}", from_large_integral1)
+        //           << std::endl;
+        // std::cout << "from_large_integral2:\t" << fmt::format("{}", from_large_integral2)
+        //           << std::endl;
+        // std::cout << "from_large_integral3:\t" << fmt::format("{}", from_large_integral3)
+        //           << std::endl;
 
         // from_max_fractional:    99999999
         // from_large_fractional1: 9999999
         // from_large_fractional2: 90000000
         // from_large_fractional3: 90000001
-        constexpr auto from_max_fractional =
+        auto from_max_fractional =
                 decimal_scale_multiplier<typename FromT::NativeType>(FromScale) - 1;
-        constexpr auto from_large_fractional1 =
+        auto from_large_fractional1 =
                 decimal_scale_multiplier<typename FromT::NativeType>(FromScale - 1) - 1;
-        constexpr auto from_large_fractional2 = from_max_fractional - from_large_fractional1;
-        constexpr auto from_large_fractional3 = from_large_fractional2 > 9
-                                                        ? from_large_fractional2 + 1
-                                                        : from_large_fractional2 - 1;
-        std::cout << "from_max_fractional:\t" << fmt::format("{}", from_max_fractional)
-                  << std::endl;
-        std::cout << "from_large_fractional1:\t" << fmt::format("{}", from_large_fractional1)
-                  << std::endl;
-        std::cout << "from_large_fractional2:\t" << fmt::format("{}", from_large_fractional2)
-                  << std::endl;
-        std::cout << "from_large_fractional3:\t" << fmt::format("{}", from_large_fractional3)
-                  << std::endl;
+        auto from_large_fractional2 = from_max_fractional - from_large_fractional1;
+        auto from_large_fractional3 = from_large_fractional2 > 9 ? from_large_fractional2 + 1
+                                                                 : from_large_fractional2 - 1;
+        // std::cout << "from_max_fractional:\t" << fmt::format("{}", from_max_fractional)
+        //           << std::endl;
+        // std::cout << "from_large_fractional1:\t" << fmt::format("{}", from_large_fractional1)
+        //           << std::endl;
+        // std::cout << "from_large_fractional2:\t" << fmt::format("{}", from_large_fractional2)
+        //           << std::endl;
+        // std::cout << "from_large_fractional3:\t" << fmt::format("{}", from_large_fractional3)
+        //           << std::endl;
         // constexpr auto min_fractional = -from_max_fractional;
         std::vector<IntType> integral_part = {
                 0,
@@ -1223,7 +1229,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 9,
         };
         // e.g. from Decimal(9, 0) to int16
-        if constexpr (FromPrecision - FromScale >= NumberTraits::max_ascii_len<ToT>()) {
+        if (FromPrecision - FromScale >= NumberTraits::max_ascii_len<ToT>()) {
             integral_part.push_back(std::numeric_limits<IntType>::max());
             integral_part.push_back(std::numeric_limits<IntType>::max() - 1);
             integral_part.push_back(std::numeric_limits<IntType>::min());
@@ -1245,19 +1251,21 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                                                    from_large_fractional1,
                                                                    from_large_fractional2,
                                                                    from_large_fractional3};
-        DataTypeDecimal<FromT::PType> dt(FromPrecision, FromScale);
         DataSet data_set;
         std::string dbg_str =
                 fmt::format("test cast {}({}, {}) to {}: \n", type_to_string(FromT::PType),
                             FromPrecision, FromScale, dt_to.get_family_name());
+        // std::cout << dbg_str << std::endl;
 
         std::vector<std::pair<std::string, ToT>> test_data_set;
         Defer defer {[&]() {
             if (FLAGS_gen_regression_case) {
                 int table_index = 0;
                 int test_data_index = 0;
-                std::string from_sql_type_name =
-                        fmt::format("decimalv3({}, {})", FromPrecision, FromScale);
+                std::string from_decimal_sql_type_name =
+                        FromT::PType == TYPE_DECIMALV2 ? "decimalv2" : "decimalv3";
+                std::string from_sql_type_name = fmt::format(
+                        "{}({}, {})", from_decimal_sql_type_name, FromPrecision, FromScale);
                 std::string to_sql_type_name = get_sql_type_name(ToPT);
 
                 std::unique_ptr<std::ofstream> ofs_const_case_uptr, ofs_const_expected_result_uptr;
@@ -1284,74 +1292,72 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 (*ofs_case) << "}";
             }
         }};
-        if constexpr (FromScale == 0) {
+        if (FromScale == 0) {
             // e.g. Decimal(9, 0), only int part
             for (const auto& i : integral_part) {
                 auto decimal_num = decimal_ctor(i, 0, FromScale);
-                auto num_str = dt.to_string(decimal_num);
+                auto num_str = dt_from.to_string(decimal_num);
                 // dbg_str += fmt::format("({}, {})|", num_str, i);
                 data_set.push_back({{decimal_num}, IntType(i)});
                 test_data_set.emplace_back(num_str, i);
 
-                if constexpr (FromPrecision - FromScale < NumberTraits::max_ascii_len<ToT>()) {
+                if (FromPrecision - FromScale < NumberTraits::max_ascii_len<ToT>()) {
                     decimal_num = decimal_ctor(-i, 0, FromScale);
-                    num_str = dt.to_string(decimal_num);
+                    num_str = dt_from.to_string(decimal_num);
                     // dbg_str += fmt::format("({}, {})|", num_str, -i);
                     data_set.push_back({{decimal_num}, IntType(-i)});
                     test_data_set.emplace_back(num_str, -i);
                 }
             }
             // dbg_str += "\n";
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
+            check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1);
             return;
-        } else if constexpr (FromScale == FromPrecision) {
+        } else if (FromScale == FromPrecision) {
             // e.g. Decimal(9, 9), only fraction part
             for (const auto& f : fractional_part) {
                 auto decimal_num = decimal_ctor(0, f, FromScale);
-                auto num_str = dt.to_string(decimal_num);
+                auto num_str = dt_from.to_string(decimal_num);
                 // dbg_str += fmt::format("({}, {})|", num_str, 0);
                 data_set.push_back({{decimal_num}, IntType(0)});
                 test_data_set.emplace_back(num_str, 0);
 
                 decimal_num = decimal_ctor(0, -f, FromScale);
-                num_str = dt.to_string(decimal_num);
+                num_str = dt_from.to_string(decimal_num);
                 // dbg_str += fmt::format("({}, {})|", num_str, 0);
                 data_set.push_back({{decimal_num}, IntType(0)});
                 test_data_set.emplace_back(num_str, 0);
             }
             // dbg_str += "\n";
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
+            check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1);
             return;
         }
 
         for (const auto& i : integral_part) {
             for (const auto& f : fractional_part) {
-                if constexpr (FromPrecision - FromScale < NumberTraits::max_ascii_len<ToT>()) {
+                if (FromPrecision - FromScale < NumberTraits::max_ascii_len<ToT>()) {
                     auto decimal_num = decimal_ctor(i, f, FromScale);
-                    auto num_str = dt.to_string(decimal_num);
+                    auto num_str = dt_from.to_string(decimal_num);
                     // dbg_str += fmt::format("({}, {})|", num_str, i);
                     data_set.push_back({{decimal_num}, IntType(i)});
                     test_data_set.emplace_back(num_str, i);
 
                     decimal_num = decimal_ctor(-i, -f, FromScale);
-                    num_str = dt.to_string(decimal_num);
+                    num_str = dt_from.to_string(decimal_num);
                     // dbg_str += fmt::format("({}, {})|", num_str, -i);
                     data_set.push_back({{decimal_num}, IntType(-i)});
                     test_data_set.emplace_back(num_str, -i);
                 } else {
                     if (i >= 0) {
                         auto decimal_num = decimal_ctor(i, f, FromScale);
-                        auto num_str = dt.to_string(decimal_num);
+                        auto num_str = dt_from.to_string(decimal_num);
                         // dbg_str += fmt::format("({}, {})|", num_str, i);
                         data_set.push_back({{decimal_num}, IntType(i)});
                         test_data_set.emplace_back(num_str, i);
                     } else {
                         auto decimal_num = decimal_ctor(i, -f, FromScale);
-                        auto num_str = dt.to_string(decimal_num);
+                        auto num_str = dt_from.to_string(decimal_num);
                         // dbg_str += fmt::format("({}, {})|", num_str, i);
                         data_set.push_back({{decimal_num}, IntType(i)});
                         test_data_set.emplace_back(num_str, i);
@@ -1360,9 +1366,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             }
             // dbg_str += "\n";
         }
-        std::cout << dbg_str << std::endl;
-        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1);
     }
 
     template <typename FromT, PrimitiveType ToT>
@@ -1380,26 +1385,36 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                                          : 1)));
         static_assert(min_decimal_pre == 1 || min_decimal_pre > 9);
 
-        from_decimal_with_p_s_no_overflow_test_func<FromT, min_decimal_pre, 0, ToT>();
-        if constexpr (min_decimal_pre != 1) {
-            from_decimal_with_p_s_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre / 2,
-                                                        ToT>();
-            from_decimal_with_p_s_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre - 1,
-                                                        ToT>();
-        }
-        from_decimal_with_p_s_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre, ToT>();
+        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(1, 0);
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(1, 1);
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(27, 9);
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(20, 6);
+        } else {
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(min_decimal_pre, 0);
+            if constexpr (min_decimal_pre != 1) {
+                from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(min_decimal_pre,
+                                                                        min_decimal_pre / 2);
+                from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(min_decimal_pre,
+                                                                        min_decimal_pre - 1);
+            }
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(min_decimal_pre,
+                                                                    min_decimal_pre);
 
-        from_decimal_with_p_s_no_overflow_test_func<FromT, max_decimal_pre, 0, ToT>();
-        from_decimal_with_p_s_no_overflow_test_func<FromT, max_decimal_pre, 1, ToT>();
-        from_decimal_with_p_s_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre / 2,
-                                                    ToT>();
-        from_decimal_with_p_s_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre - 1,
-                                                    ToT>();
-        from_decimal_with_p_s_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre, ToT>();
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(max_decimal_pre, 0);
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(max_decimal_pre, 1);
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(max_decimal_pre,
+                                                                    max_decimal_pre / 2);
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(max_decimal_pre,
+                                                                    max_decimal_pre - 1);
+            from_decimal_with_p_s_no_overflow_test_func<FromT, ToT>(max_decimal_pre,
+                                                                    max_decimal_pre);
+        }
     }
 
-    template <typename FromT, int FromPrecision, int FromScale, PrimitiveType ToPT>
-    void from_decimal_with_p_s_overflow_test_func(const std::string& regression_case_name,
+    template <typename FromT, PrimitiveType ToPT>
+    void from_decimal_with_p_s_overflow_test_func(int FromPrecision, int FromScale,
+                                                  const std::string& regression_case_name,
                                                   int table_index, std::ofstream* ofs_case,
                                                   std::ofstream* ofs_expected_result,
                                                   std::ofstream* ofs_const_case,
@@ -1407,11 +1422,12 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         using ToT = typename PrimitiveTypeTraits<ToPT>::CppType;
         static_assert(IsDecimalNumber<FromT>, "FromT must be a decimal type");
         static_assert(std::numeric_limits<ToT>::is_integer, "ToT must be an integer type");
-        if constexpr (FromPrecision - FromScale < NumberTraits::max_ascii_len<ToT>()) {
+        if (FromPrecision - FromScale < NumberTraits::max_ascii_len<ToT>()) {
             return;
         }
 
-        DataTypeDecimal<FromT::PType> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt_from =
+                get_decimal_data_type<FromT>(FromPrecision, FromScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -1419,31 +1435,30 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         DataTypeNumber<ToPT> dt_to;
 
         // from_max_integral:    99999999
-        constexpr auto from_max_integral =
+        auto from_max_integral =
                 decimal_scale_multiplier<typename FromT::NativeType>(FromPrecision - FromScale) - 1;
         // constexpr auto min_integral = -from_max_integral;
-        std::cout << "from_max_integral:\t" << fmt::format("{}", from_max_integral) << std::endl;
+        // std::cout << "from_max_integral:\t" << fmt::format("{}", from_max_integral) << std::endl;
 
         // from_max_fractional:    99999999
         // from_large_fractional1: 9999999
         // from_large_fractional2: 90000000
         // from_large_fractional3: 90000001
-        constexpr auto from_max_fractional =
+        auto from_max_fractional =
                 decimal_scale_multiplier<typename FromT::NativeType>(FromScale) - 1;
-        constexpr auto from_large_fractional1 =
+        auto from_large_fractional1 =
                 decimal_scale_multiplier<typename FromT::NativeType>(FromScale - 1) - 1;
-        constexpr auto from_large_fractional2 = from_max_fractional - from_large_fractional1;
-        constexpr auto from_large_fractional3 = from_large_fractional2 > 9
-                                                        ? from_large_fractional2 + 1
-                                                        : from_large_fractional2 - 1;
-        std::cout << "from_max_fractional:\t" << fmt::format("{}", from_max_fractional)
-                  << std::endl;
-        std::cout << "from_large_fractional1:\t" << fmt::format("{}", from_large_fractional1)
-                  << std::endl;
-        std::cout << "from_large_fractional2:\t" << fmt::format("{}", from_large_fractional2)
-                  << std::endl;
-        std::cout << "from_large_fractional3:\t" << fmt::format("{}", from_large_fractional3)
-                  << std::endl;
+        auto from_large_fractional2 = from_max_fractional - from_large_fractional1;
+        auto from_large_fractional3 = from_large_fractional2 > 9 ? from_large_fractional2 + 1
+                                                                 : from_large_fractional2 - 1;
+        // std::cout << "from_max_fractional:\t" << fmt::format("{}", from_max_fractional)
+        //           << std::endl;
+        // std::cout << "from_large_fractional1:\t" << fmt::format("{}", from_large_fractional1)
+        //           << std::endl;
+        // std::cout << "from_large_fractional2:\t" << fmt::format("{}", from_large_fractional2)
+        //           << std::endl;
+        // std::cout << "from_large_fractional3:\t" << fmt::format("{}", from_large_fractional3)
+        //           << std::endl;
         std::vector<typename FromT::NativeType> integral_part;
         if constexpr (sizeof(typename FromT::NativeType) > sizeof(IntType)) {
             integral_part.push_back(
@@ -1468,16 +1483,18 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                                                    from_large_fractional1,
                                                                    from_large_fractional2,
                                                                    from_large_fractional3};
-        DataTypeDecimal<FromT::PType> dt(FromPrecision, FromScale);
         std::string dbg_str =
                 fmt::format("test cast {}({}, {}) to {}: ", type_to_string(FromT::PType),
                             FromPrecision, FromScale, dt_to.get_family_name());
+        // std::cout << dbg_str << std::endl;
 
         std::vector<std::string> test_data_set;
         Defer defer {[&]() {
             if (FLAGS_gen_regression_case) {
-                std::string from_sql_type_name =
-                        fmt::format("decimalv3({}, {})", FromPrecision, FromScale);
+                std::string from_decimal_sql_type_name =
+                        FromT::PType == TYPE_DECIMALV2 ? "decimalv2" : "decimalv3";
+                std::string from_sql_type_name = fmt::format(
+                        "{}({}, {})", from_decimal_sql_type_name, FromPrecision, FromScale);
                 std::string to_sql_type_name = get_sql_type_name(ToPT);
                 gen_overflow_and_invalid_regression_case(regression_case_name, from_sql_type_name,
                                                          true, to_sql_type_name, test_data_set,
@@ -1485,21 +1502,19 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                                          ofs_const_case, ofs_const_expected_result);
             }
         }};
-        if constexpr (FromScale == 0) {
+        if (FromScale == 0) {
             // non strict mode
             {
                 DataSet data_set;
                 // e.g. Decimal(9, 0), only int part
                 for (const auto& i : integral_part) {
                     auto decimal_num = decimal_ctor(i, 0, FromScale);
-                    auto num_str = dt.to_string(decimal_num);
-                    dbg_str += fmt::format("({}, {})|", num_str, i);
+                    auto num_str = dt_from.to_string(decimal_num);
+                    // dbg_str += fmt::format("({}, {})|", num_str, i);
                     data_set.push_back({{decimal_num}, Null()});
                     test_data_set.emplace_back(num_str);
                 }
-                dbg_str += "\n";
-                std::cout << dbg_str << std::endl;
-                check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
+                check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
             }
             // strict mode
             {
@@ -1507,8 +1522,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                     DataSet data_set;
                     auto decimal_num = decimal_ctor(i, 0, FromScale);
                     data_set.push_back({{decimal_num}, Null()});
-                    check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(
-                            input_types, data_set, true, true);
+                    check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1,
+                                                                        -1, true, true);
                 }
             }
             return;
@@ -1521,22 +1536,21 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 for (const auto& f : fractional_part) {
                     if (i >= 0) {
                         auto decimal_num = decimal_ctor(i, f, FromScale);
-                        auto num_str = dt.to_string(decimal_num);
-                        dbg_str += fmt::format("({}, {})|", num_str, i);
+                        auto num_str = dt_from.to_string(decimal_num);
+                        // dbg_str += fmt::format("({}, {})|", num_str, i);
                         data_set.push_back({{decimal_num}, Null()});
                         test_data_set.emplace_back(num_str);
                     } else {
                         auto decimal_num = decimal_ctor(i, -f, FromScale);
-                        auto num_str = dt.to_string(decimal_num);
-                        dbg_str += fmt::format("({}, {})|", num_str, i);
+                        auto num_str = dt_from.to_string(decimal_num);
+                        // dbg_str += fmt::format("({}, {})|", num_str, i);
                         data_set.push_back({{decimal_num}, Null()});
                         test_data_set.emplace_back(num_str);
                     }
                 }
-                dbg_str += "\n";
+                // dbg_str += "\n";
             }
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1);
         }
         // strict mode
         {
@@ -1550,8 +1564,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                         auto decimal_num = decimal_ctor(i, -f, FromScale);
                         data_set.push_back({{decimal_num}, Null()});
                     }
-                    check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(
-                            input_types, data_set, true, true);
+                    check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1,
+                                                                        -1, true, true);
                 }
             }
         }
@@ -1594,38 +1608,51 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             }
         }
 
-        from_decimal_with_p_s_overflow_test_func<FromT, min_decimal_pre, 0, ToT>(
-                regression_case_name, table_index++, ofs_case, ofs_expected_result, ofs_const_case,
-                ofs_const_expected_result);
-        if constexpr (min_decimal_pre != 1) {
-            from_decimal_with_p_s_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre / 2,
-                                                     ToT>(
-                    regression_case_name, table_index++, ofs_case, ofs_expected_result,
+        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    1, 0, regression_case_name, table_index++, ofs_case, ofs_expected_result,
                     ofs_const_case, ofs_const_expected_result);
-            from_decimal_with_p_s_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre - 1,
-                                                     ToT>(
-                    regression_case_name, table_index++, ofs_case, ofs_expected_result,
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    1, 1, regression_case_name, table_index++, ofs_case, ofs_expected_result,
                     ofs_const_case, ofs_const_expected_result);
-        }
-        from_decimal_with_p_s_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre, ToT>(
-                regression_case_name, table_index++, ofs_case, ofs_expected_result, ofs_const_case,
-                ofs_const_expected_result);
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    27, 9, regression_case_name, table_index++, ofs_case, ofs_expected_result,
+                    ofs_const_case, ofs_const_expected_result);
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    19, 6, regression_case_name, table_index++, ofs_case, ofs_expected_result,
+                    ofs_const_case, ofs_const_expected_result);
+        } else {
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    min_decimal_pre, 0, regression_case_name, table_index++, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            if constexpr (min_decimal_pre != 1) {
+                from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                        min_decimal_pre, min_decimal_pre / 2, regression_case_name, table_index++,
+                        ofs_case, ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+                from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                        min_decimal_pre, min_decimal_pre - 1, regression_case_name, table_index++,
+                        ofs_case, ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            }
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    min_decimal_pre, min_decimal_pre, regression_case_name, table_index++, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
 
-        from_decimal_with_p_s_overflow_test_func<FromT, max_decimal_pre, 0, ToT>(
-                regression_case_name, table_index++, ofs_case, ofs_expected_result, ofs_const_case,
-                ofs_const_expected_result);
-        from_decimal_with_p_s_overflow_test_func<FromT, max_decimal_pre, 1, ToT>(
-                regression_case_name, table_index++, ofs_case, ofs_expected_result, ofs_const_case,
-                ofs_const_expected_result);
-        from_decimal_with_p_s_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre / 2, ToT>(
-                regression_case_name, table_index++, ofs_case, ofs_expected_result, ofs_const_case,
-                ofs_const_expected_result);
-        from_decimal_with_p_s_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre - 1, ToT>(
-                regression_case_name, table_index++, ofs_case, ofs_expected_result, ofs_const_case,
-                ofs_const_expected_result);
-        from_decimal_with_p_s_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre, ToT>(
-                regression_case_name, table_index++, ofs_case, ofs_expected_result, ofs_const_case,
-                ofs_const_expected_result);
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    max_decimal_pre, 0, regression_case_name, table_index++, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    max_decimal_pre, 1, regression_case_name, table_index++, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    max_decimal_pre, max_decimal_pre / 2, regression_case_name, table_index++,
+                    ofs_case, ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    max_decimal_pre, max_decimal_pre - 1, regression_case_name, table_index++,
+                    ofs_case, ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+            from_decimal_with_p_s_overflow_test_func<FromT, ToT>(
+                    max_decimal_pre, max_decimal_pre, regression_case_name, table_index++, ofs_case,
+                    ofs_expected_result, ofs_const_case, ofs_const_expected_result);
+        }
         if (FLAGS_gen_regression_case) {
             (*ofs_const_case) << "}";
             (*ofs_case) << "}";
@@ -1648,6 +1675,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
 
         std::string to_sql_type_name = get_sql_type_name(ToPT);
         std::string dbg_str = fmt::format("test cast datev2 to {}: ", to_sql_type_name);
+        // std::cout << dbg_str << std::endl;
         constexpr bool is_supported_int_type =
                 (ToPT == TYPE_INT || ToPT == TYPE_BIGINT || ToPT == TYPE_LARGEINT);
 
@@ -1661,10 +1689,10 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                     if constexpr (!is_supported_int_type) {
                         DataSet data_set_tmp;
                         data_set_tmp.push_back({{date_val}, expect_cast_result});
-                        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(
-                                input_types, data_set_tmp, false, true);
-                        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(
-                                input_types, data_set_tmp, false, true);
+                        check_function_for_cast<DataTypeNumber<ToPT>, false>(
+                                input_types, data_set_tmp, -1, -1, false, true);
+                        check_function_for_cast<DataTypeNumber<ToPT>, true>(
+                                input_types, data_set_tmp, -1, -1, false, true);
                     } else {
                         // dbg_str +=
                         //         fmt::format("({}, {})|", dt.to_string(date_val.to_date_int_val()),
@@ -1680,11 +1708,10 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             // dbg_str += "\n";
         }
         if constexpr (is_supported_int_type) {
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set,
-                                                                         false);
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set,
-                                                                        false);
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1,
+                                                                 false);
+            check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1,
+                                                                false);
             if (FLAGS_gen_regression_case) {
                 int table_index = 0;
                 int test_data_index = 0;
@@ -1711,8 +1738,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         }
     }
 
-    template <PrimitiveType ToPT, int Scale>
-    void from_datetime_test_func() {
+    template <PrimitiveType ToPT>
+    void from_datetime_test_func(int Scale) {
         using ToT = typename PrimitiveTypeTraits<ToPT>::CppType;
         static_assert(std::numeric_limits<ToT>::is_integer, "ToT must be an integer type");
         using IntType = ToT;
@@ -1733,6 +1760,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         std::string to_sql_type_name = get_sql_type_name(ToPT);
         std::string dbg_str =
                 fmt::format("test cast datetimev2({}) to {}: ", Scale, to_sql_type_name);
+        // std::cout << dbg_str << std::endl;
         for (auto year : years) {
             for (auto month : months) {
                 for (auto day : days) {
@@ -1751,11 +1779,10 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                     if constexpr (!is_supported_int_type) {
                                         DataSet data_set_tmp;
                                         data_set_tmp.push_back({{date_val}, expect_cast_result});
-                                        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1,
-                                                                false>(input_types, data_set_tmp,
-                                                                       false, true);
-                                        check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(
-                                                input_types, data_set_tmp, false, true);
+                                        check_function_for_cast<DataTypeNumber<ToPT>, false>(
+                                                input_types, data_set_tmp, -1, -1, false, true);
+                                        check_function_for_cast<DataTypeNumber<ToPT>, true>(
+                                                input_types, data_set_tmp, -1, -1, false, true);
                                     } else {
                                         data_set.push_back({{date_val}, expect_cast_result});
                                         if (FLAGS_gen_regression_case) {
@@ -1776,12 +1803,11 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             }
         }
     loop_end:
-        std::cout << dbg_str << std::endl;
         if constexpr (is_supported_int_type) {
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set,
-                                                                         false);
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set,
-                                                                        false);
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1,
+                                                                 false);
+            check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1,
+                                                                false);
             if (FLAGS_gen_regression_case) {
                 int table_index = 0;
                 int test_data_index = 0;
@@ -1844,6 +1870,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
 
         std::string to_sql_type_name = get_sql_type_name(ToPT);
         std::string dbg_str = fmt::format("test cast time to {}: ", to_sql_type_name);
+        // std::cout << dbg_str << std::endl;
         std::vector<std::pair<std::string, ToT>> regression_test_data_set;
         std::vector<std::string> regression_test_overflow_data_set;
         auto test_func = [&](bool negative) {
@@ -1856,10 +1883,10 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                             time_val < std::numeric_limits<IntType>::min()) {
                             DataSet data_set_tmp;
                             data_set_tmp.push_back({{time_val}, Null()});
-                            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(
-                                    input_types, data_set_tmp, false);
-                            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(
-                                    input_types, data_set_tmp, false, true);
+                            check_function_for_cast<DataTypeNumber<ToPT>, false>(
+                                    input_types, data_set_tmp, -1, -1, false);
+                            check_function_for_cast<DataTypeNumber<ToPT>, true>(
+                                    input_types, data_set_tmp, -1, -1, false, true);
                             if (FLAGS_gen_regression_case) {
                                 regression_test_overflow_data_set.emplace_back(
                                         doris::TimeValue::to_string(time_val, 6));
@@ -1868,9 +1895,9 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                         }
                         auto expect_cast_result = static_cast<IntType>(time_val);
                         data_set.push_back({{time_val}, expect_cast_result});
-                        dbg_str +=
-                                fmt::format("({}, {})|", doris::TimeValue::to_string(time_val, 6),
-                                            expect_cast_result);
+                        // dbg_str +=
+                        //         fmt::format("({}, {})|", doris::TimeValue::to_string(time_val, 6),
+                        //                     expect_cast_result);
                         if (FLAGS_gen_regression_case) {
                             regression_test_data_set.emplace_back(
                                     doris::TimeValue::to_string(time_val, 6), expect_cast_result);
@@ -1879,11 +1906,10 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 }
             }
 
-            std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, false>(input_types, data_set,
-                                                                         false);
-            check_function_for_cast<DataTypeNumber<ToPT>, -1, -1, true>(input_types, data_set,
-                                                                        false);
+            check_function_for_cast<DataTypeNumber<ToPT>, false>(input_types, data_set, -1, -1,
+                                                                 false);
+            check_function_for_cast<DataTypeNumber<ToPT>, true>(input_types, data_set, -1, -1,
+                                                                false);
         };
         test_func(false);
         test_func(true);
@@ -1993,8 +2019,8 @@ TEST_F(FunctionCastToIntTest, test_from_bool) {
                 {{UInt8 {0}}, Int8(0)},
                 {{UInt8 {1}}, Int8(1)},
         };
-        check_function_for_cast<DataTypeInt8, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeInt8, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeInt8, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeInt8, true>(input_types, data_set, -1, -1);
     }
     // smallint
     {
@@ -2002,8 +2028,8 @@ TEST_F(FunctionCastToIntTest, test_from_bool) {
                 {{UInt8 {0}}, Int16(0)},
                 {{UInt8 {1}}, Int16(1)},
         };
-        check_function_for_cast<DataTypeInt16, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeInt16, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeInt16, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeInt16, true>(input_types, data_set, -1, -1);
     }
     // int
     {
@@ -2011,8 +2037,8 @@ TEST_F(FunctionCastToIntTest, test_from_bool) {
                 {{UInt8 {0}}, Int32(0)},
                 {{UInt8 {1}}, Int32(1)},
         };
-        check_function_for_cast<DataTypeInt32, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeInt32, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeInt32, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeInt32, true>(input_types, data_set, -1, -1);
     }
     // bigint
     {
@@ -2020,8 +2046,8 @@ TEST_F(FunctionCastToIntTest, test_from_bool) {
                 {{UInt8 {0}}, Int64(0)},
                 {{UInt8 {1}}, Int64(1)},
         };
-        check_function_for_cast<DataTypeInt64, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeInt64, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeInt64, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeInt64, true>(input_types, data_set, -1, -1);
     }
     // largeint
     {
@@ -2029,8 +2055,8 @@ TEST_F(FunctionCastToIntTest, test_from_bool) {
                 {{UInt8 {0}}, Int128(0)},
                 {{UInt8 {1}}, Int128(1)},
         };
-        check_function_for_cast<DataTypeInt128, -1, -1, false>(input_types, data_set);
-        check_function_for_cast<DataTypeInt128, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeInt128, false>(input_types, data_set, -1, -1);
+        check_function_for_cast<DataTypeInt128, true>(input_types, data_set, -1, -1);
     }
 }
 TEST_F(FunctionCastToIntTest, test_from_narrow_to_wider_int) {
@@ -2116,25 +2142,35 @@ TEST_F(FunctionCastToIntTest, test_from_decimal) {
     from_decimal_to_int_test_func<Decimal128V3, TYPE_TINYINT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_TINYINT>();
 
+    from_decimal_to_int_test_func<Decimal128V2, TYPE_TINYINT>();
+
     from_decimal_to_int_test_func<Decimal32, TYPE_SMALLINT>();
     from_decimal_to_int_test_func<Decimal64, TYPE_SMALLINT>();
     from_decimal_to_int_test_func<Decimal128V3, TYPE_SMALLINT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_SMALLINT>();
+
+    from_decimal_to_int_test_func<Decimal128V2, TYPE_SMALLINT>();
 
     from_decimal_to_int_test_func<Decimal32, TYPE_INT>();
     from_decimal_to_int_test_func<Decimal64, TYPE_INT>();
     from_decimal_to_int_test_func<Decimal128V3, TYPE_INT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_INT>();
 
+    from_decimal_to_int_test_func<Decimal128V2, TYPE_INT>();
+
     from_decimal_to_int_test_func<Decimal32, TYPE_BIGINT>();
     from_decimal_to_int_test_func<Decimal64, TYPE_BIGINT>();
     from_decimal_to_int_test_func<Decimal128V3, TYPE_BIGINT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_BIGINT>();
 
+    from_decimal_to_int_test_func<Decimal128V2, TYPE_BIGINT>();
+
     from_decimal_to_int_test_func<Decimal32, TYPE_LARGEINT>();
     from_decimal_to_int_test_func<Decimal64, TYPE_LARGEINT>();
     from_decimal_to_int_test_func<Decimal128V3, TYPE_LARGEINT>();
     from_decimal_to_int_test_func<Decimal256, TYPE_LARGEINT>();
+
+    from_decimal_to_int_test_func<Decimal128V2, TYPE_LARGEINT>();
 }
 TEST_F(FunctionCastToIntTest, test_from_decimal_overflow) {
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_TINYINT>();
@@ -2142,25 +2178,35 @@ TEST_F(FunctionCastToIntTest, test_from_decimal_overflow) {
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_TINYINT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_TINYINT>();
 
+    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_TINYINT>();
+
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_SMALLINT>();
     from_decimal_to_int_overflow_test_func<Decimal64, TYPE_SMALLINT>();
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_SMALLINT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_SMALLINT>();
+
+    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_SMALLINT>();
 
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_INT>();
     from_decimal_to_int_overflow_test_func<Decimal64, TYPE_INT>();
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_INT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_INT>();
 
+    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_INT>();
+
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_BIGINT>();
     from_decimal_to_int_overflow_test_func<Decimal64, TYPE_BIGINT>();
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_BIGINT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_BIGINT>();
 
+    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_BIGINT>();
+
     from_decimal_to_int_overflow_test_func<Decimal32, TYPE_LARGEINT>();
     from_decimal_to_int_overflow_test_func<Decimal64, TYPE_LARGEINT>();
     from_decimal_to_int_overflow_test_func<Decimal128V3, TYPE_LARGEINT>();
     from_decimal_to_int_overflow_test_func<Decimal256, TYPE_LARGEINT>();
+
+    from_decimal_to_int_overflow_test_func<Decimal128V2, TYPE_LARGEINT>();
 }
 TEST_F(FunctionCastToIntTest, test_from_date) {
     from_date_test_func<TYPE_TINYINT>();
@@ -2171,30 +2217,30 @@ TEST_F(FunctionCastToIntTest, test_from_date) {
 }
 
 TEST_F(FunctionCastToIntTest, test_from_datetime) {
-    from_datetime_test_func<TYPE_TINYINT, 0>();
-    from_datetime_test_func<TYPE_TINYINT, 1>();
-    from_datetime_test_func<TYPE_TINYINT, 3>();
-    from_datetime_test_func<TYPE_TINYINT, 6>();
+    from_datetime_test_func<TYPE_TINYINT>(0);
+    from_datetime_test_func<TYPE_TINYINT>(1);
+    from_datetime_test_func<TYPE_TINYINT>(3);
+    from_datetime_test_func<TYPE_TINYINT>(6);
 
-    from_datetime_test_func<TYPE_SMALLINT, 0>();
-    from_datetime_test_func<TYPE_SMALLINT, 1>();
-    from_datetime_test_func<TYPE_SMALLINT, 3>();
-    from_datetime_test_func<TYPE_SMALLINT, 6>();
+    from_datetime_test_func<TYPE_SMALLINT>(0);
+    from_datetime_test_func<TYPE_SMALLINT>(1);
+    from_datetime_test_func<TYPE_SMALLINT>(3);
+    from_datetime_test_func<TYPE_SMALLINT>(6);
 
-    from_datetime_test_func<TYPE_INT, 0>();
-    from_datetime_test_func<TYPE_INT, 1>();
-    from_datetime_test_func<TYPE_INT, 3>();
-    from_datetime_test_func<TYPE_INT, 6>();
+    from_datetime_test_func<TYPE_INT>(0);
+    from_datetime_test_func<TYPE_INT>(1);
+    from_datetime_test_func<TYPE_INT>(3);
+    from_datetime_test_func<TYPE_INT>(6);
 
-    from_datetime_test_func<TYPE_BIGINT, 0>();
-    from_datetime_test_func<TYPE_BIGINT, 1>();
-    from_datetime_test_func<TYPE_BIGINT, 3>();
-    from_datetime_test_func<TYPE_BIGINT, 6>();
+    from_datetime_test_func<TYPE_BIGINT>(0);
+    from_datetime_test_func<TYPE_BIGINT>(1);
+    from_datetime_test_func<TYPE_BIGINT>(3);
+    from_datetime_test_func<TYPE_BIGINT>(6);
 
-    from_datetime_test_func<TYPE_LARGEINT, 0>();
-    from_datetime_test_func<TYPE_LARGEINT, 1>();
-    from_datetime_test_func<TYPE_LARGEINT, 3>();
-    from_datetime_test_func<TYPE_LARGEINT, 6>();
+    from_datetime_test_func<TYPE_LARGEINT>(0);
+    from_datetime_test_func<TYPE_LARGEINT>(1);
+    from_datetime_test_func<TYPE_LARGEINT>(3);
+    from_datetime_test_func<TYPE_LARGEINT>(6);
 }
 
 TEST_F(FunctionCastToIntTest, test_from_time) {

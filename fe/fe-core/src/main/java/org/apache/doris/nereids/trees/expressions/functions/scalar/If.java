@@ -121,6 +121,11 @@ public class If extends ScalarFunction
                 arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private If(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * custom compute nullable.
      */
@@ -140,7 +145,7 @@ public class If extends ScalarFunction
     @Override
     public If withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new If(children.get(0), children.get(1), children.get(2));
+        return new If(getFunctionParams(children));
     }
 
     @Override

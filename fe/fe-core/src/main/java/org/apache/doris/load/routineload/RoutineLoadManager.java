@@ -536,7 +536,7 @@ public class RoutineLoadManager implements Writable {
                 String msg = "no available BE found for job " + jobId
                         + "please check the BE status and user's cluster or tags";
                 job.updateState(RoutineLoadJob.JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR, msg), false /* not replay */);
+                        new ErrorReason(InternalErrorCode.INTERNAL_ERR, msg), false /* not replay */);
             }
             return -1L;
         }
@@ -949,6 +949,7 @@ public class RoutineLoadManager implements Writable {
                 + command.getDataSourceProperties().getDataSourceType());
         }
         job.modifyProperties(command);
+        job.setRoutineLoadDesc(command.getRoutineLoadDesc());
     }
 
     public void replayAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {

@@ -332,8 +332,6 @@ private:
     size_t _current_offset;
 
     // Profile counters
-    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
-    RuntimeProfile::Counter* _read_timer = nullptr;
     RuntimeProfile::Counter* _bytes_decompress_counter = nullptr;
     RuntimeProfile::Counter* _decompress_timer = nullptr;
 };

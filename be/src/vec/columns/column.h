@@ -37,7 +37,9 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
+namespace doris {
 class SipHash;
+}
 
 namespace doris::vectorized {
 
@@ -472,17 +474,11 @@ public:
                                "get_permutation for " + get_name());
     }
 
-    /** Copies each element according offsets parameter.
-      * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
-      * It is necessary in ARRAY JOIN operation.
-      */
-    virtual Ptr replicate(const Offsets& offsets) const = 0;
-
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
       * For default implementation, see column_impl.h
       */
-    using ColumnIndex = UInt64;
+    using ColumnIndex = UInt32;
     using Selector = PaddedPODArray<ColumnIndex>;
 
     // The append_data_by_selector function requires the column to implement the insert_from function.
@@ -673,14 +669,7 @@ protected:
         }
         DCHECK_GE(end, begin);
         DCHECK_LE(end, selector.size());
-        // here wants insert some value from this column, and the nums is (end - begin)
-        // and many be this column num_rows is 4096, but only need insert num is (1 - 0) = 1
-        // so can't call res->reserve(num_rows), it's will be too mush waste memory
-        res->reserve(res->size() + (end - begin));
-
-        for (size_t i = begin; i < end; ++i) {
-            static_cast<Derived&>(*res).insert_from(*this, selector[i]);
-        }
+        static_cast<Derived&>(*res).insert_indices_from(*this, &selector[begin], &selector[end]);
     }
     template <typename Derived>
     void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,

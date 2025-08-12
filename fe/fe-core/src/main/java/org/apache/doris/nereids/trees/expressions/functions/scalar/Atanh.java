@@ -47,13 +47,18 @@ public class Atanh extends ScalarFunction
         super("atanh", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Atanh(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Atanh withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Atanh(children.get(0));
+        return new Atanh(getFunctionParams(children));
     }
 
     @Override

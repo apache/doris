@@ -49,7 +49,7 @@ suite ("test_dup_mv_json") {
 
     create_sync_mv(db, "tcu_test", "tcu_test_index",
             """select
-                    a
+                    a as a1
                     ,(cast(json_extract(k, '\$.k22.k222.k2224.xxxx01_u_actl') as double)+cast(json_extract(k, '\$.k22.k222.k2224.xxxx02_u_actl') as double)+cast(json_extract(k, '\$.k22.k222.k2224.xxxx03_u_actl') as double)-greatest(cast(json_extract(k, '\$.k22.k222.k2224.xxxx01_u_actl') as double),cast(json_extract(k, '\$.k22.k222.k2224.xxxx02_u_actl') as double),cast(json_extract(k, '\$.k22.k222.k2224.xxxx03_u_actl') as double))-least(cast(json_extract(k, '\$.k22.k222.k2224.xxxx01_u_actl') as double),cast(json_extract(k, '\$.k22.k222.k2224.xxxx02_u_actl') as double),cast(json_extract(k, '\$.k22.k222.k2224.xxxx03_u_actl') as double)))/1.0
                     FROM tcu_test;
             """

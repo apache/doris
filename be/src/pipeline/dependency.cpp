@@ -223,7 +223,7 @@ vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         auto iter = aggregate_data_container->begin();
                         {
                             while (iter != aggregate_data_container->end()) {

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionB
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunctionParams;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -83,13 +84,22 @@ public class ForEachCombinator extends NullableAggregateFunction
         }
     }
 
+    private ForEachCombinator(NullableAggregateFunctionParams functionParams, AggregateFunction nested) {
+        super(functionParams);
+
+        this.nested = nested;
+        if (UNSUPPORTED_AGGREGATE_FUNCTION.contains(nested.getName().toLowerCase())) {
+            throw new UnsupportedOperationException("Unsupport the func:" + nested.getName() + " use in foreach");
+        }
+    }
+
     public static ForEachCombinator create(AggregateFunction nested) {
         return new ForEachCombinator(nested.getArguments(), nested);
     }
 
     @Override
     public ForEachCombinator withChildren(List<Expression> children) {
-        return new ForEachCombinator(children, alwaysNullable, nested);
+        return new ForEachCombinator(getFunctionParams(children), nested);
     }
 
     @Override
@@ -124,6 +134,6 @@ public class ForEachCombinator extends NullableAggregateFunction
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new ForEachCombinator(children, alwaysNullable, nested);
+        return new ForEachCombinator(getAlwaysNullableFunctionParams(alwaysNullable), nested);
     }
 }

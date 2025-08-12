@@ -169,7 +169,7 @@ PhysicalResultSink
 
 -- !filter_mixed_inner_left --
 PhysicalResultSink
---filter(OR[AND[(t1.id = 1),(t2.id = 2)],(t3.id = 2)])
+--filter((t3.id = 2))
 ----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[t1]

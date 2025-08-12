@@ -125,7 +125,7 @@ suite("regression_test_variant_github_events_p0", "p0"){
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='github_events' ORDER BY createtime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
-    int max_try_time = 200
+    int max_try_time = 1000
     while (max_try_time--){
         String result = getJobState("github_events")
         if (result == "FINISHED") {

@@ -63,7 +63,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """drop WORKLOAD GROUP if exists '${wg}' $forComputeGroupStr """
         sql """CREATE WORKLOAD GROUP "${wg} $forComputeGroupStr "
         PROPERTIES (
-            "cpu_share"="10"
+            "min_cpu_percent"="10"
         );"""
         sql """DROP RESOURCE if exists ${rg}"""
         sql """

@@ -49,13 +49,18 @@ public class StAsBinary extends ScalarFunction
         super("st_asbinary", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StAsBinary(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StAsBinary withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StAsBinary(children.get(0));
+        return new StAsBinary(getFunctionParams(children));
     }
 
     @Override

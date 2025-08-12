@@ -19,11 +19,9 @@ package org.apache.doris.service;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
@@ -50,9 +48,13 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
+import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -82,6 +84,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -155,6 +158,7 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
+import org.apache.doris.thrift.TEncryptionKey;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
@@ -180,6 +184,8 @@ import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetEncryptionKeysRequest;
+import org.apache.doris.thrift.TGetEncryptionKeysResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetMetaDB;
@@ -1416,6 +1422,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive getDataKeys request: {}, backend: {}", request, clientAddr);
+        }
+
+        TGetEncryptionKeysResult result = new TGetEncryptionKeysResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to getDataKeys:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, clientAddr);
+            return result;
+        }
+        try {
+            List<TEncryptionKey> tKeys = new ArrayList<TEncryptionKey>();
+            List<EncryptionKey> keys =  Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
+            for (EncryptionKey key : keys) {
+                tKeys.add(key.toThrift());
+            }
+            result.setMasterKeys(tKeys);
+        } catch (Exception e) {
+            LOG.warn("failed to getDataKeys: {}: {}", request, e.getMessage());
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        return result;
+    }
+
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         if (request.isSetTableId() && request.getTableId() > 0) {
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
@@ -2040,8 +2082,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // mysql load request not carry user info, need fix it later.
             boolean hasUserName = !StringUtils.isEmpty(request.getUser());
             if (Config.enable_workload_group && hasUserName) {
-                tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(ConnectContext.get());
+                tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
@@ -2141,8 +2185,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
 
-            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-            Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
+            Coordinator coord = new Coordinator(ctx, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
             TableIf table = httpStreamParams.getTable();
@@ -2720,6 +2763,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetTabletReplicaInfosResult result = new TGetTabletReplicaInfosResult();
         List<Long> tabletIds = request.getTabletIds();
         Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
+        String clusterId = "";
+        if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
+            CloudWarmUpJob job = ((CloudEnv) Env.getCurrentEnv())
+                    .getCacheHotspotMgr()
+                    .getCloudWarmUpJob(request.getWarmUpJobId());
+            if (job == null) {
+                LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
+                        job.getJobId(), clientAddr);
+                // notify client to cancel this job
+                result.setStatus(new TStatus(TStatusCode.CANCELLED));
+                return result;
+            }
+            clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudClusterIdByName(job.getDstClusterName());
+        }
         for (Long tabletId : tabletIds) {
             if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
                 LOG.info("enable getTabletReplicaInfos.returnEmpty");
@@ -2729,11 +2787,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
             for (Replica replica : replicas) {
-                if (!replica.isNormal()) {
+                if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                Backend backend;
+                if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
+                    CloudReplica cloudReplica = (CloudReplica) replica;
+                    backend = cloudReplica.getPrimaryBackend(clusterId);
+                } else {
+                    backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                }
                 if (backend != null) {
                     TReplicaInfo replicaInfo = new TReplicaInfo();
                     replicaInfo.setHost(backend.getHost());
@@ -3098,16 +3162,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // instead of directly putting them in properties to avoid compatibility issues of cross-version
         // synchronization.
         if (request.isCleanPartitions()) {
-            properties.put(RestoreStmt.PROP_CLEAN_PARTITIONS, "true");
+            properties.put(RestoreCommand.PROP_CLEAN_PARTITIONS, "true");
         }
         if (request.isCleanTables()) {
-            properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
+            properties.put(RestoreCommand.PROP_CLEAN_TABLES, "true");
         }
         if (request.isAtomicRestore()) {
-            properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+            properties.put(RestoreCommand.PROP_ATOMIC_RESTORE, "true");
         }
         if (request.isForceReplace()) {
-            properties.put(RestoreStmt.PROP_FORCE_REPLACE, "true");
+            properties.put(RestoreCommand.PROP_FORCE_REPLACE, "true");
         }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;

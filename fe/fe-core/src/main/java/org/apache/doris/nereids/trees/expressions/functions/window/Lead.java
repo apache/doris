@@ -65,6 +65,11 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
         this(child, new BigIntLiteral(1L), new NullLiteral(child.getDataType()));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Lead(WindowFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     public Expression getOffset() {
         Preconditions.checkArgument(children.size() == 3);
         return child(1);
@@ -115,13 +120,7 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
     @Override
     public Lead withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3);
-        if (children.size() == 1) {
-            return new Lead(children.get(0));
-        } else if (children.size() == 2) {
-            return new Lead(children.get(0), children.get(1));
-        } else {
-            return new Lead(children.get(0), children.get(1), children.get(2));
-        }
+        return new Lead(getFunctionParams(children));
     }
 
     @Override

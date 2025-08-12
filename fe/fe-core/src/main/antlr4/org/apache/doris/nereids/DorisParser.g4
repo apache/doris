@@ -73,12 +73,6 @@ statementBase
     | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedTransactionStatement     #supportedTransactionStatementAlias
     | supportedGrantRevokeStatement     #supportedGrantRevokeStatementAlias
-    | unsupportedStatement              #unsupported
-    ;
-
-unsupportedStatement
-    : unsupportedStatsStatement
-    | unsupportedLoadStatement
     ;
 
 materializedViewStatement
@@ -128,9 +122,13 @@ constraintStatement
     | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
     ;
 
+optSpecBranch
+    : ATSIGN BRANCH LEFT_PAREN name=identifier RIGHT_PAREN
+    ;
+
 supportedDmlStatement
     : explain? cte? INSERT (INTO | OVERWRITE TABLE)
-        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
+        (tableName=multipartIdentifier (optSpecBranch)? | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -284,7 +282,9 @@ supportedAlterStatement
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
-    | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
+    | ALTER ROUTINE LOAD FOR name=multipartIdentifier 
+            (loadProperty (COMMA loadProperty)*)?
+            properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
@@ -381,6 +381,7 @@ supportedShowStatement
     | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
+    | SHOW CREATE STORAGE VAULT identifier                                          #showCreateStorageVault
     | SHOW DATA TYPES                                                               #showDataTypes
     | SHOW DATA (ALL)? (FROM tableName=multipartIdentifier)?
         sortClause? propertyClause?                                                 #showData
@@ -441,6 +442,7 @@ supportedShowStatement
 
 supportedLoadStatement
     : SYNC                                                                          #sync
+    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad    
     | createRoutineLoad                                                             #createRoutineLoadAlias
     | LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
@@ -474,7 +476,8 @@ supportedOtherStatement
         properties=propertyClause?                                                  #restore
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
-            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
+            (warmUpItem (AND warmUpItem)*)) FORCE?
+            properties=propertyClause?                                              #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
@@ -496,10 +499,6 @@ createRoutineLoad
               (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
               LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
               commentSpec?
-    ;
-
-unsupportedLoadStatement
-    : SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
 loadProperty
@@ -591,6 +590,7 @@ supportedAdminStatement
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET ENCRYPTION ROOT KEY PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetEncryptionRootKey
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
@@ -785,6 +785,7 @@ supportedStatsStatement
         columnList=identifierList                                               #showColumnHistogramStats
     | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
+    | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     | ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
@@ -804,10 +805,6 @@ supportedStatsStatement
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
-    ;
-
-unsupportedStatsStatement
-    : SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
 analyzeProperties
@@ -1282,8 +1279,13 @@ qualifyClause
 selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
+    : hintName (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=multipartIdentifier (COMMA tableList+=multipartIdentifier)* RIGHT_PAREN)?
+    ;
+
+hintName
+    : identifier
+    | LEADING
     ;
 
 hintAssignment
@@ -1492,6 +1494,10 @@ namedExpressionSeq
 
 expression
     : booleanExpression
+    ;
+
+funcExpression
+    : expression
     | lambdaExpression
     ;
 
@@ -1570,6 +1576,14 @@ primaryExpression
           RIGHT_PAREN                                                                          #charFunction
     | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN        #convertCharSet
     | CONVERT LEFT_PAREN argument=expression COMMA castDataType RIGHT_PAREN                    #convertType
+    | GROUP_CONCAT LEFT_PAREN (DISTINCT|ALL)?
+        (LEFT_BRACKET identifier RIGHT_BRACKET)?
+        argument=expression
+        (ORDER BY sortItem (COMMA sortItem)*)?
+        (SEPARATOR sep=expression)? RIGHT_PAREN
+        (OVER windowSpec)?                                                                     #groupConcat
+    | TRIM LEFT_PAREN
+        ((BOTH | LEADING | TRAILING) expression? | expression) FROM expression RIGHT_PAREN     #trim
     | functionCallExpression                                                                   #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
@@ -1601,7 +1615,7 @@ functionCallExpression
               LEFT_PAREN (
                   (DISTINCT|ALL)?
                   (LEFT_BRACKET identifier RIGHT_BRACKET)?
-                  arguments+=expression (COMMA arguments+=expression)*
+                  arguments+=funcExpression (COMMA arguments+=funcExpression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
             (OVER windowSpec)?
@@ -1707,6 +1721,7 @@ dataType
     : complex=ARRAY LT dataType GT                                  #complexDataType
     | complex=MAP LT dataType COMMA dataType GT                     #complexDataType
     | complex=STRUCT LT complexColTypeList GT                       #complexDataType
+    | complex=variantTypeDefinitions                                #variantPredefinedFields
     | AGG_STATE LT functionNameIdentifier
         LEFT_PAREN dataTypes+=dataTypeWithNullable
         (COMMA dataTypes+=dataTypeWithNullable)* RIGHT_PAREN GT     #aggStateDataType
@@ -1755,6 +1770,23 @@ complexColTypeList
 
 complexColType
     : identifier COLON dataType commentSpec?
+    ;
+
+variantTypeDefinitions
+    : VARIANT LT variantSubColTypeList COMMA properties=propertyClause GT  #variant
+    | VARIANT LT variantSubColTypeList GT                                  #variant
+    | VARIANT LT properties=propertyClause GT                              #variant
+    | VARIANT                                                              #variant
+    ;
+
+variantSubColTypeList
+    : variantSubColType (COMMA variantSubColType)*
+    ;
+variantSubColType
+    : variantSubColMatchType? STRING_LITERAL COLON dataType commentSpec?
+    ;
+variantSubColMatchType
+    : (MATCH_NAME | MATCH_NAME_GLOB)
     ;
 
 commentSpec
@@ -1911,6 +1943,7 @@ nonReserved
     | DYNAMIC
     | E
     | ENABLE
+    | ENCRYPTION
     | ENCRYPTKEY
     | ENCRYPTKEYS
     | END
@@ -1941,6 +1974,7 @@ nonReserved
     | GRAPH
     | GROUPING
     | GROUPS
+    | GROUP_CONCAT
     | HASH
     | HASH_MAP
     | HDFS
@@ -1994,6 +2028,8 @@ nonReserved
     | MATCH_PHRASE_EDGE
     | MATCH_PHRASE_PREFIX
     | MATCH_REGEXP
+    | MATCH_NAME
+    | MATCH_NAME_GLOB
     | MATERIALIZED
     | MAX
     | MEMO
@@ -2077,6 +2113,7 @@ nonReserved
     | RLIKE
     | ROLLBACK
     | ROLLUP
+    | ROOT
     | ROUTINE
     | S3
     | SAMPLE
@@ -2084,6 +2121,7 @@ nonReserved
     | SCHEDULER
     | SCHEMA
     | SECOND
+    | SEPARATOR
     | SERIALIZABLE
     | SET_SESSION_VARIABLE
     | SESSION

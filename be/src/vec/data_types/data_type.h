@@ -35,11 +35,14 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris {
 class PColumnMeta;
@@ -92,14 +95,33 @@ public:
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
 
     virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
-    // only for compound type now.
-    virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
-
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
+    virtual Status check_column(const IColumn& column) const = 0;
+
 protected:
     virtual String do_get_name() const;
+
+    template <typename Type>
+    Status check_column_non_nested_type(const IColumn& column) const {
+        if (check_and_get_column_with_const<Type>(column) != nullptr ||
+            check_and_get_column<ColumnNothing>(column) != nullptr) {
+            return Status::OK();
+        }
+        return Status::InternalError("Column type {} is not compatible with data type {}",
+                                     column.get_name(), get_name());
+    }
+
+    template <typename Type>
+    Result<const Type*> check_column_nested_type(const IColumn& column) const {
+        if (const auto* col = check_and_get_column_with_const<Type>(column)) {
+            return col;
+        }
+        return ResultError(
+                Status::InternalError("Column type {} is not compatible with data type {}",
+                                      column.get_name(), get_name()));
+    }
 
 public:
     /** Create empty column for corresponding type.
@@ -190,6 +212,9 @@ public:
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
 
+    // Return wrapped field with precision and scale, only use in Variant type to get the detailed type info
+    virtual FieldWithDataType get_field_with_data_type(const IColumn& column, size_t row_num) const;
+
     [[nodiscard]] virtual UInt32 get_precision() const { return 0; }
     [[nodiscard]] virtual UInt32 get_scale() const { return 0; }
     virtual void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const {}
@@ -201,6 +226,12 @@ public:
         to_protobuf(ptype, node, scalar_type);
     }
 #ifdef BE_TEST
+    // only used in beut
+    Status from_string(ReadBuffer& rb, IColumn* column) const {
+        StringRef str = {rb.position(), rb.count()};
+        return get_serde()->default_from_string(str, *column);
+    }
+
     TTypeDesc to_thrift() const {
         TTypeDesc thrift_type;
         to_thrift(thrift_type);

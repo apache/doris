@@ -139,7 +139,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
                             shared_state.values.resize(size + 1);
                         }
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         shared_state.aggregate_data_container->init_once();
                         auto& iter = shared_state.aggregate_data_container->iterator;
 
@@ -263,7 +263,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                             shared_state.values.resize(size);
                         }
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         shared_state.aggregate_data_container->init_once();
                         auto& iter = shared_state.aggregate_data_container->iterator;
 
@@ -490,7 +490,7 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
         key_columns[i] = block->get_by_position(i).column.get();
     }
 
-    size_t rows = block->rows();
+    uint32_t rows = (uint32_t)block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -544,7 +544,7 @@ size_t AggSourceOperatorX::get_estimated_memory_size_for_merging(RuntimeState* s
 
 void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                              vectorized::ColumnRawPtrs& key_columns,
-                                             size_t num_rows) {
+                                             uint32_t num_rows) {
     std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> void {

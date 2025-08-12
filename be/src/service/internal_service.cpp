@@ -842,6 +842,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
+        io::FileReaderStats file_reader_stats;
+        io_ctx.file_reader_stats = &file_reader_stats;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -1205,8 +1207,13 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                static_cast<void>(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                                   merged_schema));
+                st = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                      merged_schema);
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
+                    st = Status::InternalError("Failed to get least common schema: {}",
+                                               st.to_string());
+                }
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->reserve_extracted_columns();
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
@@ -1242,8 +1249,13 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    static_cast<void>(vectorized::schema_util::get_least_common_schema(
-                            tablet_schemas, nullptr, merged_schema));
+                    st = vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr,
+                                                                          merged_schema);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
+                        st = Status::InternalError("Failed to get least common schema: {}",
+                                                   st.to_string());
+                    }
                     merged_schema->to_schema_pb(response->mutable_merged_schema());
                     VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 }

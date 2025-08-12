@@ -202,7 +202,7 @@ suite('complex_insert') {
         properties("replication_num" = "1");
     '''
     
-    createMV("create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
+    createMV("create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
 
     sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
     sql 'sync'

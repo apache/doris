@@ -57,7 +57,7 @@ public class CreateViewInfo extends BaseViewInfo {
         viewName.analyze(ctx);
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
-        Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewStmt");
+        Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewCommand");
         // check privilege
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
                 viewName.getTbl()), PrivPredicate.CREATE)) {

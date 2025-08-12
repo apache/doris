@@ -37,6 +37,7 @@
 #include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/olap_scanner.h"
+#include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -47,6 +48,17 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
+
+    if (olap_scan_node.__isset.score_sort_info && olap_scan_node.__isset.score_sort_limit) {
+        const doris::TExpr& ordering_expr = olap_scan_node.score_sort_info.ordering_exprs.front();
+        const bool asc = olap_scan_node.score_sort_info.is_asc_order[0];
+        const size_t limit = olap_scan_node.score_sort_limit;
+        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
+    }
+
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(_sync_cloud_tablets(state));
     return Status::OK();
@@ -151,7 +163,7 @@ Status OlapScanLocalState::_init_profile() {
     _stats_rp_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsZoneMapRuntimePredicateFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
-    _dict_filtered_counter = ADD_COUNTER(_segment_profile, "RowsDictFiltered", TUnit::UNIT);
+    _dict_filtered_counter = ADD_COUNTER(_segment_profile, "SegmentDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
     _conditions_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
@@ -362,6 +374,12 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
                          state()->query_options().resource_limit.__isset.cpu_limit;
 
+    // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
+    // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
+    // for example, if a table is select userid,count(*) from base table.
+    // And the user send a query like select userid,count(*) from base table group by userid.
+    // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
+    // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
@@ -463,7 +481,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
             _cloud_tablet_dependency = Dependency::create_shared(
                     _parent->operator_id(), _parent->node_id(), "CLOUD_TABLET_DEP");
             _tablets.resize(_scan_ranges.size());
-            _tasks.reserve(_scan_ranges.size());
+            std::vector<std::function<Status()>> tasks;
             _sync_statistics.resize(_scan_ranges.size());
             for (size_t i = 0; i < _scan_ranges.size(); i++) {
                 auto* sync_stats = &_sync_statistics[i];
@@ -472,7 +490,7 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                                 _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
                                 version);
                 auto task_ctx = state->get_task_execution_context();
-                _tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
+                tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
                         return Status::OK();
@@ -497,8 +515,9 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                     return Status::OK();
                 });
             }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(
-                    _tasks, config::init_scanner_sync_rowsets_parallelism, &_cloud_tablet_future));
+            RETURN_IF_ERROR(cloud::bthread_fork_join(std::move(tasks),
+                                                     config::init_scanner_sync_rowsets_parallelism,
+                                                     &_cloud_tablet_future));
         }
         _sync_tablet = true;
     }
@@ -617,6 +636,41 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                 _scan_ranges.size());
     }
     _prepared = true;
+    return Status::OK();
+}
+
+Status OlapScanLocalState::open(RuntimeState* state) {
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    for (const auto& pair : p._slot_id_to_slot_desc) {
+        const SlotDescriptor* slot_desc = pair.second;
+        std::shared_ptr<doris::TExpr> virtual_col_expr = slot_desc->get_virtual_column_expr();
+        if (virtual_col_expr) {
+            std::shared_ptr<doris::vectorized::VExprContext> virtual_column_expr_ctx;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*virtual_col_expr,
+                                                                virtual_column_expr_ctx));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
+
+            _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
+            _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
+            int col_pos = p.intermediate_row_desc().get_column_id(slot_desc->id());
+            if (col_pos < 0) {
+                return Status::InternalError(
+                        "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
+                        "desc:\n{}",
+                        slot_desc->debug_string(), p.row_desc().debug_string());
+            } else {
+                _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
+            }
+        }
+    }
+
+    if (_score_runtime) {
+        RETURN_IF_ERROR(_score_runtime->prepare(state, p.intermediate_row_desc()));
+    }
+
+    RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
+
     return Status::OK();
 }
 

@@ -20,10 +20,12 @@
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
 
-#include "datelike_serde_common.hpp"
+#include "common/status.h"
 #include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/cast/cast_base.h"
+#include "vec/functions/cast/cast_to_date_or_datetime_impl.hpp"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -97,11 +99,17 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
     row_num = result.second;
 
     Int64 int_val = assert_cast<const ColumnDateTime&>(*ptr).get_element(row_num);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
     char buf[64];
     char* pos = value.to_string(buf);
     bw.write(buf, pos - buf - 1);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
@@ -115,6 +123,9 @@ Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
 Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnDateTime&>(column);
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     Int64 val = 0;
     if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'",
@@ -140,7 +151,7 @@ Status DataTypeDateSerDe<T>::write_column_to_arrow(const IColumn& column, const 
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
+        const auto* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
@@ -287,7 +298,7 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end,
-                                                 std::vector<StringRef>& buffer_list) const {
+                                                 vectorized::Arena& arena) const {
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
@@ -306,15 +317,11 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
         }
     }
     // Allocate continues memory based on calculated size
-    char* ptr = (char*)malloc(total_size);
+    char* ptr = arena.alloc(total_size);
     if (!ptr) {
         return Status::InternalError(
                 "malloc memory {} error when write variant column data to orc file.", total_size);
     }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = total_size;
-    buffer_list.emplace_back(bufferRef);
     // Second pass: copy data to allocated memory
     size_t offset = 0;
     for (size_t i = 0; i < serialized_values.size(); i++) {
@@ -327,8 +334,8 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
                     "exceed total_size {} . ",
                     offset, len, total_size);
         }
-        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
-        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+        memcpy(ptr + offset, serialized_value.data(), len);
+        cur_batch->data[row_id] = ptr + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
@@ -347,27 +354,22 @@ Status DataTypeDateSerDe<T>::from_string_batch(
     size_t row = col_str.size();
     col_res.resize(row);
 
+    CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < row; ++i) {
-        auto str = col_str.get_element(i);
+        auto str = col_str.get_data_at(i);
         CppType res;
-        Status st = _from_string_strict_mode(str, res, options.timezone);
-        if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
-            st = _from_string(str, res, options.timezone);
-        }
-        if (st.ok()) {
+        // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+        // then we rely on return value to check success.
+        // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+        // Exception!
+        if (!CastToDateOrDatetime::from_string_non_strict_mode<IsDatetime>(
+                    str, res, options.timezone, params)) [[unlikely]] {
+            col_nullmap.get_data()[i] = true;
+            //TODO: we should set `for` functions who need it then skip to set default value for null rows.
+            col_data.get_data()[i] = binary_cast<CppType, NativeType>(VecDateTimeValue::FIRST_DAY);
+        } else {
             col_nullmap.get_data()[i] = false;
             col_data.get_data()[i] = binary_cast<CppType, NativeType>(res);
-        } else if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
-            // if still invalid, set null
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
-        } else {
-            // some internal error
-            return st;
         }
     }
     return Status::OK();
@@ -382,563 +384,66 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnType&>(col_res);
 
+    CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < row; ++i) {
         if (null_map && null_map[i]) {
             continue;
         }
-        auto str = col_str.get_element(i);
+        auto str = col_str.get_data_at(i);
         CppType res;
-        RETURN_IF_ERROR(_from_string_strict_mode(str, res, options.timezone));
+        CastToDateOrDatetime::from_string_strict_mode<true, IsDatetime>(str, res, options.timezone,
+                                                                        params);
+        // only after we called something with `IS_STRICT = true`, params.status will be set
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to {} failed: ", str.to_string_view(), name()));
+            return params.status;
+        }
+
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(res);
     }
     return Status::OK();
 }
 
-// same with datetimev2
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::_from_string(const std::string& str, CppType& res,
-                                          const cctz::time_zone* local_time_zone) const {
-    const char* ptr = str.data();
-    const char* end = ptr + str.size();
+Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                         const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnType&>(column);
 
-    // skip leading whitespace
-    static_cast<void>(skip_any_whitespace(ptr, end));
-    if (ptr == end) {
-        return Status::InvalidArgument("empty datetime string");
+    CastParameters params {.status = Status::OK(), .is_strict = false};
+
+    CppType res;
+    // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
+    // then we rely on return value to check success.
+    // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
+    // Exception!
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<IsDatetime>(str, res, options.timezone,
+                                                                       params)) [[unlikely]] {
+        return Status::InvalidArgument("parse date or datetime fail, string: '{}'",
+                                       str.to_string());
     }
-
-    // date part
-    uint32_t year, month, day;
-
-    // read year
-    RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, year)));
-    if (is_digit_range(ptr, ptr + 1)) {
-        // continue by digit, it must be a 4-digit year
-        uint32_t year2;
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, year2)));
-        year = year * 100 + year2;
-    } else {
-        // otherwise, it must be a 2-digit year
-        if (year < 100) {
-            // Convert 2-digit year based on 1970 boundary
-            year += (year >= 70) ? 1900 : 2000;
-        }
-    }
-
-    // check for separator
-    RETURN_IF_ERROR(skip_one_non_alnum(ptr, end));
-
-    // read month
-    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, month)));
-
-    // check for separator
-    RETURN_IF_ERROR(skip_one_non_alnum(ptr, end));
-
-    // read day
-    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, day)));
-
-    if (!try_convert_set_zero_date(res, year, month, day)) {
-        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(year),
-                                  "invalid year {}", year);
-        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(month),
-                                  "invalid month {}", month);
-        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(day), "invalid day {}",
-                                  day);
-    }
-
-    if (ptr == end) {
-        // no time part, just return.
-        _cast_to_type(res);
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(consume_one_delimiter(ptr, end));
-
-    // time part
-    uint32_t hour, minute, second;
-
-    // hour
-    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, hour)));
-    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::HOUR>(hour), "invalid hour {}",
-                              hour);
-
-    // check for separator
-    RETURN_IF_ERROR(skip_one_non_alnum(ptr, end));
-
-    // minute
-    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, minute)));
-    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MINUTE>(minute),
-                              "invalid minute {}", minute);
-
-    // check for separator
-    RETURN_IF_ERROR(skip_one_non_alnum(ptr, end));
-
-    // second
-    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, second)));
-    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::SECOND>(second),
-                              "invalid second {}", second);
-
-    // fractional part
-    if (assert_within_bound(ptr, end, 0).ok() && *ptr == '.') {
-        ++ptr;
-
-        const auto* start = ptr;
-        static_cast<void>(skip_any_digit(ptr, end));
-        [[maybe_unused]] auto length = ptr - start;
-
-        if constexpr (IsDatetime) {
-            if (length > 0) {
-                StringParser::ParseResult success;
-                auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-                        start, std::min<int>((int)length, 6), &success);
-                RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
-                                          "invalid fractional part in datetime string '{}'",
-                                          std::string {start, ptr});
-                // differ to datetimev2, we only need to process carrying on which caused by carrying on to digit 6-th.
-                if (length > 6) {
-                    // round off to at most 6 digits
-                    if (auto remainder = *(start + 6) - '0'; remainder >= 5) {
-                        ms++;
-                        DCHECK(ms <= 1000000);
-                        if (ms == 1000000) {
-                            // overflow, round up to next second
-                            res.template date_add_interval<TimeUnit::SECOND>(
-                                    TimeInterval {TimeUnit::SECOND, 1, false});
-                            ms = 0;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // skip any whitespace after time
-    static_cast<void>(skip_any_whitespace(ptr, end));
-
-    // timezone part (if any)
-    if (ptr != end) {
-        cctz::time_zone parsed_tz {};
-        if (*ptr == '+' || *ptr == '-') {
-            // offset
-            const char sign = *ptr;
-            ++ptr;
-            uint32_t hour_offset, minute_offset = 0;
-
-            uint32_t length = count_digits(ptr, end);
-            // hour
-            if (length == 1 || length == 3) {
-                RETURN_IF_ERROR((consume_digit<UInt32, 1>(ptr, end, hour_offset)));
-            } else {
-                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, hour_offset)));
-            }
-            RETURN_INVALID_ARG_IF_NOT(hour_offset <= 14, "invalid hour offset {}", hour_offset);
-            if (assert_within_bound(ptr, end, 0).ok()) {
-                if (*ptr == ':') {
-                    ++ptr;
-                }
-                // minute
-                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, minute_offset)));
-                RETURN_INVALID_ARG_IF_NOT(
-                        (minute_offset == 0 || minute_offset == 30 || minute_offset == 45),
-                        "invalid minute offset {}", minute_offset);
-            }
-            if (hour_offset == 14 && minute_offset > 0) [[unlikely]] {
-                return Status::InvalidArgument("invalid timezone offset '{}'",
-                                               combine_tz_offset(sign, hour_offset, minute_offset));
-            }
-
-            RETURN_INVALID_ARG_IF_NOT(
-                    TimezoneUtils::find_cctz_time_zone(
-                            combine_tz_offset(sign, hour_offset, minute_offset), parsed_tz),
-                    "invalid timezone offset '{}'",
-                    combine_tz_offset(sign, hour_offset, minute_offset));
-        } else {
-            // timezone name
-            const auto* start = ptr;
-            // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
-            RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-
-            RETURN_INVALID_ARG_IF_NOT(
-                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
-                    "invalid timezone name '{}'", std::string {start, ptr});
-        }
-        if constexpr (IsDatetime) {
-            // convert tz
-            cctz::civil_second cs {res.year(), res.month(),  res.day(),
-                                   res.hour(), res.minute(), res.second()};
-
-            auto given = cctz::convert(cs, parsed_tz);
-            auto local = cctz::convert(given, *local_time_zone);
-            res.template unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
-            res.template unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
-            res.template unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
-            res.template unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
-            res.template unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
-            res.template unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
-        }
-    }
-
-    // skip trailing whitespace
-    static_cast<void>(skip_any_whitespace(ptr, end));
-    RETURN_INVALID_ARG_IF_NOT(ptr == end,
-                              "invalid datetime string '{}', extra characters after parsing",
-                              std::string {ptr, end});
-
-    _cast_to_type(res);
+    col_data.insert_value(binary_cast<CppType, NativeType>(res));
     return Status::OK();
 }
 
-// same with datetimev2
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::_from_string_strict_mode(
-        const std::string& str, CppType& res, const cctz::time_zone* local_time_zone) const {
-    const char* ptr = str.data();
-    const char* end = ptr + str.size();
+Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                     const FormatOptions& options) const {
+    auto& col_data = assert_cast<ColumnType&>(column);
 
-    uint32_t part[4];
-    bool has_second = false;
+    CastParameters params {.status = Status::OK(), .is_strict = true};
 
-    // special `date` and `time` part format: 14-length digits string. parse it as YYYYMMDDHHMMSS
-    if (assert_within_bound(ptr, end, 13) && is_digit_range(ptr, ptr + 14)) {
-        // if the string is all digits, treat it as a date in YYYYMMDD format.
-        RETURN_IF_ERROR((consume_digit<UInt32, 4>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
-        if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::YEAR>(part[0]),
-                                      "invalid year {}", part[0]);
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
-                                      "invalid month {}", part[1]);
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
-                                      "invalid day {}", part[2]);
-        }
-
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
-        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::HOUR>(part[0]),
-                                  "invalid hour {}", part[0]);
-        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MINUTE>(part[1]),
-                                  "invalid minute {}", part[1]);
-        RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::SECOND>(part[2]),
-                                  "invalid second {}", part[2]);
-        has_second = true;
-        if (ptr == end) {
-            // no fraction or timezone part, just return.
-            return Status::OK();
-        }
-        goto FRAC;
+    CppType res;
+    CastToDateOrDatetime::from_string_strict_mode<true, IsDatetime>(str, res, options.timezone,
+                                                                    params);
+    // only after we called something with `IS_STRICT = true`, params.status will be set
+    if (!params.status.ok()) [[unlikely]] {
+        params.status.prepend(fmt::format("parse {} to {} failed: ", str.to_string_view(), name()));
+        return params.status;
     }
-
-    // date part
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 5));
-    if (is_digit_range(ptr, ptr + 5)) {
-        // no delimiter here.
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[2])));
-        if (is_numeric_ascii(*ptr)) {
-            // 4 digits year
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[3])));
-            if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
-                RETURN_INVALID_ARG_IF_NOT(
-                        res.template set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
-                        "invalid year {}", part[0] * 100 + part[1]);
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[2]),
-                                          "invalid month {}", part[2]);
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[3]),
-                                          "invalid day {}", part[3]);
-            }
-        } else {
-            if (!try_convert_set_zero_date(res, complete_4digit_year(part[0]), part[1], part[2])) {
-                RETURN_INVALID_ARG_IF_NOT(
-                        res.template set_time_unit<TimeUnit::YEAR>(complete_4digit_year(part[0])),
-                        "invalid year {}", part[0]);
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
-                                          "invalid month {}", part[1]);
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
-                                          "invalid day {}", part[2]);
-            }
-        }
-    } else {
-        // has delimiter here.
-        RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-        RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
-        if (*ptr == '-') {
-            // 2 digits year
-            ++ptr; // consume one bar
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
-
-            if (!try_convert_set_zero_date(res, part[0], part[1], part[2])) {
-                RETURN_INVALID_ARG_IF_NOT(
-                        res.template set_time_unit<TimeUnit::YEAR>(complete_4digit_year(part[0])),
-                        "invalid year {}", part[0]);
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[1]),
-                                          "invalid month {}", part[1]);
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[2]),
-                                          "invalid day {}", part[2]);
-            }
-        } else {
-            // 4 digits year
-            RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
-            RETURN_IF_ERROR((consume_one_bar(ptr, end)));
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[3])));
-
-            if (!try_convert_set_zero_date(res, part[0] * 100 + part[1], part[2], part[3])) {
-                RETURN_INVALID_ARG_IF_NOT(
-                        res.template set_time_unit<TimeUnit::YEAR>(part[0] * 100 + part[1]),
-                        "invalid year {}", part[0] * 100 + part[1]);
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MONTH>(part[2]),
-                                          "invalid month {}", part[2]);
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::DAY>(part[3]),
-                                          "invalid day {}", part[3]);
-            }
-        }
-    }
-
-    if (ptr == end) {
-        // no time part, just return.
-        _cast_to_type(res);
-        return Status::OK();
-    }
-
-    RETURN_IF_ERROR(consume_one_delimiter(ptr, end));
-
-    // time part.
-    // hour
-    RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[0])));
-    RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::HOUR>(part[0]),
-                              "invalid hour {}", part[0]);
-    RETURN_IF_ERROR(assert_within_bound(ptr, end, 0));
-    if (*ptr == ':') {
-        // with hour:minute:second
-        if (consume_one_colon(ptr, end)) { // minute
-            RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[1])));
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MINUTE>(part[1]),
-                                      "invalid minute {}", part[1]);
-            if (consume_one_colon(ptr, end)) { // second
-                has_second = true;
-                RETURN_IF_ERROR((consume_digit<UInt32, 1, 2>(ptr, end, part[2])));
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::SECOND>(part[2]),
-                                          "invalid second {}", part[2]);
-            } else {
-                res.template unchecked_set_time_unit<TimeUnit::SECOND>(0);
-            }
-        } else {
-            res.template unchecked_set_time_unit<TimeUnit::MINUTE>(0);
-            res.template unchecked_set_time_unit<TimeUnit::SECOND>(0);
-        }
-    } else {
-        // no ':'
-        if (consume_digit<UInt32, 2>(ptr, end, part[1])) {
-            // has minute
-            RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::MINUTE>(part[1]),
-                                      "invalid minute {}", part[1]);
-            if (consume_digit<UInt32, 2>(ptr, end, part[2])) {
-                // has second
-                has_second = true;
-                RETURN_INVALID_ARG_IF_NOT(res.template set_time_unit<TimeUnit::SECOND>(part[2]),
-                                          "invalid second {}", part[2]);
-            }
-        }
-    }
-
-FRAC:
-    // fractional part
-    if (has_second && assert_within_bound(ptr, end, 0).ok() && *ptr == '.') {
-        ++ptr;
-
-        const auto* start = ptr;
-        static_cast<void>(skip_any_digit(ptr, end));
-        [[maybe_unused]] auto length = ptr - start;
-
-        if constexpr (IsDatetime) {
-            if (length > 0) {
-                StringParser::ParseResult success;
-                auto ms = StringParser::string_to_uint_greedy_no_overflow<uint32_t>(
-                        start, std::min<int>((int)length, 6), &success);
-                RETURN_INVALID_ARG_IF_NOT(success == StringParser::PARSE_SUCCESS,
-                                          "invalid fractional part in datetime string '{}'",
-                                          std::string {start, ptr});
-                // differ to datetimev2, we only need to process carrying on which caused by carrying on to digit 6-th.
-                if (length > 6) {
-                    // round off to at most 6 digits
-                    if (auto remainder = *(start + 6) - '0'; remainder >= 5) {
-                        ms++;
-                        DCHECK(ms <= 1000000);
-                        if (ms == 1000000) {
-                            // overflow, round up to next second
-                            res.template date_add_interval<TimeUnit::SECOND>(
-                                    TimeInterval {TimeUnit::SECOND, 1, false});
-                            ms = 0;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    static_cast<void>(skip_any_digit(ptr, end));
-
-    static_cast<void>(skip_any_whitespace(ptr, end));
-
-    // timezone part
-    if (ptr != end) {
-        cctz::time_zone parsed_tz {};
-        if (*ptr == '+' || *ptr == '-') {
-            // offset
-            const char sign = *ptr;
-            ++ptr;
-            part[1] = 0;
-
-            uint32_t length = count_digits(ptr, end);
-            // hour
-            if (length == 1 || length == 3) {
-                RETURN_IF_ERROR((consume_digit<UInt32, 1>(ptr, end, part[0])));
-            } else {
-                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[0])));
-            }
-            RETURN_INVALID_ARG_IF_NOT(part[0] <= 14, "invalid hour offset {}", part[0]);
-            if (assert_within_bound(ptr, end, 0).ok()) {
-                if (*ptr == ':') {
-                    ++ptr;
-                }
-                // minute
-                RETURN_IF_ERROR((consume_digit<UInt32, 2>(ptr, end, part[1])));
-                RETURN_INVALID_ARG_IF_NOT((part[1] == 0 || part[1] == 30 || part[1] == 45),
-                                          "invalid minute offset {}", part[1]);
-            }
-            if (part[0] == 14 && part[1] > 0) [[unlikely]] {
-                return Status::InvalidArgument("invalid timezone offset '{}'",
-                                               combine_tz_offset(sign, part[0], part[1]));
-            }
-
-            RETURN_INVALID_ARG_IF_NOT(TimezoneUtils::find_cctz_time_zone(
-                                              combine_tz_offset(sign, part[0], part[1]), parsed_tz),
-                                      "invalid timezone offset '{}'",
-                                      combine_tz_offset(sign, part[0], part[1]));
-        } else {
-            // timezone name
-            const auto* start = ptr;
-            // short tzname, or something legal for tzdata. depends on our TimezoneUtils.
-            RETURN_IF_ERROR(skip_tz_name_part(ptr, end));
-
-            RETURN_INVALID_ARG_IF_NOT(
-                    TimezoneUtils::find_cctz_time_zone(std::string {start, ptr}, parsed_tz),
-                    "invalid timezone name '{}'", std::string {start, ptr});
-        }
-        if constexpr (IsDatetime) {
-            // convert tz
-            cctz::civil_second cs {res.year(), res.month(),  res.day(),
-                                   res.hour(), res.minute(), res.second()};
-
-            auto given = cctz::convert(cs, parsed_tz);
-            auto local = cctz::convert(given, *local_time_zone);
-            res.template unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
-            res.template unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
-            res.template unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
-            res.template unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
-            res.template unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
-            res.template unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
-        }
-
-        static_cast<void>(skip_any_whitespace(ptr, end));
-        RETURN_INVALID_ARG_IF_NOT(ptr == end,
-                                  "invalid datetime string '{}', extra characters after timezone",
-                                  std::string {ptr, end});
-    }
-    _cast_to_type(res);
-    return Status::OK();
-}
-
-static Status from_int(uint64_t uint_val, int length, VecDateTimeValue& val) {
-    if (length == 3 || length == 4) {
-        val.unchecked_set_time_unit<TimeUnit::YEAR>(2000);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::MONTH>((uint32_t)uint_val / 100),
-                                  "invalid month {}", uint_val / 100);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::DAY>(uint_val % 100),
-                                  "invalid day {}", uint_val % 100);
-    } else if (length == 5) {
-        RETURN_INVALID_ARG_IF_NOT(
-                val.set_time_unit<TimeUnit::YEAR>(2000 + (uint32_t)uint_val / 10000),
-                "invalid year {}", 2000 + uint_val / 10000);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::MONTH>(uint_val % 10000 / 100),
-                                  "invalid month {}", uint_val % 10000 / 100);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::DAY>(uint_val % 100),
-                                  "invalid day {}", uint_val % 100);
-    } else if (length == 6) {
-        uint32_t year = (uint32_t)uint_val / 10000;
-        if (year < 70) {
-            year += 2000;
-        } else {
-            year += 1900;
-        }
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::YEAR>(year), "invalid year {}", year);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::MONTH>(uint_val % 10000 / 100),
-                                  "invalid month {}", uint_val % 10000 / 100);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::DAY>(uint_val % 100),
-                                  "invalid day {}", uint_val % 100);
-    } else if (length == 8) {
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::YEAR>((uint32_t)uint_val / 10000),
-                                  "invalid year {}", uint_val / 10000);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::MONTH>(uint_val % 10000 / 100),
-                                  "invalid month {}", uint_val % 10000 / 100);
-        RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::DAY>(uint_val % 100),
-                                  "invalid day {}", uint_val % 100);
-    } else if (length == 14) {
-        RETURN_INVALID_ARG_IF_NOT(
-                val.set_time_unit<TimeUnit::YEAR>(uint_val / common::exp10_i64(10)),
-                "invalid year {}", uint_val / common::exp10_i64(10));
-        RETURN_INVALID_ARG_IF_NOT(
-                val.set_time_unit<TimeUnit::MONTH>((uint_val / common::exp10_i32(8)) % 100),
-                "invalid month {}", (uint_val / common::exp10_i32(8)) % 100);
-        RETURN_INVALID_ARG_IF_NOT(
-                val.set_time_unit<TimeUnit::DAY>((uint_val / common::exp10_i32(6)) % 100),
-                "invalid day {}", (uint_val / common::exp10_i32(6)) % 100);
-        if (val.type() == TimeType::TIME_DATETIME) {
-            RETURN_INVALID_ARG_IF_NOT(
-                    val.set_time_unit<TimeUnit::HOUR>((uint_val / common::exp10_i32(4)) % 100),
-                    "invalid hour {}", (uint_val / common::exp10_i32(4)) % 100);
-            RETURN_INVALID_ARG_IF_NOT(
-                    val.set_time_unit<TimeUnit::MINUTE>((uint_val / common::exp10_i32(2)) % 100),
-                    "invalid minute {}", (uint_val / common::exp10_i32(2)) % 100);
-            RETURN_INVALID_ARG_IF_NOT(val.set_time_unit<TimeUnit::SECOND>(uint_val % 100),
-                                      "invalid second {}", uint_val % 100);
-        }
-    } else [[unlikely]] {
-        return Status::InvalidArgument("invalid digits for datetimev2: {}", uint_val);
-    }
+    col_data.insert_value(binary_cast<CppType, NativeType>(res));
 
     return Status::OK();
-}
-
-static void microsecond_carry_on(int64_t frac_part, uint32_t float_scale, VecDateTimeValue& val) {
-    if (val.type() == TimeType::TIME_DATE) {
-        // for date, we just ignore the fractional part
-        return;
-    }
-    // normalize the fractional part to microseconds(6 digits)
-    if (float_scale > 0) {
-        if (float_scale > 6) {
-            int ms = int(frac_part / common::exp10_i64(float_scale - 6));
-            // if scale > 6, we need to round the fractional part
-            int digit7 = frac_part % common::exp10_i32(float_scale - 6) /
-                         common::exp10_i32(float_scale - 7);
-            if (digit7 >= 5) {
-                ms++;
-                DCHECK(ms <= 1000000);
-                if (ms == 1000000) {
-                    // overflow, round up to next second
-                    val.date_add_interval<TimeUnit::SECOND>(
-                            TimeInterval {TimeUnit::SECOND, 1, false});
-                    ms = 0;
-                }
-            }
-        }
-    }
 }
 
 template <PrimitiveType T>
@@ -950,43 +455,17 @@ Status DataTypeDateSerDe<T>::from_int_batch(const IntDataType::ColumnType& int_c
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
 
+    CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
-        if (int_col.get_element(i) > std::numeric_limits<int64_t>::max() ||
-            int_col.get_element(i) < std::numeric_limits<int64_t>::min()) {
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
-            continue;
-        }
-        auto int_val = (int64_t)int_col.get_element(i);
-        if (int_val <= 0) {
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
-            continue;
-        }
-        int length = common::count_digits_fast(int_val);
-
         CppType val;
-        if (auto st = from_int(int_val, length, val); st.ok()) [[likely]] {
-            _cast_to_type(val);
+        if (CastToDateOrDatetime::from_integer<false, IsDatetime>(int_col.get_element(i), val,
+                                                                  params)) [[likely]] {
+            // did cast_to_type in `from_integer`
             col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
             col_nullmap.get_data()[i] = false;
-        } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
         } else {
-            return st;
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = binary_cast<CppType, NativeType>(VecDateTimeValue::FIRST_DAY);
         }
     }
     return Status::OK();
@@ -999,21 +478,16 @@ Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(const IntDataType::Colum
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(int_col.size());
 
+    CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
-        if (int_col.get_element(i) > std::numeric_limits<int64_t>::max() ||
-            int_col.get_element(i) < std::numeric_limits<int64_t>::min()) {
-            return Status::InvalidArgument("invalid int value for time: {}",
-                                           int_col.get_element(i));
-        }
-        auto int_val = (int64_t)int_col.get_element(i);
-        if (int_val <= 0) {
-            return Status::InvalidArgument("invalid int value for datetimev2: {}", int_val);
-        }
-        int length = common::count_digits_fast(int_val);
-
         CppType val;
-        RETURN_IF_ERROR(from_int(int_val, length, val));
-        _cast_to_type(val);
+        CastToDateOrDatetime::from_integer<true, IsDatetime>(int_col.get_element(i), val, params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to {} failed: ", int_col.get_element(i), name()));
+            return params.status;
+        }
+
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
     }
     return Status::OK();
@@ -1028,38 +502,16 @@ Status DataTypeDateSerDe<T>::from_float_batch(const FloatDataType::ColumnType& f
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
 
+    CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
-        double float_value = float_col.get_data()[i];
-        if (float_value <= 0 || std::isnan(float_value) || std::isinf(float_value) ||
-            float_value >= (double)std::numeric_limits<int64_t>::max()) {
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
-            continue;
-        }
-        auto int_part = static_cast<int64_t>(float_value);
-        int length = common::count_digits_fast(int_part);
-
         CppType val;
-        if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
-            _cast_to_type(val);
-            int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-            microsecond_carry_on(ms_part_7, 7, val);
-
+        if (CastToDateOrDatetime::from_float<false, IsDatetime>(float_col.get_data()[i], val,
+                                                                params)) [[likely]] {
             col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
             col_nullmap.get_data()[i] = false;
-        } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
         } else {
-            return st;
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = binary_cast<CppType, NativeType>(VecDateTimeValue::FIRST_DAY);
         }
     }
     return Status::OK();
@@ -1072,21 +524,15 @@ Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(float_col.size());
 
+    CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
-        double float_value = float_col.get_data()[i];
-        if (float_value <= 0 || std::isnan(float_value) || std::isinf(float_value) ||
-            float_value >= (double)std::numeric_limits<int64_t>::max()) {
-            return Status::InvalidArgument("invalid float value for datetimev2: {}", float_value);
-        }
-        auto int_part = static_cast<int64_t>(float_value);
-        int length = common::count_digits_fast(int_part);
-
         CppType val;
-        RETURN_IF_ERROR(from_int(int_part, length, val));
-        _cast_to_type(val);
-
-        int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-        microsecond_carry_on(ms_part_7, 7, val);
+        CastToDateOrDatetime::from_float<true, IsDatetime>(float_col.get_data()[i], val, params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to {} failed: ", float_col.get_data()[i], name()));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
     }
@@ -1102,46 +548,17 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(const DecimalDataType::ColumnTyp
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
 
+    CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
-        if (decimal_col.get_intergral_part(i) > std::numeric_limits<int64_t>::max() ||
-            decimal_col.get_intergral_part(i) < std::numeric_limits<int64_t>::min()) {
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
-            continue;
-        }
-        auto int_part = (int64_t)decimal_col.get_intergral_part(i);
-        if (int_part <= 0) {
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
-            continue;
-        }
-        int length = common::count_digits_fast(int_part);
-
         CppType val;
-        if (auto st = from_int(int_part, length, val); st.ok()) [[likely]] {
-            _cast_to_type(val);
-            microsecond_carry_on((int64_t)decimal_col.get_fractional_part(i),
-                                 decimal_col.get_scale(), val);
-
+        if (CastToDateOrDatetime::from_decimal<true, IsDatetime>(
+                    decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                    decimal_col.get_scale(), val, params)) [[likely]] {
             col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
             col_nullmap.get_data()[i] = false;
-        } else if (st.template is<ErrorCode::INVALID_ARGUMENT>()) {
-            col_nullmap.get_data()[i] = true;
-            if constexpr (IsDatetime) {
-                col_data.get_data()[i] = MIN_DATETIME_V2;
-            } else {
-                col_data.get_data()[i] = MIN_DATE_V2;
-            }
         } else {
-            return st;
+            col_nullmap.get_data()[i] = true;
+            col_data.get_data()[i] = binary_cast<CppType, NativeType>(VecDateTimeValue::FIRST_DAY);
         }
     }
     return Status::OK();
@@ -1154,25 +571,19 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(decimal_col.size());
 
+    CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
-        if (decimal_col.get_intergral_part(i) > std::numeric_limits<int64_t>::max() ||
-            decimal_col.get_intergral_part(i) < std::numeric_limits<int64_t>::min()) {
-            return Status::InvalidArgument("invalid intergral value for time: {}",
-                                           decimal_col.get_element(i));
-        }
-        auto int_part = (int64_t)decimal_col.get_intergral_part(i);
-        if (int_part <= 0) {
-            return Status::InvalidArgument("invalid decimal integral part for datetimev2: {}",
-                                           int_part);
-        }
-        int length = common::count_digits_fast(int_part);
-
         CppType val;
-        RETURN_IF_ERROR(from_int(int_part, length, val));
-        _cast_to_type(val);
+        CastToDateOrDatetime::from_decimal<true, IsDatetime>(decimal_col.get_intergral_part(i),
+                                                             decimal_col.get_fractional_part(i),
+                                                             decimal_col.get_scale(), val, params);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {}.{} to {} failed: ", decimal_col.get_intergral_part(i),
+                                decimal_col.get_fractional_part(i), name()));
+            return params.status;
+        }
 
-        microsecond_carry_on((int64_t)decimal_col.get_fractional_part(i), decimal_col.get_scale(),
-                             val);
         col_data.get_data()[i] = binary_cast<CppType, NativeType>(val);
     }
     return Status::OK();

@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "function_cast.h"
-
 #include <utility>
 
 #include "cast_to_array.h"
@@ -31,6 +29,7 @@
 #include "cast_to_string.h"
 #include "cast_to_struct.h"
 #include "cast_to_variant.h"
+#include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
@@ -47,16 +46,7 @@ WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from
         return cast_from_string_to_generic;
     }
 
-    //TODO: if from is not string, it must be HLL?
-    const auto* from_type = check_and_get_data_type<DataTypeHLL>(from_type_untyped.get());
-
-    if (!from_type) {
-        return CastWrapper::create_unsupport_wrapper(
-                "CAST AS HLL can only be performed between HLL, String "
-                "types");
-    }
-
-    return nullptr;
+    return CastWrapper::create_unsupport_wrapper("Cast to HLL only support from String type");
 }
 
 WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
@@ -66,16 +56,7 @@ WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& f
         return cast_from_string_to_generic;
     }
 
-    //TODO: if from is not string, it must be BITMAP?
-    const auto* from_type = check_and_get_data_type<DataTypeBitMap>(from_type_untyped.get());
-
-    if (!from_type) {
-        return CastWrapper::create_unsupport_wrapper(
-                "CAST AS BITMAP can only be performed between BITMAP, String "
-                "types");
-    }
-
-    return nullptr;
+    return CastWrapper::create_unsupport_wrapper("Cast to BitMap only support from String type");
 }
 
 WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
@@ -91,6 +72,7 @@ WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataType
 
         return [](FunctionContext* context, Block& block, const ColumnNumbers&, uint32_t result,
                   size_t input_rows_count, const NullMap::value_type* null_map = nullptr) {
+            /// TODO: remove this in the future.
             auto& res = block.get_by_position(result);
             res.column = res.type->create_column_const_with_default_value(input_rows_count)
                                  ->convert_to_full_column_if_const();
@@ -98,8 +80,7 @@ WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataType
         };
     }
 
-    bool skip_not_null_check = false;
-    auto wrapper = prepare_remove_nullable(context, from_nested, to_nested, skip_not_null_check);
+    auto wrapper = prepare_remove_nullable(context, from_nested, to_nested);
 
     return wrapper;
 }
@@ -146,8 +127,6 @@ bool need_replace_null_data_to_default(FunctionContext* context, const DataTypeP
                 UInt32 to_precision = 0;
                 UInt32 to_scale = 0;
 
-                ToFieldType max_result {0};
-                ToFieldType min_result {0};
                 if constexpr (IsDataTypeDecimal<ToDataType>) {
                     to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
 
@@ -158,13 +137,8 @@ bool need_replace_null_data_to_default(FunctionContext* context, const DataTypeP
 
                     to_scale = to_decimal_type->get_scale();
                     ToDataType::check_type_scale(to_scale);
-
-                    max_result = ToDataType::get_max_digits_number(to_precision);
-                    min_result = -max_result;
                 }
                 if constexpr (IsIntegralV<ToFieldType> || std::is_floating_point_v<ToFieldType>) {
-                    max_result = type_limit<ToFieldType>::max();
-                    min_result = type_limit<ToFieldType>::min();
                     to_max_digits = NumberTraits::max_ascii_len<ToFieldType>();
                     to_precision = to_max_digits;
                 }
@@ -187,7 +161,7 @@ bool need_replace_null_data_to_default(FunctionContext* context, const DataTypeP
 }
 
 WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
-                                    const DataTypePtr& to_type, bool skip_not_null_check) {
+                                    const DataTypePtr& to_type) {
     /// Determine whether pre-processing and/or post-processing must take place during conversion.
     bool result_is_nullable = to_type->is_nullable();
 
@@ -213,10 +187,9 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
             if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_col.column)) {
                 arg_null_map = nullable->get_null_map_data().data();
             }
-            RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable,
-                                         true)(context, block, {nested_source_index},
-                                               nested_result_index, input_rows_count,
-                                               arg_null_map));
+            RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable)(
+                    context, block, {nested_source_index}, nested_result_index, input_rows_count,
+                    arg_null_map));
 
             block.get_by_position(result).column =
                     wrap_in_nullable(block.get_by_position(nested_result_index).column, block,
@@ -227,14 +200,14 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
             return Status::OK();
         };
     } else {
-        return prepare_impl(context, from_type, to_type, false);
+        return prepare_impl(context, from_type, to_type);
     }
 }
 
 /// 'from_type' and 'to_type' are nested types in case of Nullable.
 /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
 WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
-                         const DataTypePtr& origin_to_type, bool requested_result_is_nullable) {
+                         const DataTypePtr& origin_to_type) {
     auto to_type = get_serialized_type(origin_to_type);
     auto from_type = get_serialized_type(origin_from_type);
     if (from_type->equals(*to_type)) {
@@ -251,53 +224,53 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
                                                 to_type);
     }
 
-    switch (from_type->get_primitive_type()) {
-    case PrimitiveType::INVALID_TYPE:
-        return create_nothing_wrapper(to_type.get());
-    case PrimitiveType::TYPE_JSONB:
+    if (from_type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
         return create_cast_from_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type),
                                               to_type,
                                               context ? context->jsonb_string_as_string() : false);
-    default:
-        break;
-    }
-
-    WrapperType ret;
-
-    auto make_default_wrapper = [&](const auto& types) -> bool {
-        using Types = std::decay_t<decltype(types)>;
-        using ToDataType = typename Types::LeftType;
-        if constexpr (std::is_same_v<ToDataType, DataTypeUInt8>) {
-            ret = create_boolean_wrapper(context, from_type);
-            return true;
-        } else if constexpr (IsDataTypeInt<ToDataType>) {
-            ret = create_int_wrapper<ToDataType>(context, from_type);
-            return true;
-        } else if constexpr (IsDataTypeFloat<ToDataType>) {
-            ret = create_float_wrapper<ToDataType>(context, from_type);
-            return true;
-        } else if constexpr (IsDatelikeTypes<ToDataType>) {
-            ret = create_datelike_wrapper<ToDataType>(context, from_type);
-            return true;
-        } else if constexpr (std::is_same_v<ToDataType, DataTypeIPv4> ||
-                             std::is_same_v<ToDataType, DataTypeIPv6>) {
-            ret = create_ip_wrapper<ToDataType>(context, from_type);
-            return true;
-        }
-
-        if constexpr (IsDataTypeDecimal<ToDataType>) {
-            ret = create_decimal_wrapper<ToDataType>(context, from_type);
-            return true;
-        }
-
-        return false;
-    };
-
-    if (call_on_index_and_data_type<void>(to_type->get_primitive_type(), make_default_wrapper)) {
-        return ret;
     }
 
     switch (to_type->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return create_boolean_wrapper(context, from_type);
+    case PrimitiveType::TYPE_TINYINT:
+        return create_int_wrapper<DataTypeInt8>(context, from_type);
+    case PrimitiveType::TYPE_SMALLINT:
+        return create_int_wrapper<DataTypeInt16>(context, from_type);
+    case PrimitiveType::TYPE_INT:
+        return create_int_wrapper<DataTypeInt32>(context, from_type);
+    case PrimitiveType::TYPE_BIGINT:
+        return create_int_wrapper<DataTypeInt64>(context, from_type);
+    case PrimitiveType::TYPE_LARGEINT:
+        return create_int_wrapper<DataTypeInt128>(context, from_type);
+    case PrimitiveType::TYPE_FLOAT:
+        return create_float_wrapper<DataTypeFloat32>(context, from_type);
+    case PrimitiveType::TYPE_DOUBLE:
+        return create_float_wrapper<DataTypeFloat64>(context, from_type);
+    case PrimitiveType::TYPE_DATE:
+        return create_datelike_wrapper<DataTypeDate>(context, from_type);
+    case PrimitiveType::TYPE_DATETIME:
+        return create_datelike_wrapper<DataTypeDateTime>(context, from_type);
+    case PrimitiveType::TYPE_DATEV2:
+        return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
+    case PrimitiveType::TYPE_TIMEV2:
+        return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
+    case PrimitiveType::TYPE_IPV4:
+        return create_ip_wrapper<DataTypeIPv4>(context, from_type);
+    case PrimitiveType::TYPE_IPV6:
+        return create_ip_wrapper<DataTypeIPv6>(context, from_type);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return create_decimal_wrapper<DataTypeDecimalV2>(context, from_type);
+    case PrimitiveType::TYPE_DECIMAL32:
+        return create_decimal_wrapper<DataTypeDecimal32>(context, from_type);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return create_decimal_wrapper<DataTypeDecimal64>(context, from_type);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return create_decimal_wrapper<DataTypeDecimal128>(context, from_type);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return create_decimal_wrapper<DataTypeDecimal256>(context, from_type);
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING:
@@ -404,33 +377,8 @@ protected:
     }
 
     bool skip_return_type_check() const override { return true; }
-
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        DataTypePtr type = arguments[1].type;
-        DCHECK(type != nullptr);
-        bool need_to_be_nullable = false;
-        // 1. from_type is nullable
-        need_to_be_nullable |= arguments[0].type->is_nullable();
-        // 2. from_type is string, to_type is not string
-        need_to_be_nullable |= (is_string_type(arguments[0].type->get_primitive_type())) &&
-                               (!is_string_type(type->get_primitive_type()));
-        // 3. from_type is not DateTime/Date, to_type is DateTime/Date
-        need_to_be_nullable |=
-                (arguments[0].type->get_primitive_type() != PrimitiveType::TYPE_DATE &&
-                 arguments[0].type->get_primitive_type() != PrimitiveType::TYPE_DATETIME) &&
-                (type->get_primitive_type() == PrimitiveType::TYPE_DATE ||
-                 type->get_primitive_type() == PrimitiveType::TYPE_DATETIME);
-        // 4. from_type is not DateTimeV2/DateV2, to_type is DateTimeV2/DateV2
-        need_to_be_nullable |=
-                (arguments[0].type->get_primitive_type() != PrimitiveType::TYPE_DATEV2 &&
-                 arguments[0].type->get_primitive_type() != PrimitiveType::TYPE_DATETIMEV2) &&
-                (type->get_primitive_type() == PrimitiveType::TYPE_DATEV2 ||
-                 type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2);
-        if (need_to_be_nullable && !type->is_nullable()) {
-            return make_nullable(type);
-        }
-
-        return type;
+        return nullptr;
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }

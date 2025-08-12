@@ -36,6 +36,9 @@ public:
 
     std::string get_name() const override { return "HLL"; }
 
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
@@ -71,8 +74,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               std::vector<StringRef>& buffer_list) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
 private:
     // Hll is binary data which is not shown by mysql.

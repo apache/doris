@@ -24,10 +24,13 @@
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 // DiskInfo is an interface to query for the disk information at runtime.  This
 // contains information about the system as well as the specific data node
@@ -42,7 +45,7 @@ public:
     // Returns the number of (logical) disks on the system
     static int num_disks() {
         DCHECK(_s_initialized);
-        return _s_disks.size();
+        return cast_set<int>(_s_disks.size());
     }
 
     // Returns the 0-based disk index for 'path' (path must be a FS path, not
@@ -101,5 +104,7 @@ private:
 
     static void get_device_names();
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
