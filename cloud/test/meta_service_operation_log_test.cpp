@@ -1567,7 +1567,7 @@ TEST(MetaServiceOperationLogTest, CompactionLog) {
 
         // Create initial tablet stats
         TabletStatsPB initial_stats;
-        initial_stats.set_num_rows(150); // Total from input rowsets
+        initial_stats.set_num_rows(150);
         initial_stats.set_data_size(150 * 50);
         initial_stats.set_num_rowsets(3);
         initial_stats.set_num_segments(3);
@@ -1581,6 +1581,13 @@ TEST(MetaServiceOperationLogTest, CompactionLog) {
         txn->put(stats_key, stats_val);
 
         // Create tablet compact stats for versioned storage
+        initial_stats.set_num_rows(-150);
+        initial_stats.set_data_size(-150 * 50);
+        initial_stats.set_num_rowsets(-3);
+        initial_stats.set_num_segments(-3);
+        initial_stats.set_index_size(-100);
+        initial_stats.set_segment_size(-200);
+        initial_stats.set_cumulative_point(1);
         auto tablet_compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
         auto tablet_compact_stats_val = initial_stats.SerializeAsString();
@@ -1731,7 +1738,12 @@ TEST(MetaServiceOperationLogTest, CompactionLog) {
         ASSERT_EQ(compact_stats.cumulative_point(), 5);
         ASSERT_GT(compact_stats.last_cumu_compaction_time_ms(), 0);
         // Check that rowset count decreased: 3 input -> 1 output = -2
-        ASSERT_EQ(compact_stats.num_rowsets(), 1); // 3 - 3 + 1 = 1
+        ASSERT_EQ(compact_stats.num_rowsets(), -5);    // - 3 - 3 + 1 = -5
+        ASSERT_EQ(compact_stats.data_size(), -10000);  // - 7500 - 7500 + 5000 = -10000
+        ASSERT_EQ(compact_stats.num_rows(), -200);     // - 150 - 150 + 100 = -200
+        ASSERT_EQ(compact_stats.num_segments(), -5);   // - 3 - 3 + 1 = -5
+        ASSERT_EQ(compact_stats.index_size(), -150);   // - 200 - 200 + 50 = -150
+        ASSERT_EQ(compact_stats.segment_size(), -300); // - 200 - 200 + 100 = -300
     }
 
     // Verify input rowsets were removed and output rowset was created correctly
@@ -1867,8 +1879,8 @@ TEST(MetaServiceOperationLogTest, CompactionLogFirstTimeTabletStats) {
         TabletStatsPB initial_stats;
         initial_stats.set_num_rows(100);
         initial_stats.set_data_size(5000);
-        initial_stats.set_num_rowsets(1);
-        initial_stats.set_num_segments(1);
+        initial_stats.set_num_rowsets(2);
+        initial_stats.set_num_segments(2);
         initial_stats.set_index_size(100);
         initial_stats.set_segment_size(200);
         initial_stats.set_cumulative_point(2);
@@ -1959,8 +1971,8 @@ TEST(MetaServiceOperationLogTest, CompactionLogFirstTimeTabletStats) {
         compaction->set_index_size_input_rowsets(100);
         compaction->set_segment_size_input_rowsets(200);
         compaction->set_num_input_rows(100);
-        compaction->set_num_input_rowsets(1);
-        compaction->set_num_input_segments(1);
+        compaction->set_num_input_rowsets(2);
+        compaction->set_num_input_segments(2);
 
         compaction->set_size_output_rowsets(4000);
         compaction->set_index_size_output_rowsets(80);
@@ -1991,18 +2003,18 @@ TEST(MetaServiceOperationLogTest, CompactionLogFirstTimeTabletStats) {
         ASSERT_TRUE(compact_stats.ParseFromString(tablet_compact_stats_value));
 
         // Check TXN_KEY_NOT_FOUND logic: size fields should be cleared to zero for versioned stats
-        ASSERT_EQ(compact_stats.num_rows(), 0)
-                << "num_rows should be cleared to 0 in TXN_KEY_NOT_FOUND logic";
-        ASSERT_EQ(compact_stats.data_size(), 0)
-                << "data_size should be cleared to 0 in TXN_KEY_NOT_FOUND logic";
-        ASSERT_EQ(compact_stats.num_rowsets(), 0)
-                << "num_rowsets should be cleared to 0 in TXN_KEY_NOT_FOUND logic";
-        ASSERT_EQ(compact_stats.num_segments(), 0)
-                << "num_segments should be cleared to 0 in TXN_KEY_NOT_FOUND logic";
-        ASSERT_EQ(compact_stats.index_size(), 0)
-                << "index_size should be cleared to 0 in TXN_KEY_NOT_FOUND logic";
-        ASSERT_EQ(compact_stats.segment_size(), 0)
-                << "segment_size should be cleared to 0 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.num_rows(), -20) // 80 - 100 = -20
+                << "num_rows should be -20 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.data_size(), -1000) // 4000 - 5000 = -1000
+                << "data_size should be -1000 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.num_rowsets(), -1) // 1 - 2 = -1
+                << "num_rowsets should be -1 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.num_segments(), -1) // 1 - 2 = -1
+                << "num_segments should be -1 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.index_size(), -20) // 80 - 100 = -20
+                << "index_size should be -20 in TXN_KEY_NOT_FOUND logic";
+        ASSERT_EQ(compact_stats.segment_size(), -40) // 160 - 200 = -40
+                << "segment_size should be -40 in TXN_KEY_NOT_FOUND logic";
 
         // Check that compaction count fields are copied from initial tablet stats
         ASSERT_EQ(compact_stats.base_compaction_cnt(), 2)

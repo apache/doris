@@ -890,21 +890,13 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                         .tag("compact_stats", tablet_compact_stats.ShortDebugString());
                 return;
             }
-            tablet_compact_stats.set_num_compaction_rowsets(compaction.num_output_segments() -
-                                                            compaction.num_input_segments());
+            tablet_compact_stats.set_num_compaction_rowsets(compaction.num_output_rowsets() -
+                                                            compaction.num_input_rowsets());
         } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
             // First time switching from single write to double write mode
             // Step 1: Copy from single version stats as baseline
             tablet_compact_stats.CopyFrom(*stats);
-            // Step 2: Apply compaction updates
-            if (compaction_update_tablet_stats(compaction, &tablet_compact_stats, code, msg, now) ==
-                -1) {
-                LOG_WARNING("first set compaction_update_tablet_stats failed.")
-                        .tag("tablet_id", tablet_id)
-                        .tag("compact_stats", tablet_compact_stats.ShortDebugString());
-                return;
-            }
-            // Step 3: Reset size fields to zero because compact_stats + load_stats = single_stats
+            // Step 2: Reset size fields to zero because compact_stats + load_stats = single_stats
             // Since data_size/index_size are inherited by load_stats, compact_stats must start from 0
             tablet_compact_stats.set_num_rows(0);
             tablet_compact_stats.set_data_size(0);
@@ -912,8 +904,16 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             tablet_compact_stats.set_num_segments(0);
             tablet_compact_stats.set_index_size(0);
             tablet_compact_stats.set_segment_size(0);
-            tablet_compact_stats.set_num_compaction_rowsets(compaction.num_output_segments() -
-                                                            compaction.num_input_segments());
+            // Step 3: Apply compaction updates
+            if (compaction_update_tablet_stats(compaction, &tablet_compact_stats, code, msg, now) ==
+                -1) {
+                LOG_WARNING("first set compaction_update_tablet_stats failed.")
+                        .tag("tablet_id", tablet_id)
+                        .tag("compact_stats", tablet_compact_stats.ShortDebugString());
+                return;
+            }
+            tablet_compact_stats.set_num_compaction_rowsets(compaction.num_output_rowsets() -
+                                                            compaction.num_input_rowsets());
         } else if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}", tablet_id,
