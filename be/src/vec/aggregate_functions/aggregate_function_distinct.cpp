@@ -63,8 +63,10 @@ public:
 
         if (arguments.size() == 1) {
             AggregateFunctionPtr res(
-                    creator_with_numeric_type::create<AggregateFunctionDistinctNumeric>(
-                            arguments, result_is_nullable, attr, nested_function));
+                    creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT>::
+                            create<AggregateFunctionDistinctNumeric>(arguments, result_is_nullable,
+                                                                     attr, nested_function));
             if (res) {
                 return res;
             }
