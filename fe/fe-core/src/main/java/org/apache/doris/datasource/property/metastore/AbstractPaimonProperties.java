@@ -74,13 +74,12 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
      * @param storagePropertiesList the list of configured storage backends
      */
     protected void appendS3PropertiesIsNeeded(List<StorageProperties> storagePropertiesList) {
-        AbstractS3CompatibleProperties s3Properties =
-                storagePropertiesList == null ? null :
-                        storagePropertiesList.stream()
-                                .filter(AbstractS3CompatibleProperties.class::isInstance)
-                                .map(AbstractS3CompatibleProperties.class::cast)
-                                .findFirst()
-                                .orElse(null);
+
+        AbstractS3CompatibleProperties s3Properties = (AbstractS3CompatibleProperties) storagePropertiesList.stream()
+                .filter(storageProperties -> storageProperties.getType() == StorageProperties.Type.S3
+                        || storageProperties.getType() == StorageProperties.Type.MINIO)
+                .findFirst()
+                .orElse(null);
         if (s3Properties != null) {
             catalogOptions.set("s3.access.key", s3Properties.getSecretKey());
             catalogOptions.set("s3.secret.key", s3Properties.getAccessKey());
