@@ -396,20 +396,7 @@ elif [[ -z "${USE_JEMALLOC}" ]]; then
         USE_JEMALLOC='OFF'
     fi
 fi
-if [[ -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
-    # compatible with old thirdparty
-    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
-    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
-    rm -rf "${TP_LIB_DIR}/librocksdb.a"
 
-    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
-    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-    mv "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
-    mv -f "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
-fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
 fi

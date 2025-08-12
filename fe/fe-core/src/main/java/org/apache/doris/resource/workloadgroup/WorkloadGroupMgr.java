@@ -68,18 +68,27 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     public static final Long DEFAULT_GROUP_ID = 1L;
 
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
-            .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
+            .add("Id")
+            .add("Name")
+            .add(WorkloadGroup.MIN_CPU_PERCENT)
+            .add(WorkloadGroup.MAX_CPU_PERCENT)
+            .add(WorkloadGroup.MIN_MEMORY_PERCENT)
+            .add(WorkloadGroup.MAX_MEMORY_PERCENT)
+            .add(WorkloadGroup.MAX_CONCURRENCY)
+            .add(WorkloadGroup.MAX_QUEUE_SIZE)
+            .add(WorkloadGroup.QUEUE_TIMEOUT)
+            .add(WorkloadGroup.SCAN_THREAD_NUM)
+            .add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
+            .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
+            .add(WorkloadGroup.MEMORY_LOW_WATERMARK)
+            .add(WorkloadGroup.MEMORY_HIGH_WATERMARK)
+            .add(WorkloadGroup.COMPUTE_GROUP)
+            .add(WorkloadGroup.READ_BYTES_PER_SECOND)
+            .add(WorkloadGroup.REMOTE_READ_BYTES_PER_SECOND)
             .add(WorkloadGroup.WRITE_BUFFER_RATIO)
             .add(WorkloadGroup.SLOT_MEMORY_POLICY)
-            .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
-            .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
-            .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
-            .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
-            .add(WorkloadGroup.MEMORY_LOW_WATERMARK).add(WorkloadGroup.MEMORY_HIGH_WATERMARK)
-            .add(WorkloadGroup.COMPUTE_GROUP)
-            .add(WorkloadGroup.READ_BYTES_PER_SECOND).add(WorkloadGroup.REMOTE_READ_BYTES_PER_SECOND)
-            .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
+            .add(QueryQueue.RUNNING_QUERY_NUM)
+            .add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
     private static final Logger LOG = LogManager.getLogger(WorkloadGroupMgr.class);
@@ -219,27 +228,49 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     //  when create/alter workload group with same tag.
     //  when oldWg is not null it means caller is an alter stmt.
     private void checkGlobalUnlock(WorkloadGroup newWg, WorkloadGroup oldWg) throws DdlException {
+        // trim all properties
+        newWg.trimProperties();
+
+        if (newWg.getMinCpuPercent() > newWg.getMaxCpuPercent()) {
+            throw new DdlException("min_cpu_percent is " + newWg.getMinCpuPercent()
+                + "%, it should be less or equal than max_cpu_percent "
+                + newWg.getMaxCpuPercent() + "%");
+        }
+        if (newWg.getMinMemoryPercent() > newWg.getMaxMemoryPercent()) {
+            throw new DdlException("min_memory_percent is " + newWg.getMinMemoryPercent()
+                + "%, it should be less or equal than max_memory_percent "
+                + newWg.getMaxMemoryPercent() + "%");
+        }
+
         String newWgCg = newWg.getComputeGroup();
 
         int wgNumOfCurrentCg = 0;
-        boolean isAlterStmt = oldWg != null;
-        boolean isCreateStmt = !isAlterStmt;
+        boolean isCreateStmt = oldWg == null;
+        int sumOfMinCpuPercent = 0;
+        int sumOfMinMemoryPercent = 0;
+        ++ wgNumOfCurrentCg;
+        sumOfMinCpuPercent += newWg.getMinCpuPercent();
+        sumOfMinMemoryPercent += newWg.getMinMemoryPercent();
+
 
         // 1 get sum value of all wg which has same tag without current wg
         for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
             WorkloadGroup wg = entry.getValue();
-            String curWgCg = wg.getComputeGroup();
-
-            if (newWgCg.equals(entry.getValue().getComputeGroup())) {
-                wgNumOfCurrentCg++;
-            }
-
-            if (isAlterStmt && entry.getKey() == oldWg.getId()) {
+            if (!newWgCg.equalsIgnoreCase(wg.getComputeGroup())) {
                 continue;
             }
-
-            if (!newWgCg.equals(curWgCg)) {
-                continue;
+            if (wg.getId() != newWg.getId()) {
+                ++ wgNumOfCurrentCg;
+                sumOfMinCpuPercent += wg.getMinCpuPercent();
+                sumOfMinMemoryPercent += wg.getMinMemoryPercent();
+            }
+            if (sumOfMinCpuPercent > 100) {
+                throw new DdlException("Sum of min_cpu_percent in " + wg.getComputeGroup()
+                    + " should be less than 100%");
+            }
+            if (sumOfMinMemoryPercent > 100) {
+                throw new DdlException("Sum of min_memory_percent in " + wg.getComputeGroup()
+                    + " should be less than 100%");
             }
         }
 
@@ -520,7 +551,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             try {
                 for (String cgId : cgWithoutNormalWg) {
                     Map<String, String> properties = Maps.newHashMap();
-                    properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
                     properties.put(WorkloadGroup.COMPUTE_GROUP, cgId);
                     WorkloadGroup normalWg = new WorkloadGroup(Env.getCurrentEnv().getNextId(), DEFAULT_GROUP_NAME,
                             properties);
