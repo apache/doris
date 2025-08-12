@@ -160,6 +160,9 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                         this->debug_string());
         }
     }
+    if (auto error_url = get_load_error_url(); !error_url.empty()) {
+        _query_ctx->set_load_error_url(error_url);
+    }
 
     if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
         _is_report_on_cancel = false;
@@ -1565,6 +1568,23 @@ void PipelineXFragmentContext::_close_fragment_instance() {
             std::dynamic_pointer_cast<PipelineXFragmentContext>(shared_from_this()));
 }
 
+std::string PipelineXFragmentContext::get_load_error_url() {
+    if (const auto& str = _runtime_state->get_error_log_file_path(); !str.empty()) {
+        return to_load_error_http_path(str);
+    }
+    for (auto& task_states : _task_runtime_states) {
+        for (auto& task_state : task_states) {
+            if (!task_state) {
+                continue;
+            }
+            if (const auto& str = task_state->get_error_log_file_path(); !str.empty()) {
+                return to_load_error_http_path(str);
+            }
+        }
+    }
+    return "";
+}
+
 Status PipelineXFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
@@ -1595,11 +1615,16 @@ Status PipelineXFragmentContext::send_report(bool done) {
             }
         }
     }
+
+    std::string load_eror_url = _query_ctx->get_load_error_url().empty()
+                                    ? get_load_error_url()
+                                    : _query_ctx->get_load_error_url();
+
     return _report_status_cb(
             {true, exec_status, runtime_states, _runtime_profile.get(),
              _runtime_state->load_channel_profile(), done || !exec_status.ok(),
              _query_ctx->coord_addr, _query_id, _fragment_id, TUniqueId(), _backend_num,
-             _runtime_state.get(), [this](Status st) { return update_status(st); },
+             _runtime_state.get(), load_eror_url,[this](Status st) { return update_status(st); },
              [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
                  cancel(reason, msg);
              }},
