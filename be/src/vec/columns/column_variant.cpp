@@ -61,6 +61,7 @@
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/common/unaligned.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -71,7 +72,6 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/json/path_in_data.h"
-#include "vec/common/unaligned.h"
 
 namespace doris::vectorized {
 namespace {
@@ -160,8 +160,7 @@ ColumnVariant::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_roo
           is_nullable(is_nullable_),
           num_of_defaults_in_prefix(size_),
           is_root(is_root_),
-          num_rows(size_) {
-}
+          num_rows(size_) {}
 
 size_t ColumnVariant::Subcolumn::Subcolumn::size() const {
     return num_rows + current_num_of_defaults;
@@ -879,32 +878,32 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
     const char* end = data;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_STRING: {
-        size_t size = doris::unaligned_load<size_t>(data);
+        size_t size = unaligned_load<size_t>(data);
         data += sizeof(size_t);
         res = Field::create_field<TYPE_STRING>(String(data, size));
         end = data + size;
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        Int8 v = *reinterpret_cast<const Int8*>(data);
+        Int8 v = unaligned_load<Int8>(data);
         res = Field::create_field<TYPE_TINYINT>(v);
         end = data + sizeof(Int8);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        Int16 v = doris::unaligned_load<Int16>(data);
+        Int16 v = unaligned_load<Int16>(data);
         res = Field::create_field<TYPE_SMALLINT>(v);
         end = data + sizeof(Int16);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_INT: {
-        Int32 v = doris::unaligned_load<Int32>(data);
+        Int32 v = unaligned_load<Int32>(data);
         res = Field::create_field<TYPE_INT>(v);
         end = data + sizeof(Int32);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        Int64 v = doris::unaligned_load<Int64>(data);
+        Int64 v = unaligned_load<Int64>(data);
         res = Field::create_field<TYPE_BIGINT>(v);
         end = data + sizeof(Int64);
         break;
@@ -917,26 +916,26 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        Float32 v = doris::unaligned_load<Float32>(data);
+        Float32 v = unaligned_load<Float32>(data);
         res = Field::create_field<TYPE_FLOAT>(v);
         end = data + sizeof(Float32);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        Float64 v = doris::unaligned_load<Float64>(data);
+        Float64 v = unaligned_load<Float64>(data);
         res = Field::create_field<TYPE_DOUBLE>(v);
         end = data + sizeof(Float64);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        size_t size = doris::unaligned_load<size_t>(data);
+        size_t size = unaligned_load<size_t>(data);
         data += sizeof(size_t);
         res = Field::create_field<TYPE_JSONB>(JsonbField(data, size));
         end = data + size;
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        const size_t size = doris::unaligned_load<size_t>(data);
+        const size_t size = unaligned_load<size_t>(data);
         data += sizeof(size_t);
         res = Field::create_field<TYPE_ARRAY>(Array(size));
         auto& array = res.get<Array>();
@@ -944,7 +943,8 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
         FieldType nested_filed_type = FieldType::OLAP_FIELD_TYPE_NONE;
         for (size_t i = 0; i < size; ++i) {
             Field nested_field;
-            const auto nested_type = static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
+            const auto nested_type =
+                    static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
             data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
             array[i] = std::move(nested_field);
             if (nested_type != FieldType::OLAP_FIELD_TYPE_NONE) {
@@ -956,7 +956,7 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        IPv4 v = doris::unaligned_load<IPv4>(data);
+        IPv4 v = unaligned_load<IPv4>(data);
         res = Field::create_field<TYPE_IPV4>(v);
         end = data + sizeof(IPv4);
         break;
@@ -970,7 +970,7 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        UInt32 v = doris::unaligned_load<UInt32>(data);
+        UInt32 v = unaligned_load<UInt32>(data);
         res = Field::create_field<TYPE_DATEV2>(v);
         end = data + sizeof(UInt32);
         break;
@@ -978,7 +978,7 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
-        UInt64 v = doris::unaligned_load<UInt64>(data);
+        UInt64 v = unaligned_load<UInt64>(data);
         res = Field::create_field<TYPE_DATETIMEV2>(v);
         info_res.precision = -1;
         info_res.scale = static_cast<int>(scale);
@@ -990,7 +990,7 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
         data += sizeof(uint8_t);
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
-        Int32 v = doris::unaligned_load<Int32>(data);
+        Int32 v = unaligned_load<Int32>(data);
         res = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
         info_res.precision = static_cast<int>(precision);
         info_res.scale = static_cast<int>(scale);
@@ -1002,7 +1002,7 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
         data += sizeof(uint8_t);
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
-        Int64 v = doris::unaligned_load<Int64>(data);
+        Int64 v = unaligned_load<Int64>(data);
         res = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
         info_res.precision = static_cast<int>(precision);
         info_res.scale = static_cast<int>(scale);

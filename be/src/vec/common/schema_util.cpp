@@ -742,8 +742,8 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
                                          const PathToNoneNullValues& stats,
                                          TabletSchema::PathsSetInfo& paths_set_info) {
-    if (stats.size() > max_subcolumns_count) {
-        // 按非空值数量排序
+    // max_subcolumns_count is 0 means no limit
+    if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(stats.size());
         for (const auto& [path, size] : stats) {

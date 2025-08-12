@@ -271,6 +271,14 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
             _statistics->sparse_column_non_null_size.find(relative_path.get_path()) !=
                     _statistics->sparse_column_non_null_size.end();
 
+    DBUG_EXECUTE_IF("exist_in_sparse_column_must_be_false", {
+        if (existed_in_sparse_column) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "exist_in_sparse_column_must_be_false, relative_path: {}",
+                    relative_path.get_path());
+        }
+    })
+
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
