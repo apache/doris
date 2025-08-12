@@ -17,29 +17,34 @@
 
 #pragma once
 
-#include "vec/common/string_utils/string_utils.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
 
-namespace doris::vectorized {
+namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
-class ReadBuffer {
+class CharTokenizer : public DorisTokenizer {
 public:
-    ReadBuffer(char* d, size_t n) : _start(d), _end(d + n) {}
+    CharTokenizer() = default;
+    ~CharTokenizer() override = default;
 
-    ReadBuffer(const unsigned char* d, size_t n) : _start((char*)(d)), _end((char*)(d) + n) {}
+    void initialize(int32_t max_token_len);
+    Token* next(Token* token) override;
+    void reset() override;
 
-    bool eof() { return _start == _end; }
+    virtual bool is_cjk_char(UChar32 c) = 0;
+    virtual bool is_token_char(UChar32 c) = 0;
 
-    char*& position() { return _start; }
-
-    char* end() { return _end; }
-
-    size_t count() { return _end - _start; }
-
-    std::string to_string() { return std::string(_start, (_end - _start)); }
+    static constexpr int32_t DEFAULT_MAX_WORD_LEN = 255;
 
 private:
-    char* _start = nullptr;
-    char* _end = nullptr;
+    static constexpr int32_t MAX_TOKEN_LENGTH_LIMIT = 16383;
+
+    int32_t _max_token_len = 0;
+
+    int32_t _buffer_index = 0;
+    int32_t _data_len = 0;
+    const char* _char_buffer = nullptr;
 };
 
-} // namespace doris::vectorized
+#include "common/compile_check_end.h"
+} // namespace doris::segment_v2::inverted_index
