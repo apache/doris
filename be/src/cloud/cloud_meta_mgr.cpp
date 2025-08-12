@@ -808,7 +808,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
-                                    options.warmup_delta_data);
+                                    options.warmup_delta_data ||
+                                            config::enable_warmup_immediately_on_new_rowset);
                 if (options.merge_schema) {
                     RETURN_IF_ERROR(tablet->merge_rowsets_schema());
                 }
