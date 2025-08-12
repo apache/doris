@@ -78,9 +78,8 @@ Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
         slice.trim_quote();
     }
     Int64 val = 0;
-    if (ReadBuffer rb(slice.data, slice.size); !read_date_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (StringRef str(slice.data, slice.size); !read_date_text_impl<Int64>(val, str)) {
+        return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();
@@ -127,9 +126,8 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
         slice.trim_quote();
     }
     Int64 val = 0;
-    if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
-        return Status::InvalidArgument("parse datetime fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (StringRef str(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, str)) {
+        return Status::InvalidArgument("parse datetime fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();

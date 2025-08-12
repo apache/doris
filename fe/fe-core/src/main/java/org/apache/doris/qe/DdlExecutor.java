@@ -24,14 +24,12 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
-import org.apache.doris.analysis.CreateIndexPolicyStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
@@ -115,8 +113,6 @@ public class DdlExecutor {
             env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
-            env.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {
             RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
             env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
@@ -124,8 +120,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof RefreshDbStmt) {
             RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
             env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
-        } else if (ddlStmt instanceof CreateIndexPolicyStmt) {
-            env.getIndexPolicyMgr().createIndexPolicy((CreateIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropIndexPolicyStmt) {
             env.getIndexPolicyMgr().dropIndexPolicy((DropIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {

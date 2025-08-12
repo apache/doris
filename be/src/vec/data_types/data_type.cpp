@@ -36,7 +36,6 @@
 namespace doris {
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
