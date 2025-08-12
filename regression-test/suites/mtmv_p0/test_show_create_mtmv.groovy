@@ -121,6 +121,28 @@ suite("test_show_create_mtmv","mtmv") {
     def showCreateMTMVResultAgain = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
     logger.info("showCreateMTMVAgainResult: " + showCreateMTMVResultAgain.toString())
     assertEquals(showCreateMTMVResult.toString(), showCreateMTMVResultAgain.toString())
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by(date_trunc(`col1`, 'day'))
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS select date_trunc(`k2`, 'day') as col1  from ${tableName};
+    """
+    showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
+    assertTrue(showCreateMTMVResult.toString().contains("date_trunc(`col1`, 'day')"))
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+            ${showCreateMTMVResult[0][1]}
+        """
+    showCreateMTMVResultAgain = sql """show CREATE MATERIALIZED VIEW ${mvName}"""
+    logger.info("showCreateMTMVAgainResult: " + showCreateMTMVResultAgain.toString())
+    assertEquals(showCreateMTMVResult.toString(), showCreateMTMVResultAgain.toString())
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
