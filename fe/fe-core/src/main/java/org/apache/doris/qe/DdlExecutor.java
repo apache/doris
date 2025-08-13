@@ -30,7 +30,6 @@ import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
@@ -86,8 +85,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
 
-        } else if (ddlStmt instanceof RecoverDbStmt) {
-            env.recoverDatabase((RecoverDbStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverTableStmt) {
             env.recoverTable((RecoverTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverPartitionStmt) {
