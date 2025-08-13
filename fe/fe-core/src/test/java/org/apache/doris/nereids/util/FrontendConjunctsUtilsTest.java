@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -238,5 +239,23 @@ public class FrontendConjunctsUtilsTest {
         TreeMap<String, Object> values = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         values.putAll(map);
         return values;
+    }
+
+    @Test
+    public void testComplexSupportAndNot() {
+        And and = new And(generateLike("c1", "%value%"), generateEqualTo("c2", "v2"));
+        Or or = new Or(and, generateEqualTo("c3", "v3"));
+        // c2 != v3
+        // c3 != v4
+        Assertions.assertTrue(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or),
+                getTreeMap(ImmutableMap.of("c1", "v1", "c2", "v3", "c3", "v4"))));
+        // c2=v2
+        // like not support fold constant, assume result of like is true
+        // so result of and is true
+        Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or),
+                getTreeMap(ImmutableMap.of("c1", "v1", "c2", "v2", "c3", "v4"))));
+        // c3 = v3
+        Assertions.assertFalse(FrontendConjunctsUtils.isFiltered(Lists.newArrayList(or),
+                getTreeMap(ImmutableMap.of("c1", "v1", "c2", "v3", "c3", "v3"))));
     }
 }
