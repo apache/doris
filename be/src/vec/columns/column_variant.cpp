@@ -222,7 +222,8 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
             add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
             type_changed = true;
         } else {
-            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable));
+            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable,
+                                                     info.precision, info.scale));
         }
     } else {
         if (least_common_type_dim != from_dim) {
