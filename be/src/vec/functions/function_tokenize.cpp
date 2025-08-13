@@ -200,4 +200,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     }
     return Status::RuntimeError("unimplemented function {}", get_name());
 }
+void register_function_tokenize(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionTokenize>();
+}
 } // namespace doris::vectorized
