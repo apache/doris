@@ -31,7 +31,6 @@ import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
@@ -90,8 +89,6 @@ public class DdlExecutor {
             env.recoverDatabase((RecoverDbStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverTableStmt) {
             env.recoverTable((RecoverTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof RecoverPartitionStmt) {
-            env.recoverPartition((RecoverPartitionStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
         } else if (ddlStmt instanceof UninstallPluginStmt) {
