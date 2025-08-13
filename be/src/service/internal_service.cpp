@@ -1244,10 +1244,11 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    auto schema = res.value()->merged_tablet_schema();
-                    if (schema != nullptr) {
-                        tablet_schemas.push_back(schema);
-                    }
+                    // TODO(lihangyu): implement this
+                    // auto schema = res.value()->merged_tablet_schema();
+                    // if (schema != nullptr) {
+                    //     tablet_schemas.push_back(schema);
+                    // }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
