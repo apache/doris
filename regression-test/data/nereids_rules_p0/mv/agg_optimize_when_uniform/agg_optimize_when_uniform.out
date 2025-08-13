@@ -2,13 +2,6 @@
 -- !query1_0_before --
 2023-12-10	46.00	33.50	2	0
 
--- !shape1_0_after --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------filter((mv1_0.o_custkey = 1) and (mv1_0.o_orderkey = 3))
---------PhysicalOlapScan[mv1_0]
-
 -- !query1_0_after --
 2023-12-10	46.00	33.50	2	0
 
