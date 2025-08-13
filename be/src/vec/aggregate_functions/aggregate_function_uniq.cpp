@@ -22,10 +22,10 @@
 
 #include <string>
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/common/hash_table/hash.h" // IWYU pragma: keep
-#include "vec/core/extended_types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -36,50 +36,11 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
-    if (argument_types.size() == 1) {
-        AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionUniq, Data>(
-                argument_types, result_is_nullable, attr));
-        if (res) {
-            return res;
-        } else {
-            switch (argument_types[0]->get_primitive_type()) {
-            case TYPE_DECIMAL32:
-                return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMAL32, Data<TYPE_DECIMAL32>>>(
-                        argument_types, result_is_nullable, attr);
-            case TYPE_DECIMAL64:
-                return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMAL64, Data<TYPE_DECIMAL64>>>(
-                        argument_types, result_is_nullable, attr);
-            case TYPE_DECIMAL128I:
-                return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMAL128I, Data<TYPE_DECIMAL128I>>>(
-                        argument_types, result_is_nullable, attr);
-            case TYPE_DECIMAL256:
-                return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMAL256, Data<TYPE_DECIMAL256>>>(
-                        argument_types, result_is_nullable, attr);
-            case TYPE_DECIMALV2:
-                return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_DECIMALV2, Data<TYPE_DECIMALV2>>>(
-                        argument_types, result_is_nullable, attr);
-            case TYPE_STRING:
-            case TYPE_CHAR:
-            case TYPE_VARCHAR:
-                return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_STRING, Data<TYPE_STRING>>>(
-                        argument_types, result_is_nullable, attr);
-            case TYPE_ARRAY:
-                return creator_without_type::create<
-                        AggregateFunctionUniq<TYPE_ARRAY, Data<TYPE_ARRAY>>>(
-                        argument_types, result_is_nullable, attr);
-            default:
-                break;
-            }
-        }
-    }
-
-    return nullptr;
+    return creator_with_type_list<
+            TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_DECIMAL32,
+            TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_ARRAY, TYPE_FLOAT,
+            TYPE_DOUBLE>::create<AggregateFunctionUniq, Data>(argument_types, result_is_nullable,
+                                                              attr);
 }
 
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory) {
