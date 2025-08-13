@@ -105,7 +105,7 @@
 0.1
 
 -- !select_percentile_reservoir2 --
-0.1
+860264.5657799995
 
 -- !select_percentile_reservoir3 --
 \N
@@ -114,10 +114,28 @@
 
 -- !select_percentile_reservoir4 --
 \N
-0.1
-2.6007963270000003
+73427.49191999997
+928208.9441155586
 
 -- !select_percentile_reservoir4 --
+15.0
+
+-- !select_percentile_reservoir5 --
+\N
+8.0
+8.5
+8.5
+8.5
+8.0
+8.0
+8.5
+8.0
+8.0
+8.5
+8.0
+8.5
+8.5
+8.5
 8.0
 
 -- !select_minmax1 --

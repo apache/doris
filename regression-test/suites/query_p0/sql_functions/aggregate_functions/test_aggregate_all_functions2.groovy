@@ -89,7 +89,10 @@ suite("test_aggregate_all_functions2") {
     qt_select_percentile_reservoir3 """ select percentile_reservoir(k8,0.5) from baseall group by k6 order by 1; """ 
     qt_select_percentile_reservoir4 """ select percentile_reservoir(k8,0.99) from baseall group by k6 order by 1; """ 
     qt_select_percentile_reservoir4 """ select percentile_reservoir(k1,1) from baseall; """ 
-
+    qt_select_percentile_reservoir5 """ select percentile_reservoir(k1,0.5) over(partition by k6) from baseall order by k1; """
+    sql """
+        select percentile_reservoir(number,0.5) from numbers("number" = "1000000");
+    """
     test {
         sql """ select percentile_reservoir(k8,k1) from baseall; """ 
         exception "percentile_reservoir requires second parameter must be a constant"
