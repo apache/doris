@@ -169,8 +169,15 @@ Status InvertedIndexReader::handle_searcher_cache(
         OlapReaderStatistics* stats) {
     auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
-    if (InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
-                                                       inverted_index_cache_handle)) {
+
+    bool cache_hit = false;
+    {
+        SCOPED_RAW_TIMER(&stats->inverted_index_lookup_timer);
+        cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                                   inverted_index_cache_handle);
+    }
+
+    if (cache_hit) {
         stats->inverted_index_searcher_cache_hit++;
         return Status::OK();
     } else {
@@ -316,8 +323,11 @@ Status FullTextIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatist
             auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
                     inverted_index_ctx->char_filter_map);
             reader->init(search_str.data(), search_str.size(), true);
-            query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    reader.get(), analyzer.get(), column_name, query_type);
+            {
+                SCOPED_RAW_TIMER(&stats->inverted_index_analyzer_timer);
+                query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        reader.get(), analyzer.get(), column_name, query_type);
+            }
         }
 
         if (query_info.terms.empty()) {

@@ -213,7 +213,13 @@ public:
                                       InvertedIndexQueryCacheHandle* cache_handler,
                                       OlapReaderStatistics* stats,
                                       std::shared_ptr<roaring::Roaring>& bit_map) {
-        if (cache->lookup(cache_key, cache_handler)) {
+        bool cache_hit = false;
+        {
+            SCOPED_RAW_TIMER(&stats->inverted_index_lookup_timer);
+            cache_hit = cache->lookup(cache_key, cache_handler);
+        }
+
+        if (cache_hit) {
             stats->inverted_index_query_cache_hit++;
             SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
             bit_map = cache_handler->get_bitmap();
