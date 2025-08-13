@@ -1204,13 +1204,6 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
         RETURN_IF_ERROR(check_rowid_conversion(output_rowset, *location_map));
     }
     int64_t t5 = MonotonicMicros();
-    if (missed_rows) {
-        DCHECK_EQ(missed_rows->size(), missed_rows_size);
-        if (missed_rows->size() != missed_rows_size) {
-            LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
-                         << " after: " << missed_rows->size();
-        }
-    }
 
     // 3. store delete bitmap
     auto st = _engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
