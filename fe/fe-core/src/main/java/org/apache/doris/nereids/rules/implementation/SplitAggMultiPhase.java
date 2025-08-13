@@ -52,7 +52,7 @@ import java.util.Set;
 /**SplitAggMultiPhase
  * only process agg with distinct function, split Agg into multi phase
  * */
-public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleFactory {
+public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationRuleFactory {
     public static final SplitAggMultiPhase INSTANCE = new SplitAggMultiPhase();
 
     @Override
@@ -148,25 +148,30 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
         Map<AggregateFunction, Alias> middleAggFunctionToAlias = new LinkedHashMap<>();
         Plan twoPhaseAgg = splitDeduplicateTwoPhase(aggregate, middleAggFunctionToAlias,
                 Utils.fastToImmutableList(localAggGroupBySet), localAggGroupBySet);
-        Map<AggregateFunction, Alias> localAggFunctionToAlias = new HashMap<>();
-        Plan onePhaseAgg = splitToOnePhase(aggregate, Utils.fastToImmutableList(localAggGroupBySet),
-                localAggFunctionToAlias);
+        return ImmutableList.<Plan>builder()
+                .add(splitDistinctTwoPhase(aggregate, middleAggFunctionToAlias, twoPhaseAgg))
+                // .add(splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, onePhaseAgg))
+                .build();
 
-        Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
-        Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
-        AggregateParam param = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
-        if (AggregateUtils.hasUnknownStatistics(aggregate, aggChildStats)
-                || AggregateUtils.shouldUseLocalAgg(aggStats, aggChildStats, localAggGroupBySet)) {
-            return ImmutableList.<Plan>builder()
-                    .add(splitDistinctTwoPhase(aggregate, middleAggFunctionToAlias, twoPhaseAgg))
-                    .add(splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, onePhaseAgg))
-                    .build();
-        } else {
-            return ImmutableList.<Plan>builder()
-                    .add(splitDistinctOnePhase(aggregate, param, middleAggFunctionToAlias, twoPhaseAgg))
-                    .add(splitDistinctOnePhase(aggregate, param, localAggFunctionToAlias, onePhaseAgg))
-                    .build();
-        }
+        // Map<AggregateFunction, Alias> localAggFunctionToAlias = new HashMap<>();
+        // Plan onePhaseAgg = splitToOnePhase(aggregate, Utils.fastToImmutableList(localAggGroupBySet),
+        //         localAggFunctionToAlias);
+
+        // Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
+        // Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
+        // AggregateParam param = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
+        // if (AggregateUtils.hasUnknownStatistics(aggregate, aggChildStats)
+        //         || AggregateUtils.shouldUseLocalAgg(aggStats, aggChildStats, localAggGroupBySet)) {
+        //     return ImmutableList.<Plan>builder()
+        //             .add(splitDistinctTwoPhase(aggregate, middleAggFunctionToAlias, twoPhaseAgg))
+        //             .add(splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, onePhaseAgg))
+        //             .build();
+        // } else {
+        //     return ImmutableList.<Plan>builder()
+        //             .add(splitDistinctOnePhase(aggregate, param, middleAggFunctionToAlias, twoPhaseAgg))
+        //             .add(splitDistinctOnePhase(aggregate, param, localAggFunctionToAlias, onePhaseAgg))
+        //             .build();
+        // }
     }
 
     private Plan splitToOnePlusTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
@@ -179,16 +184,17 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
         Plan localAgg = splitDeduplicateOnePhase(aggregate, localAggGroupBySet, paramForAgg, paramForAggFunc,
                 localAggFunctionToAlias, aggregate.child(),
                 Utils.fastToImmutableList(aggregate.getDistinctArguments()));
-        AggregateParam param = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
+        return splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg);
+        // AggregateParam param = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
         // 这个地方用统计信息判断一下保留一阶段还是二阶段,
-        Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
-        Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
-        if (AggregateUtils.hasUnknownStatistics(aggregate, aggChildStats)
-                || AggregateUtils.shouldUseLocalAgg(aggStats, aggChildStats, localAggGroupBySet)) {
-            return splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg);
-        } else {
-            return splitDistinctOnePhase(aggregate, param, localAggFunctionToAlias, localAgg);
-        }
+        // Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
+        // Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
+        // if (AggregateUtils.hasUnknownStatistics(aggregate, aggChildStats)
+        //         || AggregateUtils.shouldUseLocalAgg(aggStats, aggChildStats, localAggGroupBySet)) {
+        //     return splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg);
+        // } else {
+        //     return splitDistinctOnePhase(aggregate, param, localAggFunctionToAlias, localAgg);
+        // }
     }
 
     // inputToResultParamSecond这个参数在调用的时候传入的都是一样的，可以考虑删除参数

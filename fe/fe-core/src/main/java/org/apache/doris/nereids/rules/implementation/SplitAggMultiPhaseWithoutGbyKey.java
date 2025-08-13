@@ -59,7 +59,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**SplitAggMultiPhaseWithoutGbyKey*/
-public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements ExplorationRuleFactory {
+public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements ExplorationRuleFactory {
     public static final SplitAggMultiPhaseWithoutGbyKey INSTANCE = new SplitAggMultiPhaseWithoutGbyKey();
     public static final List<Class<? extends AggregateFunction>> finalMultiDistinctSupportFunc =
             ImmutableList.of(Count.class, Sum.class, Sum0.class);
@@ -80,18 +80,18 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
     /**
      * select count(distinct a) from t
      * splitToThreePhase:
-     * agg(count(a))
+     * agg(count(a); distinct global)
      *   +--gather
-     *     +--agg(count(a))
-     *       +--agg(group by a)
+     *     +--agg(count(a); distinct local)
+     *       +--agg(group by a; global)
      *         +--hashShuffle(a)
      * splitToFourPhase:
-     * agg(count(a))
+     * agg(count(a); distinct global)
      *   +--gather
-     *     +--agg(count(a))
-     *       +--agg(group by a)
+     *     +--agg(count(a); distinct local)
+     *       +--agg(group by a; global)
      *         +--hashShuffle(a)
-     *           +--agg(group by a)
+     *           +--agg(group by a; local)
      * twoPhaseAggregateWithFinalMultiDistinct:
      * agg(sum0(c1))
      *   +--gather
@@ -104,7 +104,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggRule implements Exp
             // 为啥我这里twoPhaseAggregateWithFinalMultiDistinct和splitToThreePhase都要实现一下？我有点忘了
             return ImmutableList.of(
                     twoPhaseAggregateWithFinalMultiDistinct(aggregate),
-                    splitToThreePhase(aggregate),
+                    // splitToThreePhase(aggregate),
                     splitToFourPhase(aggregate)
             );
         } else {

@@ -45,7 +45,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**SplitAggRule*/
-public abstract class SplitAggRule {
+public abstract class SplitAggBaseRule {
     protected PhysicalHashAggregate<? extends Plan> splitDeduplicateOnePhase(LogicalAggregate<? extends Plan> aggregate,
             Set<NamedExpression> localAggGroupBySet, AggregateParam inputToBufferParam, AggregateParam paramForAggFunc,
             Map<AggregateFunction, Alias> localAggFunctionToAlias, Plan child, List<Expression> partitionExpressions) {

@@ -126,6 +126,16 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (!agg.getAggregateParam().canBeBanned) {
             return visit(agg, context);
         }
+        //return aggBanByStatistics(agg, context);
+        if (shouldBanOnePhaseAgg(agg)) {
+            return ImmutableList.of();
+        }
+        // process must shuffle
+        return visit(agg, context);
+    }
+
+    private List<List<PhysicalProperties>> aggBanByStatistics(PhysicalHashAggregate<? extends Plan> agg,
+            Void context) {
         // 如果没有group by key, 必须要禁用掉一阶段AGG,因为会gather
         if (agg.getGroupByExpressions().isEmpty()) {
             if (shouldBanOnePhaseAgg(agg)) {
@@ -155,8 +165,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 }
             }
         }
-
-        // process must shuffle
         return visit(agg, context);
     }
 
