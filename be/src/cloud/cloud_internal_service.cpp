@@ -171,7 +171,10 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             continue;
         }
         int64_t tablet_id = rs_meta.tablet_id();
-        auto res = _engine.tablet_mgr().get_tablet(tablet_id);
+        auto res = _engine.tablet_mgr().get_tablet(tablet_id, /* warmup_data = */ false,
+                                                   /* sync_delete_bitmap = */ true,
+                                                   /* sync_stats = */ nullptr,
+                                                   /* local_only = */ true);
         if (!res.has_value()) {
             LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
             continue;
