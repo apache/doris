@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -74,13 +73,6 @@ public class AggregateUtils {
             return ifWithCoercion.withChildren(newArgs);
         }
         return ifWithCoercion;
-    }
-
-    public static boolean maybeUsingStreamAgg(
-            ConnectContext connectContext, LogicalAggregate<? extends Plan> logicalAggregate) {
-        return !connectContext.getSessionVariable().disableStreamPreaggregations
-                && !logicalAggregate.getGroupByExpressions().isEmpty()
-                && logicalAggregate.getAggregateParam().aggPhase.isLocal();
     }
 
     public static boolean maybeUsingStreamAgg(List<Expression> groupExpressions, AggregateParam param) {

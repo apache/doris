@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -78,6 +79,7 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalAggregate()
                         .whenNot(agg -> agg.getGroupByExpressions().isEmpty())
+                        .whenNot(Aggregate::canSkewRewrite)
                         .then(this::rewrite).toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
                 logicalAggregate()
                         .when(agg -> agg.getGroupByExpressions().isEmpty()
@@ -172,7 +174,7 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
                         } else {
                             if (aggFuncToSlot.get(aggFunc) != null) {
                                 if (aggFunc instanceof Count) {
-                                    return new Count(aggFuncToSlot.get(aggFunc));
+                                    return new Sum0(aggFuncToSlot.get(aggFunc));
                                 } else {
                                     return aggFunc.withChildren(aggFuncToSlot.get(aggFunc));
                                 }

@@ -66,7 +66,7 @@ public class SplitAgg extends OneExplorationRuleFactory {
             if (expr instanceof Alias && expr.child(0) instanceof AggregateFunction) {
                 Alias alias = (Alias) expr;
                 AggregateExpression aggExpr = new AggregateExpression((AggregateFunction) expr.child(0),
-                        logicalAgg.getAggregateParam());
+                        AggregateParam.GLOBAL_RESULT);
                 builder.add(alias.withChildren(ImmutableList.of(aggExpr)));
                 changed = true;
             } else {

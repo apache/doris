@@ -149,6 +149,11 @@ public class SplitMultiDistinctStrategy {
         return false;
     }
 
+    // 这个函数需要重新考虑一下，因为这里如果返回了false，很有可能导致后面结果错误
+    // e.g. SELECT a, count(distinct b),sum(distinct c)
+    //     FROM test_skew_hint2
+    //     GROUP BY a;
+    // 这个sql如果没有cte改写，后面会给出错误的计划
     private static boolean needTransform(LogicalAggregate<Plan> agg, List<Alias> aliases, List<Alias> otherAggFuncs) {
         // TODO with source repeat aggregate need to be supported in future
         if (agg.getSourceRepeat().isPresent()) {
@@ -177,9 +182,9 @@ public class SplitMultiDistinctStrategy {
         // sql2: select count(distinct a) from t1 group by c;
         // the physical plan of sql1 and sql2 is similar, both are 2-phase aggregate,
         // so there is no need to do this rewrite
-        if (!distinctMultiColumns && !agg.getGroupByExpressions().isEmpty()) {
-            return false;
-        }
+        // if (!distinctMultiColumns && !agg.getGroupByExpressions().isEmpty()) {
+        //     return false;
+        // }
         return true;
     }
 

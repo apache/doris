@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
@@ -78,8 +77,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     private final boolean ordinalIsResolved;
     private final boolean generated;
     private final boolean hasPushed;
-    private final AggregateParam aggregateParam;
-    private final Optional<List<Expression>> partitionExpressions;
 
     /**
      * Desc: Constructor for LogicalAggregate.
@@ -97,19 +94,19 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
      */
     public LogicalAggregate(List<NamedExpression> namedExpressions, boolean generated, CHILD_TYPE child) {
         this(ImmutableList.copyOf(namedExpressions), namedExpressions, false, true, generated, false, Optional.empty(),
-                Optional.empty(), Optional.empty(), null, Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalAggregate(List<NamedExpression> namedExpressions, boolean generated, boolean hasPushed,
             CHILD_TYPE child) {
         this(ImmutableList.copyOf(namedExpressions), namedExpressions, false, true, generated, hasPushed,
-                Optional.empty(), Optional.empty(), Optional.empty(), null, Optional.empty(), child);
+                Optional.empty(), Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalAggregate(List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions, boolean ordinalIsResolved, CHILD_TYPE child) {
         this(groupByExpressions, outputExpressions, false, ordinalIsResolved, false, false, Optional.empty(),
-                Optional.empty(), Optional.empty(), null, Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child);
     }
 
     /**
@@ -131,7 +128,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             Optional<LogicalRepeat<?>> sourceRepeat,
             CHILD_TYPE child) {
         this(groupByExpressions, outputExpressions, normalized, false, false, false, sourceRepeat,
-                Optional.empty(), Optional.empty(), null, Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child);
     }
 
     /**
@@ -147,8 +144,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             Optional<LogicalRepeat<?>> sourceRepeat,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
-            AggregateParam aggregateParam,
-            Optional<List<Expression>> partitionExpressions,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = ImmutableList.copyOf(groupByExpressions);
@@ -162,8 +157,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         this.generated = generated;
         this.hasPushed = hasPushed;
         this.sourceRepeat = Objects.requireNonNull(sourceRepeat, "sourceRepeat cannot be null");
-        this.aggregateParam = aggregateParam == null ? AggregateParam.GLOBAL_RESULT : aggregateParam;
-        this.partitionExpressions = partitionExpressions;
     }
 
     @Override
@@ -202,9 +195,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
                 "hasRepeat", sourceRepeat.isPresent(),
-                "stats", statistics,
-                "aggParam", aggregateParam,
-                "partitionExpr", partitionExpressions
+                "stats", statistics
         );
     }
 
@@ -281,9 +272,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 && normalized == that.normalized
                 && ordinalIsResolved == that.ordinalIsResolved
                 && generated == that.generated
-                && Objects.equals(sourceRepeat, that.sourceRepeat)
-                && aggregateParam.equals(that.aggregateParam)
-                && partitionExpressions.equals(that.partitionExpressions);
+                && Objects.equals(sourceRepeat, that.sourceRepeat);
     }
 
     @Override
@@ -295,15 +284,13 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     public LogicalAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), aggregateParam,
-                partitionExpressions, children.get(0));
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()),
-                aggregateParam, partitionExpressions, children.get(0));
+                hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
     @Override
@@ -311,35 +298,31 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()),
-                aggregateParam, partitionExpressions, children.get(0));
+                hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
             List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), aggregateParam,
-                partitionExpressions, child());
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
     public LogicalAggregate<Plan> withGroupBy(List<Expression> groupByExprList) {
         return new LogicalAggregate<>(groupByExprList, outputExpressions, normalized, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), aggregateParam,
-                partitionExpressions, child());
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
     public LogicalAggregate<Plan> withChildGroupByAndOutput(List<Expression> groupByExprList,
             List<NamedExpression> outputExpressionList, Plan newChild) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), aggregateParam,
-                partitionExpressions, newChild);
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
     }
 
     public LogicalAggregate<Plan> withChildAndOutput(CHILD_TYPE child,
                                                        List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressionList, normalized, ordinalIsResolved,
                 generated, hasPushed, sourceRepeat, Optional.empty(),
-                Optional.empty(), aggregateParam, partitionExpressions, child);
+                Optional.empty(), child);
     }
 
     @Override
@@ -350,21 +333,18 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public LogicalAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return new LogicalAggregate<>(groupByExpressions, newOutput, normalized, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), aggregateParam,
-                partitionExpressions, child());
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
     public LogicalAggregate<Plan> withAggOutputChild(List<NamedExpression> newOutput, Plan newChild) {
         return new LogicalAggregate<>(groupByExpressions, newOutput, normalized, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), aggregateParam,
-                partitionExpressions, newChild);
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
     }
 
     public LogicalAggregate<Plan> withNormalized(List<Expression> normalizedGroupBy,
             List<NamedExpression> normalizedOutput, Plan normalizedChild) {
         return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, true, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), aggregateParam,
-                partitionExpressions, normalizedChild);
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), normalizedChild);
     }
 
     private boolean isUniqueGroupByUnique(NamedExpression namedExpression) {
@@ -462,13 +442,5 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             }
         }
         return true;
-    }
-
-    public AggregateParam getAggregateParam() {
-        return aggregateParam;
-    }
-
-    public Optional<List<Expression>> getPartitionExpressions() {
-        return partitionExpressions;
     }
 }
