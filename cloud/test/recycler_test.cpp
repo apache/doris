@@ -659,8 +659,8 @@ static int create_restore_job_tablet(TxnKv* txn_kv, int64_t tablet_id) {
 
     RestoreJobCloudPB restore_job_pb;
     restore_job_pb.set_tablet_id(tablet_id);
-    restore_job_pb.set_creation_time(::time(nullptr) - 3600);
-    restore_job_pb.set_expiration(0);
+    restore_job_pb.set_ctime_s(::time(nullptr) - 3600);
+    restore_job_pb.set_expired_at_s(0);
     restore_job_pb.set_state(RestoreJobCloudPB::DROPPED);
     restore_job_pb.SerializeToString(&val);
 
