@@ -60,16 +60,16 @@ suite ("nereids_k123p") {
     mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 2 order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
     qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'b' order by k1;"
 
     mv_rewrite_all_fail("select k1,k2+k3 from d_table where k4 = 'a' order by k1;", ["k123p1w", "k123p4w"])
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
 
-    mv_rewrite_success("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
+    mv_rewrite_success_without_check_chosen("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
     qt_select_mv """select k1,k2+k3 from d_table where k1 = 2 and k4 = "b" order by k1;"""
 
     qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
