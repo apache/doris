@@ -1071,4 +1071,31 @@ public class NereidsParserTest extends ParserTestBase {
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
     }
+
+    @Test
+    public void testWarmUpSelect() {
+        ConnectContext ctx = ConnectContext.get();
+        ctx.getSessionVariable().setEnableFileCache(true);
+        ctx.getSessionVariable().setDisableFileCache(false);
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // Test basic warm up select statement
+        String warmUpSql = "WARM UP SELECT * FROM test_table";
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(warmUpSql);
+        Assertions.assertNotNull(logicalPlan);
+        Assertions.assertEquals(StmtType.OTHER, logicalPlan.stmtType());
+
+        // Test warm up select with where clause
+        String warmUpSqlWithWhere = "WARM UP SELECT id, name FROM test_table WHERE id > 10";
+        LogicalPlan logicalPlanWithWhere = nereidsParser.parseSingle(warmUpSqlWithWhere);
+        Assertions.assertNotNull(logicalPlanWithWhere);
+        Assertions.assertEquals(StmtType.OTHER, logicalPlanWithWhere.stmtType());
+
+        // Negative cases: LIMIT, JOIN, UNION, AGGREGATE not allowed
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table LIMIT 100"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 JOIN t2 ON t1.id = t2.id"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 UNION SELECT * FROM t2"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT id, COUNT(*) FROM test_table GROUP BY id"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table ORDER BY id"));
+    }
 }

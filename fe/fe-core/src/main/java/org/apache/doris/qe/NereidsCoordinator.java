@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.BlackholeSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ResultFileSink;
@@ -513,7 +514,8 @@ public class NereidsCoordinator extends Coordinator {
 
     private JobProcessor buildJobProcessor(CoordinatorContext coordinatorContext) {
         DataSink dataSink = coordinatorContext.dataSink;
-        if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
+        if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink
+                || dataSink instanceof BlackholeSink)) {
             return QueryProcessor.build(coordinatorContext);
         } else {
             // insert statement has jobId == -1
