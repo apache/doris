@@ -484,7 +484,7 @@ private:
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
 
-    std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+    vectorized::ScoreRuntimeSPtr _score_runtime;
 
     // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;

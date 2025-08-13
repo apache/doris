@@ -46,8 +46,9 @@ public:
                               size_t top_k) const;
 
 private:
-    template <typename Compare>
-    void find_top_k_scores(const roaring::Roaring* row_bitmap, const ScoreMap& all_scores, size_t top_k, Compare comp,
+    template <OrderType order, typename Compare>
+    void find_top_k_scores(const roaring::Roaring* row_bitmap, const ScoreMap& all_scores,
+                           size_t top_k, Compare comp,
                            std::vector<std::pair<uint32_t, float>>& top_k_results) const;
 
     ScoreMap _bm25_scores;

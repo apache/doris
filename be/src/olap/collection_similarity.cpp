@@ -59,15 +59,15 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
     std::vector<std::pair<uint32_t, float>> top_k_results;
 
     if (order_type == OrderType::DESC) {
-        find_top_k_scores(
-            row_bitmap, _bm25_scores, top_k,
+        find_top_k_scores<OrderType::DESC>(
+                row_bitmap, _bm25_scores, top_k,
                 [](const ScoreMapIterator& a, const ScoreMapIterator& b) {
                     return a->second > b->second;
                 },
                 top_k_results);
     } else {
-        find_top_k_scores(
-            row_bitmap, _bm25_scores, top_k,
+        find_top_k_scores<OrderType::ASC>(
+                row_bitmap, _bm25_scores, top_k,
                 [](const ScoreMapIterator& a, const ScoreMapIterator& b) {
                     return a->second < b->second;
                 },
@@ -92,7 +92,7 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
     scores = vectorized::ColumnNullable::create(std::move(score_column), std::move(null_map));
 }
 
-template <typename Compare>
+template <OrderType order, typename Compare>
 void CollectionSimilarity::find_top_k_scores(
         const roaring::Roaring* row_bitmap, const ScoreMap& all_scores, size_t top_k, Compare comp,
         std::vector<std::pair<uint32_t, float>>& top_k_results) const {
@@ -102,9 +102,11 @@ void CollectionSimilarity::find_top_k_scores(
 
     std::priority_queue<ScoreMapIterator, std::vector<ScoreMapIterator>, Compare> top_k_heap(comp);
 
+    std::vector<uint32_t> zero_score_ids;
     for (uint32_t row_id : *row_bitmap) {
         auto it = all_scores.find(row_id);
         if (it == all_scores.end()) {
+            zero_score_ids.push_back(row_id);
             continue;
         }
         if (top_k_heap.size() < top_k) {
@@ -122,7 +124,30 @@ void CollectionSimilarity::find_top_k_scores(
         top_k_heap.pop();
     }
 
-    std::reverse(top_k_results.begin(), top_k_results.end());
+    if constexpr (order == OrderType::DESC) {
+        std::ranges::reverse(top_k_results);
+
+        size_t remaining = top_k - top_k_results.size();
+        for (size_t i = 0; i < remaining && i < zero_score_ids.size(); ++i) {
+            top_k_results.emplace_back(zero_score_ids[i], 0.0F);
+        }
+    } else {
+        std::vector<std::pair<uint32_t, float>> final_results;
+        final_results.reserve(top_k);
+
+        size_t zero_count = std::min(top_k, zero_score_ids.size());
+        for (size_t i = 0; i < zero_count; ++i) {
+            final_results.emplace_back(zero_score_ids[i], 0.0F);
+        }
+
+        std::ranges::reverse(top_k_results);
+        size_t remaining = top_k - final_results.size();
+        for (size_t i = 0; i < remaining && i < top_k_results.size(); ++i) {
+            final_results.push_back(top_k_results[i]);
+        }
+
+        top_k_results = std::move(final_results);
+    }
 }
 
 #include "common/compile_check_end.h"
