@@ -2,29 +2,70 @@
 -- !hdfs --
 11111111	hdfs_db_test
 
--- !ali --
+-- !hdfs --
+11111111	hdfs_db_test
+
+-- !oss --
 11111111	ali_db_test
 11111111	ali_db_test
 11111111	ali_db_test
 11111111	ali_db_test
 11111111	ali_db_test
 
--- !hw --
+-- !oss --
+11111111	ali_db_test
+11111111	ali_db_test
+11111111	ali_db_test
+11111111	ali_db_test
+11111111	ali_db_test
+
+-- !obs --
 11111111	hw_db_test
 11111111	hw_db_test
 11111111	hw_db_test
 11111111	hw_db_test
 11111111	hw_db_test
 
--- !tx --
+-- !obs --
+11111111	hw_db_test
+11111111	hw_db_test
+11111111	hw_db_test
+11111111	hw_db_test
+11111111	hw_db_test
+
+-- !cos --
 11111111	tx_db_test
 11111111	tx_db_test
 11111111	tx_db_test
 11111111	tx_db_test
 11111111	tx_db_test
+
+-- !s3 --
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+
+-- !s3 --
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
 
 -- !support_hdfs --
 11111111	hdfs_db_test
+
+-- !support_hdfs --
+11111111	hdfs_db_test
+
+-- !support_oss --
+11111111	ali_db_test
+11111111	ali_db_test
+11111111	ali_db_test
+11111111	ali_db_test
+11111111	ali_db_test
 
 -- !support_oss --
 11111111	ali_db_test
@@ -40,10 +81,31 @@
 11111111	hw_db_test
 11111111	hw_db_test
 
+-- !support_obs --
+11111111	hw_db_test
+11111111	hw_db_test
+11111111	hw_db_test
+11111111	hw_db_test
+11111111	hw_db_test
+
 -- !support_cos --
 11111111	tx_db_test
 11111111	tx_db_test
 11111111	tx_db_test
 11111111	tx_db_test
 11111111	tx_db_test
+
+-- !support_s3 --
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+
+-- !support_s3 --
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
+11111111	aws_db_test
 

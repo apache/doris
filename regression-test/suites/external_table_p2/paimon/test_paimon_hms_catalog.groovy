@@ -31,17 +31,25 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
             switch ${catalog_name};
         """
         sql """
+            show databases;
+        """
+        sql """
             use ${dbName};
+        """
+        sql """
+            show tables;
         """
         sql """set force_jni_scanner=false"""
         "order_qt_${prefix}" """
             SELECT * FROM external_test_table;
         """
-        // need put jars on BE
-        // sql """set force_jni_scanner=true"""
-        // "order_qt_${prefix}" """
-        //    SELECT * FROM external_test_table;
-        //"""
+        if (!(prefix.contains("cos") )) {
+            // need put jars on BE
+             sql """set force_jni_scanner=true"""
+             "order_qt_${prefix}" """
+                SELECT * FROM external_test_table;
+            """
+        }
 
     }
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
@@ -103,6 +111,19 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     String hdfs_storage_properties = """
       'fs.defaultFS' = 'hdfs://${extHiveHmsHost}:${extHiveHdfsHost}'
     """
+    /**************** AWS S3*******************/
+    String s3_warehouse = "s3a://selectdb-qa-datalake-test-hk/paimon_warehouse"
+    String aws_ak = context.config.otherConfigs.get("AWSAK")
+    String aws_sk = context.config.otherConfigs.get("AWSSK")
+    String aws_endpoint = "s3.ap-east-1.amazonaws.com"
+    String s3_warehouse_properties = """
+        'warehouse' = '${s3_warehouse}',
+    """
+    String s3_storage_properties = """
+        's3.access_key' = '${aws_ak}',
+        's3.secret_key' = '${aws_sk}',
+        's3.endpoint' = '${aws_endpoint}'
+    """
 
     /*--------HMS START -----------*/
     String paimon_hms_catalog_properties = """
@@ -111,9 +132,10 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
      'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
     """
     testQuery(paimon_hms_catalog_properties + hdfs_warehouse_properties + hdfs_storage_properties, "hdfs", "hdfs_db")
-    testQuery(paimon_hms_catalog_properties + oss_warehouse_properties + oss_storage_properties, "ali", "ali_db")
-    testQuery(paimon_hms_catalog_properties + obs_warehouse_properties + obs_storage_properties, "hw", "hw_db")
-    testQuery(paimon_hms_catalog_properties + cos_warehouse_properties + cos_storage_properties, "tx", "tx_db")
+    testQuery(paimon_hms_catalog_properties + oss_warehouse_properties + oss_storage_properties, "oss", "ali_db")
+    testQuery(paimon_hms_catalog_properties + obs_warehouse_properties + obs_storage_properties, "obs", "hw_db")
+    testQuery(paimon_hms_catalog_properties + cos_warehouse_properties + cos_storage_properties, "cos", "tx_db")
+    testQuery(paimon_hms_catalog_properties + s3_warehouse_properties + s3_storage_properties, "s3", "aws_db")
 
     String paimon_fs_hdfs_support = """
         'fs.hdfs.support' = 'true',
@@ -127,10 +149,13 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     String paimon_fs_cos_support = """
         'fs.cos.support' = 'true',
     """
+    String paimon_fs_s3_support = """
+        'fs.s3.support' = 'true',
+    """
     testQuery(paimon_hms_catalog_properties + paimon_fs_hdfs_support + hdfs_warehouse_properties + hdfs_storage_properties, "support_hdfs", "hdfs_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_oss_support + oss_warehouse_properties + oss_storage_properties, "support_oss", "ali_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_obs_support + obs_warehouse_properties + obs_storage_properties, "support_obs", "hw_db")
     testQuery(paimon_hms_catalog_properties + paimon_fs_cos_support + cos_warehouse_properties + cos_storage_properties, "support_cos", "tx_db")
-
+    testQuery(paimon_hms_catalog_properties + paimon_fs_s3_support + s3_warehouse_properties + s3_storage_properties, "support_s3", "aws_db")
 }
 
