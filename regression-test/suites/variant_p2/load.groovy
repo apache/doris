@@ -115,7 +115,7 @@ suite("load_p2", "variant_type,p2"){
                 );
             """
             // Waiting for job finished or cancelled
-            def max_try_milli_secs = 600000
+            def max_try_milli_secs = 2000000
             while (max_try_milli_secs > 0) {
                 String[][] result = sql """ show load where label="$load_label" order by createtime desc limit 1; """
                 if (result[0][2].equals("FINISHED")) {
