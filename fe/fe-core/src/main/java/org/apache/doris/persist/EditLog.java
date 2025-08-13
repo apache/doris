@@ -228,7 +228,7 @@ public class EditLog {
                     LOG.info("Begin to unprotect create table. db = " + info.getDbName() + " table = " + info.getTable()
                             .getId());
                     CreateTableRecord record = new CreateTableRecord(logId, info);
-                    env.replayCreateTable(info.getDbName(), info.getTable());
+                    env.replayCreateTable(info.getDbName(), info.getDbId(), info.getTable());
                     env.getBinlogManager().addCreateTableRecord(record);
                     break;
                 }
