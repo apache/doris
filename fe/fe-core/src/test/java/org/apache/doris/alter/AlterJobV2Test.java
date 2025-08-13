@@ -187,9 +187,9 @@ public class AlterJobV2Test {
                 + ") DISTRIBUTED BY HASH(date) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\");");
 
         createMaterializedView("create materialized view list_view as\n"
-                + "select city,\n"
-                + "user_id,\n"
-                + "date,\n"
+                + "select city as a1,\n"
+                + "user_id as a2,\n"
+                + "date as a3,\n"
                 + "sum(cost)\n"
                 + "from\n"
                 + "test.list_tbl\n"
@@ -227,11 +227,11 @@ public class AlterJobV2Test {
         ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "can't",
                                 () -> alterTable("alter table test.dup_table_without_keys add column new_col INT KEY DEFAULT \"0\" AFTER k3;"));
 
-        createMaterializedView("create materialized view k1_k33 as select k2, k1 from test.dup_table_without_keys;");
+        createMaterializedView("create materialized view k1_k33 as select k2 as a1, k1 as a2 from test.dup_table_without_keys;");
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
 
-        createMaterializedView("create materialized view k1_k24 as select k2, k1 from test.dup_table_without_keys order by k2,k1;");
+        createMaterializedView("create materialized view k1_k24 as select k2 as a3, k1 as a4 from test.dup_table_without_keys order by k2,k1;");
         alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
     }

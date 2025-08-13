@@ -1107,6 +1107,29 @@ int InstanceRecycler::recycle_indexes() {
                     .tag("index_id", index_id);
             return -1;
         }
+
+        if (index_pb.has_db_id()) {
+            // Recycle the versioned keys
+            std::unique_ptr<Transaction> txn;
+            err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to create txn").tag("err", err);
+                return -1;
+            }
+            std::string meta_key = versioned::meta_index_key({instance_id_, index_id});
+            std::string index_key = versioned::index_index_key({instance_id_, index_id});
+            std::string index_inverted_key = versioned::index_inverted_key(
+                    {instance_id_, index_pb.db_id(), index_pb.table_id(), index_id});
+            versioned_remove_all(txn.get(), meta_key);
+            txn->remove(index_key);
+            txn->remove(index_inverted_key);
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to commit txn").tag("err", err);
+                return -1;
+            }
+        }
+
         metrics_context.total_recycled_num = ++num_recycled;
         metrics_context.report();
         check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);

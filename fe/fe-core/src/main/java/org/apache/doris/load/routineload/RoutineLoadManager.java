@@ -949,6 +949,7 @@ public class RoutineLoadManager implements Writable {
                 + command.getDataSourceProperties().getDataSourceType());
         }
         job.modifyProperties(command);
+        job.setRoutineLoadDesc(command.getRoutineLoadDesc());
     }
 
     public void replayAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {

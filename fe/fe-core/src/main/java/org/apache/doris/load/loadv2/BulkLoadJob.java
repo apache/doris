@@ -20,8 +20,6 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
@@ -31,7 +29,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -347,20 +344,6 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                     .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false, true);
         }
-    }
-
-    protected void analyzeStmt(StatementBase stmtBase, Database db) throws UserException {
-        LoadStmt stmt = null;
-        if (stmtBase instanceof UnifiedLoadStmt) {
-            stmt = (LoadStmt) ((UnifiedLoadStmt) stmtBase).getProxyStmt();
-        } else {
-            stmt = (LoadStmt) stmtBase;
-        }
-
-        for (DataDescription dataDescription : stmt.getDataDescriptions()) {
-            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
-        }
-        checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
     }
 
     protected void analyzeCommand(LoadCommand command, Database db, ConnectContext ctx) throws Exception {

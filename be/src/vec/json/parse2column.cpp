@@ -17,14 +17,14 @@
 
 #include "vec/json/parse2column.h"
 
-#include <assert.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stddef.h>
 
 #include <algorithm>
+#include <cassert>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -154,7 +154,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
-    size_t old_num_rows = column_variant.size();
+    size_t old_num_rows = column_variant.rows();
     if (config.enable_flatten_nested) {
         // here we should check the paths in variant and paths in result,
         // if two paths which same prefix have different structure, we should throw an exception
@@ -167,7 +167,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
-        get_field_info(values[i], &field_info);
+        schema_util::get_field_info(values[i], &field_info);
         if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
             continue;
         }
@@ -183,6 +183,10 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
         }
+        if (subcolumn->cur_num_of_defaults() > 0) {
+            subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
+            subcolumn->reset_current_num_of_defaults();
+        }
         if (subcolumn->size() != old_num_rows) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "subcolumn {} size missmatched, may contains duplicated entry",
@@ -194,13 +198,27 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     const auto& subcolumns = column_variant.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (entry->data.size() == old_num_rows) {
-            bool inserted = column_variant.try_insert_default_from_nested(entry);
-            if (!inserted) {
-                entry->data.insert_default();
+            // Handle nested paths differently from simple paths
+            if (entry->path.has_nested_part()) {
+                // Try to insert default from nested, if failed, insert regular default
+                bool success = UNLIKELY(column_variant.try_insert_default_from_nested(entry));
+                if (!success) {
+                    entry->data.insert_default();
+                }
+            } else {
+                // For non-nested paths, increment default counter
+                entry->data.increment_default_counter();
             }
         }
     }
     column_variant.incr_num_rows();
+    auto sparse_column = column_variant.get_sparse_column();
+    if (sparse_column->size() == old_num_rows) {
+        sparse_column->assume_mutable()->insert_default();
+    }
+#ifndef NDEBUG
+    column_variant.check_consistency();
+#endif
 }
 
 // exposed interfaces
@@ -216,6 +234,7 @@ void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
         StringRef raw_json = raw_json_column.get_data_at(i);
         parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get(), config);
     }
+    column.finalize();
 }
 
 } // namespace doris::vectorized

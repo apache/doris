@@ -99,11 +99,11 @@ suite("mv_contains_cast") {
     CREATE MATERIALIZED VIEW sync_mv
     AS
     SELECT 
-      decision,
-      code, 
-      app_name, 
-      event_id, 
-      event_type, 
+      decision as a1,
+      code as a2, 
+      app_name as a3, 
+      event_id as a4, 
+      event_type as a5, 
       date_trunc(time, 'minute'), 
       DATE_FORMAT(
         `time`, '%Y-%m-%d'

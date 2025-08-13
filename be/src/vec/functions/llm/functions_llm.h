@@ -31,19 +31,16 @@
 #include "runtime/runtime_state.h"
 #include "util/threadpool.h"
 #include "vec/columns/column_const.h"
+#include "vec/common/cow.h"
 #include "vec/functions/function.h"
 #include "vec/functions/llm/llm_adapter.h"
 
 namespace doris::vectorized {
 // Base class for LLM-based functions
-template <typename Derived>
+template <typename Derived, typename ReturnType = ColumnString>
 class LLMFunction : public IFunction {
 public:
     std::string get_name() const override { return assert_cast<const Derived&>(*this).name; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
-    }
 
     // If the user doesn't provide the first arg, `resource_name`
     // FE will add the `resource_name` to the arguments list using the Session Variable.
@@ -54,8 +51,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto col_result = ColumnString::create();
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        MutableColumnPtr col_result = ReturnType::create();
 
         std::unique_ptr<ThreadPool> thread_pool;
         Status st = ThreadPoolBuilder("LLMRequestPool")
@@ -133,9 +129,26 @@ public:
                 return row_result.status;
             }
 
-            null_map->get_data()[i] = row_result.is_null ? 1 : 0;
             if (!row_result.is_null) {
-                col_result->insert_data(row_result.data.data(), row_result.data.size());
+                if constexpr (std::is_same_v<ReturnType, ColumnString>) {
+                    // string
+                    assert_cast<ColumnString&>(*col_result)
+                            .insert_data(row_result.data.data(), row_result.data.size());
+                } else if constexpr (std::is_same_v<ReturnType, ColumnUInt8>) {
+                    // bool
+                    if (row_result.data != "1" && row_result.data != "0") {
+                        return Status::RuntimeError("Failed to parse boolean value: " +
+                                                    row_result.data);
+                    }
+                    assert_cast<ColumnUInt8&>(*col_result)
+                            .insert_value(static_cast<UInt8>(row_result.data == "1"));
+                } else if constexpr (std::is_same_v<ReturnType, ColumnFloat32>) {
+                    // float
+                    assert_cast<ColumnFloat32&>(*col_result)
+                            .insert_value(std::stof(row_result.data));
+                } else {
+                    return Status::InternalError("Unsupported ReturnType for LLMFunction");
+                }
             } else {
                 col_result->insert_default();
             }

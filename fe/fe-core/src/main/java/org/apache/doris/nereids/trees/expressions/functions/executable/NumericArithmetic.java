@@ -1005,4 +1005,29 @@ public class NumericArithmetic {
         }
     }
 
+    /**
+     * isnan
+     */
+    @ExecFunction(name = "isnan")
+    public static Expression isnan(DoubleLiteral first) {
+        return BooleanLiteral.of(Double.isNaN(first.getValue()));
+    }
+
+    @ExecFunction(name = "isnan")
+    public static Expression isnan(FloatLiteral first) {
+        return BooleanLiteral.of(Float.isNaN(first.getValue()));
+    }
+
+    /**
+     * isinf
+     */
+    @ExecFunction(name = "isinf")
+    public static Expression isinf(DoubleLiteral first) {
+        return BooleanLiteral.of(Double.isInfinite(first.getValue()));
+    }
+
+    @ExecFunction(name = "isinf")
+    public static Expression isinf(FloatLiteral first) {
+        return BooleanLiteral.of(Float.isInfinite(first.getValue()));
+    }
 }

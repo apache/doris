@@ -17,12 +17,13 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
+suite("regression_test_variant_github_events_upgrade_p2", "nonConcurrent,p2"){
     // prepare test table
     def timeout = 300000
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
+    sql "set disable_variant_flatten_nested = false"
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){

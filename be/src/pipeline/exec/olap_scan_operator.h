@@ -206,6 +206,8 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

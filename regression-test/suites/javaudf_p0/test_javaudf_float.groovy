@@ -64,7 +64,7 @@ suite("test_javaudf_float") {
         qt_select """ SELECT java_udf_float_test(2.83645,null) as result ; """
         qt_select """ SELECT java_udf_float_test(cast(2.83645 as float),null) as result ; """
         qt_select """ SELECT user_id,java_udf_float_test(float_1, float_2) as sum FROM ${tableName} order by user_id; """
-        createMV("create materialized view udf_mv as SELECT user_id,java_udf_float_test(float_1, float_2) as sum FROM test_javaudf_float order by user_id;")
+        createMV("create materialized view udf_mv as SELECT user_id as a1,java_udf_float_test(float_1, float_2) as sum FROM test_javaudf_float order by user_id;")
         qt_select """ SELECT user_id,java_udf_float_test(float_1, float_2) as sum FROM ${tableName} order by user_id; """
 
         explain {

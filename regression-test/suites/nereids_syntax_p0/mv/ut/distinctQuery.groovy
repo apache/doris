@@ -42,9 +42,9 @@ suite ("distinctQuery") {
     sql """insert into distinctQuery values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into distinctQuery values("2020-01-01",2,"a",1,1,1);"""
 
-    createMV("create materialized view distinctQuery_mv as select deptno, count(salary) from distinctQuery group by deptno;")
+    createMV("create materialized view distinctQuery_mv as select deptno as a1, count(salary) as a2 from distinctQuery group by deptno;")
 
-    createMV("create materialized view distinctQuery_mv2 as select empid, deptno, count(salary) from distinctQuery group by empid, deptno;")
+    createMV("create materialized view distinctQuery_mv2 as select empid as a3, deptno as a4, count(salary) as a5 from distinctQuery group by empid, deptno;")
 
     sql "analyze table distinctQuery with sync;"
     

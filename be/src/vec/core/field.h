@@ -85,10 +85,7 @@ struct Map : public FieldVector {
 
 struct FieldWithDataType;
 
-using VariantMap = std::map<PathInData, Field>;
-
-// Will replace VariantMap in the future
-using VariantMapX = std::map<PathInData, FieldWithDataType>;
+using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary

@@ -136,5 +136,15 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     public void initializeHadoopStorageConfig() {
         super.initializeHadoopStorageConfig();
         hadoopStorageConfig.set("fs.obs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.obs.access.key", accessKey);
+        hadoopStorageConfig.set("fs.obs.secret.key", secretKey);
+        hadoopStorageConfig.set("fs.obs.endpoint", endpoint);
+    }
+
+    protected void setEndpointIfPossible() {
+        super.setEndpointIfPossible();
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Property obs.endpoint is required.");
+        }
     }
 }
