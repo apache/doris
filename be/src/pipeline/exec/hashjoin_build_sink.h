@@ -164,7 +164,7 @@ private:
     const std::vector<TExpr> _partition_exprs;
 
     std::vector<SlotId> _hash_output_slot_ids;
-    std::vector<bool> _should_keep_column_flags;
+    std::vector<vectorized::UInt8> _should_keep_column_flags;
     bool _should_keep_hash_key_column = false;
     // if build side has variant column and need output variant column
     // need to finalize variant column to speed up the join op
