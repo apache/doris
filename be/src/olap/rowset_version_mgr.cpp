@@ -73,7 +73,7 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
                     "version already has been merged. version_range={}, max_version={}, "
                     "tablet_id={}",
                     version_range.to_string(), _tablet_meta->max_version().second, tablet_id());
-            return ResultError(Status::Error<VERSION_ALREADY_MERGED>(
+            return ResultError(Status::Error<VERSION_ALREADY_MERGED, false>(
                     "missed versions is empty, version_range={}, max_version={}, tablet_id={}",
                     version_range.to_string(), _tablet_meta->max_version().second, tablet_id()));
         }
@@ -92,7 +92,9 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
             return version_path;
         }
         if ((tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) || tablet_id == -2) {
-            return ResultError(Status::Error<VERSION_ALREADY_MERGED>("version already merged"));
+            return ResultError(Status::Error<VERSION_ALREADY_MERGED, false>(
+                    "versions are already compacted, version_range={}, max_version={}, tablet_id={}",
+                    version_range.to_string(), _tablet_meta->max_version().second, tablet_id));
         }
     });
     return version_path;
@@ -150,8 +152,8 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
     }
     auto ret = _remote_capture_rowsets(version_range);
     if (!ret) {
-        auto st = Status::Error<VERSION_ALREADY_MERGED>(
-                "version already merged, meet error during remote capturing rowsets, "
+        auto st = Status::Error<VERSION_ALREADY_MERGED, false>(
+                "versions are already compacted, meet error during remote capturing rowsets, "
                 "error={}, version_range={}",
                 ret.error().to_string(), version_range.to_string());
         return ResultError(std::move(st));
