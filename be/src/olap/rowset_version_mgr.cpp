@@ -93,7 +93,8 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
         }
         if ((tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) || tablet_id == -2) {
             return ResultError(Status::Error<VERSION_ALREADY_MERGED, false>(
-                    "versions are already compacted, version_range={}, max_version={}, tablet_id={}",
+                    "versions are already compacted, version_range={}, max_version={}, "
+                    "tablet_id={}",
                     version_range.to_string(), _tablet_meta->max_version().second, tablet_id));
         }
     });
