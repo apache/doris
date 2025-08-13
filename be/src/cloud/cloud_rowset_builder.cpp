@@ -81,7 +81,9 @@ Status CloudRowsetBuilder::init() {
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 
-    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), ""));
+    if (!_skip_writing_rowset_metadata) {
+        RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), ""));
+    }
 
     _is_init = true;
     return Status::OK();

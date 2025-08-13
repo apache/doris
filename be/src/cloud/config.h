@@ -108,6 +108,11 @@ DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
 
+// Skip writing empty rowset metadata to meta service
+DECLARE_mBool(skip_writing_empty_rowset_metadata);
+// Enable filling version holes during rowset sync operations
+DECLARE_mBool(enable_fill_version_holes);
+
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
 
