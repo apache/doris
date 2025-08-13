@@ -51,11 +51,10 @@ suite("test_cumu_compaction_with_delete", "nonConcurrent") {
             CREATE TABLE ${tableName} (
             `user_id` INT NOT NULL,
             `value` INT NOT NULL)
-            UNIQUE KEY(`user_id`) 
+            DUPLICATE KEY(`user_id`) 
             DISTRIBUTED BY HASH(`user_id`) 
             BUCKETS 1 
-            PROPERTIES ("replication_allocation" = "tag.location.default: 1",
-            "enable_mow_light_delete" = "true")"""
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1")"""
 
         for(int i = 1; i <= 100; ++i){
             sql """ INSERT INTO ${tableName} VALUES (1,1)"""
@@ -95,11 +94,10 @@ suite("test_cumu_compaction_with_delete", "nonConcurrent") {
             CREATE TABLE ${tableName} (
             `user_id` INT NOT NULL,
             `value` INT NOT NULL)
-            UNIQUE KEY(`user_id`) 
+            DUPLICATE KEY(`user_id`) 
             DISTRIBUTED BY HASH(`user_id`) 
             BUCKETS 1 
-            PROPERTIES ("replication_allocation" = "tag.location.default: 1",
-            "enable_mow_light_delete" = "true")"""
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
 
         for(int i = 1; i <= 100; ++i){
             sql """ INSERT INTO ${tableName} VALUES (1,1)"""
