@@ -40,6 +40,7 @@ suite("test_f_auto_inc_compaction") {
         "light_schema_change" = "true",
         "enable_unique_key_skip_bitmap_column" = "true",
         "disable_auto_compaction" = "true",
+        "enable_mow_light_delete" = "false"
         "store_row_column" = "false"); """
 
     sql """insert into ${tableName}(k,v1,v2) values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5),(6,6,6);"""
