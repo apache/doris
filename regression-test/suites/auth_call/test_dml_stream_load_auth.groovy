@@ -93,8 +93,10 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     sql """grant admin_priv on *.*.* to ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=111;"""
-        exception "exist"
+        test {
+            sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=111;"""
+            exception "exist"
+        }
     }
 
     sql """drop database if exists ${dbName}"""
