@@ -509,7 +509,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
         return;
     }
     Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, refresh);
-    if (!refresh && !st.ok() && st.msg().find("local_only=true") != std::string::npos) {
+    if (!refresh && !st.ok() && st.is<ErrorCode::TABLE_NOT_FOUND>()) {
         refresh = true;
         replicas = get_replica_info(rs_meta.tablet_id(), refresh);
         st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, refresh);

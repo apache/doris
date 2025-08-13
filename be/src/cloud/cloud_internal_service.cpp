@@ -187,6 +187,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                                    /* local_only = */ local_only);
         if (!res.has_value()) {
             LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
+            if (res.error().msg().find("local_only=true") != std::string::npos) {
+                res.error().set_code(ErrorCode::TABLE_NOT_FOUND);
+            }
             res.error().to_protobuf(response->mutable_status());
             continue;
         }
