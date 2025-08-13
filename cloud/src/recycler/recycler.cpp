@@ -1163,6 +1163,8 @@ int InstanceRecycler::recycle_indexes() {
 
 bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string instance_id,
                              int64_t tablet_id) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("check_lazy_txn_finished::bypass_check", true);
+
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -1517,6 +1519,9 @@ int InstanceRecycler::recycle_versions() {
 int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                                       RecyclerMetricsContext& metrics_context,
                                       int64_t partition_id) {
+    bool is_multi_version =
+            instance_info_.has_multi_version_status() &&
+            instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED;
     int64_t num_scanned = 0;
     std::atomic_long num_recycled = 0;
 
@@ -1576,6 +1581,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
     std::vector<std::string> tablet_idx_keys;
     std::vector<std::string> restore_job_keys;
     std::vector<std::string> init_rs_keys;
+    std::vector<std::string> tablet_compact_stats_keys;
     auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
         bool use_range_remove = true;
         ++num_scanned;
@@ -1594,6 +1600,11 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
 
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
         restore_job_keys.push_back(job_restore_tablet_key({instance_id_, tablet_id}));
+        if (is_multi_version) {
+            tablet_compact_stats_keys.push_back(
+                    versioned::tablet_compact_stats_key({instance_id_, tablet_id}));
+        }
+        TEST_SYNC_POINT_RETURN_WITH_VALUE("recycle_tablet::bypass_check", false);
         sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
                            &metrics_context, k]() mutable -> TabletKeyPair {
             if (recycle_tablet(tid, metrics_context) != 0) {
@@ -1633,6 +1644,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
             tablet_idx_keys.clear();
             restore_job_keys.clear();
             init_rs_keys.clear();
+            tablet_compact_stats_keys.clear();
         };
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
@@ -1648,6 +1660,14 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                 for (auto& [k, _] : tablet_keys) {
                     txn->remove(k);
                 }
+            }
+        }
+        if (is_multi_version) {
+            for (auto& k : tablet_compact_stats_keys) {
+                // Remove all versions of tablet compact stats for recycled tablet
+                LOG_INFO("remove versioned tablet compact stats key")
+                        .tag("compact_stats_key", hex(k));
+                versioned_remove_all(txn.get(), k);
             }
         }
         for (auto& k : tablet_idx_keys) {
@@ -1710,6 +1730,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
 }
 
 int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("delete_rowset_data::bypass_check", true);
     int64_t num_segments = rs_meta_pb.num_segments();
     if (num_segments <= 0) return 0;
 
