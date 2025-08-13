@@ -179,10 +179,8 @@ static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
 
 template <typename T>
 char* add_float(T data, char* pos, bool dynamic_mode) {
-    int length = 0;
-    if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
-        length = fast_to_buffer(data, pos + !dynamic_mode);
-    }
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>);
+    int length = fast_to_buffer(data, pos + !dynamic_mode);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }

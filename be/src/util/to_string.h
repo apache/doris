@@ -99,49 +99,18 @@ inline int fast_to_buffer(T value, char* buffer) {
             end = buffer + neg_inf_str_len;
         }
     } else {
-        end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
+        if constexpr (std::is_same_v<T, float>) {
+            end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
+                                 std::numeric_limits<float>::digits10 + 1);
+        } else if constexpr (std::is_same_v<T, double>) {
+            end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
+                                 std::numeric_limits<double>::digits10 + 1);
+        } else {
+            end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
+        }
     }
     *end = '\0';
     return end - buffer;
 }
 
-template <typename T>
-int to_buffer(const T& value, int width, char* buffer) {
-    constexpr int DIG = (std::is_same_v<T, double> ? DBL_DIG : FLT_DIG);
-    int snprintf_result = snprintf(buffer, width, "%.*g", DIG, value);
-    // The snprintf should never overflow because the buffer is significantly
-    // larger than the precision we asked for.
-    DCHECK(snprintf_result > 0 && snprintf_result < width);
-
-    bool need_reformat = false;
-    if constexpr (std::is_same_v<T, double>) {
-        need_reformat = (strtod(buffer, nullptr) != value);
-    } else {
-        auto safe_strtof = [](const char* str, float* value) {
-            char* endptr;
-            *value = strtof(str, &endptr);
-            if (endptr != str) {
-                while (absl::ascii_isspace(*endptr)) {
-                    ++endptr;
-                }
-            }
-            // Ignore range errors from strtod/strtof.
-            // The values it returns on underflow and
-            // overflow are the right fallback in a
-            // robust setting.
-            return *str != '\0' && *endptr == '\0';
-        };
-
-        if (float parsed_value; !safe_strtof(buffer, &parsed_value) || parsed_value != value) {
-            need_reformat = true;
-        }
-    }
-
-    if (need_reformat) {
-        snprintf_result = snprintf(buffer, width, "%.*g", DIG + 2, value);
-        // Should never overflow; see above.
-        DCHECK(snprintf_result > 0 && snprintf_result < width);
-    }
-    return snprintf_result;
-}
 } // namespace doris

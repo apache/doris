@@ -139,30 +139,30 @@ inline void CastToString::push_number(const Int128& num, ColumnString::Chars& ch
 template <>
 inline std::string CastToString::from_number(const Float32& num) {
     char buf[MAX_FLOAT_STR_LENGTH + 2];
-    int len = to_buffer(num, MAX_FLOAT_STR_LENGTH + 2, buf);
+    int len = fast_to_buffer(num, buf);
     return std::string(buf, buf + len);
 }
 
 template <>
 inline void CastToString::push_number(const Float32& num, ColumnString::Chars& chars) {
     char buf[MAX_FLOAT_STR_LENGTH + 2];
-    int len = to_buffer(num, MAX_FLOAT_STR_LENGTH + 2, buf);
+    int len = fast_to_buffer(num, buf);
     chars.insert(buf, buf + len);
 }
 
 // DOUBLE
 template <>
 inline std::string CastToString::from_number(const Float64& num) {
-    fmt::memory_buffer buffer;
-    fmt::format_to(buffer, "{}", num);
-    return std::string(buffer.data(), buffer.size());
+    char buf[MAX_DOUBLE_STR_LENGTH + 2];
+    int len = fast_to_buffer(num, buf);
+    return std::string(buf, len);
 }
 
 template <>
 inline void CastToString::push_number(const Float64& num, ColumnString::Chars& chars) {
-    fmt::memory_buffer buffer;
-    fmt::format_to(buffer, "{}", num);
-    chars.insert(buffer.data(), buffer.data() + buffer.size());
+    char buf[MAX_DOUBLE_STR_LENGTH + 2];
+    int len = fast_to_buffer(num, buf);
+    chars.insert(buf, buf + len);
 }
 
 // DECIMAL32
