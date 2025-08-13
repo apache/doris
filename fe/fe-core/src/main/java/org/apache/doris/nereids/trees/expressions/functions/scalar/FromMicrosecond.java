@@ -46,10 +46,15 @@ public class FromMicrosecond extends ScalarFunction
         super("from_microsecond", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FromMicrosecond(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FromMicrosecond withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new FromMicrosecond(children.get(0));
+        return new FromMicrosecond(getFunctionParams(children));
     }
 
     @Override

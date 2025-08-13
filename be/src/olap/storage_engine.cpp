@@ -1555,7 +1555,11 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (result.tablet_replica_infos.contains(tablet_id)) {
         std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
-        DCHECK_NE(reps.size(), 0);
+        if (reps.empty()) [[unlikely]] {
+            VLOG_DEBUG << "get_peers_replica_backends reps is empty, maybe this tablet is in "
+                          "schema change. Go to FE to see more info. Tablet id: "
+                       << tablet_id;
+        }
         for (const auto& rep : reps) {
             if (rep.replica_id != tablet->replica_id()) {
                 TBackend backend;

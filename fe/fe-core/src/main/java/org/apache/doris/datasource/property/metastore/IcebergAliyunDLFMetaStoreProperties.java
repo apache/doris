@@ -46,11 +46,6 @@ public class IcebergAliyunDLFMetaStoreProperties extends AbstractIcebergProperti
         return IcebergExternalCatalog.ICEBERG_DLF;
     }
 
-
-    private void initconf() {
-
-    }
-
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
 

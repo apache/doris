@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
@@ -40,7 +41,8 @@ public class OSSPropertiesTest {
         origProps.put("oss.secret_key", "myOSSSecretKey");
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         Map<String, String> finalOrigProps = origProps;
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(finalOrigProps), "Property oss.endpoint is required.");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Invalid endpoint: https://oss.aliyuncs.com", () -> StorageProperties.createPrimary(finalOrigProps));
         origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps1 = origProps;
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(finalOrigProps1);
@@ -48,11 +50,11 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("cn-shenzhen-finance-1", ossProperties.getRegion());
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(finalOrigProps1));
         origProps = new HashMap<>();
-        origProps.put("oss.endpoint", "https://oss.aliyuncs.com");
+        origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps2 = origProps;
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(finalOrigProps2));
+        // allow both access_key and secret_key to be empty for anonymous access
+        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createPrimary(finalOrigProps2));
     }
-
 
     @Test
     public void testToNativeS3Configuration() throws UserException {
@@ -98,12 +100,12 @@ public class OSSPropertiesTest {
     public void testGetRegion() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
-        origProps.put("oss.access_key", "myCOSAccessKey");
-        origProps.put("oss.secret_key", "myCOSSecretKey");
+        origProps.put("oss.access_key", "myOSSAccessKey");
+        origProps.put("oss.secret_key", "myOSSSecretKey");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-hangzhou", ossProperties.getRegion());
-        Assertions.assertEquals("myCOSAccessKey", ossProperties.getAccessKey());
-        Assertions.assertEquals("myCOSSecretKey", ossProperties.getSecretKey());
+        Assertions.assertEquals("myOSSAccessKey", ossProperties.getAccessKey());
+        Assertions.assertEquals("myOSSSecretKey", ossProperties.getSecretKey());
         Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", ossProperties.getEndpoint());
         origProps.put("oss.endpoint", "oss-cn-hangzhou-internal.aliyuncs.com");
         Assertions.assertEquals("cn-hangzhou", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
@@ -123,20 +125,20 @@ public class OSSPropertiesTest {
     public void testGetRegionWithDefault() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("uri", "https://examplebucket-1250000000.oss-cn-hangzhou.aliyuncs.com/test/file.txt");
-        origProps.put("oss.access_key", "myCOSAccessKey");
-        origProps.put("oss.secret_key", "myCOSSecretKey");
+        origProps.put("oss.access_key", "myOSSAccessKey");
+        origProps.put("oss.secret_key", "myOSSSecretKey");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-hangzhou", ossProperties.getRegion());
-        Assertions.assertEquals("myCOSAccessKey", ossProperties.getAccessKey());
-        Assertions.assertEquals("myCOSSecretKey", ossProperties.getSecretKey());
+        Assertions.assertEquals("myOSSAccessKey", ossProperties.getAccessKey());
+        Assertions.assertEquals("myOSSSecretKey", ossProperties.getSecretKey());
         Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", ossProperties.getEndpoint());
-        Map<String, String> cosNoEndpointProps = new HashMap<>();
-        cosNoEndpointProps.put("oss.access_key", "myCOSAccessKey");
-        cosNoEndpointProps.put("oss.secret_key", "myCOSSecretKey");
-        cosNoEndpointProps.put("oss.region", "cn-hangzhou");
+        Map<String, String> ossNoEndpointProps = new HashMap<>();
+        ossNoEndpointProps.put("oss.access_key", "myOSSAccessKey");
+        ossNoEndpointProps.put("oss.secret_key", "myOSSSecretKey");
+        ossNoEndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        // not support
-        Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> StorageProperties.createPrimary(cosNoEndpointProps), "Property cos.endpoint is required.");
+        // oss support without endpoint
+        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createPrimary(ossNoEndpointProps));
     }
 
     @Test
@@ -144,8 +146,9 @@ public class OSSPropertiesTest {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         origProps.put("oss.secret_key", "myOSSSecretKey");
-        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+                () -> StorageProperties.createPrimary(origProps));
     }
 
     @Test
@@ -153,7 +156,24 @@ public class OSSPropertiesTest {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         origProps.put("oss.access_key", "myOSSAccessKey");
-        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+                () -> StorageProperties.createPrimary(origProps));
+    }
+
+    @Test
+    public void testNotEndpoint() throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("uri", "oss://examplebucket-1250000000/test/file.txt");
+        origProps.put("oss.access_key", "myOSSAccessKey");
+        origProps.put("oss.secret_key", "myOSSSecretKey");
+        origProps.put("oss.region", "cn-hangzhou");
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com",
+                ((OSSProperties) StorageProperties.createPrimary(origProps)).getEndpoint());
+        origProps.put("dlf.access.public", "true");
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com",
+                ((OSSProperties) StorageProperties.createPrimary(origProps)).getEndpoint());
+        origProps.put("uri", "https://doris-regression-hk.oss-cn-hangzhou-internal.aliyuncs.com/regression/datalake/pipeline_data/data_page_v2_gzip.parquet");
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com", ((OSSProperties) StorageProperties.createPrimary(origProps)).getEndpoint());
     }
 }

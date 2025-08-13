@@ -39,10 +39,6 @@ public class ArrayLastIndex extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(BooleanType.INSTANCE))
     );
 
-    private ArrayLastIndex(List<Expression> expressions) {
-        super("array_last_index", expressions);
-    }
-
     /**
      * constructor with arguments.
      * array_last_index(lambda, a1, ...) = array_last_index(array_map(lambda, a1, ...))
@@ -51,12 +47,17 @@ public class ArrayLastIndex extends ScalarFunction
         super("array_last_index", arg instanceof Lambda ? new ArrayMap(arg) : arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayLastIndex(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayLastIndex withChildren(List<Expression> children) {
-        return new ArrayLastIndex(children);
+        return new ArrayLastIndex(getFunctionParams(children));
     }
 
     @Override

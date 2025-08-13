@@ -420,6 +420,7 @@ struct TMasterOpResult {
     // transaction load
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
+    11: optional i64 affectedRows;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -1164,6 +1165,7 @@ struct TGetBinlogResult {
 
 struct TGetTabletReplicaInfosRequest {
     1: required list<i64> tablet_ids
+    2: optional i64 warm_up_job_id
 }
 
 struct TGetTabletReplicaInfosResult {

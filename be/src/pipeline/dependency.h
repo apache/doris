@@ -17,6 +17,11 @@
 
 #pragma once
 
+#ifdef __APPLE__
+#include <netinet/in.h>
+#include <sys/_types/_u_int.h>
+#endif
+
 #include <concurrentqueue.h>
 #include <sqltypes.h>
 

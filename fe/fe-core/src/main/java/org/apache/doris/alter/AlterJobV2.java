@@ -31,6 +31,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -272,6 +273,16 @@ public abstract class AlterJobV2 implements Writable {
 
     public final synchronized boolean cancel(String errMsg) {
         return cancelImpl(errMsg);
+    }
+
+    protected int getRetryTimes(AgentTask task) {
+        int maxFailedTimes = 0;
+        if (Config.enable_schema_change_retry && task.getErrorCode() != null
+                && (task.getErrorCode().equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)
+                    || task.getErrorCode().equals(TStatusCode.NETWORK_ERROR))) {
+            maxFailedTimes = Config.schema_change_max_retry_time;
+        }
+        return maxFailedTimes;
     }
 
     /**

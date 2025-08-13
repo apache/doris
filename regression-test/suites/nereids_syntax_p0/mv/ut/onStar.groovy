@@ -36,7 +36,7 @@ suite ("onStar") {
     sql """insert into onStar values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into onStar values("2020-01-02",2,"b",2,2,2);"""
 
-    createMV("create materialized view onStar_mv as select time_col, deptno,empid, name, salary, commission from onStar order by time_col, deptno, empid;")
+    createMV("create materialized view onStar_mv as select time_col as a1, deptno as a7,empid as a2, name as a3, salary as a4, commission as a5 from onStar order by time_col, deptno, empid;")
 
     sleep(3000)
 

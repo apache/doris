@@ -63,13 +63,18 @@ public class Rtrim extends ScalarFunction
         super("rtrim", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Rtrim(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Rtrim withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        return new Rtrim(children);
+        return new Rtrim(getFunctionParams(children));
     }
 
     @Override

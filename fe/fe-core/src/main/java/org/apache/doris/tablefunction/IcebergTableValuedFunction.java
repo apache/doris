@@ -109,7 +109,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Catalog " + icebergTableName.getCtl() + " is not an external catalog");
         }
         ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
-        hadoopProps = externalCatalog.getCatalogProperty().getHadoopProperties();
+        hadoopProps = externalCatalog.getCatalogProperty().getBackendStorageProperties();
         preExecutionAuthenticator = externalCatalog.getExecutionAuthenticator();
 
         TableIf dorisTable = externalCatalog.getDbOrAnalysisException(icebergTableName.getDb())

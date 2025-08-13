@@ -182,6 +182,28 @@ test_view_star_except	CREATE VIEW `test_view_star_except` AS select `internal`.`
 -- !test_create_view_from_view_sql --
 test_view_from_view	CREATE VIEW `test_view_from_view` AS select `internal`.`regression_test_ddl_p0_create_view_nereids`.`test_view_with_as`.`pk` AS `c1`, `internal`.`regression_test_ddl_p0_create_view_nereids`.`test_view_with_as`.`a` AS `c2`, `internal`.`regression_test_ddl_p0_create_view_nereids`.`test_view_with_as`.`b` AS `c3` from `internal`.`regression_test_ddl_p0_create_view_nereids`.`test_view_with_as`;	utf8mb4	utf8mb4_0900_bin
 
+-- !test_mv_prefix_in_view_define --
+\N	6
+1	2
+1	3
+1	4
+1	4
+1	7
+2	8
+3	5
+3	6
+3	9
+4	2
+5	\N
+5	6
+5	6
+5	6
+5	8
+7	1
+
+-- !test_mv_prefix_in_view_define_sql --
+test_mv_prefix_in_view_define	CREATE VIEW `test_mv_prefix_in_view_define` AS select `internal`.`regression_test_ddl_p0_create_view_nereids`.`mal_test_view`.`a` AS `mva_hello`, `internal`.`regression_test_ddl_p0_create_view_nereids`.`mal_test_view`.`b` AS `c2` from `internal`.`regression_test_ddl_p0_create_view_nereids`.`mal_test_view`;	utf8mb4	utf8mb4_0900_bin
+
 -- !test_backquote_in_view_define --
 \N	6
 1	2

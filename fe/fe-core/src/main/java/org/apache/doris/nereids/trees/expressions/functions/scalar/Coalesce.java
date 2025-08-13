@@ -80,6 +80,11 @@ public class Coalesce extends ScalarFunction
         super("coalesce", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Coalesce(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * custom compute nullable.
      */
@@ -98,9 +103,8 @@ public class Coalesce extends ScalarFunction
      */
     @Override
     public Coalesce withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Coalesce(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Coalesce(getFunctionParams(children));
     }
 
     @Override

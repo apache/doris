@@ -50,13 +50,18 @@ public class BitmapHash64 extends ScalarFunction
         super("bitmap_hash64", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapHash64(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapHash64 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapHash64(children.get(0));
+        return new BitmapHash64(getFunctionParams(children));
     }
 
     @Override

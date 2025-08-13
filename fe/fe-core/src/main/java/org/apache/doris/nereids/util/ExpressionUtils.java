@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -1185,5 +1186,24 @@ public class ExpressionUtils {
         }
         shapeBuilder.append(")");
         return shapeBuilder.toString();
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Collection<? extends Expression> expressions) {
+        for (Expression expression : expressions) {
+            if (hasNonWindowAggregateFunction(expression)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * has aggregate function, exclude the window function
+     */
+    public static boolean hasNonWindowAggregateFunction(Expression expression) {
+        return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
     }
 }

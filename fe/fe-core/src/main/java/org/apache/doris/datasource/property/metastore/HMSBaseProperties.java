@@ -51,7 +51,7 @@ public class HMSBaseProperties {
             description = "The conf resources of the hive metastore.")
     private String hiveConfResourcesConfig = "";
 
-    @ConnectorProperty(names = {"hive.metastore.service.principal"},
+    @ConnectorProperty(names = {"hive.metastore.service.principal", "hive.metastore.kerberos.principal"},
             required = false,
             description = "The service principal of the hive metastore.")
     private String hiveMetastoreServicePrincipal = "";
@@ -134,7 +134,11 @@ public class HMSBaseProperties {
      * strongly recommended.
      */
     private void initHadoopAuthenticator() {
+        if (StringUtils.isNotBlank(hiveMetastoreServicePrincipal)) {
+            hiveConf.set("hive.metastore.kerberos.principal", hiveMetastoreServicePrincipal);
+        }
         if (this.hiveMetastoreAuthenticationType.equalsIgnoreCase("kerberos")) {
+            hiveConf.set("hadoop.security.authentication", "kerberos");
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hiveMetastoreClientPrincipal, this.hiveMetastoreClientKeytab, hiveConf);
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
@@ -170,10 +174,10 @@ public class HMSBaseProperties {
         this.hiveConf = loadHiveConfFromFile(hiveConfResourcesConfig);
         initUserHiveConfig(origProps);
         userOverriddenHiveConfig.forEach(hiveConf::set);
-        initHadoopAuthenticator();
         hiveConf.set("hive.metastore.uris", hiveMetastoreUri);
         HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
                 String.valueOf(Config.hive_metastore_client_timeout_second));
+        initHadoopAuthenticator();
     }
 
     private void initUserHiveConfig(Map<String, String> origProps) {

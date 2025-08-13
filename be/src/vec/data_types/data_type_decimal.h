@@ -56,7 +56,6 @@ class PColumnMeta;
 namespace vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -238,7 +237,6 @@ public:
     template <bool is_const>
     void to_string_batch_impl(const ColumnPtr& column_ptr, ColumnString& column_to) const;
     std::string to_string(const FieldType& value) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     using SerDeType = DataTypeDecimalSerDe<T>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(precision, scale, nesting_level);
@@ -248,8 +246,10 @@ public:
 
     [[nodiscard]] UInt32 get_precision() const override { return precision; }
     [[nodiscard]] UInt32 get_scale() const override { return scale; }
-    [[nodiscard]] UInt32 get_original_precision() const { return original_precision; }
-    [[nodiscard]] UInt32 get_original_scale() const { return original_scale; }
+    [[nodiscard]] UInt32 get_original_precision() const {
+        return UINT32_MAX == original_precision ? precision : original_precision;
+    }
+    [[nodiscard]] UInt32 get_original_scale() const { return get_format_scale(); }
     [[nodiscard]] UInt32 get_format_scale() const {
         return UINT32_MAX == original_scale ? scale : original_scale;
     }
