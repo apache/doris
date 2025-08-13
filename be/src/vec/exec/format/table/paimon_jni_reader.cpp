@@ -61,6 +61,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
             std::to_string(range.table_format_params.paimon_params.last_update_time);
     params["required_fields"] = join(column_names, ",");
     params["columns_types"] = join(column_types, "#");
+    params["time_zone"] = _state->timezone_obj().name();
     if (range_params->__isset.serialized_table) {
         params["serialized_table"] = range_params->serialized_table;
     }
