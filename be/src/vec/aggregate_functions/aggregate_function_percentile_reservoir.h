@@ -68,7 +68,9 @@ private:
 
 template <typename Data>
 class AggregateFunctionPercentileReservoir final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionPercentileReservoir<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionPercentileReservoir<Data>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionPercentileReservoir(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionPercentileReservoir<Data>>(
