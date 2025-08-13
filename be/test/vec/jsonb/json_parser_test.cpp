@@ -336,9 +336,11 @@ TEST(JsonParserTest, TestHandleNewPathElseBranch) {
             doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data2));
 
     // Second call should trigger the else branch (nested_sizes is not empty)
+    ctx.is_top_array = false;
+    ctx.has_nested_in_flatten = false;
     parser.handleNewPath(hash, path, value2, ctx);
 
     // Verify nested_sizes_by_key was updated
-    EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key")).size(), 2);
-    EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key"))[1], 2);
+    EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key")).size(), 3);
+    EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key"))[1], 0);
 }
