@@ -87,10 +87,10 @@ suite("test_s3_load_progressive_scanned_rows", "nonConcurrent,p0") {
                     assertTrue(1 == 2, "load Timeout: $uuid")
                 }
             }
+            try_sql(""" cancel load where label="$uuid"; """)
             assertTrue(scannedRows >= 0, "ScannedRows should be >= 0 but was ${scannedRows}")
             assertTrue(loadBytes >= 0, "LoadBytes should be >= 0 but was ${loadBytes}")
         } finally {
-            try_sql(""" cancel load where label="$uuid"; """)
             try_sql("DROP TABLE IF EXISTS ${tableName}")
         }
     }
