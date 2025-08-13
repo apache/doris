@@ -252,11 +252,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToStri
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsInf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Compat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -1427,6 +1429,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIsIPAddressInRange(IsIpAddressInRange isIpAddressInRange, C context) {
         return visitScalarFunction(isIpAddressInRange, context);
+    }
+
+    default R visitIsNan(IsNan isNan, C context) {
+        return visitScalarFunction(isNan, context);
+    }
+
+    default R visitIsInf(IsInf isInf, C context) {
+        return visitScalarFunction(isInf, context);
     }
 
     default R visitIpv6CIDRToRange(Ipv6CIDRToRange ipv6CIDRToRange, C context) {

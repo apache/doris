@@ -19,21 +19,17 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -72,8 +68,6 @@ public class DdlExecutor {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof CancelExportStmt) {
-            env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateJobStmt) {
@@ -98,18 +92,12 @@ public class DdlExecutor {
             env.recoverPartition((RecoverPartitionStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
-        } else if (ddlStmt instanceof InstallPluginStmt) {
-            env.installPlugin((InstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof UninstallPluginStmt) {
             env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
-            env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
-            env.getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {
             RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
             env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),

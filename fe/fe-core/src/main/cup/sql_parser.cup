@@ -1239,14 +1239,6 @@ refresh_stmt ::=
     :}
     ;
 
-// plugin statement
-install_plugin_stmt ::=
-    KW_INSTALL KW_PLUGIN KW_FROM ident_or_text:source opt_properties:properties
-    {:
-        RESULT = new InstallPluginStmt(source, properties);
-    :}
-    ;
-
 uninstall_plugin_stmt ::=
     KW_UNINSTALL KW_PLUGIN ident_or_text:name
     {:
@@ -1268,11 +1260,6 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_DROP KW_ROLLUP drop_rollup_clause_list:clauses
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
-    :}
-    | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
-    opt_properties:properties
-    {:
-        RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -1692,11 +1679,6 @@ create_stmt ::=
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
     {:
         RESULT = new CreateEncryptKeyStmt(ifNotExists, keyName, keyString);
-    :}
-    /* sql_block_rule */
-    | KW_CREATE KW_SQL_BLOCK_RULE opt_if_not_exists:ifNotExists ident:ruleName opt_properties:properties
-    {:
-        RESULT = new CreateSqlBlockRuleStmt(ifNotExists, ruleName, properties);
     :}
     | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
     {:
@@ -3632,13 +3614,6 @@ job_id_list ::=
     | LPAREN integer_list:list RPAREN
     {:
         RESULT = list;
-    :}
-    ;
-
-cancel_param ::=
-    KW_EXPORT opt_db:db opt_wild_where
-    {:
-        RESULT = new CancelExportStmt(db, parser.where);
     :}
     ;
 

@@ -38,7 +38,6 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
@@ -6849,10 +6848,6 @@ public class Env {
         } finally {
             olapTable.writeUnlock();
         }
-    }
-
-    public void installPlugin(InstallPluginStmt stmt) throws UserException, IOException {
-        pluginMgr.installPlugin(stmt);
     }
 
     public long savePlugins(CountingDataOutputStream dos, long checksum) throws IOException {

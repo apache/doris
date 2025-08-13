@@ -18,9 +18,7 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -28,6 +26,7 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
@@ -50,6 +49,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
@@ -760,13 +761,21 @@ public abstract class TestWithFeService {
     }
 
     protected void createSqlBlockRule(String sql) throws Exception {
+        NereidsParser parser = new NereidsParser();
+        CreateSqlBlockRuleCommand command = (CreateSqlBlockRuleCommand) parser.parseSingle(sql);
         Env.getCurrentEnv().getSqlBlockRuleMgr()
-                .createSqlBlockRule((CreateSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+                .createSqlBlockRule(new SqlBlockRule(command.getRuleName(), command.getSql(), command.getSqlHash(),
+                command.getPartitionNum(), command.getTabletNum(), command.getCardinality(),
+                command.getGlobal(), command.getEnable()), command.isIfNotExists());
     }
 
     protected void alterSqlBlockRule(String sql) throws Exception {
+        NereidsParser parser = new NereidsParser();
+        AlterSqlBlockRuleCommand command = (AlterSqlBlockRuleCommand) parser.parseSingle(sql);
         Env.getCurrentEnv().getSqlBlockRuleMgr()
-                .alterSqlBlockRule((AlterSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+                .alterSqlBlockRule(new SqlBlockRule(command.getRuleName(), command.getSql(), command.getSqlHash(),
+                command.getPartitionNum(), command.getTabletNum(), command.getCardinality(),
+                command.getGlobal(), command.getEnable()));
     }
 
     protected void dropSqlBlockRule(String sql) throws Exception {
