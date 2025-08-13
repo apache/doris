@@ -38,8 +38,7 @@ size_t RowIdConversion::calculate_memory_usage(size_t rows) {
 }
 
 Status RowIdConversion::init(bool use_spill, int64_t memory_limit, int64_t tablet_id,
-                             std::string tablet_path, bool can_prune) {
-    _can_prune = can_prune;
+                             std::string tablet_path) {
     if (use_spill) {
         std::string file_path;
         if (config::is_cloud_mode()) {
@@ -86,7 +85,6 @@ RowsetId RowIdConversion::get_dst_rowset_id() const {
 
 Status RowIdConversion::add(const std::vector<RowLocation>& rss_row_ids,
                             const std::vector<uint32_t>& dst_segments_num_row) {
-    CHECK(_phase == Phase::BUILD) << "Cannot add row ids in READ phase";
     size_t old_mem = _storage->memory_usage();
     VLOG_DEBUG << fmt::format(
             "[verbose] RowIdConversion::add, rows size={}, current memory usage={}",
@@ -116,10 +114,6 @@ Status RowIdConversion::add(const std::vector<RowLocation>& rss_row_ids,
 // get destination RowLocation
 // return non-zero if the src RowLocation does not exist
 int RowIdConversion::get(const RowLocation& src, RowLocation* dst) {
-    if (_phase == Phase::BUILD) {
-        _phase = Phase::READ;
-    }
-
     std::pair<uint32_t, uint32_t> value;
     auto st = _storage->get(src.rowset_id, src.segment_id, src.row_id, &value);
     if (!st.ok()) {
@@ -130,11 +124,6 @@ int RowIdConversion::get(const RowLocation& src, RowLocation* dst) {
     dst->segment_id = value.first;
     dst->row_id = value.second;
     return 0;
-}
-
-void RowIdConversion::prune_segment_mapping(RowsetId rowset_id, uint32_t segment_id) {
-    CHECK(_phase == Phase::READ) << "Cannot prune segment mapping in BUILD phase";
-    _storage->prune_segment_mapping(rowset_id, segment_id);
 }
 
 const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>&
@@ -150,10 +139,6 @@ RowIdConversion::get_src_segment_to_id_map() const {
 void RowIdConversion::track_mem_usage(ssize_t delta_bytes) {
     _mem_used += delta_bytes;
     CONSUME_THREAD_MEM_TRACKER(delta_bytes);
-}
-
-bool RowIdConversion::can_prune() const {
-    return _can_prune;
 }
 
 #include "common/compile_check_end.h"

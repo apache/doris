@@ -198,11 +198,10 @@ Status Compaction::merge_input_rowsets() {
         int64_t total_input_rows = std::accumulate(
                 _input_rowsets.begin(), _input_rowsets.end(), 0,
                 [](int64_t sum, const RowsetSharedPtr& rs) { return sum + rs->num_rows(); });
-        bool can_prune = ctx.columns_to_do_index_compaction.empty();
-        bool use_spill = can_prune && memory_limit > 0 &&
+        bool use_spill = ctx.columns_to_do_index_compaction.empty() && memory_limit > 0 &&
                          RowIdConversion::calculate_memory_usage(total_input_rows) > memory_limit;
         RETURN_IF_ERROR(_stats.rowid_conversion->init(use_spill, memory_limit, _tablet->tablet_id(),
-                                                      _tablet->tablet_path(), can_prune));
+                                                      _tablet->tablet_path()));
     }
 
     int64_t way_num = merge_way_num();

@@ -355,7 +355,7 @@ protected:
         RowIdConversion rowid_conversion;
         EXPECT_TRUE(rowid_conversion
                             .init(enable_spill, rowid_conversion_max_memory, tablet->tablet_id(),
-                                  writer_context.tablet_path, true)
+                                  writer_context.tablet_path)
                             .ok());
         stats.rowid_conversion = &rowid_conversion;
         Status s;

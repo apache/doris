@@ -112,7 +112,7 @@ TEST_F(RowIdConversionSpillTest, BasicSpillEnableDisable) {
     // Test spill enabled and memory limit is reached
     {
         RowIdConversion conversion;
-        ASSERT_TRUE(conversion.init(true, 1, tablet_id, get_tablet_path(), true).ok());
+        ASSERT_TRUE(conversion.init(true, 1, tablet_id, get_tablet_path()).ok());
 
         bool exists {false};
         ASSERT_TRUE(io::global_local_filesystem()->exists(spill_path, &exists));
@@ -145,16 +145,13 @@ TEST_F(RowIdConversionSpillTest, BasicSpillEnableDisable) {
             }
             int64_t internal_id = storage->_segment_to_id_map[{rowset_id, i}];
             ASSERT_FALSE(storage->_segments[internal_id].is_spilled);
-
-            conversion.prune_segment_mapping(rowset_id, i);
-            ASSERT_EQ(storage->_segments[internal_id].mapping.size(), 0);
         }
     }
 
     // Test spill enabled and memory limit is not reached
     {
         RowIdConversion conversion;
-        ASSERT_TRUE(conversion.init(true, 10000000, tablet_id, get_tablet_path(), true).ok());
+        ASSERT_TRUE(conversion.init(true, 10000000, tablet_id, get_tablet_path()).ok());
 
         bool exists {false};
         ASSERT_TRUE(io::global_local_filesystem()->exists(spill_path, &exists));

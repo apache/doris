@@ -42,8 +42,7 @@ public:
 
     static size_t calculate_memory_usage(size_t rows);
 
-    Status init(bool use_spill, int64_t memory_limit, int64_t tablet_id, std::string tablet_path,
-                bool can_prune);
+    Status init(bool use_spill, int64_t memory_limit, int64_t tablet_id, std::string tablet_path);
     Status init();
 
     Status init_segment_map(const RowsetId& src_rowset_id,
@@ -59,18 +58,12 @@ public:
     // return non-zero if the src RowLocation does not exist
     int get(const RowLocation& src, RowLocation* dst);
 
-    void prune_segment_mapping(RowsetId rowset_id, uint32_t segment_id);
-
     const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& get_rowid_conversion_map() const;
 
     const std::map<std::pair<RowsetId, uint32_t>, uint32_t>& get_src_segment_to_id_map() const;
 
-    bool can_prune() const;
-
 private:
     void track_mem_usage(ssize_t delta_bytes);
-
-    enum class Phase { BUILD, READ } _phase {Phase::BUILD};
 
     std::unique_ptr<detail::RowIdConversionStorage> _storage;
     size_t _mem_used {0};
@@ -78,8 +71,6 @@ private:
     RowsetId _dst_rowst_id;
     std::uint32_t _cur_dst_segment_id {0};
     std::uint32_t _cur_dst_segment_rowid {0};
-
-    bool _can_prune {false};
 };
 
 #include "common/compile_check_end.h"
