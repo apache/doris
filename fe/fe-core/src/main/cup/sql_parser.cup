@@ -3363,11 +3363,6 @@ show_stmt ::=
     ;
 
 show_param ::=
-    /* routine */
-    procedure_or_function KW_STATUS opt_wild_where
-    {:
-        RESULT = new ShowProcedureStmt();
-    :}
     /* Show alter table statement: used to show process of alter table statement */
     | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:

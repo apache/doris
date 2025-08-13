@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.HelpStmt;
-import org.apache.doris.analysis.ShowProcedureStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -417,15 +416,6 @@ public class ShowExecutorTest {
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("Olap engine", resultSet.getString(0));
-    }
-
-    @Test
-    public void testShowEmpty() throws AnalysisException {
-        ShowProcedureStmt stmt = new ShowProcedureStmt();
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertFalse(resultSet.next());
     }
 
     @Test
