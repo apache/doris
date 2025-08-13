@@ -225,9 +225,16 @@ public class PaimonUtil {
             case TINYINT:
                 return Type.TINYINT;
             case VARCHAR:
-                return ScalarType.createVarcharType(((VarCharType) dataType).getLength());
+                int len = ((VarCharType) dataType).getLength();
+                if (len > 65535) {
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createVarcharType(len);
             case CHAR:
-                return ScalarType.createCharType(((CharType) dataType).getLength());
+                if (((VarCharType) dataType).getLength() > 255) {
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createCharType(((VarCharType) dataType).getLength());
             case BINARY:
             case VARBINARY:
                 return Type.STRING;
