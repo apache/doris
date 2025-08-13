@@ -17,7 +17,7 @@
 
 suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
 
-    def testQuery = { String catalogProperties, String prefix ->
+    def testQuery = { String catalogProperties, String prefix, String dbName ->
         def catalog_name = "test_paimon_on_hms_${prefix}_catalog"
         sql """
             DROP CATALOG IF EXISTS ${catalog_name};
@@ -30,9 +30,8 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
         sql """
             switch ${catalog_name};
         """
-        def db_name = prefix + "_db"
         sql """
-            use ${db_name};
+            use ${dbName};
         """
         sql """set force_jni_scanner=false"""
         "order_qt_${prefix}" """
@@ -111,9 +110,27 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
      'paimon.catalog.type'='hms',
      'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
     """
-    testQuery(paimon_hms_catalog_properties + hdfs_warehouse_properties + hdfs_storage_properties, "hdfs")
-    testQuery(paimon_hms_catalog_properties + oss_warehouse_properties + oss_storage_properties, "ali")
-    testQuery(paimon_hms_catalog_properties + obs_warehouse_properties + obs_storage_properties, "hw")
-    testQuery(paimon_hms_catalog_properties + cos_warehouse_properties + cos_storage_properties, "tx")
+    testQuery(paimon_hms_catalog_properties + hdfs_warehouse_properties + hdfs_storage_properties, "hdfs", "hdfs_db")
+    testQuery(paimon_hms_catalog_properties + oss_warehouse_properties + oss_storage_properties, "ali", "ali_db")
+    testQuery(paimon_hms_catalog_properties + obs_warehouse_properties + obs_storage_properties, "hw", "hw_db")
+    testQuery(paimon_hms_catalog_properties + cos_warehouse_properties + cos_storage_properties, "tx", "tx_db")
+
+    String paimon_fs_hdfs_support = """
+        'fs.hdfs.support' = 'true',
+    """
+    String paimon_fs_oss_support = """
+        'fs.oss.support' = 'true',
+    """
+    String paimon_fs_obs_support = """
+        'fs.obs.support' = 'true',
+    """
+    String paimon_fs_cos_support = """
+        'fs.cos.support' = 'true',
+    """
+    testQuery(paimon_hms_catalog_properties + paimon_fs_hdfs_support + hdfs_warehouse_properties + hdfs_storage_properties, "support_hdfs", "hdfs_db")
+    testQuery(paimon_hms_catalog_properties + paimon_fs_oss_support + oss_warehouse_properties + oss_storage_properties, "support_oss", "ali_db")
+    testQuery(paimon_hms_catalog_properties + paimon_fs_obs_support + obs_warehouse_properties + obs_storage_properties, "support_obs", "hw_db")
+    testQuery(paimon_hms_catalog_properties + paimon_fs_cos_support + cos_warehouse_properties + cos_storage_properties, "support_cos", "tx_db")
+
 }
 
