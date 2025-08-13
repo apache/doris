@@ -23,6 +23,8 @@ suite("single_table_without_aggregate") {
     sql "set enable_materialized_view_rewrite=true"
     // TODO remove this variable after mv rewrite support defer materialized nodes
     sql 'set enable_two_phase_read_opt = false'
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO;"
 
 
     sql """
