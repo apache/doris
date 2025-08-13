@@ -704,9 +704,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
-        AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
-        manager.removeTableStats(tbl.getId());
-        manager.dropStats(tbl, null);
+        if (!FeConstants.runningUnitTest) {
+            AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+            manager.removeTableStats(tbl.getId());
+            manager.dropStats(tbl, null);
+        }
     }
 
     private void onFinished(OlapTable tbl) {
