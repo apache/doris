@@ -1233,10 +1233,6 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshDbStmt(ctl, db, properties);
     :}
-    | KW_REFRESH KW_CATALOG ident:catalogName opt_properties:properties
-    {:
-        RESULT = new RefreshCatalogStmt(catalogName, properties);
-    :}
     ;
 
 uninstall_plugin_stmt ::=
