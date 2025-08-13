@@ -405,6 +405,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                                 .indexOf(slot.getColumn().getName()))
                 .toArray();
         Table paimonTable = source.getPaimonTable();
+
+        if (getScanParams() != null && getQueryTableSnapshot() != null) {
+            throw new UserException("Can not specify scan params and table snapshot at same time.");
+        }
+        if (getQueryTableSnapshot() != null) {
+            throw new UserException("Paimon table does not support table snapshot query yet.");
+        }
         Map<String, String> incrReadParams = getIncrReadParams();
         paimonTable = paimonTable.copy(incrReadParams);
         ReadBuilder readBuilder = paimonTable.newReadBuilder();
@@ -655,7 +662,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             paimonScanParams.put(PAIMON_SCAN_MODE, null);
             if (hasStartSnapshotId && !hasEndSnapshotId) {
                 // Only startSnapshotId is specified
-                paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, params.get(DORIS_START_SNAPSHOT_ID));
+                throw new UserException("endSnapshotId is required when using snapshot-based incremental read");
             } else if (hasStartSnapshotId && hasEndSnapshotId) {
                 // Both start and end snapshot IDs are specified
                 String startSId = params.get(DORIS_START_SNAPSHOT_ID);
@@ -686,4 +693,5 @@ public class PaimonScanNode extends FileQueryScanNode {
         return paimonScanParams;
     }
 }
+
 
