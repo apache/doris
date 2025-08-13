@@ -214,7 +214,8 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                 std::string normalized_date = str_date;
 
                 // If timezone format is like +0900, convert it to +09:00 for cctz
-                if (tz_str.length() == 5 && (tz_str[0] == '+' || tz_str[0] == '-') && tz_str.find(':') == std::string::npos) {
+                if (tz_str.length() == 5 && (tz_str[0] == '+' || tz_str[0] == '-') &&
+                    tz_str.find(':') == std::string::npos) {
                     std::string normalized_tz = tz_str.substr(0, 3) + ":" + tz_str.substr(3);
                     normalized_date = str_date.substr(0, str_date.length() - 5) + normalized_tz;
                     tz_str = normalized_tz;
