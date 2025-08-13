@@ -132,5 +132,8 @@ suite("test_view_dependency") {
     // not support like
     explain = sql """explain select * from information_schema.view_dependency where view_schema like '%test_view_dependency_db%'"""
     assertFalse(explain.toString().contains("FRONTEND PREDICATES"))
+    // support catalog.db.table.column
+    explain = sql """explain select * from information_schema.view_dependency where internal.information_schema.view_dependency.view_schema = 'test_view_dependency_db';"""
+    assertTrue(explain.toString().contains("FRONTEND PREDICATES"))
 }
 
