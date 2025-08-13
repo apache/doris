@@ -2306,23 +2306,7 @@ resource_desc ::=
         RESULT = new ResourceDesc(resourceName, properties);                         
     :}                                                                               
     ; 
-create_job_stmt ::=
-     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
-    {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.RECURRING,null,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
-        RESULT = stmt;
-    :}
-/*  support in future  | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
-    {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.STREAMING,atTime,null,null,null,null,comment,executeSql);
-        RESULT = stmt;
-    :}   */ 
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE job_at_time:atTime opt_comment:comment KW_DO stmt:executeSql  
-    {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.ONE_TIME,atTime,null,null,null,null,comment,executeSql);
-        RESULT = stmt;
-    :}
-    ;                           
+
  opt_job_starts ::= 
      {:
          RESULT = null;
@@ -2331,10 +2315,6 @@ create_job_stmt ::=
      {: 
         RESULT = startTime;    
      :}
-     |KW_STARTS KW_CURRENT_TIMESTAMP
-     {: 
-        RESULT = CreateJobStmt.CURRENT_TIMESTAMP_STRING;
-     :}   
      ;
      
  job_at_time ::= 
@@ -2342,10 +2322,6 @@ create_job_stmt ::=
      {: 
         RESULT = atTime;    
      :}
-     |KW_AT KW_CURRENT_TIMESTAMP
-     {: 
-        RESULT = CreateJobStmt.CURRENT_TIMESTAMP_STRING;
-     :}   
      ;
  opt_job_ends ::= 
      {:
