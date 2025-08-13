@@ -23,8 +23,19 @@ suite("test_variant_index_type_p2", "p2"){
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-    
-    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+
+    def seed = Math.random()
+    def enable_typed_paths_to_sparse = true
+    if (seed < 0.5) {
+        sql """ set default_variant_enable_typed_paths_to_sparse = true """
+        logger.info("enable_typed_paths_to_sparse: true")
+        enable_typed_paths_to_sparse = true
+    } else {
+        sql """ set default_variant_enable_typed_paths_to_sparse = false """
+        logger.info("enable_typed_paths_to_sparse: false")
+        enable_typed_paths_to_sparse = false
+    }
+    sql "set enable_variant_flatten_nested = true"
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
@@ -150,7 +161,9 @@ suite("test_variant_index_type_p2", "p2"){
     sql """select v['payload']['commits'] from github_events2 order by k ;"""
     qt_sql """select count() from github_events2"""
     // query with inverted index
-    sql """ set enable_match_without_inverted_index = false """
+    if (!enable_typed_paths_to_sparse) {
+        sql """ set enable_match_without_inverted_index = false """
+    }
     qt_sql """select count()  from github_events2 where v["repo"]["name"] match 'xpressengine' """
     qt_sql """select count()  from github_events2 where v["repo"]["name"] match 'apache';"""
 
@@ -179,7 +192,9 @@ suite("test_variant_index_type_p2", "p2"){
         """
     sql """insert into github_events3 select * from github_events order by k"""
     // query with inverted index
-    sql """ set enable_match_without_inverted_index = false """
+    if (!enable_typed_paths_to_sparse) {
+        sql """ set enable_match_without_inverted_index = false """
+    }
     qt_sql """select count()  from github_events3 where v["repo"]["name"] match 'xpressengine' """
     qt_sql """select count()  from github_events3 where v["repo"]["name"] match 'apache';"""
 
