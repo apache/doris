@@ -26,7 +26,6 @@
 #include <type_traits>
 
 #include "common/status.h"
-#include "util/debug/leak_annotations.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -115,12 +114,13 @@ template <typename A>
 struct SignImpl {
     static constexpr PrimitiveType ResultType = TYPE_TINYINT;
     static inline UInt8 apply(A a) {
-        if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>)
+        if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>) {
             return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
-        else if constexpr (IsSignedV<A>)
+        } else if constexpr (IsSignedV<A>) {
             return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
-        else if constexpr (IsUnsignedV<A>)
+        } else if constexpr (IsUnsignedV<A>) {
             return static_cast<UInt8>(a == 0 ? 0 : 1);
+        }
     }
 };
 
@@ -134,18 +134,19 @@ struct AbsImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfAbs<A>::Type;
 
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        if constexpr (IsDecimalNumber<A>)
+        if constexpr (IsDecimalNumber<A>) {
             return a < A(0) ? A(-a) : a;
-        else if constexpr (IsIntegralV<A> && IsSignedV<A>)
+        } else if constexpr (IsIntegralV<A> && IsSignedV<A>) {
             return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                                       ~a) +
                                       1
                             : a;
-        else if constexpr (IsIntegralV<A> && IsUnsignedV<A>)
+        } else if constexpr (IsIntegralV<A> && IsUnsignedV<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
-        else if constexpr (std::is_floating_point_v<A>)
+        } else if constexpr (std::is_floating_point_v<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                     std::abs(a));
+        }
     }
 };
 
@@ -251,31 +252,10 @@ struct NamePositive {
 
 using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
-struct UnaryFunctionPlainSin {
-    using Type = DataTypeFloat64;
+struct SinName {
     static constexpr auto name = "sin";
-    using FuncType = double (*)(double);
-
-    static FuncType get_sin_func() {
-#ifndef BE_TEST
-        void* handle = dlopen("libm.so.6", RTLD_LAZY);
-        if (handle) {
-            if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
-                return sin_func;
-            }
-            dlclose(handle);
-        }
-#endif
-        return std::sin;
-    }
-
-    static void execute(const double* src, double* dst) {
-        static auto sin_func = get_sin_func();
-        *dst = sin_func(*src);
-    }
 };
-
-using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
 
 struct SinhName {
     static constexpr auto name = "sinh";
@@ -321,13 +301,13 @@ double sec(double x) {
 }
 using FunctionSec = FunctionMathUnary<UnaryFunctionPlain<SecName, sec>>;
 
-struct CosecName {
-    static constexpr auto name = "cosec";
+struct CscName {
+    static constexpr auto name = "csc";
 };
-double cosec(double x) {
+double csc(double x) {
     return 1.0 / std::sin(x);
 }
-using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CosecName, cosec>>;
+using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CscName, csc>>;
 
 template <typename A>
 struct RadiansImpl {
@@ -371,7 +351,7 @@ struct BinImpl {
     using ReturnColumnType = ColumnString;
 
     static std::string bin_impl(Int64 value) {
-        uint64_t n = static_cast<uint64_t>(value);
+        auto n = static_cast<uint64_t>(value);
         const size_t max_bits = sizeof(uint64_t) * 8;
         char result[max_bits];
         uint32_t index = max_bits;
@@ -396,12 +376,14 @@ struct BinImpl {
 using FunctionBin = FunctionUnaryToType<BinImpl, NameBin>;
 
 struct PowImpl {
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
     static constexpr auto name = "pow";
     static constexpr bool need_replace_null_data_to_default = true;
     static constexpr bool is_nullable = false;
     static inline double apply(double a, double b) { return std::pow(a, b); }
 };
 struct LogImpl {
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
     static constexpr auto name = "log";
     static constexpr bool need_replace_null_data_to_default = false;
     static constexpr bool is_nullable = true;
@@ -412,6 +394,7 @@ struct LogImpl {
     }
 };
 struct Atan2Impl {
+    static constexpr PrimitiveType type = TYPE_DOUBLE;
     static constexpr auto name = "atan2";
     static constexpr bool need_replace_null_data_to_default = false;
     static constexpr bool is_nullable = false;
@@ -419,16 +402,30 @@ struct Atan2Impl {
 };
 
 template <typename Impl>
-class FunctionMath : public IFunction {
+class FunctionMathBinary : public IFunction {
 public:
+    using cpp_type = typename PrimitiveTypeTraits<Impl::type>::CppType;
+    using column_type = typename PrimitiveTypeTraits<Impl::type>::ColumnType;
+
     static constexpr auto name = Impl::name;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Impl>()))>;
 
     String get_name() const override { return name; }
 
-    static FunctionPtr create() { return std::make_shared<FunctionMath<Impl>>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionMathBinary<Impl>>(); }
+
+    bool is_variadic() const override { return has_variadic_argument; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) {
+            return Impl::get_variadic_argument_types();
+        }
+        return {};
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        auto res = std::make_shared<DataTypeFloat64>();
+        auto res = std::make_shared<DataTypeNumber<Impl::type>>();
         return Impl::is_nullable ? make_nullable(res) : res;
     }
     bool need_replace_null_data_to_default() const override {
@@ -465,16 +462,16 @@ private:
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
         ColumnPtr column_result = nullptr;
 
-        auto res = ColumnFloat64::create(1);
+        auto res = column_type::create(1);
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(1, 0);
-            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<double>(),
-                                              column_right_ptr->template get_value<double>(),
+            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<cpp_type>(),
+                                              column_right_ptr->template get_value<cpp_type>(),
                                               null_map->get_element(0));
             column_result = ColumnNullable::create(std::move(res), std::move(null_map));
         } else {
-            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<double>(),
-                                              column_right_ptr->template get_value<double>());
+            res->get_element(0) = Impl::apply(column_left_ptr->template get_value<cpp_type>(),
+                                              column_right_ptr->template get_value<cpp_type>());
             column_result = std::move(res);
         }
 
@@ -483,8 +480,8 @@ private:
 
     ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_right_ptr = assert_cast<const ColumnConst*>(column_right.get());
-        const auto* column_left_ptr = assert_cast<const ColumnFloat64*>(column_left.get());
-        auto column_result = ColumnFloat64::create(column_left->size());
+        const auto* column_left_ptr = assert_cast<const column_type*>(column_left.get());
+        auto column_result = column_type::create(column_left->size());
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
@@ -493,7 +490,7 @@ private:
             auto& n = null_map->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<double>(), n[i]);
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<cpp_type>(), n[i]);
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
@@ -501,7 +498,7 @@ private:
             auto& c = column_result->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<double>());
+                c[i] = Impl::apply(a[i], column_right_ptr->template get_value<cpp_type>());
             }
             return column_result;
         }
@@ -510,8 +507,8 @@ private:
     ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right) const {
         const auto* column_left_ptr = assert_cast<const ColumnConst*>(column_left.get());
 
-        const auto* column_right_ptr = assert_cast<const ColumnFloat64*>(column_right.get());
-        auto column_result = ColumnFloat64::create(column_right->size());
+        const auto* column_right_ptr = assert_cast<const column_type*>(column_right.get());
+        auto column_result = column_type::create(column_right->size());
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
@@ -520,7 +517,7 @@ private:
             auto& n = null_map->get_data();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(column_left_ptr->template get_value<double>(), b[i], n[i]);
+                c[i] = Impl::apply(column_left_ptr->template get_value<cpp_type>(), b[i], n[i]);
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
@@ -528,19 +525,18 @@ private:
             auto& c = column_result->get_data();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
-                c[i] = Impl::apply(column_left_ptr->template get_value<double>(), b[i]);
+                c[i] = Impl::apply(column_left_ptr->template get_value<cpp_type>(), b[i]);
             }
             return column_result;
         }
     }
 
     ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
-        const auto* column_left_ptr =
-                assert_cast<const ColumnFloat64*>(column_left->get_ptr().get());
+        const auto* column_left_ptr = assert_cast<const column_type*>(column_left->get_ptr().get());
         const auto* column_right_ptr =
-                assert_cast<const ColumnFloat64*>(column_right->get_ptr().get());
+                assert_cast<const column_type*>(column_right->get_ptr().get());
 
-        auto column_result = ColumnFloat64::create(column_left->size());
+        auto column_result = column_type::create(column_left->size());
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_result->size(), 0);
@@ -605,9 +601,9 @@ public:
             }
         }
 
-        auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
-        auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
-        auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
+        const auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
+        const auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
+        const auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
 
         result_column->reserve(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -639,8 +635,134 @@ public:
     }
 };
 
-// TODO: Now math may cause one thread compile time too long, because the function in math
-// so mush. Split it to speed up compile time in the future
+template <typename A>
+struct SignBitImpl {
+    static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
+
+    static inline bool apply(A a) { return std::signbit(static_cast<Float64>(a)); }
+};
+
+struct NameSignBit {
+    static constexpr auto name = "signbit";
+};
+
+using FunctionSignBit = FunctionUnaryArithmetic<SignBitImpl, NameSignBit>;
+
+double EvenImpl(double a) {
+    double mag = std::abs(a);
+    double even_mag = 2 * std::ceil(mag / 2);
+    return std::copysign(even_mag, a);
+}
+
+struct NameEven {
+    static constexpr auto name = "even";
+};
+
+using FunctionEven = FunctionMathUnary<UnaryFunctionPlain<NameEven, EvenImpl>>;
+
+template <PrimitiveType A>
+struct GcdImpl {
+    using cpp_type = typename PrimitiveTypeTraits<A>::CppType;
+
+    static constexpr PrimitiveType type = A;
+    static constexpr auto name = "gcd";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = false;
+
+    static DataTypes get_variadic_argument_types() {
+        using datatype = typename PrimitiveTypeTraits<A>::DataType;
+        return {std::make_shared<datatype>(), std::make_shared<datatype>()};
+    }
+
+    static inline cpp_type apply(cpp_type a, cpp_type b) {
+        return static_cast<cpp_type>(std::gcd(a, b));
+    }
+};
+
+template <PrimitiveType A>
+struct LcmImpl {
+    using cpp_type = typename PrimitiveTypeTraits<A>::CppType;
+
+    static constexpr PrimitiveType type = A;
+    static constexpr auto name = "lcm";
+    static constexpr bool need_replace_null_data_to_default = false;
+    static constexpr bool is_nullable = false;
+
+    static DataTypes get_variadic_argument_types() {
+        using datatype = typename PrimitiveTypeTraits<A>::DataType;
+        return {std::make_shared<datatype>(), std::make_shared<datatype>()};
+    }
+
+    static inline cpp_type apply(cpp_type a, cpp_type b) {
+        return static_cast<cpp_type>(std::lcm(a, b));
+    }
+};
+
+enum class FloatPointNumberJudgmentType {
+    IsNan = 0,
+    IsInf,
+};
+
+struct ImplIsNan {
+    static constexpr auto name = "isnan";
+    static constexpr FloatPointNumberJudgmentType type = FloatPointNumberJudgmentType::IsNan;
+};
+
+struct ImplIsInf {
+    static constexpr auto name = "isinf";
+    static constexpr FloatPointNumberJudgmentType type = FloatPointNumberJudgmentType::IsInf;
+};
+
+template <typename Impl>
+class FunctionFloatingPointNumberJudgment : public IFunction {
+public:
+    using IFunction::execute;
+
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionFloatingPointNumberJudgment>(); }
+
+private:
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeBool>();
+    }
+
+    void execute_impl_with_type(const auto* input_column,
+                                DataTypeBool::ColumnType::Container& output, size_t size) const {
+        for (int i = 0; i < size; i++) {
+            auto value = input_column->get_element(i);
+            if constexpr (Impl::type == FloatPointNumberJudgmentType::IsNan) {
+                output[i] = std::isnan(value);
+            } else if constexpr (Impl::type == FloatPointNumberJudgmentType::IsInf) {
+                output[i] = std::isinf(value);
+            }
+        }
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto dst = DataTypeBool::ColumnType::create();
+        auto& dst_data = dst->get_data();
+        dst_data.resize(input_rows_count);
+        const auto* column = block.get_by_position(arguments[0]).column.get();
+        if (const auto* col_f64 = check_and_get_column<ColumnFloat64>(column)) {
+            execute_impl_with_type(col_f64, dst_data, input_rows_count);
+        } else if (const auto* col_f32 = check_and_get_column<ColumnFloat32>(column)) {
+            execute_impl_with_type(col_f32, dst_data, input_rows_count);
+        } else {
+            return Status::InvalidArgument("Unsupported column type  {} for function {}",
+                                           column->get_name(), get_name());
+        }
+        block.replace_by_position(result, std::move(dst));
+        return Status::OK();
+    }
+};
+
+using FunctionIsNan = FunctionFloatingPointNumberJudgment<ImplIsNan>;
+using FunctionIsInf = FunctionFloatingPointNumberJudgment<ImplIsInf>;
+
 void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAcosh>();
@@ -648,9 +770,9 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAsinh>();
     factory.register_function<FunctionAtan>();
     factory.register_function<FunctionAtanh>();
-    factory.register_function<FunctionMath<LogImpl>>();
-    factory.register_function<FunctionMath<PowImpl>>();
-    factory.register_function<FunctionMath<Atan2Impl>>();
+    factory.register_function<FunctionMathBinary<LogImpl>>();
+    factory.register_function<FunctionMathBinary<PowImpl>>();
+    factory.register_function<FunctionMathBinary<Atan2Impl>>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
     factory.register_function<FunctionE>();
@@ -683,5 +805,18 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
     factory.register_function<FunctionNormalCdf>();
+    factory.register_function<FunctionSignBit>();
+    factory.register_function<FunctionEven>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_TINYINT>>>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_SMALLINT>>>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_INT>>>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_BIGINT>>>();
+    factory.register_function<FunctionMathBinary<GcdImpl<TYPE_LARGEINT>>>();
+    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_SMALLINT>>>();
+    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_INT>>>();
+    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_BIGINT>>>();
+    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_LARGEINT>>>();
+    factory.register_function<FunctionIsNan>();
+    factory.register_function<FunctionIsInf>();
 }
 } // namespace doris::vectorized

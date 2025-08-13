@@ -512,3 +512,10 @@ CREATE TABLE doris_test.`test_cast` (
   `datetime_c` varchar(100)
 );
 
+CREATE TABLE doris_test.`test_table_comment` (
+  `id` int(11) DEFAULT NULL,
+  `int_c` varchar(100),
+  `date_c` varchar(100),
+  `datetime_c` varchar(100)
+) COMMENT = 'test table comment';
+

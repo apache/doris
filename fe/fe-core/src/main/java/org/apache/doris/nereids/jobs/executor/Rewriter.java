@@ -45,11 +45,13 @@ import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
+import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
@@ -130,11 +132,13 @@ import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
+import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
+import org.apache.doris.nereids.rules.rewrite.PushDownVirtualColumnsIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
@@ -168,6 +172,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -198,7 +203,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 //   such as group by key matching and replaced
                                 //   but we need to do some normalization before subquery unnesting,
                                 //   such as extract common expression.
-                                new ExpressionNormalizationAndOptimization(),
+                                ExpressionNormalizationAndOptimization.FULL_RULE_INSTANCE,
                                 new AvgDistinctToSumDivCount(),
                                 new CountDistinctRewrite(),
                                 new ExtractFilterFromCrossJoin()
@@ -375,6 +380,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalFilter.class, LogicalJoin.class, LogicalSetOperation.class
                         ),
+                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
                         // column pruning create new project, so we should use PUSH_DOWN_FILTERS
                         // to change filter-project to project-filter
@@ -391,7 +397,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // in the non-equivalent join condition and turn it into slotReference,
                         // This results in the inability to obtain Cast child information in INFER_PREDICATES,
                         // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
-                        topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                        topDown(
+                                new ProjectOtherJoinConditionForNestedLoopJoin(),
+                                // constant propagation and push down condition may change join conditions empty or not
+                                new ConvertInnerOrCrossJoin())
                     )
                 ),
                 // this rule should invoke after ColumnPruning
@@ -527,6 +536,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new MergeProjectable()
                 )),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
+                topDown(new PushDownVirtualColumnsIntoOlapScan()),
+                topic("score optimize",
+                        topDown(new PushDownScoreTopNIntoOlapScan(),
+                                new CheckScoreUsage())
+                ),
                 topic("topn optimize",
                         topDown(new DeferMaterializeTopNResult())
                 ),
@@ -682,5 +696,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
         } else {
             return true;
         }
+    }
+
+    @Override
+    public void execute() {
+        MoreFieldsThread.keepFunctionSignature(() -> {
+            super.execute();
+            return null;
+        });
     }
 }

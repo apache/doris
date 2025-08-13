@@ -70,7 +70,7 @@ public class AddRollupClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         FeNameFormat.checkTableName(rollupName);
 
         if (columnNames == null || columnNames.isEmpty()) {

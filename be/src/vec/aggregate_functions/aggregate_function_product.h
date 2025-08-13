@@ -117,7 +117,9 @@ struct AggregateFunctionProductData<T> {
 
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionProduct final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -130,7 +132,7 @@ public:
                       argument_types_),
               scale(get_decimal_scale(*argument_types_[0])) {
         if constexpr (is_decimal(T)) {
-            multiplier =
+            multiplier.value =
                     ResultDataType::get_scale_multiplier(get_decimal_scale(*argument_types_[0]));
         }
     }

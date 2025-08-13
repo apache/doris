@@ -36,7 +36,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -56,6 +56,7 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
@@ -171,7 +172,7 @@ public abstract class ExternalCatalog
 
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
-    protected PreExecutionAuthenticator preExecutionAuthenticator;
+    protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
 
     private volatile Configuration cachedConf = null;
@@ -195,8 +196,8 @@ public abstract class ExternalCatalog
      * If additional authentication logic is required, it should be extended and implemented in subclasses.
      */
     protected synchronized void initPreExecutionAuthenticator() {
-        if (preExecutionAuthenticator == null) {
-            preExecutionAuthenticator = new PreExecutionAuthenticator();
+        if (executionAuthenticator == null) {
+            executionAuthenticator = new ExecutionAuthenticator(){};
         }
     }
 
@@ -674,11 +675,6 @@ public abstract class ExternalCatalog
                 + ", table id: " + tableId);
     }
 
-    @Override
-    public String getResource() {
-        return catalogProperty.getResource();
-    }
-
     @Nullable
     @Override
     public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
@@ -788,8 +784,8 @@ public abstract class ExternalCatalog
         if (threadPoolWithPreAuth != null) {
             ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }
-        if (null != preExecutionAuthenticator) {
-            preExecutionAuthenticator = null;
+        if (null != executionAuthenticator) {
+            executionAuthenticator = null;
         }
         if (null != transactionManager) {
             transactionManager = null;
@@ -1107,6 +1103,32 @@ public abstract class ExternalCatalog
     }
 
     @Override
+    public boolean createTable(CreateTableCommand command) throws UserException {
+        makeSureInitialized();
+        org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo createTableInfo =
+                command.getCreateTableInfo();
+        if (metadataOps == null) {
+            throw new DdlException("Create table is not supported for catalog: " + getName());
+        }
+        try {
+            boolean res = metadataOps.createTable(createTableInfo);
+            if (!res) {
+                // res == false means the table does not exist before, and we create it.
+                // we should get the table stored in Doris, and use local name in edit log.
+                CreateTableInfo info = new CreateTableInfo(getName(), createTableInfo.getDbName(),
+                        createTableInfo.getTableName());
+                Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                LOG.info("finished to create table {}.{}.{}", getName(), createTableInfo.getDbName(),
+                        createTableInfo.getTableName());
+            }
+            return res;
+        } catch (Exception e) {
+            LOG.warn("Failed to create a table.", e);
+            throw e;
+        }
+    }
+
+    @Override
     public boolean createTable(CreateTableStmt stmt) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
@@ -1328,11 +1350,11 @@ public abstract class ExternalCatalog
         }
     }
 
-    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
-        if (null == preExecutionAuthenticator) {
-            throw new RuntimeException("PreExecutionAuthenticator is null, please confirm it is initialized.");
+    public ExecutionAuthenticator getExecutionAuthenticator() {
+        if (null == executionAuthenticator) {
+            throw new RuntimeException("ExecutionAuthenticator is null, please confirm it is initialized.");
         }
-        return preExecutionAuthenticator;
+        return executionAuthenticator;
     }
 
     @Override

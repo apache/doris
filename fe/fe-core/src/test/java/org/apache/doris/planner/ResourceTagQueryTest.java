@@ -17,8 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
@@ -39,6 +37,8 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -113,8 +113,12 @@ public class ResourceTagQueryTest {
 
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         // must set disk info, or the tablet scheduler won't work
         backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
@@ -181,8 +185,12 @@ public class ResourceTagQueryTest {
     }
 
     private static void alterTable(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void setProperty(String sql) throws Exception {
@@ -308,8 +316,12 @@ public class ResourceTagQueryTest {
         // create database
         String createDbStmtStr
                 = "create database test_prop PROPERTIES('replication_allocation' = 'tag.location.default:3');";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         // create table with default tag
         String createTableStr2 = "create table test_prop.tbl2\n"
@@ -320,7 +332,6 @@ public class ResourceTagQueryTest {
         //alter db change `replication_allocation`
         String alterDbStmtStr
                 = "alter database test_prop set PROPERTIES('replication_allocation' = 'tag.location.default:2');";
-        NereidsParser nereidsParser = new NereidsParser();
         AlterDatabasePropertiesCommand alterDatabasePropertiesCommand =
                 (AlterDatabasePropertiesCommand) nereidsParser.parseSingle(alterDbStmtStr);
         Env.getCurrentEnv().alterDatabaseProperty(alterDatabasePropertiesCommand.getDbName(), alterDatabasePropertiesCommand.getProperties());

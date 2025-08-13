@@ -19,11 +19,11 @@ package org.apache.doris.catalog;
 
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -55,8 +55,12 @@ public class EnvOperationTest {
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         createTable("create table test.renameTest\n"
                 + "(k1 int,k2 int)\n"
@@ -79,24 +83,30 @@ public class EnvOperationTest {
         }
     }
 
+    protected void alterTable(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
     @Test
     public void testRenameTable() throws Exception {
         // rename olap table
         String renameTblStmt = "alter table test.renameTest rename newNewTest";
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
-
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         Assert.assertNotNull(db);
         Assert.assertNotNull(db.getTableNullable("renameTest"));
 
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        alterTable(renameTblStmt);
         Assert.assertNull(db.getTableNullable("renameTest"));
         Assert.assertNotNull(db.getTableNullable("newNewTest"));
 
         // add a rollup and test rename to a rollup name(expect throw exception)
         String alterStmtStr = "alter table test.newNewTest add rollup r1(k2,k1)";
-        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        alterTable(alterStmtStr);
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
@@ -110,18 +120,18 @@ public class EnvOperationTest {
 
         Thread.sleep(1000);
         renameTblStmt = "alter table test.newNewTest rename r1";
-        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
         try {
-            Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+            alterTable(renameTblStmt);
             Assert.fail();
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("New name conflicts with rollup index name: r1"));
         }
 
         renameTblStmt = "alter table test.newNewTest rename goodName";
-        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        alterTable(renameTblStmt);
         Assert.assertNull(db.getTableNullable("newNewTest"));
         Assert.assertNotNull(db.getTableNullable("goodName"));
     }
+
+
 }

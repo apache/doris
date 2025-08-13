@@ -39,7 +39,7 @@
 #include "util/string_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 #define COUNTER_SIZE (sizeof(void*))
 #define PRETTY_PRINT_WIDTH 13
 
@@ -65,8 +65,8 @@ enum PERF_IO_IDX {
 
 // Wrapper around sys call.  This syscall is hard to use and this is how it is recommended
 // to be used.
-static inline int sys_perf_event_open(struct perf_event_attr* attr, pid_t pid, int cpu,
-                                      int group_fd, unsigned long flags) {
+static inline auto sys_perf_event_open(struct perf_event_attr* attr, pid_t pid, int cpu,
+                                       int64_t group_fd, unsigned long flags) {
     attr->size = sizeof(*attr);
     return syscall(__NR_perf_event_open, attr, pid, cpu, group_fd, flags);
 }
@@ -210,7 +210,7 @@ bool PerfCounters::init_sys_counter(Counter counter) {
         return false;
     }
 
-    int fd = sys_perf_event_open(&attr, getpid(), -1, _group_fd, 0);
+    auto fd = sys_perf_event_open(&attr, getpid(), -1, _group_fd, 0);
 
     if (fd < 0) {
         return false;
@@ -293,7 +293,7 @@ bool PerfCounters::init_proc_self_status_counter(Counter counter) {
 bool PerfCounters::get_sys_counters(std::vector<int64_t>& buffer) {
     for (int i = 0; i < _counters.size(); i++) {
         if (_counters[i].source == SYS_PERF_COUNTER) {
-            int num_bytes = read(_counters[i].fd, &buffer[i], COUNTER_SIZE);
+            auto num_bytes = read((int)_counters[i].fd, &buffer[i], COUNTER_SIZE);
 
             if (num_bytes != COUNTER_SIZE) {
                 return false;
@@ -396,7 +396,7 @@ PerfCounters::PerfCounters() : _group_fd(-1) {}
 PerfCounters::~PerfCounters() {
     for (int i = 0; i < _counters.size(); ++i) {
         if (_counters[i].source == SYS_PERF_COUNTER) {
-            close(_counters[i].fd);
+            close((int)_counters[i].fd);
         }
     }
 }
@@ -511,9 +511,9 @@ void PerfCounters::pretty_print(std::ostream* s) const {
 
     stream << std::endl;
 
-    for (int s = 0; s < _snapshots.size(); s++) {
-        stream << std::setw(8) << _snapshot_names[s];
-        const std::vector<int64_t>& snapshot = _snapshots[s];
+    for (int ss = 0; ss < _snapshots.size(); s++) {
+        stream << std::setw(8) << _snapshot_names[ss];
+        const std::vector<int64_t>& snapshot = _snapshots[ss];
 
         for (int i = 0; i < snapshot.size(); ++i) {
             stream << std::setw(PRETTY_PRINT_WIDTH)

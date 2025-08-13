@@ -21,8 +21,11 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
+#include <algorithm>
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -36,6 +39,7 @@
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/row_cursor.h"                   // RowCursor // IWYU pragma: keep
@@ -46,6 +50,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/variant_stats_calculator.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
@@ -58,18 +63,19 @@
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
 
@@ -106,7 +112,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
         _key_coders.push_back(get_key_coder(column.type()));
-        _key_index_size.push_back(column.index_length());
+        _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
     }
     if (_is_mow()) {
         // encode the sequence id into the primary key index
@@ -127,7 +133,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             for (auto cid : _tablet_schema->cluster_key_uids()) {
                 const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
-                _key_index_size.push_back(column.index_length());
+                _key_index_size.push_back(cast_set<uint16_t>(column.index_length()));
             }
         }
     }
@@ -157,18 +163,17 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
                          tablet_schema);
     }
-    // add sparse column to footer
-    for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
-        init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i), tablet_schema);
-    }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
     meta->set_be_exec_version(column.get_be_exec_version());
+    if (column.is_variant_type()) {
+        meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+    }
 }
 
 Status SegmentWriter::init() {
     std::vector<uint32_t> column_ids;
-    int column_cnt = _tablet_schema->num_columns();
+    auto column_cnt = cast_set<int>(_tablet_schema->num_columns());
     for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
@@ -204,8 +209,8 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
             return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
                                         gram_bf_size);
         }
-        opts.gram_size = gram_size;
-        opts.gram_bf_size = gram_bf_size;
+        opts.gram_size = cast_set<uint8_t>(gram_size);
+        opts.gram_bf_size = cast_set<uint16_t>(gram_bf_size);
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
@@ -219,16 +224,17 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-
     // indexes for this column
-    if (const auto& index = schema->inverted_index(column);
-        index != nullptr && !skip_inverted_index) {
-        opts.inverted_index = index;
-        opts.need_inverted_index = true;
-        DCHECK(_index_file_writer != nullptr);
-        opts.index_file_writer = _index_file_writer;
-        // TODO support multiple inverted index
+    if (!skip_inverted_index) {
+        auto inverted_indexs = schema->inverted_indexs(column);
+        if (!inverted_indexs.empty()) {
+            opts.inverted_indexes = inverted_indexs;
+            opts.need_inverted_index = true;
+            DCHECK(_index_file_writer != nullptr);
+        }
     }
+    opts.index_file_writer = _index_file_writer;
+
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \
@@ -283,6 +289,14 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
+    opts.rowset_ctx = _opts.rowset_ctx;
+    opts.file_writer = _file_writer;
+    opts.compression_type = _opts.compression_type;
+    opts.footer = &_footer;
+    if (_opts.rowset_ctx != nullptr) {
+        opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
+    }
+
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -304,6 +318,10 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     }
 
     RETURN_IF_ERROR(_create_writers(_tablet_schema, col_ids));
+
+    // Initialize variant statistics calculator
+    _variant_stats_calculator =
+            std::make_unique<VariantStatsCaculator>(&_footer, _tablet_schema, col_ids);
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
@@ -350,114 +368,6 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-// for variant type, we should do following steps to fill content of block:
-// 1. set block data to data convertor, and get all flattened columns from variant subcolumns
-// 2. get sparse columns from previous sparse columns stripped in OlapColumnDataConvertorVariant
-// 3. merge current columns info(contains extracted columns) with previous merged_tablet_schema
-//    which will be used to contruct the new schema for rowset
-Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& data) {
-    if (_tablet_schema->num_variant_columns() == 0) {
-        return Status::OK();
-    }
-    size_t column_id = _tablet_schema->num_columns();
-    for (int i = 0; i < _tablet_schema->columns().size(); ++i) {
-        if (!_tablet_schema->columns()[i]->is_variant_type()) {
-            continue;
-        }
-        if (_flush_schema == nullptr) {
-            _flush_schema = std::make_shared<TabletSchema>();
-            // deep copy
-            _flush_schema->copy_from(*_tablet_schema);
-        }
-        auto column_ref = data.get_by_position(i).column;
-        const vectorized::ColumnVariant& object_column = assert_cast<vectorized::ColumnVariant&>(
-                remove_nullable(column_ref)->assume_mutable_ref());
-        const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
-
-        // generate column info by entry info
-        auto generate_column_info = [&](const auto& entry) {
-            const std::string& column_name =
-                    parent_column->name_lower_case() + "." + entry->path.get_path();
-            const vectorized::DataTypePtr& final_data_type_from_object =
-                    entry->data.get_least_common_type();
-            vectorized::PathInDataBuilder full_path_builder;
-            auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
-                                     .append(entry->path.get_parts(), false)
-                                     .build();
-            return vectorized::schema_util::get_column_by_type(
-                    final_data_type_from_object, column_name,
-                    vectorized::schema_util::ExtraInfo {
-                            .unique_id = -1,
-                            .parent_unique_id = parent_column->unique_id(),
-                            .path_info = full_path});
-        };
-
-        CHECK(object_column.is_finalized());
-        // common extracted columns
-        for (const auto& entry :
-             vectorized::schema_util::get_sorted_subcolumns(object_column.get_subcolumns())) {
-            if (entry->path.empty()) {
-                // already handled by parent column
-                continue;
-            }
-            CHECK(entry->data.is_finalized());
-            int current_column_id = column_id++;
-            TabletColumn tablet_column = generate_column_info(entry);
-            vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
-                                                               _flush_schema);
-            RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
-                                                  _flush_schema));
-            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                    {entry->data.get_finalized_column_ptr()->get_ptr(),
-                     entry->data.get_least_common_type(), tablet_column.name()},
-                    0, data.rows(), current_column_id));
-            // convert column data from engine format to storage layer format
-            auto [status, column] = _olap_data_convertor->convert_column_data(current_column_id);
-            if (!status.ok()) {
-                return status;
-            }
-            RETURN_IF_ERROR(_column_writers[current_column_id]->append(
-                    column->get_nullmap(), column->get_data(), data.rows()));
-            _flush_schema->append_column(tablet_column);
-            _olap_data_convertor->clear_source_content();
-        }
-        // sparse_columns
-        for (const auto& entry : vectorized::schema_util::get_sorted_subcolumns(
-                     object_column.get_sparse_subcolumns())) {
-            TabletColumn sparse_tablet_column = generate_column_info(entry);
-            _flush_schema->mutable_column_by_uid(parent_column->unique_id())
-                    .append_sparse_column(sparse_tablet_column);
-
-            // add sparse column to footer
-            auto* column_pb = _footer.mutable_columns(i);
-            init_column_meta(column_pb->add_sparse_columns(), -1, sparse_tablet_column,
-                             _flush_schema);
-        }
-    }
-
-    // Update rowset schema, tablet's tablet schema will be updated when build Rowset
-    // Eg. flush schema:    A(int),    B(float),  C(int), D(int)
-    // ctx.tablet_schema:  A(bigint), B(double)
-    // => update_schema:   A(bigint), B(double), C(int), D(int)
-    std::lock_guard<std::mutex> lock(*(_opts.rowset_ctx->schema_lock));
-    if (_opts.rowset_ctx->merged_tablet_schema == nullptr) {
-        _opts.rowset_ctx->merged_tablet_schema = _opts.rowset_ctx->tablet_schema;
-    }
-    TabletSchemaSPtr update_schema;
-    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
-            {_opts.rowset_ctx->merged_tablet_schema, _flush_schema}, nullptr, update_schema));
-    CHECK_GE(update_schema->num_columns(), _flush_schema->num_columns())
-            << "Rowset merge schema columns count is " << update_schema->num_columns()
-            << ", but flush_schema is larger " << _flush_schema->num_columns()
-            << " update_schema: " << update_schema->dump_structure()
-            << " flush_schema: " << _flush_schema->dump_structure();
-    _opts.rowset_ctx->merged_tablet_schema.swap(update_schema);
-    VLOG_DEBUG << "dump block " << data.dump_data();
-    VLOG_DEBUG << "dump rs schema: " << _opts.rowset_ctx->merged_tablet_schema->dump_full_schema();
-    VLOG_DEBUG << "rowset : " << _opts.rowset_ctx->rowset_id << ", seg id : " << _segment_id;
-    return Status::OK();
-}
-
 void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
@@ -473,8 +383,8 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
             vectorized::DataTypeSerDeSPtrs serdes =
                     vectorized::create_data_type_serdes(block.get_data_types());
             vectorized::JsonbSerializeUtil::block_to_jsonb(
-                    *_tablet_schema, block, *row_store_column, _tablet_schema->num_columns(),
-                    serdes,
+                    *_tablet_schema, block, *row_store_column,
+                    cast_set<int>(_tablet_schema->num_columns()), serdes,
                     {_tablet_schema->row_columns_uids().begin(),
                      _tablet_schema->row_columns_uids().end()});
             break;
@@ -496,9 +406,9 @@ Status SegmentWriter::probe_key_for_mow(
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
-    auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
-                                      specified_rowsets, &loc, _mow_context->max_version,
-                                      segment_caches, &rowset);
+    auto st = _tablet->lookup_row_key(
+            key, _tablet_schema.get(), have_input_seq_column, specified_rowsets, &loc,
+            cast_set<uint32_t>(_mow_context->max_version), segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
         if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
@@ -537,7 +447,7 @@ Status SegmentWriter::probe_key_for_mow(
         // for this row, we need to ensure that each column is aligned
         _mow_context->delete_bitmap->add(
                 {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                segment_pos);
+                cast_set<uint32_t>(segment_pos));
         ++stats.num_rows_deleted;
     } else {
         _mow_context->delete_bitmap->add(
@@ -616,7 +526,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
-    size_t segment_start_pos;
+    size_t segment_start_pos = 0;
     for (auto cid : including_cids) {
         // here we get segment column row num before append data.
         segment_start_pos = _column_writers[cid]->get_next_rowid();
@@ -678,7 +588,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         auto not_found_cb = [&]() {
             return _opts.rowset_ctx->partial_update_info->handle_new_key(
                     *_tablet_schema, [&]() -> std::string {
-                        return block->dump_one_line(block_pos, _num_sort_key_columns);
+                        return block->dump_one_line(block_pos,
+                                                    cast_set<int>(_num_sort_key_columns));
                     });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
@@ -699,7 +610,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // read to fill full block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable, segment_start_pos, block));
+            use_default_or_null_flag, has_default_or_nullable,
+            cast_set<uint32_t>(segment_start_pos), block));
 
     // convert block to row store format
     _serialize_block_to_row_column(full_block);
@@ -744,7 +656,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
     _olap_data_convertor->clear_source_content();
 
-    RETURN_IF_ERROR(append_block_with_variant_subcolumns(full_block));
     return Status::OK();
 }
 
@@ -764,9 +675,17 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
         return Status::OK();
     }
+    if (block->columns() < _column_writers.size()) {
+        return Status::InternalError(
+                "block->columns() < _column_writers.size(), block->columns()=" +
+                std::to_string(block->columns()) +
+                ", _column_writers.size()=" + std::to_string(_column_writers.size()) +
+                ", _tablet_schema->dump_structure()=" + _tablet_schema->dump_structure());
+    }
     CHECK(block->columns() >= _column_writers.size())
             << ", block->columns()=" << block->columns()
-            << ", _column_writers.size()=" << _column_writers.size();
+            << ", _column_writers.size()=" << _column_writers.size()
+            << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
@@ -811,6 +730,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
     }
+    if (_opts.write_type == DataWriteType::TYPE_COMPACTION) {
+        RETURN_IF_ERROR(
+                _variant_stats_calculator->calculate_variant_stats(block, row_pos, num_rows));
+    }
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
             // for now we don't need to query short key index for CLUSTER BY feature,
@@ -854,12 +777,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         } else {
             RETURN_IF_ERROR(_generate_short_key_index(key_columns, num_rows, short_key_pos));
         }
-    }
-
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        RETURN_IF_ERROR(
-                append_block_with_variant_subcolumns(*const_cast<vectorized::Block*>(block)));
     }
 
     _num_rows_written += num_rows;
@@ -959,7 +876,7 @@ std::string SegmentWriter::_encode_keys(
 template <typename RowType>
 Status SegmentWriter::append_row(const RowType& row) {
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
-        auto cell = row.cell(cid);
+        auto cell = row.cell(cast_set<uint32_t>(cid));
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
     std::string full_encoded_key;
@@ -1201,13 +1118,14 @@ Status SegmentWriter::_write_footer() {
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;
+    VLOG_DEBUG << "footer " << _footer.DebugString();
     if (!_footer.SerializeToString(&footer_buf)) {
         return Status::InternalError("failed to serialize segment footer");
     }
 
     faststring fixed_buf;
     // footer's size
-    put_fixed32_le(&fixed_buf, footer_buf.size());
+    put_fixed32_le(&fixed_buf, cast_set<uint32_t>(footer_buf.size()));
     // footer's checksum
     uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
@@ -1324,5 +1242,8 @@ inline bool SegmentWriter::_is_mow() {
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
+
+#include "common/compile_check_end.h"
+
 } // namespace segment_v2
 } // namespace doris

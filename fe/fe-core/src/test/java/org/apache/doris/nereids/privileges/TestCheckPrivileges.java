@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.policy.FilterType;
@@ -172,7 +171,7 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
                         if (!(ne instanceof Alias) || !ne.getName().equals("id")) {
                             return false;
                         }
-                        return ne.child(0) instanceof Concat;
+                        return ne.child(0).toSql().equals("'1_****_1'");
                     };
                     PlanChecker.from(connectContext)
                             .parse("select id,"

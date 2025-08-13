@@ -34,21 +34,6 @@ null
 -- !sql_array --
 {"arr":[1.000000000,1.200000000]}
 
--- !sql_map --
-{"map":{"a":"b","c":"d"}}
-
--- !sql_map --
-{"map":{"a":1,"c":2}}
-
--- !sql_map --
-{"map":{"a":1.1,"c":2.2}}
-
--- !sql_map --
-{"map":{"a":1.1,"c":2}}
-
--- !sql_map --
-{"map":{"a":1,"c":1.2}}
-
 -- !sql_struct --
 {"struct":{"name":"a","age":1}}
 
@@ -68,9 +53,27 @@ null
 {"json":{"a":1.1}}
 
 -- !sql3 --
-{"data":{"array":null,"map":null,"struct":null,"json":null}}
-{"data":{"array":["a","b"],"map":{"a":"b"},"struct":{"name":"a","age":1},"json":{"a":"b"}}}
-{"data":{"array":["\\"a\\"","\\"b\\""],"map":{"\\"a\\"":"\\"b\\"","\\"c\\"":"\\"d\\""},"struct":{"name":"\\"a\\"","age":1},"json":{"c":"d"}}}
-{"data":{"array":["1","2"],"map":{"1":"2"},"struct":{"name":"2","age":1},"json":{"a":"b"}}}
-{"data":{"array":["1","2","3","3"],"map":{"1":"2","3":"4"},"struct":{"name":"a","age":1},"json":{"a":"b"}}}
+{"data":{"array":null,"map":{"x":"y"},"struct":null,"json":null}}
+{"data":{"array":["a","b"],"map":{"x":"y"},"struct":{"name":"a","age":1},"json":{"a":"b"}}}
+{"data":{"array":["\\"a\\"","\\"b\\""],"map":{"x":"y"},"struct":{"name":"\\"a\\"","age":1},"json":{"c":"d"}}}
+{"data":{"array":["1","2"],"map":{"x":"y"},"struct":{"name":"2","age":1},"json":{"a":"b"}}}
+{"data":{"array":["1","2","3","3"],"map":{"x":"y"},"struct":{"name":"a","age":1},"json":{"a":"b"}}}
+
+-- !replace1 --
+2
+
+-- !replace2 --
+1
+
+-- !replace3 --
+{"k":2}
+
+-- !replace4 --
+{"k":1}
+
+-- !replace5 --
+{"k":null}
+
+-- !replace6 --
+\N
 

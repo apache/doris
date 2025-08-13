@@ -169,7 +169,7 @@ TEST(FunctionVariantCast, CastFromVariant) {
     {
         auto variant_type = std::make_shared<DataTypeVariant>();
         auto int32_type = std::make_shared<DataTypeInt32>();
-        auto variant_col = ColumnVariant::create(true);
+        auto variant_col = ColumnVariant::create(0);
 
         // Create a variant column with integer values
         variant_col->create_root(int32_type, ColumnInt32::create());
@@ -208,7 +208,7 @@ TEST(FunctionVariantCast, CastFromVariant) {
     {
         auto variant_type = std::make_shared<DataTypeVariant>();
         auto string_type = std::make_shared<DataTypeString>();
-        auto variant_col = ColumnVariant::create(true);
+        auto variant_col = ColumnVariant::create(0);
 
         // Create a variant column with string values
         variant_col->create_root(string_type, ColumnString::create());
@@ -244,7 +244,7 @@ TEST(FunctionVariantCast, CastFromVariant) {
     {
         auto variant_type = std::make_shared<DataTypeVariant>();
         auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
-        auto variant_col = ColumnVariant::create(true);
+        auto variant_col = ColumnVariant::create(0);
 
         // Create a variant column with array values
         variant_col->create_root(
@@ -292,7 +292,7 @@ TEST(FunctionVariantCast, CastVariantWithNull) {
     auto nullable_int32_type = std::make_shared<DataTypeNullable>(int32_type);
 
     // Create a variant column with nullable integer values
-    auto variant_col = ColumnVariant::create(true);
+    auto variant_col = ColumnVariant::create(0);
     variant_col->create_root(nullable_int32_type,
                              ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create()));
     MutableColumnPtr data = variant_col->get_root();
@@ -342,7 +342,7 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         dynamic_subcolumns.add(
                 vectorized::PathInData(ColumnVariant::COLUMN_NAME_DUMMY),
                 vectorized::ColumnVariant::Subcolumn {root->get_ptr(), int32_type, true, true});
-        auto variant_col = ColumnVariant::create(std::move(dynamic_subcolumns), true);
+        auto variant_col = ColumnVariant::create(0, std::move(dynamic_subcolumns));
 
         variant_col->finalize();
         ColumnsWithTypeAndName arguments {{variant_col->get_ptr(), variant_type, "variant_col"},

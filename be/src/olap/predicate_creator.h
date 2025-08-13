@@ -35,7 +35,7 @@
 #include "util/string_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 template <typename ConditionType>
 class PredicateCreator {
 public:
@@ -95,8 +95,9 @@ private:
     static CppType convert(const TabletColumn& column, const std::string& condition) {
         StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
         // return CppType value cast from int128_t
-        return CppType(StringParser::string_to_decimal<Type>(
-                condition.data(), condition.size(), column.precision(), column.frac(), &result));
+        return CppType(
+                StringParser::string_to_decimal<Type>(condition.data(), (int)condition.size(),
+                                                      column.precision(), column.frac(), &result));
     }
 };
 
@@ -324,5 +325,5 @@ inline ColumnPredicate* parse_to_predicate(const TabletColumn& column, uint32_t 
     }
     return create(column, index, condition.condition_values[0], opposite, arena);
 }
-
+#include "common/compile_check_end.h"
 } //namespace doris

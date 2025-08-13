@@ -24,6 +24,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 // Encode page use frame-of-reference coding
 template <FieldType Type>
@@ -138,7 +139,7 @@ public:
             }
         }
 
-        int32_t skip_num = pos - _cur_index;
+        auto skip_num = cast_set<int32_t>(pos - _cur_index);
         _decoder->skip(skip_num);
         _cur_index = pos;
         return Status::OK();
@@ -176,5 +177,6 @@ private:
     std::unique_ptr<ForDecoder<CppType>> _decoder;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

@@ -26,11 +26,13 @@
 #include <iterator>
 #include <limits>
 
-#include "gutil/endian.h"
+#include "common/cast_set.h"
 #include "util/bit_util.h"
 #include "util/coding.h"
+#include "vec/common/endian.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 const T* ForEncoder<T>::copy_value(const T* p_data, size_t count) {
@@ -216,14 +218,14 @@ void ForEncoder<T>::bit_pack_1(const T* input, uint8_t in_num, int bit_width, ui
         // (num-j-1)<<3 used to calculate how many bits need to be removed at the end
         // But since there are still remainder bits that can't be processed, need to add the remainder
         for (int j = 0; j < num; j++) {
-            *output = (x >> (((num - j - 1) << 3) + remainder)) & output_mask;
+            *output = cast_set<uint8_t>((x >> (((num - j - 1) << 3) + remainder)) & output_mask);
             output++;
         }
         if (remainder) {
             // Process the last remaining remainder bit.
             // y = (x & ((1 << remainder) - 1)) extract the last remainder bits.
             // ouput = y << (8 - reaminder)  Use the high 8 - remainder bit
-            *output = (x & ((1 << remainder) - 1)) << (8 - remainder);
+            *output = cast_set<uint8_t>((x & ((1 << remainder) - 1)) << (8 - remainder));
             // Already have remainder bits, next time need 8-remainder bits
             need_bit = 8 - remainder;
         } else {
@@ -304,11 +306,11 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
 
     // 2. save min value.
     if (sizeof(T) == 16) {
-        put_fixed128_le(_buffer, min);
+        put_fixed128_le(_buffer, static_cast<uint128_t>(min));
     } else if (sizeof(T) == 8) {
-        put_fixed64_le(_buffer, min);
+        put_fixed64_le(_buffer, static_cast<uint64_t>(min));
     } else {
-        put_fixed32_le(_buffer, min);
+        put_fixed32_le(_buffer, static_cast<uint32_t>(min));
     }
 
     // 3.1 save original value.
@@ -373,7 +375,7 @@ uint32_t ForEncoder<T>::flush() {
     _buffer->append(&frame_value_num, 1);
     put_fixed32_le(_buffer, _values_num);
 
-    return _buffer->size();
+    return cast_set<uint32_t>(_buffer->size());
 }
 
 template <typename T>
@@ -397,7 +399,8 @@ bool ForDecoder<T>::init() {
     _max_frame_size = decode_fixed8(_buffer + _buffer_len - 5);
     _values_num = decode_fixed32_le(_buffer + _buffer_len - 4);
     _frame_count = _values_num / _max_frame_size + (_values_num % _max_frame_size != 0);
-    _last_frame_size = _max_frame_size - (_max_frame_size * _frame_count - _values_num);
+    _last_frame_size =
+            cast_set<uint8_t>(_max_frame_size - (_max_frame_size * _frame_count - _values_num));
 
     size_t bit_width_offset = _buffer_len - 5 - _frame_count * 2;
 
@@ -440,11 +443,12 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
     int valid_bit = 0;                                  // How many valid bits
     int need_bit = 0;                                   // still need
     size_t input_size = (in_num * bit_width + 7) >> 3;  // input's size
-    int full_batch_size = (input_size >> u_size_shift)
-                          << u_size_shift;      // Adjust input_size to a multiple of u_size
+    int full_batch_size =
+            cast_set<int>((input_size >> u_size_shift)
+                          << u_size_shift);     // Adjust input_size to a multiple of u_size
     int tail_count = input_size & (u_size - 1); // The remainder of input_size modulo u_size.
     // The number of bits in input to adjust to multiples of 8 and thus more
-    int more_bit = (input_size << 3) - (in_num * bit_width);
+    int more_bit = cast_set<int>((input_size << 3) - (in_num * bit_width));
 
     // to ensure that only bit_width bits are valid
     T output_mask;
@@ -475,7 +479,14 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
             // we need to make up the rest of the need_bit from the width.
             // Use valid_bit - need_bit to compute high need_bit bits of s
             // perform an AND operation to ensure that only need_bit bits are valid
-            *output |= ((s >> (valid_bit - need_bit)) & ((static_cast<U>(1) << need_bit) - 1));
+            auto mask = (static_cast<U>(1) << need_bit) - 1;
+            auto shifted = s >> (valid_bit - need_bit);
+            auto masked_result = shifted & mask;
+            if constexpr (sizeof(T) <= 4) {
+                *output |= static_cast<T>(static_cast<uint32_t>(masked_result));
+            } else {
+                *output |= static_cast<T>(masked_result);
+            }
             output++;
             valid_bit -= need_bit;
         }
@@ -497,8 +508,14 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
             // Process the last remaining remainder bit.
             // y = (s & ((static_cast<U>(1) << remainder) - 1)) extract the last remainder bits.
             // output = y << (bit_width - remainder) Use the high bit_width - remainder bit
-            *output = static_cast<T>((s & ((static_cast<U>(1) << remainder) - 1))
-                                     << (bit_width - remainder));
+            if constexpr (sizeof(T) <= 4) {
+                auto masked_value = static_cast<T>(
+                        static_cast<uint32_t>(s & ((static_cast<U>(1) << remainder) - 1)));
+                *output = static_cast<T>(masked_value << (bit_width - remainder));
+            } else {
+                auto masked_value = static_cast<T>((s & ((static_cast<U>(1) << remainder) - 1)));
+                *output = static_cast<T>(masked_value << (bit_width - remainder));
+            }
             // Already have remainder bits, next time need bit_width - remainder bits
             need_bit = bit_width - remainder;
         } else {
@@ -521,7 +538,13 @@ void ForDecoder<T>::bit_unpack_optimize(const uint8_t* input, uint8_t in_num, in
 
         // same as before
         if (need_bit) {
-            *output |= ((s >> (valid_bit - need_bit)) & ((static_cast<U>(1) << need_bit) - 1));
+            if constexpr (sizeof(T) <= 4) {
+                *output |= static_cast<T>(static_cast<uint32_t>(
+                        (s >> (valid_bit - need_bit)) & ((static_cast<U>(1) << need_bit) - 1)));
+            } else {
+                *output |= static_cast<T>((s >> (valid_bit - need_bit)) &
+                                          ((static_cast<U>(1) << need_bit) - 1));
+            }
             output++;
             valid_bit -= need_bit;
         }
@@ -561,19 +584,19 @@ void ForDecoder<T>::decode_current_frame(T* output) {
         return; // current frame already decoded
     }
     _current_decoded_frame = frame_index;
-    uint8_t current_frame_size = frame_size(frame_index);
+    uint8_t current_frame_size = cast_set<uint8_t>(frame_size(frame_index));
 
     uint32_t base_offset = _frame_offsets[_current_decoded_frame];
     T min = 0;
     uint32_t delta_offset = 0;
-    if (sizeof(T) == 16) {
-        min = decode_fixed128_le(_buffer + base_offset);
+    if constexpr (sizeof(T) == 16) {
+        min = static_cast<T>(decode_fixed128_le(_buffer + base_offset));
         delta_offset = base_offset + 16;
-    } else if (sizeof(T) == 8) {
-        min = decode_fixed64_le(_buffer + base_offset);
+    } else if constexpr (sizeof(T) == 8) {
+        min = static_cast<T>(decode_fixed64_le(_buffer + base_offset));
         delta_offset = base_offset + 8;
     } else {
-        min = decode_fixed32_le(_buffer + base_offset);
+        min = static_cast<T>(decode_fixed32_le(_buffer + base_offset));
         delta_offset = base_offset + 4;
     }
 
@@ -605,12 +628,12 @@ template <typename T>
 T ForDecoder<T>::decode_frame_min_value(uint32_t frame_index) {
     uint32_t min_offset = _frame_offsets[frame_index];
     T min = 0;
-    if (sizeof(T) == 16) {
-        min = decode_fixed128_le(_buffer + min_offset);
-    } else if (sizeof(T) == 8) {
-        min = decode_fixed64_le(_buffer + min_offset);
+    if constexpr (sizeof(T) == 16) {
+        min = static_cast<T>(decode_fixed128_le(_buffer + min_offset));
+    } else if constexpr (sizeof(T) == 8) {
+        min = static_cast<T>(decode_fixed64_le(_buffer + min_offset));
     } else {
-        min = decode_fixed32_le(_buffer + min_offset);
+        min = static_cast<T>(decode_fixed32_le(_buffer + min_offset));
     }
     return min;
 }
@@ -699,7 +722,7 @@ bool ForDecoder<T>::seek_lower_bound_inside_frame(uint32_t frame_index, T target
     auto end = _out_buffer.begin() + frame_size(frame_index);
     auto pos = std::lower_bound(_out_buffer.begin(), end, target);
     if (pos != end) { // found in this frame
-        uint32_t pos_in_frame = std::distance(_out_buffer.begin(), pos);
+        auto pos_in_frame = cast_set<uint32_t>(std::distance(_out_buffer.begin(), pos));
         *exact_match = _out_buffer[pos_in_frame] == target;
         _current_index += pos_in_frame;
         return true;
@@ -754,4 +777,5 @@ template class ForDecoder<uint32_t>;
 template class ForDecoder<uint64_t>;
 template class ForDecoder<uint24_t>;
 template class ForDecoder<uint128_t>;
+#include "common/compile_check_end.h"
 } // namespace doris

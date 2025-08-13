@@ -39,6 +39,12 @@ public:
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
 
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
+
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const final;
 
@@ -71,10 +77,6 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
-
-    Status _from_string(const std::string& str, double& res) const;
-
-    Status _from_string_strict_mode(const std::string& str, double& res) const;
 
     int _scale;
 };

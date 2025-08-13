@@ -36,6 +36,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "io/io_common.h"
@@ -48,7 +49,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
@@ -339,7 +340,7 @@ struct OlapReaderStatistics {
     int64_t rows_stats_filtered = 0;
     int64_t rows_stats_rp_filtered = 0;
     int64_t rows_bf_filtered = 0;
-    int64_t rows_dict_filtered = 0;
+    int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
@@ -377,6 +378,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    int64_t inverted_index_analyzer_timer = 0;
+    int64_t inverted_index_lookup_timer = 0;
     InvertedIndexStatistics inverted_index_stats;
 
     int64_t output_index_result_column_timer = 0;
@@ -464,7 +467,7 @@ struct RowsetId {
     void init(int64_t rowset_id) { init(1, rowset_id, 0, 0); }
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
-        version = id_version;
+        version = cast_set<int8_t>(id_version);
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
             throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
         }
@@ -605,7 +608,7 @@ struct VersionWithTime {
         }
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris
 
 // This intended to be a "good" hash function.  It may change from time to time.

@@ -18,23 +18,17 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionGroupArrayIntersect.cpp
 // and modified by Doris
 
-#include <cassert>
 #include <memory>
 
 #include "exprs/hybrid_set.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
-#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/io/io_helper.h"
-#include "vec/io/var_int.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -127,7 +121,9 @@ struct AggregateFunctionGroupArrayIntersectData {
 template <PrimitiveType T>
 class AggregateFunctionGroupArrayIntersect
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
-                                              AggregateFunctionGroupArrayIntersect<T>> {
+                                              AggregateFunctionGroupArrayIntersect<T>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 private:
     using State = AggregateFunctionGroupArrayIntersectData<T>;
     DataTypePtr argument_type;
@@ -486,7 +482,7 @@ public:
 
         StringRef element;
         for (UInt64 i = 0; i < size; ++i) {
-            element = read_binary_into(arena, buf);
+            element = buf.read_binary_into(arena);
             data.value->insert((void*)element.data, element.size);
         }
     }

@@ -61,7 +61,7 @@ public class AlterViewInfo extends BaseViewInfo {
         viewName.analyze(ctx);
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
-        Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewStmt");
+        Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewCommand");
 
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(viewName.getDb());
         TableIf table = db.getTableOrAnalysisException(viewName.getTbl());

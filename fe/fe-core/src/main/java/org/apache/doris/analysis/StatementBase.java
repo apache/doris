@@ -42,9 +42,6 @@ public abstract class StatementBase implements ParseNode {
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()
 
-    // Analyzer that was used to analyze this statement.
-    protected Analyzer analyzer;
-
     // END: Members that need to be reset()
     /////////////////////////////////////////
 
@@ -63,7 +60,6 @@ public abstract class StatementBase implements ParseNode {
      * C'tor for cloning.
      */
     protected StatementBase(StatementBase other) {
-        analyzer = other.analyzer;
         explainOptions = other.explainOptions;
     }
 
@@ -76,25 +72,10 @@ public abstract class StatementBase implements ParseNode {
      * Should call the method firstly when override the method, the analyzer param should be
      * the one which statement would use.
      */
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (isAnalyzed()) {
-            return;
-        }
-        this.analyzer = analyzer;
-        if (analyzer.getRootStatementClazz() == null) {
-            analyzer.setRootStatementClazz(this.getClass());
-        }
+    public void analyze() throws UserException {
     }
 
     public void checkPriv() throws AnalysisException {
-    }
-
-    public Analyzer getAnalyzer() {
-        return analyzer;
-    }
-
-    public boolean isAnalyzed() {
-        return analyzer != null;
     }
 
     public void setIsExplain(ExplainOptions options) {
@@ -203,7 +184,6 @@ public abstract class StatementBase implements ParseNode {
      * into the ParseNode interface for clarity.
      */
     public void reset() {
-        analyzer = null;
     }
 
     // Override this method and return true

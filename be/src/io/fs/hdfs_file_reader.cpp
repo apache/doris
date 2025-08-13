@@ -208,8 +208,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     size_t has_read = 0;
     while (has_read < bytes_req) {
-        int64_t loop_read =
-                hdfsRead(_handle->fs(), _handle->file(), to + has_read, bytes_req - has_read);
+        int64_t loop_read = hdfsRead(_handle->fs(), _handle->file(), to + has_read,
+                                     static_cast<int32_t>(bytes_req - has_read));
         if (loop_read < 0) {
             // invoker maybe just skip Status.NotFound and continue
             // so we need distinguish between it and other kinds of errors

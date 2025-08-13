@@ -28,6 +28,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "file_scanner.h"
@@ -42,6 +43,7 @@
 #include "util/defer_op.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/olap_scanner.h" // IWYU pragma: keep
 #include "vec/exec/scan/scan_node.h"
@@ -260,6 +262,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
                     break;
                 }
+                // Check column type only after block is read successfully.
+                // Or it may cause a crash when the block is not normal.
+                _make_sure_virtual_col_is_materialized(scanner, free_block.get());
                 // Projection will truncate useless columns, makes block size change.
                 auto free_block_bytes = free_block->allocated_bytes();
                 raw_bytes_read += free_block_bytes;
@@ -359,6 +364,42 @@ int ScannerScheduler::get_remote_scan_thread_num() {
 
 int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
+void ScannerScheduler::_make_sure_virtual_col_is_materialized(
+        const std::shared_ptr<Scanner>& scanner, vectorized::Block* free_block) {
+#ifndef NDEBUG
+    // Currently, virtual column can only be used on olap table.
+    std::shared_ptr<OlapScanner> olap_scanner = std::dynamic_pointer_cast<OlapScanner>(scanner);
+    if (olap_scanner == nullptr) {
+        return;
+    }
+
+    size_t idx = 0;
+    for (const auto& entry : *free_block) {
+        // Virtual column must be materialized on the end of SegmentIterator's next batch method.
+        const vectorized::ColumnNothing* column_nothing =
+                vectorized::check_and_get_column<vectorized::ColumnNothing>(entry.column.get());
+        if (column_nothing == nullptr) {
+            idx++;
+            continue;
+        }
+
+        std::vector<std::string> vcid_to_idx;
+
+        for (const auto& pair : olap_scanner->_vir_cid_to_idx_in_block) {
+            vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+        }
+
+        std::string error_msg = fmt::format(
+                "Column in idx {} is nothing, block columns {}, normal_columns "
+                "{}, "
+                "vir_cid_to_idx_in_block_msg {}",
+                idx, free_block->columns(), olap_scanner->_return_columns.size(),
+                fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ",")));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, error_msg);
+    }
+#endif
 }
 
 Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono::nanoseconds) {

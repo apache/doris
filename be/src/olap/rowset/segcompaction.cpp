@@ -97,8 +97,8 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     read_options.record_rowids = record_rowids;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
-        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(ctx.rowset_id, *segments,
-                                                                    delete_bitmap));
+        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+                ctx.tablet_schema, ctx.rowset_id, *segments, delete_bitmap));
         for (auto& seg_ptr : *segments) {
             auto d = delete_bitmap->get_agg(
                     {ctx.rowset_id, seg_ptr->id(), DeleteBitmap::TEMP_VERSION_COMMON});
@@ -178,7 +178,8 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         }
         // Delete inverted index files
         for (auto&& column : schema->columns()) {
-            if (const auto* index_info = schema->inverted_index(*column); index_info != nullptr) {
+            auto index_infos = schema->inverted_indexs(*column);
+            for (const auto& index_info : index_infos) {
                 auto index_id = index_info->index_id();
                 if (schema->get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {

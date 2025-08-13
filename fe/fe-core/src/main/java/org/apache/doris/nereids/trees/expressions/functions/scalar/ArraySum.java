@@ -70,6 +70,11 @@ public class ArraySum extends ScalarFunction implements ExplicitlyCastableSignat
         super("array_sum", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArraySum(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -85,7 +90,7 @@ public class ArraySum extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public ArraySum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArraySum(children.get(0));
+        return new ArraySum(getFunctionParams(children));
     }
 
     @Override

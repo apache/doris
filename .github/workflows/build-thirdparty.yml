@@ -120,7 +120,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes "${packages[@]}"
 
           mkdir -p "${DEFAULT_DIR}"
-          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.25/ldb_toolchain_gen.sh \
             -q -O /tmp/ldb_toolchain_gen.sh
           bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
 
@@ -173,7 +173,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
           )
 
           # Install packages except cmake
@@ -231,7 +231,7 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
           )
 
           # Install packages except cmake

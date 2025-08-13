@@ -17,11 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
@@ -42,7 +38,12 @@ import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartit
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -112,10 +113,15 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         createTable(createSourceInterPTable, true);
 
         // create external catalog and switch it
-        CreateCatalogStmt hiveCatalog = createStmt("create catalog " + mockedCtlName
+        String hiveCatalog = "create catalog " + mockedCtlName
                 + " properties('type' = 'hms',"
-                + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');");
-        Env.getCurrentEnv().getCatalogMgr().createCatalog(hiveCatalog);
+                + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(hiveCatalog);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
         switchHive();
 
         // create db and use it
@@ -183,10 +189,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 return null;
             }
         };
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("hive", mockedDbName), dbProps);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        CreateDatabaseCommand command = new CreateDatabaseCommand(true, new DbName("hive", mockedDbName), dbProps);
+        Env.getCurrentEnv().createDb(command);
         // checkout ifNotExists
-        Env.getCurrentEnv().createDb(createDbStmt);
+        Env.getCurrentEnv().createDb(command);
         useDatabase(mockedDbName);
 
         // un-partitioned table
@@ -252,11 +258,22 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     @Override
     protected void runAfterAll() throws Exception {
         switchHive();
-        String createDbStmtStr = "DROP DATABASE IF EXISTS " + mockedDbName;
-        DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Env.getCurrentEnv().dropDb(createDbStmt);
+        String dropDbStmtStr = "DROP DATABASE IF EXISTS " + mockedDbName;
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbStmtStr);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(connectContext, null);
+        }
+
         // check IF EXISTS
-        Env.getCurrentEnv().dropDb(createDbStmt);
+        DropDatabaseCommand command = (DropDatabaseCommand) logicalPlan;
+        DropDatabaseInfo dropDatabaseInfo = command.getDropDatabaseInfo();
+        Env.getCurrentEnv().dropDb(
+                dropDatabaseInfo.getCatalogName(),
+                dropDatabaseInfo.getDatabaseName(),
+                dropDatabaseInfo.isIfExists(),
+                dropDatabaseInfo.isForce());
     }
 
     @Test
@@ -306,7 +323,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createUnPartTable, true);
-        dropTable("unpart_tbl", true);
+        dropTableWithSql("drop table unpart_tbl");
 
         String createPartTable = "CREATE TABLE IF NOT EXISTS `part_tbl`(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
@@ -325,7 +342,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         createTable(createPartTable, true);
         // check IF NOT EXISTS
         createTable(createPartTable, true);
-        dropTable("part_tbl", true);
+        dropTableWithSql("drop table part_tbl");
 
         String createBucketedTableErr = "CREATE TABLE `err_buck_tbl`(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
@@ -354,7 +371,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createBucketedTableOk1, true);
-        dropTable("buck_tbl", true);
+        dropTableWithSql("drop table buck_tbl");
 
         String createBucketedTableOk2 = "CREATE TABLE `part_buck_tbl`(\n"
                 + "  `col1` BOOLEAN COMMENT 'col1',\n"
@@ -370,7 +387,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + "  'location'='hdfs://loc/db/tbl',\n"
                 + "  'file_format'='orc')";
         createTable(createBucketedTableOk2, true);
-        dropTable("part_buck_tbl", true);
+        dropTableWithSql("drop table part_buck_tbl");
     }
 
     @Test
@@ -457,7 +474,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + " PROPERTIES('replication_num' = '1')"
                 + " AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasOkPlan = createTablesAndReturnPlans(true, olapCtasOk).get(0);
-        CreateTableStmt stmt = ((CreateTableCommand) olapCtasOkPlan).getCreateTableInfo().translateToLegacyStmt();
+        CreateTableInfo stmt = ((CreateTableCommand) olapCtasOkPlan).getCreateTableInfo();
         Assertions.assertTrue(stmt.getDistributionDesc() instanceof HashDistributionDesc);
         Assertions.assertEquals(10, stmt.getDistributionDesc().getBuckets());
         // ((CreateTableCommand) olapCtasOkPlan).run(connectContext, null);
@@ -466,9 +483,9 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
                 + " PROPERTIES('replication_num' = '1')"
                 + " AS SELECT * FROM internal.mockedDb.olap_src";
         LogicalPlan olapCtasOk2Plan = createTablesAndReturnPlans(true, olapCtasOk2).get(0);
-        CreateTableStmt stmt2 = ((CreateTableCommand) olapCtasOk2Plan).getCreateTableInfo().translateToLegacyStmt();
-        Assertions.assertTrue(stmt2.getDistributionDesc() instanceof HashDistributionDesc);
-        Assertions.assertEquals(16, stmt2.getDistributionDesc().getBuckets());
+        CreateTableInfo createTableInfo = ((CreateTableCommand) olapCtasOk2Plan).getCreateTableInfo();
+        Assertions.assertTrue(createTableInfo.getDistributionDesc() instanceof HashDistributionDesc);
+        Assertions.assertEquals(16, createTableInfo.getDistributionDesc().getBuckets());
     }
 
     private static void mockTargetTable(List<Column> schema, Set<String> partNames) {
@@ -633,9 +650,9 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         resetCheckedColumns(checkArrayCols);
 
         LogicalPlan plan = createTablesAndReturnPlans(true, createArrayTypeTable).get(0);
-        List<Column> columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        List<Column> columns = ((CreateTableCommand) plan).getCreateTableInfo().getColumns();
         Assertions.assertEquals(5, columns.size());
-        dropTable("complex_type_array", true);
+        dropTableWithSql("drop table complex_type_array");
 
         String createMapTypeTable = "CREATE TABLE complex_type_map(\n"
                 + "  `col1` MAP<int,string> COMMENT 'col1',\n"
@@ -652,9 +669,9 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         resetCheckedColumns(checkArrayCols);
 
         plan = createTablesAndReturnPlans(true, createMapTypeTable).get(0);
-        columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        columns = ((CreateTableCommand) plan).getCreateTableInfo().getColumns();
         Assertions.assertEquals(4, columns.size());
-        dropTable("complex_type_map", true);
+        dropTableWithSql("drop table complex_type_map");
 
         String createStructTypeTable = "CREATE TABLE complex_type_struct(\n"
                 + "  `col1` STRUCT<rates:ARRAY<double>,name:string> COMMENT 'col1',\n"
@@ -671,9 +688,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         resetCheckedColumns(checkArrayCols);
 
         plan = createTablesAndReturnPlans(true, createStructTypeTable).get(0);
-        columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        columns = ((CreateTableCommand) plan).getCreateTableInfo().getColumns();
         Assertions.assertEquals(4, columns.size());
-        dropTable("complex_type_struct", true);
+        dropTableWithSql("drop table complex_type_struct");
+
 
         String compoundTypeTable1 = "CREATE TABLE complex_type_compound1(\n"
                 + "  `col1` ARRAY<MAP<string,double>> COMMENT 'col1',\n"
@@ -687,9 +705,9 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         resetCheckedColumns(checkArrayCols);
 
         plan = createTablesAndReturnPlans(true, compoundTypeTable1).get(0);
-        columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        columns = ((CreateTableCommand) plan).getCreateTableInfo().getColumns();
         Assertions.assertEquals(2, columns.size());
-        dropTable("complex_type_compound1", true);
+        dropTableWithSql("drop table complex_type_compound1");
 
         String compoundTypeTable2 = "CREATE TABLE complex_type_compound2(\n"
                 + "  `col1` MAP<string,ARRAY<double>> COMMENT 'col1',\n"
@@ -707,9 +725,10 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         resetCheckedColumns(checkArrayCols);
 
         plan = createTablesAndReturnPlans(true, compoundTypeTable2).get(0);
-        columns = ((CreateTableCommand) plan).getCreateTableInfo().translateToLegacyStmt().getColumns();
+        columns = ((CreateTableCommand) plan).getCreateTableInfo().getColumns();
         Assertions.assertEquals(4, columns.size());
-        dropTable("complex_type_compound2", true);
+        dropTableWithSql("drop table complex_type_compound2");
+
     }
 
     private void resetCheckedColumns(List<FieldSchema> checkArrayCols) {

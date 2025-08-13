@@ -55,6 +55,7 @@ public:
     }
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override;
 
@@ -86,6 +87,10 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>();
     };
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        return FieldWithDataType {.field = Field(), .base_scalar_type_id = get_primitive_type()};
+    }
 };
 
 } // namespace doris::vectorized

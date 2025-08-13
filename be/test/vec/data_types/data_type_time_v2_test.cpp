@@ -812,7 +812,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 ColumnType col_from_str;
                 for (size_t i = 0; i != row_count; ++i) {
                     auto item = col_str_to_str.get_data_at(i);
-                    ReadBuffer rb((char*)item.data, item.size);
+                    StringRef rb((char*)item.data, item.size);
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -827,7 +827,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(str);
                 } else {
-                    ReadBuffer rb(str.data(), str.size());
+                    StringRef rb(str.data(), str.size());
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -848,7 +848,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(str);
                 } else {
-                    ReadBuffer rb(str.data(), str.size());
+                    StringRef rb(str.data(), str.size());
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -874,7 +874,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(item.to_string());
                 } else {
-                    ReadBuffer rb((char*)item.data, item.size);
+                    StringRef rb((char*)item.data, item.size);
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -897,4 +897,13 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
     test_func(dt_time_v2_5, *column_time_v2_5);
     test_func(dt_time_v2_6, *column_time_v2_6);
 }
+
+TEST_F(DataTypeDateTimeV2Test, GetFieldWithDataTypeTest) {
+    auto column_datetime_v2 = dt_datetime_v2_0.create_column();
+    Field field_datetime_v2 = Field::create_field<TYPE_DATETIMEV2>(0);
+    column_datetime_v2->insert(field_datetime_v2);
+    EXPECT_EQ(dt_datetime_v2_0.get_field_with_data_type(*column_datetime_v2, 0).field,
+              field_datetime_v2);
+}
+
 } // namespace doris::vectorized

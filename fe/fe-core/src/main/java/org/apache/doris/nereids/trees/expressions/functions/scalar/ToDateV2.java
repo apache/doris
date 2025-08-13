@@ -49,13 +49,18 @@ public class ToDateV2 extends ScalarFunction
         super("to_datev2", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToDateV2(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToDateV2 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ToDateV2(children.get(0));
+        return new ToDateV2(getFunctionParams(children));
     }
 
     @Override

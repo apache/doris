@@ -358,7 +358,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
         }
     }
 
-    size_t rows = in_block->rows();
+    uint32_t rows = (uint32_t)in_block->rows();
     _places.resize(rows);
 
     if (_should_not_do_pre_agg(rows)) {
@@ -467,7 +467,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                             _values.resize(size + 1);
                         }
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         _aggregate_data_container->init_once();
                         auto& iter = _aggregate_data_container->iterator;
 
@@ -562,7 +562,7 @@ void StreamingAggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr da
 
 void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                                       vectorized::ColumnRawPtrs& key_columns,
-                                                      const size_t num_rows) {
+                                                      const uint32_t num_rows) {
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -637,7 +637,7 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
                 _pool, tnode.agg_node.aggregate_functions[i],
                 tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
-                tnode.agg_node.grouping_exprs.empty(), &evaluator));
+                tnode.agg_node.grouping_exprs.empty(), false, &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
 

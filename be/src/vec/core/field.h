@@ -83,7 +83,9 @@ struct Map : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-using VariantMap = std::map<PathInData, Field>;
+struct FieldWithDataType;
+
+using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -189,7 +191,6 @@ public:
 
     operator T() const { return dec; }
     T get_value() const { return dec; }
-    T get_scale_multiplier() const;
     UInt32 get_scale() const { return scale; }
 
     template <typename U>
@@ -509,6 +510,15 @@ private:
         T* MAY_ALIAS ptr = reinterpret_cast<T*>(&storage);
         ptr->~T();
     }
+};
+
+struct FieldWithDataType {
+    Field field;
+    // used for nested type of array
+    PrimitiveType base_scalar_type_id = PrimitiveType::INVALID_TYPE;
+    uint8_t num_dimensions = 0;
+    int precision = -1;
+    int scale = -1;
 };
 
 template <typename T>

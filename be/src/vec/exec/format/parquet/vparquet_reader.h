@@ -104,8 +104,8 @@ public:
                   io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
-    // for test
-    void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
+    // for unit test
+    void set_file_reader(io::FileReaderSPtr file_reader);
 
     Status init_reader(
             const std::vector<std::string>& all_column_names,
@@ -157,6 +157,8 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
+    bool count_read_rows() override { return true; }
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -180,10 +182,7 @@ private:
         RuntimeProfile::Counter* read_page_index_time = nullptr;
         RuntimeProfile::Counter* parse_page_index_time = nullptr;
 
-        RuntimeProfile::Counter* file_read_time = nullptr;
-        RuntimeProfile::Counter* file_read_calls = nullptr;
         RuntimeProfile::Counter* file_meta_read_calls = nullptr;
-        RuntimeProfile::Counter* file_read_bytes = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
@@ -252,7 +251,12 @@ private:
     FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
+    // _tracing_file_reader wraps _file_reader.
+    // _file_reader is original file reader.
+    // _tracing_file_reader is tracing file reader with io context.
+    // If io_ctx is null, _tracing_file_reader will be the same as file_reader.
     io::FileReaderSPtr _file_reader = nullptr;
+    io::FileReaderSPtr _tracing_file_reader = nullptr;
     std::unique_ptr<RowGroupReader> _current_group_reader;
     // read to the end of current reader
     bool _row_group_eof = true;

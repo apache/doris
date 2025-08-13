@@ -246,7 +246,7 @@ DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for agent report disk state to FE
-DEFINE_mInt32(report_disk_state_interval_seconds, "60");
+DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
 // the max download speed(KB/s)
@@ -642,7 +642,7 @@ DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_min, "16");
-DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "512");
+DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "2048");
 DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
@@ -686,6 +686,7 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "104857600");
+DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
 
@@ -1019,7 +1020,6 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
@@ -1324,8 +1324,6 @@ DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
 
-DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
-
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
@@ -1343,6 +1341,8 @@ DEFINE_mInt32(buffered_reader_read_timeout_ms, "600000");
 DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
+
+DEFINE_mInt32(variant_max_sparse_column_statistics_size, "10000");
 
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
@@ -1527,7 +1527,12 @@ DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "4");
+// The number of compaction tasks generated each time.
+// -1 means automatic number, other values mean fixed number.
+DEFINE_mInt32(compaction_num_per_round, "-1");
+// Max automatic compaction task generated num per round.
+// Only valid if "compaction_num_per_round = 0"
+DEFINE_mInt32(max_automatic_compaction_num_per_round, "64");
 
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
@@ -1547,7 +1552,7 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_quorum_success_write, "true");
 DEFINE_mDouble(quorum_success_max_wait_multiplier, "0.2");
-DEFINE_mInt64(quorum_success_min_wait_seconds, "10");
+DEFINE_mInt64(quorum_success_min_wait_seconds, "60");
 DEFINE_mInt32(quorum_success_remaining_timeout_seconds, "30");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
@@ -1559,10 +1564,15 @@ DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+// p0, daily, rqg, external
+DEFINE_String(fuzzy_test_type, "");
 
 DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
 DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
+
+// The maximum number of threads supported when executing LLMFunction
+DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2017,6 +2027,39 @@ Status set_fuzzy_configs() {
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
             std::to_string(distribution2(*generator));
+
+    // external
+    if (config::fuzzy_test_type == "external") {
+        std::uniform_int_distribution<int64_t> distribution3(0, 2);
+
+        int64_t idx = distribution3(*generator);
+        fuzzy_field_and_value["max_hdfs_file_handle_cache_num"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "20000");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_hdfs_file_handle_cache_time_sec"] =
+                (idx == 0) ? "1" : ((idx == 1) ? "10" : "28800");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_external_file_meta_cache_num"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "1000");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["common_obj_lru_cache_stale_sweep_time_sec"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "900");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_amplified_read_ratio"] =
+                (idx == 0) ? "0.1" : ((idx == 1) ? "0.8" : "1");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["merged_oss_min_io_size"] =
+                (idx == 0) ? "4096" : ((idx == 1) ? "8192" : "1048576");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["merged_hdfs_min_io_size"] =
+                (idx == 0) ? "4096" : ((idx == 1) ? "8192" : "1048576");
+    }
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {

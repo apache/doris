@@ -25,6 +25,7 @@ import org.apache.doris.regression.json.PartitionRecords
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.regression.util.SyncerUtils
+import org.apache.doris.regression.util.S3RepoValidate
 import org.apache.doris.thrift.TBeginTxnResult
 import org.apache.doris.thrift.TBinlog
 import org.apache.doris.regression.json.BinlogData
@@ -936,13 +937,13 @@ class Syncer {
         "doris_build_backup_restore/${id}"
     }
 
-    void createS3Repository(String name, boolean readOnly = false) {
+    void createS3Repository(String name, boolean readOnly = false, String prefix = null) {
         String ak = suite.getS3AK()
         String sk = suite.getS3SK()
         String endpoint = suite.getS3Endpoint()
         String region = suite.getS3Region()
         String bucket = suite.getS3BucketName()
-        String prefix = externalStoragePrefix()
+        prefix = prefix == null ? externalStoragePrefix() : prefix
 
         suite.try_sql "DROP REPOSITORY `${name}`"
         suite.sql """
@@ -957,6 +958,19 @@ class Syncer {
             "s3.secret_key" = "${sk}"
         )
             """
+    }
+
+    String createS3ValidateRepository(String suiteName, String validateVersion, boolean readOnly = false) {
+        S3RepoValidate s3RepoValidate = new S3RepoValidate(suite, validateVersion, context.config)
+        String repoName = s3RepoValidate.findMatchingRepoName(suiteName)
+        if (repoName == null) {
+            String errorMsg = "No matching repository found for ${suiteName}, version: ${validateVersion}"
+            logger.error(errorMsg)
+            throw new Exception(errorMsg)
+        }
+        String prefix = "${context.config.validateBackupPrefix}/${s3RepoValidate.version}"
+        createS3Repository(repoName, readOnly, prefix)
+        return repoName
     }
 
     void createHdfsRepository(String name, boolean readOnly = false) {
