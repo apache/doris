@@ -4647,6 +4647,8 @@ private:
 class FunctionTranslate : public IFunction {
 public:
     static constexpr auto name = "translate";
+    using AsciiMap = std::array<UInt8, 128>;
+    constexpr static UInt8 DELETE_CHAR = 255; // 255 means delete this char
     static FunctionPtr create() { return std::make_shared<FunctionTranslate>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 3; }
@@ -4697,53 +4699,86 @@ private:
     template <bool IsConst>
     static void impl_vectors_ascii(const ColumnString* col_source, const ColumnString* col_from,
                                    const ColumnString* col_to, ColumnString* col_res) {
-        col_res->get_chars().reserve(col_source->get_chars().size());
-        col_res->get_offsets().reserve(col_source->get_offsets().size());
-        std::unordered_map<char, char> translate_map;
+        auto& res_chars = col_res->get_chars();
+        auto& res_offsets = col_res->get_offsets();
+        res_chars.reserve(col_source->get_chars().size());
+        res_offsets.reserve(col_source->get_offsets().size());
+        DCHECK_EQ(col_res->size(), 0);
+        AsciiMap map;
         if (IsConst) {
             const auto& from_str = col_from->get_data_at(0);
             const auto& to_str = col_to->get_data_at(0);
-            translate_map =
-                    build_translate_map_ascii(from_str.to_string_view(), to_str.to_string_view());
+            if (!build_translate_map_ascii(map, from_str, to_str)) {
+                // if the map is not need delete char, we can directly copy the source string,then use map to translate
+                res_offsets.insert(col_source->get_offsets().begin(),
+                                   col_source->get_offsets().end());
+                res_chars.insert(col_source->get_chars().begin(), col_source->get_chars().end());
+                for (int i = 0; i < res_chars.size(); ++i) {
+                    res_chars[i] = map[res_chars[i]]; // translate the chars
+                }
+                return; // no need to translate
+            }
         }
+
+        auto res_size = 0;
+        auto* begin_data = col_res->get_chars().data();
         for (size_t i = 0; i < col_source->size(); ++i) {
             const auto& source_str = col_source->get_data_at(i);
             if (!IsConst) {
                 const auto& from_str = col_from->get_data_at(i);
                 const auto& to_str = col_to->get_data_at(i);
-                translate_map = build_translate_map_ascii(from_str.to_string_view(),
-                                                          to_str.to_string_view());
+                build_translate_map_ascii(map, from_str, to_str);
             }
-            auto translated_str = translate_ascii(source_str.to_string_view(), translate_map);
-            col_res->insert_data(translated_str.data(), translated_str.size());
+            auto* dst_data = begin_data + res_size;
+            res_size += translate_ascii(source_str, map, dst_data);
+
+            res_offsets.push_back(res_size);
         }
+        DCHECK_GE(res_chars.capacity(), res_size);
+        res_chars.resize(res_size);
     }
 
-    static std::unordered_map<char, char> build_translate_map_ascii(
-            const std::string_view& from_str, const std::string_view& to_str) {
-        std::unordered_map<char, char> translate_map;
-        for (size_t i = 0; i < from_str.size(); ++i) {
-            if (translate_map.find(from_str[i]) == translate_map.end()) {
-                translate_map[from_str[i]] = i < to_str.size() ? to_str[i] : 0;
+    // return true if no need delete char
+    bool static build_translate_map_ascii(AsciiMap& map, const StringRef& from_str,
+                                          const StringRef& to_str) {
+        for (size_t i = 0; i < map.size(); ++i) {
+            map[i] = i; // initialize map to identity
+        }
+        std::array<UInt8, 128> set_map {0};
+        const auto min_size = std::min(from_str.size, to_str.size);
+        // all ascii characters are in the range [0, 127]
+        for (size_t i = 0; i < min_size; ++i) {
+            auto from_char = from_str.data[i];
+            auto to_char = to_str.data[i];
+            if (set_map[from_char] == 0) {
+                set_map[from_char] = 1;
+                map[from_char] = to_char;
             }
         }
-        return translate_map;
+
+        bool need_delete_char = false;
+
+        for (size_t i = min_size; i < from_str.size; ++i) {
+            auto from_char = from_str.data[i];
+            if (set_map[from_char] == 0) {
+                set_map[from_char] = 1;
+                map[from_char] = DELETE_CHAR; // delete this char
+                need_delete_char = true;
+            }
+        }
+        return need_delete_char;
     }
 
-    static std::string translate_ascii(const std::string_view& source_str,
-                                       std::unordered_map<char, char>& translate_map) {
-        std::string result;
-        result.reserve(source_str.size());
-        for (auto const& c : source_str) {
-            if (translate_map.find(c) != translate_map.end()) {
-                if (translate_map[c]) {
-                    result.push_back(translate_map[c]);
-                }
-            } else {
-                result.push_back(c);
+    static size_t translate_ascii(const StringRef& source_str, AsciiMap& map, UInt8* dst_data) {
+        auto* begin_data = dst_data;
+        for (size_t i = 0; i < source_str.size; ++i) {
+            auto c = source_str.data[i];
+            if (map[c] == DELETE_CHAR) {
+                continue; // delete this char
             }
+            *dst_data++ = map[c];
         }
-        return result;
+        return dst_data - begin_data;
     }
 
     template <bool IsConst>
