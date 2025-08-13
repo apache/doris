@@ -455,4 +455,14 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
 
     qt_decimal256_mod """ select v1, v2, v1 % v2, v1 % v3 from test_arithmetic_expressions_256_5 ORDER BY id; """
 
+    // bugfix, divide
+    sql "DROP TABLE IF EXISTS `fix_decimal_divide`"
+    sql """
+        create table fix_decimal_divide(f1 decimalv3(5,2), f2 decimalv3(20,0)) properties("replication_num"="1");
+    """
+    sql """
+        insert into fix_decimal_divide values(100.02, 9223372036854775807);
+    """
+    qt_fix_decimal_divide_0 "select f1, f2, f1 / f2 from fix_decimal_divide order by 1,2,3;"
+
 }

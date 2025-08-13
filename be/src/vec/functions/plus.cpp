@@ -47,7 +47,7 @@ struct PlusImpl {
     /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
     template <typename Result = ResultType>
     static inline bool apply(A a, B b, Result& c) {
-        return common::add_overflow(static_cast<Result>(a), b, c);
+        return common::add_overflow(static_cast<Result>(a), static_cast<Result>(b), c);
     }
 };
 
