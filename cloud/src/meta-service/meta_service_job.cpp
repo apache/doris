@@ -890,8 +890,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                         .tag("compact_stats", tablet_compact_stats.ShortDebugString());
                 return;
             }
-            tablet_compact_stats.set_num_compaction_rowsets(compaction.num_output_rowsets() -
-                                                            compaction.num_input_rowsets());
         } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
             // First time switching from single write to double write mode
             // Step 1: Copy from single version stats as baseline
@@ -912,8 +910,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                         .tag("compact_stats", tablet_compact_stats.ShortDebugString());
                 return;
             }
-            tablet_compact_stats.set_num_compaction_rowsets(compaction.num_output_rowsets() -
-                                                            compaction.num_input_rowsets());
         } else if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}", tablet_id,
