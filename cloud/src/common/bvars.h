@@ -255,7 +255,6 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach;
 extern BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
-extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 
@@ -379,7 +378,6 @@ extern BvarStatusWithTag<int64_t> g_bvar_max_rowsets_with_useless_delete_bitmap_
 // rpc kv
 extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_counter;
-extern mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_get_counter;
@@ -487,7 +485,6 @@ extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter;
 
 extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes;
-extern mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_update_tablet_get_bytes;

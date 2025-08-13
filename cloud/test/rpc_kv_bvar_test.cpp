@@ -1001,38 +1001,6 @@ TEST(RpcKvBvarTest, GetVersion) {
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_version_get_counter.get({mock_instance}));
 }
 
-// get_schema_dict
-TEST(RpcKvBvarTest, GetSchemaDict) {
-    auto meta_service = get_meta_service();
-    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
-    constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
-    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
-
-    brpc::Controller ctrl;
-    GetSchemaDictRequest req;
-    req.set_cloud_unique_id("test_cloud_unique_id");
-    req.set_index_id(index_id);
-
-    std::unique_ptr<Transaction> txn;
-    std::string instance_id = get_instance_id(meta_service->resource_mgr(), req.cloud_unique_id());
-    std::string dict_key = meta_schema_pb_dictionary_key({instance_id, req.index_id()});
-    EXPECT_EQ(mem_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    txn->put(dict_key, "dict_val");
-    EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-
-    clear_memkv_count_bytes(mem_kv.get());
-
-    GetSchemaDictResponse resp;
-    meta_service->get_schema_dict(&ctrl, &req, &resp, nullptr);
-
-    LOG(INFO) << "GetSchemaDict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
-              << ", " << mem_kv->del_bytes_;
-
-    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_get_schema_dict_get_bytes.get({mock_instance}));
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_schema_dict_get_counter.get({mock_instance}));
-}
-
 // get_delete_bitmap_update_lock
 TEST(RpcKvBvarTest, GetDeleteBitmapUpdateLock) {
     auto meta_service = get_meta_service();

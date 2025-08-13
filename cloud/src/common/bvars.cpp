@@ -93,7 +93,6 @@ BvarLatencyRecorderWithTag g_bvar_ms_finish_tablet_job("ms", "finish_tablet_job"
 BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status("ms", "get_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
-BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict("ms", "get_schema_dict");
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
@@ -238,8 +237,6 @@ BvarStatusWithTag<int64_t> g_bvar_max_rowsets_with_useless_delete_bitmap_version
 mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_counter("rpc_kv_get_rowset_get_counter",{"instance_id"});
 // get_version
 mBvarInt64Adder g_bvar_rpc_kv_get_version_get_counter("rpc_kv_get_version_get_counter",{"instance_id"});
-// get_schema_dict
-mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_counter("rpc_kv_get_schema_dict_get_counter",{"instance_id"});
 // create_tablets
 mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_counter("rpc_kv_create_tablets_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_counter("rpc_kv_create_tablets_put_counter",{"instance_id"});
@@ -404,8 +401,6 @@ mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter("rpc_kv_get_txn_id_get_coun
 mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes("rpc_kv_get_rowset_get_bytes",{"instance_id"});
 // get_version
 mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes("rpc_kv_get_version_get_bytes",{"instance_id"});
-// get_schema_dict
-mBvarInt64Adder g_bvar_rpc_kv_get_schema_dict_get_bytes("rpc_kv_get_schema_dict_get_bytes",{"instance_id"});
 // create_tablets
 mBvarInt64Adder g_bvar_rpc_kv_create_tablets_get_bytes("rpc_kv_create_tablets_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_bytes("rpc_kv_create_tablets_put_bytes",{"instance_id"});
