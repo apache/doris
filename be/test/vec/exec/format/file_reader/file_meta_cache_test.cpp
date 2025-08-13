@@ -107,21 +107,19 @@ TEST(FileMetaCacheTest, KeyGenerationFromFileReader) {
 }
 TEST(FileMetaCacheTest, KeyContentVerification) {
     std::string file_name = "/path/to/file";
-    int64_t mtime = 0x0102030405060708; // 用明显的二进制模式，方便校验
+    int64_t mtime = 0x0102030405060708;
     int64_t file_size = 0x1112131415161718;
 
-    // mtime != 0 时，key 应该拼接 file_name + mtime 内存字节
     std::string key_with_mtime = FileMetaCache::get_key(file_name, mtime, file_size);
-    // key 长度应是 文件名长度 + sizeof(int64_t)
+
     ASSERT_EQ(key_with_mtime.size(), file_name.size() + sizeof(int64_t));
-    // 前半部分应完全等于文件名内容
+
     EXPECT_EQ(memcmp(key_with_mtime.data(), file_name.data(), file_name.size()), 0);
-    // 后半部分应是 mtime 的内存拷贝（字节序）
+
     int64_t extracted_mtime = 0;
     memcpy(&extracted_mtime, key_with_mtime.data() + file_name.size(), sizeof(int64_t));
     EXPECT_EQ(extracted_mtime, mtime);
 
-    // mtime == 0 时，key 应该拼接 file_name + file_size
     std::string key_with_filesize = FileMetaCache::get_key(file_name, 0, file_size);
     ASSERT_EQ(key_with_filesize.size(), file_name.size() + sizeof(int64_t));
     EXPECT_EQ(memcmp(key_with_filesize.data(), file_name.data(), file_name.size()), 0);

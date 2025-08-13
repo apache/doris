@@ -224,7 +224,11 @@ Status ParquetReader::_open_file() {
                                                  _file_reader, _io_ctx->file_reader_stats)
                                        : _file_reader;
     }
-
+    if (_file_metadata) {
+        std::cout << "_file_metadata not null\n";
+    } else {
+        std::cout << "_file_metadata is null\n";
+    }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
         if (_tracing_file_reader->size() <= sizeof(PARQUET_VERSION_NUMBER)) {
@@ -252,7 +256,7 @@ Status ParquetReader::_open_file() {
                 // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
                 _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
                                     &_meta_cache_handle);
-                _file_metadata = const_cast<FileMetaData*>(_meta_cache_handle.data<FileMetaData>());
+                _file_metadata = _meta_cache_handle.data<FileMetaData>();
                 _column_statistics.read_bytes += meta_size;
                 _column_statistics.meta_read_calls += 1;
             }
