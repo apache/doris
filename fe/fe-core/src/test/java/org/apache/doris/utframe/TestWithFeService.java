@@ -21,7 +21,6 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -70,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -670,9 +670,9 @@ public abstract class TestWithFeService {
     }
 
     public void recoverTable(String table) throws Exception {
-        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) parseAndAnalyzeStmt(
-                "recover table " + table + ";", connectContext);
-        Env.getCurrentEnv().recoverTable(recoverTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        RecoverTableCommand command = (RecoverTableCommand) nereidsParser.parseSingle(table);
+        Env.getCurrentEnv().recoverTable(command.getDbName(), command.getTblName(),command.getNewTableName(), command.getTableId());
     }
 
     public void createCatalog(String sql) throws Exception {
