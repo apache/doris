@@ -1635,6 +1635,12 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
                 rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
                 std::string schema_key = meta_schema_key(
                         {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+                if (rowset_meta.has_variant_type_in_schema()) {
+                    write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+                    if (code != MetaServiceCode::OK) {
+                        return;
+                    }
+                }
                 put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
                 if (code != MetaServiceCode::OK) {
                     return;
@@ -1924,6 +1930,30 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
     }
 }
 
+/**
+ * Fills schema information into the rowset meta from the dictionary.
+ * Handles schemas with variant types by retrieving the complete schema from the dictionary.
+ *
+ * @param code Result code indicating the operation status.
+ * @param msg Error description for failed operations.
+ * @param instance_id Identifier for the specific instance.
+ * @param txn Pointer to the transaction object for transactional operations.
+ * @param existed_rowset_meta Rowset meta object to be updated with schema information.
+ */
+static void fill_schema_from_dict(MetaServiceCode& code, std::string& msg,
+                                  const std::string& instance_id, Transaction* txn,
+                                  doris::RowsetMetaCloudPB* existed_rowset_meta) {
+    google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB> metas;
+    metas.Add()->CopyFrom(*existed_rowset_meta);
+    // Retrieve schema from the dictionary and update metas.
+    read_schema_dict(code, msg, instance_id, existed_rowset_meta->index_id(), txn, &metas, nullptr);
+    if (code != MetaServiceCode::OK) {
+        return;
+    }
+    // Update the original rowset meta with the complete schema from metas.
+    existed_rowset_meta->CopyFrom(metas.Get(0));
+}
+
 bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg,
                        const std::string& instance_id, int64_t tablet_id,
                        const std::string& rowset_id, const std::string& job_id,
@@ -2145,6 +2175,10 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
             existed_rowset_meta->set_schema_version(
                     existed_rowset_meta->tablet_schema().schema_version());
         }
+        if (existed_rowset_meta->has_variant_type_in_schema()) {
+            fill_schema_from_dict(code, msg, instance_id, txn.get(), existed_rowset_meta);
+            if (code != MetaServiceCode::OK) return;
+        }
         code = MetaServiceCode::ALREADY_EXISTED;
         msg = "rowset already exists";
         return;
@@ -2292,6 +2326,10 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
             existed_rowset_meta->set_schema_version(
                     existed_rowset_meta->tablet_schema().schema_version());
         }
+        if (existed_rowset_meta->has_variant_type_in_schema()) {
+            fill_schema_from_dict(code, msg, instance_id, txn.get(), existed_rowset_meta);
+            if (code != MetaServiceCode::OK) return;
+        }
         code = MetaServiceCode::ALREADY_EXISTED;
         msg = "rowset already exists";
         return;
@@ -2314,6 +2352,10 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
         std::string schema_key = meta_schema_key(
                 {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+        if (rowset_meta.has_variant_type_in_schema()) {
+            write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+            if (code != MetaServiceCode::OK) return;
+        }
         put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
         if (code != MetaServiceCode::OK) return;
         rowset_meta.set_allocated_tablet_schema(nullptr);
@@ -2426,6 +2468,10 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
                 rowset_meta.rowset_id_v2());
         msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
+    }
+    if (rowset_meta.has_variant_type_in_schema()) {
+        write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+        if (code != MetaServiceCode::OK) return;
     }
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     if (!rowset_meta.SerializeToString(&update_val)) {
@@ -2843,8 +2889,12 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             }
             rowset_meta.set_index_id(idx.index_id());
         }
+        bool need_read_schema_dict = false;
         auto arena = response->GetArena();
         for (auto& rowset_meta : *response->mutable_rowset_meta()) {
+            if (rowset_meta.has_schema_dict_key_list()) {
+                need_read_schema_dict = true;
+            }
             if (rowset_meta.has_tablet_schema()) continue;
             if (!rowset_meta.has_schema_version()) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2879,6 +2929,12 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             }
         }
 
+        if (need_read_schema_dict && request->schema_op() != GetRowsetRequest::NO_DICT) {
+            read_schema_dict(code, msg, instance_id, idx.index_id(), txn.get(),
+                             response->mutable_rowset_meta(), response->mutable_schema_dict(),
+                             request->schema_op());
+            if (code != MetaServiceCode::OK) return;
+        }
         TEST_SYNC_POINT_CALLBACK("get_rowset::finish", &response);
         break;
     } while (true);
@@ -4791,6 +4847,58 @@ std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset
         ret += key_bounds.ByteSizeLong();
     }
     return ret;
+}
+
+void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* controller,
+                                      const GetSchemaDictRequest* request,
+                                      GetSchemaDictResponse* response,
+                                      ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_schema_dict, get);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    if (!request->has_index_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing index_id in request";
+        return;
+    }
+
+    RPC_RATE_LIMIT(get_schema_dict)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    std::string dict_key = meta_schema_pb_dictionary_key({instance_id, request->index_id()});
+    ValueBuf dict_val;
+    err = cloud::blob_get(txn.get(), dict_key, &dict_val);
+    LOG(INFO) << "Retrieved column pb dictionary, index_id=" << request->index_id()
+              << " key=" << hex(dict_key) << " error=" << err;
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
+        // Handle retrieval error.
+        ss << "Failed to retrieve column pb dictionary, instance_id=" << instance_id
+           << " table_id=" << request->index_id() << " key=" << hex(dict_key) << " error=" << err;
+        msg = ss.str();
+        code = cast_as<ErrCategory::READ>(err);
+        return;
+    }
+    SchemaCloudDictionary schema_dict;
+    if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(&schema_dict)) {
+        // Handle parse error.
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("Malformed tablet dictionary value, key={}", hex(dict_key));
+        return;
+    }
+
+    response->mutable_schema_dict()->Swap(&schema_dict);
 }
 
 } // namespace doris::cloud
