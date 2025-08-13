@@ -41,7 +41,10 @@ DB_ADMIN_USER=${USER:-"root"}
 
 DB_ADMIN_PASSWD=$PASSWD
 
+#the latest compute group name.
 COMPUTE_GROUP_NAME=${COMPUTE_GROUP_NAME}
+
+STATEFULSET_NAME=${STATEFULSET_NAME}
 
 ENABLE_WORKLOAD_GROUP=${ENABLE_WORKLOAD_GROUP:-false}
 WORKLOAD_GROUP_PATH="/sys/fs/cgroup/cpu/doris"
@@ -51,6 +54,7 @@ log_stderr()
     echo "[`date`] $@" >&2
 }
 
+# start workload
 function add_workloadgroup_config()
 {
     if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
@@ -58,6 +62,7 @@ function add_workloadgroup_config()
     fi
 }
 
+# update config add `deploy_mode`.
 update_conf_from_configmap()
 {
     echo "deploy_mode = cloud" >> $DORIS_HOME/conf/be.conf
@@ -81,7 +86,7 @@ update_conf_from_configmap()
         if [[ "$conffile" == "be.conf" ]]; then
              cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
              echo "deploy_mode = cloud" >> $DORIS_HOME/conf/$file
-             continue
+             ontinue
          fi
         ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
     done
@@ -135,6 +140,7 @@ parse_confval_from_conf()
     echo "$confvalue"
 }
 
+# parse `heartbeat_port` and set `my_self` as `deploy_mode`. deploy_mode=IP,FQDN
 collect_env_info()
 {
     # heartbeat_port from conf file
@@ -150,7 +156,43 @@ collect_env_info()
     fi
 }
 
-add_self()
+# get compute group name use the file that contains the statefulset and compute_group_id response, if not exists, use config `COMPUTE_GROUP_CONFIG`.
+function get_compute_group_name()
+{
+    local fe_host=$1
+    if [[ ! -f ${DORIS_ROOT}/dorisctl ]]; then
+        log_stderr "${DORIS_ROOT}/dorisctl not exist, use the COMPUTE_GROUP_NAME environment as compute group name."
+        # echo for check get success or not.
+        return 0
+    fi
+
+    local pod_index=`echo $MY_HOSTNAME | awk -F'.' '{print $1}' | awk -F '-' '{print $NF}'`
+    if [[ "$pod_index" -eq 0 ]]; then
+        log_stderr "when first deploying, the first pod use the COMPUTE_GROUP_NAME environment as compute group name."
+        return 0
+    fi
+
+    local pod_name=`echo $MY_HOSTNAME | awk -F'.' '{print $1}'`
+    local pod_0_name=${STATEFULSET_NAME}"-0"
+    local pod_0_fqdn=`echo $MY_HOSTNAME | sed "s|${pod_name}|${pod_0_name}|g"`
+    local compute_group_name=
+     if [[ "x$DB_ADMIN_PASSWD" == "x" ]]; then
+        compute_group_name=`./dorisctl get node "${pod_0_fqdn}" --fe-host "${fe_host}" --user $DB_ADMIN_USER --query-port $FE_QUERY_PORT -o custom-columns=tag.compute_group_name`
+    else
+        compute_group_name=`./dorisctl get node "${pod_0_fqdn}" --fe-host "${fe_host}" --user $DB_ADMIN_USER --password $DB_ADMIN_PASSWD --query-port $FE_QUERY_PORT -o custom-columns=tag.compute_group_name`
+    fi
+    if [[ "x$compute_group_name" != "x" ]];then
+        log_stderr "use the first deployed pod's fqdn find the compute group name ${compute_group_name} ."
+        COMPUTE_GROUP_NAME=${compute_group_name}
+    else
+       log_stderr "get compute group name failed, use the config value, if first deploying may be waiting the first pod ready."
+       return 1
+    fi
+    return 0
+}
+
+# add my self in fe, if config user and password not exist, create the account.
+function first_deploy_start()
 {
     local svc=$1
     start=`date +%s`
@@ -186,15 +228,25 @@ add_self()
         fi
 
         if [[ "x$leader" != "x" ]]; then
+            # find the right compute group name to register myself.
+            log_stderr "find the right compute group name to register myself."
+            # use return to check success or not ,if use echo the COMPUTE_GROUP_NAME assign not effect out function.
+            get_compute_group_name $addr
+            if [[ "$?" -ne 0 ]];then
+                log_stderr "use first deploed pod's fqdn find compute group name failed. sleep 2s..."
+                sleep $PROBE_INTERVAL
+                continue
+            fi
+
             local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\""
             if [[ $COMPUTE_GROUP_NAME != "" ]]; then
                 add_sql=$add_sql" properties(\"tag.compute_group_name\"=\"$COMPUTE_GROUP_NAME\");"
             fi
             create_account $leader
             log_stderr "[info] myself ($MY_SELF:$HEARTBEAT_PORT)  not exist in FE and fe have leader register myself into fe."
-            add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql;" 2>&1`
+            add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
             if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
-                timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql;"
+                timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql"
             fi
 
             let "expire=start+timeout"
@@ -203,13 +255,13 @@ add_self()
                 log_stderr "[error]  exit probe master for probing timeout."
                 return 0
             fi
-        else
-            log_stderr "[info] not have leader wait fe cluster elect a master, sleep 2s..."
-            sleep $PROBE_INTERVAL
         fi
+        log_stderr "[info] sleep 2s, next time to check myself in fe..."
+        sleep $PROBE_INTERVAL
     done
 }
 
+# create the adminastrater account when first deploying.
 function create_account()
 {
     master=$1
@@ -235,8 +287,7 @@ function check_and_register()
     local addrArr=(${addrs//,/ })
     for addr in ${addrArr[@]}
     do
-        add_self $addr
-
+        first_deploy_start $addr
         if [[ $REGISTERED ]]; then
             break;
         fi
@@ -250,7 +301,7 @@ function check_and_register()
     fi
 }
 
-
+# when start workload group resource control, should pre mkdir the directory `/sys/fs/cgroup/cpu/doris`
 function make_dir_for_workloadgroup() {
     output=$(cat /proc/filesystems | grep cgroup)
     if [ -z "$output" ]; then
@@ -270,6 +321,7 @@ function make_dir_for_workloadgroup() {
     fi
 }
 
+# kerberos
 mount_kerberos_config()
 {
     if [[ ! -n "$KRB5_MOUNT_PATH" ]]; then

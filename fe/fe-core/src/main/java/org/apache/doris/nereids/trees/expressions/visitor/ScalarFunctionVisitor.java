@@ -23,10 +23,12 @@ import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
+import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSimilarity;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
 import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
@@ -250,11 +252,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToStri
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsInf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Compat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -1427,6 +1431,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(isIpAddressInRange, context);
     }
 
+    default R visitIsNan(IsNan isNan, C context) {
+        return visitScalarFunction(isNan, context);
+    }
+
+    default R visitIsInf(IsInf isInf, C context) {
+        return visitScalarFunction(isInf, context);
+    }
+
     default R visitIpv6CIDRToRange(Ipv6CIDRToRange ipv6CIDRToRange, C context) {
         return visitScalarFunction(ipv6CIDRToRange, context);
     }
@@ -2447,6 +2459,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(llmSentiment, context);
     }
 
+    default R visitLLMFilter(LLMFilter llmFilter, C context) {
+        return visitScalarFunction(llmFilter, context);
+    }
+
     default R visitLLMFixGrammar(LLMFixGrammar llmFixGrammar, C context) {
         return visitScalarFunction(llmFixGrammar, context);
     }
@@ -2469,5 +2485,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLLMSummarize(LLMSummarize llmSummarize, C context) {
         return visitScalarFunction(llmSummarize, context);
+    }
+
+    default R visitLLMSimilarity(LLMSimilarity llmSimilarity, C context) {
+        return visitScalarFunction(llmSimilarity, context);
     }
 }

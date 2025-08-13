@@ -24,11 +24,7 @@ namespace doris::segment_v2 {
 
 bool IndexColumnWriter::check_support_inverted_index(const TabletColumn& column) {
     // bellow types are not supported in inverted index for extracted columns
-    static std::set<FieldType> invalid_types = {
-            FieldType::OLAP_FIELD_TYPE_DOUBLE,
-            FieldType::OLAP_FIELD_TYPE_JSONB,
-            FieldType::OLAP_FIELD_TYPE_FLOAT,
-    };
+    static std::set<FieldType> invalid_types = {FieldType::OLAP_FIELD_TYPE_JSONB};
     if (invalid_types.contains(column.type())) {
         return false;
     }
@@ -77,7 +73,7 @@ Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumn
     }
 
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index",
-                    { type = FieldType::OLAP_FIELD_TYPE_FLOAT; })
+                    { type = FieldType::OLAP_FIELD_TYPE_JSONB; })
     switch (type) {
 #define M(TYPE)                                                                                 \
     case TYPE:                                                                                  \
@@ -105,6 +101,8 @@ Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumn
         M(FieldType::OLAP_FIELD_TYPE_BOOL)
         M(FieldType::OLAP_FIELD_TYPE_IPV4)
         M(FieldType::OLAP_FIELD_TYPE_IPV6)
+        M(FieldType::OLAP_FIELD_TYPE_FLOAT)
+        M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
 #undef M
     default:
         return Status::NotSupported("unsupported type for inverted index: " +

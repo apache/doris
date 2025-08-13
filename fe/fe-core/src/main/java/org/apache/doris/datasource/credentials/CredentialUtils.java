@@ -15,27 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.datasource.credentials;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.qe.ShowResultSetMetaData;
+import com.google.common.annotations.VisibleForTesting;
 
-// Show Warning stmt
-public class ShowWarningStmt extends ShowStmt implements NotFallbackInParser {
-    private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Level", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Code", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Message", ScalarType.createVarchar(20)))
-                    .build();
+import java.util.Map;
 
-    @Override
-    public void analyze() {
-    }
-
-    @Override
-    public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
+public class CredentialUtils {
+    /**
+     * Future method for FileIO-based credential extraction.
+     * This method signature is designed to be compatible with future FileIO implementations.
+     *
+     * @param fileIoProperties properties from FileIO (reserved for future use)
+     * @param extractor custom credential extractor
+     * @return extracted credentials
+     */
+    @VisibleForTesting
+    public static Map<String, String> extractCredentialsFromFileIO(Map<String, String> fileIoProperties,
+            CredentialExtractor extractor) {
+        return extractor.extractCredentials(fileIoProperties);
     }
 }

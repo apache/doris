@@ -15,31 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("isnan_isinf_function") {
+    testFoldConst("SELECT isnan(1)") 
+    testFoldConst("SELECT isnan(cast('nan' as double))") 
 
-#include "vec/common/string_utils/string_utils.h"
 
-namespace doris::vectorized {
+    testFoldConst("SELECT isinf(1)") 
+    testFoldConst("SELECT isinf(cast('inf' as double));") 
 
-class ReadBuffer {
-public:
-    ReadBuffer(char* d, size_t n) : _start(d), _end(d + n) {}
 
-    ReadBuffer(const unsigned char* d, size_t n) : _start((char*)(d)), _end((char*)(d) + n) {}
 
-    bool eof() { return _start == _end; }
+    sql """ set debug_skip_fold_constant = true;"""
 
-    char*& position() { return _start; }
-
-    char* end() { return _end; }
-
-    size_t count() { return _end - _start; }
-
-    std::string to_string() { return std::string(_start, (_end - _start)); }
-
-private:
-    char* _start = nullptr;
-    char* _end = nullptr;
-};
-
-} // namespace doris::vectorized
+    qt_sql """
+        SELECT isnan(1), isnan(cast('nan' as double)), isinf(1), isinf(cast('inf' as double));
+    """
+}   

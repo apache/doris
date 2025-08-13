@@ -142,7 +142,7 @@ public:
     // publish rowset to make it visible to read
     void make_visible(Version version);
     void set_version(Version version);
-    const TabletSchemaSPtr& tablet_schema() const { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() const;
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }

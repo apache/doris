@@ -39,6 +39,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "inverted_index_query_type.h"
+#include "olap/field.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -58,47 +59,6 @@
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
-
-template <PrimitiveType PT>
-Status InvertedIndexQueryParamFactory::create_query_value(
-        const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
-    using CPP_TYPE = typename PrimitiveTypeTraits<PT>::CppType;
-    std::unique_ptr<InvertedIndexQueryParam<PT>> param =
-            InvertedIndexQueryParam<PT>::create_unique();
-    auto&& storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(
-            *reinterpret_cast<const CPP_TYPE*>(value));
-    param->set_value(&storage_val);
-    result_param = std::move(param);
-    return Status::OK();
-};
-
-#define CREATE_QUERY_VALUE_TEMPLATE(PT)                                     \
-    template Status InvertedIndexQueryParamFactory::create_query_value<PT>( \
-            const void* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
-
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_BOOLEAN)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_TINYINT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_SMALLINT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_INT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_BIGINT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_LARGEINT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_FLOAT)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DOUBLE)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_VARCHAR)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATE)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATEV2)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATETIME)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DATETIMEV2)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_CHAR)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMALV2)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL32)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL64)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL128I)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_DECIMAL256)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_HLL)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_STRING)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV4)
-CREATE_QUERY_VALUE_TEMPLATE(PrimitiveType::TYPE_IPV6)
 
 std::string InvertedIndexReader::get_index_file_path() {
     return _index_file_reader->get_index_file_path(&_index_meta);
@@ -171,11 +131,14 @@ bool InvertedIndexReader::handle_query_cache(const IndexQueryContextPtr& context
                                              InvertedIndexQueryCacheHandle* cache_handler,
                                              std::shared_ptr<roaring::Roaring>& bit_map) {
     const auto& query_options = context->runtime_state->query_options();
-    if (!query_options.enable_inverted_index_query_cache) {
-        return false;
+
+    bool cache_hit = false;
+    if (query_options.enable_inverted_index_query_cache) {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_lookup_timer);
+        cache_hit = cache->lookup(cache_key, cache_handler);
     }
 
-    if (cache->lookup(cache_key, cache_handler)) {
+    if (cache_hit) {
         DBUG_EXECUTE_IF("InvertedIndexReader.handle_query_cache_hit", {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("handle query cache hit");
         });
@@ -198,24 +161,31 @@ Status InvertedIndexReader::handle_searcher_cache(
     auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
     const auto& query_options = context->runtime_state->query_options();
-    if (query_options.enable_inverted_index_searcher_cache &&
-        InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
-                                                       inverted_index_cache_handle)) {
+
+    bool cache_hit = false;
+    if (query_options.enable_inverted_index_searcher_cache) {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_lookup_timer);
+        cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                                   inverted_index_cache_handle);
+    }
+
+    if (cache_hit) {
         DBUG_EXECUTE_IF("InvertedIndexReader.handle_searcher_cache_hit", {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("handle searcher cache hit");
         });
         context->stats->inverted_index_searcher_cache_hit++;
         return Status::OK();
     } else {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_open_timer);
+
         DBUG_EXECUTE_IF("InvertedIndexReader.handle_searcher_cache_miss", {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("handle searcher cache miss");
         });
         // searcher cache miss
         context->stats->inverted_index_searcher_cache_miss++;
         auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
-        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_open_timer);
-        IndexSearcherPtr searcher;
 
+        IndexSearcherPtr searcher;
         auto st =
                 _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx);
         if (!st.ok()) {
@@ -309,7 +279,12 @@ Status InvertedIndexReader::match_index_search(
 }
 
 Status FullTextIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(shared_from_this());
+    if (*iterator == nullptr) {
+        *iterator = InvertedIndexIterator::create_unique();
+    }
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::FULLTEXT,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 
@@ -333,8 +308,10 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
             query_info.term_infos.emplace_back(search_str, 0);
         } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-            PhraseQuery::parser_info(search_str, _index_meta.properties(), query_info);
+            PhraseQuery::parser_info(context->stats, search_str, _index_meta.properties(),
+                                     query_info);
         } else {
+            SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
             query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                     search_str, _index_meta.properties());
         }
@@ -404,7 +381,12 @@ InvertedIndexReaderType FullTextIndexReader::type() {
 }
 
 Status StringTypeInvertedIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(shared_from_this());
+    if (*iterator == nullptr) {
+        *iterator = InvertedIndexIterator::create_unique();
+    }
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::STRING_TYPE,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 
@@ -533,7 +515,12 @@ InvertedIndexReaderType StringTypeInvertedIndexReader::type() {
 }
 
 Status BkdIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
-    *iterator = InvertedIndexIterator::create_unique(shared_from_this());
+    if (*iterator == nullptr) {
+        *iterator = InvertedIndexIterator::create_unique();
+    }
+    dynamic_cast<InvertedIndexIterator*>(iterator->get())
+            ->add_reader(InvertedIndexReaderType::BKD,
+                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 

@@ -36,7 +36,6 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 
 class DataTypeDate final : public DataTypeNumberBase<PrimitiveType::TYPE_DATE> {

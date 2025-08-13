@@ -296,7 +296,9 @@ struct AggregateFunctionArrayAggData<T> {
 //todo: Supports order by sorting for array_agg
 template <typename Data>
 class AggregateFunctionArrayAgg
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionArrayAgg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>(

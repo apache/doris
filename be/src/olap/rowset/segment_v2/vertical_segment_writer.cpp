@@ -75,7 +75,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
-#include "vec/io/reader_buffer.h"
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
@@ -229,11 +228,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
         if (!inverted_indexs.empty()) {
-            // TODO(lihangyu) multi indexes
-            // for (const auto& index : inverted_indexs) {
-            //     opts.inverted_indexs.emplace_back(index);
-            // }
-            opts.inverted_index = inverted_indexs.front();
+            opts.inverted_indexes = inverted_indexs;
             opts.need_inverted_index = true;
             DCHECK(_index_file_writer != nullptr);
         }

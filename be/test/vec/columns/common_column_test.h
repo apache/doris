@@ -1207,7 +1207,7 @@ public:
         ASSERT_EQ(expect_name, column.get_name());
     }
 
-    // use in ColumnObject for check_if_sparse_column
+    // use in ColumnVariant for check_if_sparse_column
     static void assert_get_ratio_of_default_rows(MutableColumns& load_cols,
                                                  DataTypeSerDeSPtrs serders) {
         // just check cols get_ratio_of_default_rows is the same as assert_res

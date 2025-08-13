@@ -38,7 +38,6 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
@@ -4776,7 +4775,8 @@ public class Env {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Table table = info.getTable();
-            getInternalCatalog().replayCreateTable(info.getDbName(), table);
+            long dbId = info.getDbId();
+            getInternalCatalog().replayCreateTable(info.getDbName(), dbId, table);
             if (table instanceof MTMV) {
                 ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
             }
@@ -6849,10 +6849,6 @@ public class Env {
         } finally {
             olapTable.writeUnlock();
         }
-    }
-
-    public void installPlugin(InstallPluginStmt stmt) throws UserException, IOException {
-        pluginMgr.installPlugin(stmt);
     }
 
     public long savePlugins(CountingDataOutputStream dos, long checksum) throws IOException {

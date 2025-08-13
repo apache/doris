@@ -43,8 +43,6 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
 
         def test_incr_read = { String force ->
             sql """ set force_jni_scanner=${force} """
-            order_qt_snapshot_incr1  """select * from paimon_incr@incr('startSnapshotId'=1)"""
-            order_qt_snapshot_incr2  """select * from paimon_incr@incr('startSnapshotId'=2)"""
             order_qt_snapshot_incr3  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
             order_qt_snapshot_incr4  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=3)"""
             order_qt_snapshot_incr5  """select * from paimon_incr@incr('startSnapshotId'=2, 'endSnapshotId'=3)"""
@@ -89,6 +87,18 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
             test {
                 sql """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=1)"""
                 exception "startSnapshotId must be less than endSnapshotId"
+            }
+            test {
+                sql """select * from paimon_incr@incr('startSnapshotId'=1)"""
+                exception "endSnapshotId is required when using snapshot-based incremental read"
+            }
+            test {
+                sql """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2) for version as of 1"""
+                exception "Can not specify scan params and table snapshot"
+            }
+            test {
+                sql """select * from paimon_incr for version as of 1"""
+                exception "Paimon table does not support table snapshot query yet"
             }
         }
 

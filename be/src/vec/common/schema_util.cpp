@@ -617,20 +617,17 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     auto new_schema_inverted_indexs = new_schema->inverted_indexs(column_new);
     auto old_schema_inverted_indexs = old_schema->inverted_indexs(column_old);
 
-    // TODO(lihangyu): multi indexes, use comment to replace this
-    return new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size();
+    if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
+        return true;
+    }
 
-    // if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
-    //     return true;
-    // }
+    for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
+        if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
+            return true;
+        }
+    }
 
-    // for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
-    //     if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
-    //         return true;
-    //     }
-    // }
-
-    // return false;
+    return false;
 }
 
 TabletColumn create_sparse_column(const TabletColumn& variant) {
@@ -745,8 +742,8 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
                                          const PathToNoneNullValues& stats,
                                          TabletSchema::PathsSetInfo& paths_set_info) {
-    if (stats.size() > max_subcolumns_count) {
-        // 按非空值数量排序
+    // max_subcolumns_count is 0 means no limit
+    if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(stats.size());
         for (const auto& [path, size] : stats) {
@@ -775,6 +772,16 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
 
 Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr>& intputs,
                                                RowsetSharedPtr output, BaseTabletSPtr tablet) {
+    if (output->tablet_schema()->num_variant_columns() == 0) {
+        return Status::OK();
+    }
+    // check no extended schema in output rowset
+    for (const auto& column : output->tablet_schema()->columns()) {
+        if (column->is_extracted_column()) {
+            return Status::InternalError("Unexpected extracted column {} in output rowset",
+                                         column->name());
+        }
+    }
     // only check path stats for dup_keys since the rows may be merged in other models
     if (tablet->keys_type() != KeysType::DUP_KEYS) {
         return Status::OK();
@@ -833,6 +840,7 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
             }
         }
     }
+
     return Status::OK();
 }
 
@@ -1350,8 +1358,7 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
         auto index_ptr = std::make_shared<TabletIndex>(*parent_indexes[0]);
         index_ptr->set_escaped_escaped_index_suffix_path(suffix_path);
         // no need parse for bkd index or array index
-        // TODO(lihangyu): uncomment
-        // index_ptr->remove_parser_and_analyzer();
+        index_ptr->remove_parser_and_analyzer();
         subcolumns_indexes.emplace_back(std::move(index_ptr));
         return true;
     }

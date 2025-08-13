@@ -254,7 +254,7 @@ public class S3URI {
         if (!StringUtils.isEmpty(path) && !"/".equals(path)) {
             key = path.substring(1);
         } else {
-            throw new UserException("missing key: " + this.uri);
+            throw new UserException("missing key from uri: " + this.uri);
         }
     }
 

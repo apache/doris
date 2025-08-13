@@ -760,6 +760,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
@@ -8291,7 +8292,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.propertyItemList() != null) {
             dataSourceMapProperties.putAll(visitPropertyItemList(ctx.propertyItemList()));
         }
-        return new AlterRoutineLoadCommand(labelNameInfo, properties, dataSourceMapProperties);
+
+        Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
+        if (ctx.loadProperty() != null) {
+            for (DorisParser.LoadPropertyContext oneLoadPropertyContext : ctx.loadProperty()) {
+                LoadProperty loadProperty = visitLoadProperty(oneLoadPropertyContext);
+                if (loadProperty == null) {
+                    throw new AnalysisException("invalid clause of routine load");
+                }
+                if (loadPropertyMap.get(loadProperty.getClass().getName()) != null) {
+                    throw new AnalysisException("repeat setting of clause load property: "
+                            + loadProperty.getClass().getName());
+                }
+                loadPropertyMap.put(loadProperty.getClass().getName(), loadProperty);
+            }
+        }
+
+        return new AlterRoutineLoadCommand(labelNameInfo, loadPropertyMap, properties, dataSourceMapProperties);
     }
 
     @Override
@@ -8315,14 +8332,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitCancelBackup(DorisParser.CancelBackupContext ctx) {
-        String databaseName = ctx.database.getText();
+        String databaseName = ctx.database != null ? ctx.database.getText() : null;
         boolean isRestore = false;
         return new CancelBackupCommand(databaseName, isRestore);
     }
 
     @Override
     public LogicalPlan visitCancelRestore(DorisParser.CancelRestoreContext ctx) {
-        String databaseName = ctx.database.getText();
+        String databaseName = ctx.database != null ? ctx.database.getText() : null;
         boolean isRestore = true;
         return new CancelBackupCommand(databaseName, isRestore);
     }
@@ -8966,6 +8983,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new TagOptions(snapshotId, retainTime);
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateStorageVault(DorisParser.ShowCreateStorageVaultContext ctx) {
+        return new ShowCreateStorageVaultCommand(stripQuotes(ctx.identifier().getText()));
     }
 
     @Override
