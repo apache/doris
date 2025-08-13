@@ -26,14 +26,17 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+template <int define_index>
+using creator = creator_with_type_list_base<define_index, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT,
+                                            TYPE_BIGINT, TYPE_LARGEINT>;
+
 template <size_t N>
 AggregateFunctionPtr create_aggregate_function_multi_top_sum_impl(
         const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
     if (N == argument_types.size() - 3) {
-        return creator_with_integer_type_with_index<N>::template create<
-                AggregateFunctionApproxTopSumSimple>(argument_types, result_is_nullable, attr,
-                                                     attr.column_names);
+        return creator<N>::template create<AggregateFunctionApproxTopSumSimple>(
+                argument_types, result_is_nullable, attr, attr.column_names);
     } else {
         return create_aggregate_function_multi_top_sum_impl<N - 1>(argument_types,
                                                                    result_is_nullable, attr);
@@ -44,7 +47,7 @@ template <>
 AggregateFunctionPtr create_aggregate_function_multi_top_sum_impl<0>(
         const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    return creator_with_integer_type::create<AggregateFunctionApproxTopSumSimple>(
+    return creator<0>::create<AggregateFunctionApproxTopSumSimple>(
             argument_types, result_is_nullable, attr, attr.column_names);
 }
 

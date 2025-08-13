@@ -24,9 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -46,9 +44,7 @@ public class WindowFunnel extends NullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT,
-                            BooleanType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE)
-                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeType.INSTANCE, BooleanType.INSTANCE)
+                            BooleanType.INSTANCE)
 
     );
 
@@ -101,11 +97,7 @@ public class WindowFunnel extends NullableAggregateFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         FunctionSignature functionSignature = super.computeSignature(signature);
-        if (functionSignature.getArgType(2) instanceof DateType) {
-            return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->
-                (index == 2) ? DateTimeType.INSTANCE : originType
-            );
-        } else if (functionSignature.getArgType(2) instanceof DateV2Type) {
+        if (functionSignature.getArgType(2) instanceof DateV2Type) {
             return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->
                     (index == 2) ? DateTimeV2Type.SYSTEM_DEFAULT : originType
             );
