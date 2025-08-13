@@ -20,10 +20,10 @@ suite("test_variant_is_null_expr", "p0, nonConcurrent") {
     // define a sql table
     def testTable = "test_variant_is_null_expr"
 
-    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
 
     sql """ DROP TABLE IF EXISTS ${testTable} """ 
-    sql "set global_variant_max_subcolumns_count = 100"
+    sql "set default_variant_max_subcolumns_count = 100"
     sql """
         CREATE TABLE ${testTable} (
           `k` int(11) NULL COMMENT "",

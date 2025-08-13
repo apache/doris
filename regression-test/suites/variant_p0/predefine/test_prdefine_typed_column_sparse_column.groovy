@@ -18,7 +18,7 @@
 suite("test_predefine_typed_sparse", "p0"){ 
 
     def tableName = "test_predefine_typed_sparse"
-    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,

@@ -341,9 +341,9 @@ public class TypeDef implements ParseNode {
                 // Supported properties: variant_max_subcolumns_count, variant_enable_typed_paths_to_sparse
                 VariantType variantType = (VariantType) scalarType;
                 int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
-                        ConnectContext.get().getSessionVariable().getGlobalVariantMaxSubcolumnsCount();
+                        ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
                 boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
-                        ConnectContext.get().getSessionVariable().getGlobalEnableTypedPathsToSparse();
+                        ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
                 try {
                     variantMaxSubcolumnsCount = PropertyAnalyzer
                             .analyzeVariantMaxSubcolumnsCount(variantType.getProperties(), variantMaxSubcolumnsCount);

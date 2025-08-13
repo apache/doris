@@ -19,7 +19,7 @@ suite("regression_test_variant_predefine_multi_var", "variant_type"){
     int max_subcolumns_count = Math.floor(Math.random() * 7) + 1
     def table_name = "multi_variants"
     boolean enable_typed_paths_to_sparse = new Random().nextBoolean()
-    sql "set global_variant_enable_typed_paths_to_sparse = ${enable_typed_paths_to_sparse}"
+    sql "set default_variant_enable_typed_paths_to_sparse = ${enable_typed_paths_to_sparse}"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (

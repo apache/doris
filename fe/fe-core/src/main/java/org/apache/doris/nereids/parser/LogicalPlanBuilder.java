@@ -3591,9 +3591,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getGlobalVariantMaxSubcolumnsCount();
+                ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
         boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
-                ConnectContext.get().getSessionVariable().getGlobalEnableTypedPathsToSparse();
+                ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
 
         try {
             variantMaxSubcolumnsCount = PropertyAnalyzer

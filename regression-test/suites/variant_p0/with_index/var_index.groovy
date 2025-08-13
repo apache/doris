@@ -17,7 +17,7 @@
 
 suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     def table_name = "var_index"
-    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql "DROP TABLE IF EXISTS var_index"
     sql """
         CREATE TABLE IF NOT EXISTS var_index (

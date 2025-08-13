@@ -17,7 +17,7 @@
 
 suite("test_predefine_insert_into_select", "p0"){ 
 
-    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
 
     sql "DROP TABLE IF EXISTS fromTable"
     sql """CREATE TABLE fromTable (

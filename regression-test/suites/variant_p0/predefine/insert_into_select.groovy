@@ -18,7 +18,7 @@
 suite("regression_test_variant_predefine_insert_into_select", "variant_type"){
     def table_name = "insert_into_select"
     def max_subcolumns_count = new Random().nextInt(5) + 1
-    sql "set global_variant_max_subcolumns_count = ${max_subcolumns_count}"
+    sql "set default_variant_max_subcolumns_count = ${max_subcolumns_count}"
     sql "DROP TABLE IF EXISTS ${table_name}_var"
     sql "DROP TABLE IF EXISTS ${table_name}_str"
     sql """

@@ -19,8 +19,8 @@ suite("regression_test_variant_desc", "p0"){
     // if (isCloudMode()) {
     //     return
     // }
-    sql """ set global_variant_enable_typed_paths_to_sparse = false """
-    sql """ set global_variant_max_subcolumns_count = 0 """
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_max_subcolumns_count = 0 """
 
     def load_json_data = {table_name, file_name ->
         // load the json data

@@ -61,7 +61,7 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")
     def run_test = { format ->
         def tableName = "test_show_nested_index_file_http_action_with_variant_" + format
-        sql "set global_variant_max_subcolumns_count = 0"
+        sql "set default_variant_max_subcolumns_count = 0"
         sql "DROP TABLE IF EXISTS ${tableName}"
         setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
             sql """

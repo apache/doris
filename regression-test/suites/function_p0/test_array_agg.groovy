@@ -22,7 +22,7 @@ suite("test_array_agg", "p0") {
 
 
     def count = new Random().nextInt(1) + 1
-    sql """ set global_variant_max_subcolumns_count=${count};"""
+    sql """ set default_variant_max_subcolumns_count=${count};"""
 
     sql """
         drop table if exists ${tableName};
