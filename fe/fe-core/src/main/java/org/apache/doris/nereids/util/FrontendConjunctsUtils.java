@@ -125,8 +125,9 @@ public class FrontendConjunctsUtils {
                     List<String> nameParts = ((UnboundSlot) expr).getNameParts();
                     if (!CollectionUtils.isEmpty(nameParts)) {
                         String name = nameParts.get(nameParts.size() - 1).toLowerCase();
-                        if (values.containsKey(name)) {
-                            return Literal.of(values.get(name));
+                        Object value = values.get(name);
+                        if (value != null) {
+                            return Literal.of(value);
                         } else {
                             containsAllColumn.set(false);
                         }
