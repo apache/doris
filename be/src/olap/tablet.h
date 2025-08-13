@@ -644,7 +644,7 @@ private:
     int64_t _io_error_times = 0;
 
     // partition's visible version. it sync from fe, but not real-time.
-    std::shared_ptr<const VersionWithTime> _visible_version;
+    std::atomic<std::shared_ptr<const VersionWithTime>> _visible_version;
 
     std::atomic_bool _is_full_compaction_running = false;
 

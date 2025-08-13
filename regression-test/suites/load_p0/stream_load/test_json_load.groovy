@@ -943,4 +943,33 @@ suite("test_json_load", "p0,nonConcurrent") {
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+
+    // try to load  `boolean` => `tinyint, int , string, decimal`
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `id` int,
+                `k1` tinyint NULL,
+                `k2` int NULL,
+                `k3` string NULL,
+                `k4` decimal(10,2) NULL
+            )
+            DUPLICATE KEY(`id`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+
+        load_json_data.call("${testTable}", "${testTable}_case31", 'true', '', 'json', '', '',
+                             '', '', '', 'test_read_boolean_to_int.json')
+        
+        sql "sync"
+        qt_select31 "select * from ${testTable} order by id"
+
+    } finally {
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
 }
