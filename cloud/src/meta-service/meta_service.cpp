@@ -1366,6 +1366,32 @@ void scan_restore_job_rowset(
     return;
 }
 
+/*
+ * Restore job state:
+ *                                 +--------------+
+ *                                 |   PREPARED   |
+ *                                 +--------------+
+ *                                       |  |
+ *                           +-----------+  +-----------+
+ *                           |  commit                  |
+ *                           V                          |
+ *                   +--------------+  abort/expired    | abort/expired
+ *                   |   COMMITTED  | ---------------+  |
+ *                   +--------------+                |  |
+ *                           |                       |  |
+ *                           | complete              |  |
+ *                           V                       V  V
+ *                    +--------------+           +--------------+
+ *                    |   COMPLETED  |           |   DROPPED    |
+ *                    +--------------+           +--------------+
+ *                           |                          |
+ *                           +----------+   +-----------+
+ *                      recycle kv      |   |  recycle kv & data
+ *                                      V   V
+ *                                 +--------------+
+ *                                 |   RECYCLING  |
+ *                                 +--------------+
+ */
 void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* controller,
                                           const RestoreJobRequest* request,
                                           RestoreJobResponse* response,
@@ -1423,6 +1449,8 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
                           tablet_idx.tablet_id(), err);
         return;
     }
+
+    int64_t version = 0;
     if (err == TxnErrorCode::TXN_OK) {
         RestoreJobCloudPB restore_job_pb;
         if (!restore_job_pb.ParseFromString(val)) {
@@ -1431,12 +1459,20 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
             LOG_WARNING(msg);
             return;
         }
-        if (restore_job_pb.state() != RestoreJobCloudPB::DROPPED) {
+        if (restore_job_pb.state() == RestoreJobCloudPB::RECYCLING) {
+            // request may arrive when recycle start
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("restore tablet {} is recycling, state: {}", tablet_idx.tablet_id(),
+                              RestoreJobCloudPB::State_Name(restore_job_pb.state()));
+            return;
+        } else if (restore_job_pb.state() != RestoreJobCloudPB::PREPARED) {
+            // COMMITTED/DROPPED/COMPLETED state, should not happen
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = fmt::format("restore tablet {} already exists, state: {}", tablet_idx.tablet_id(),
                               RestoreJobCloudPB::State_Name(restore_job_pb.state()));
             return;
         }
+        version = restore_job_pb.version() + 1;
     }
 
     TabletMetaCloudPB tablet_meta;
@@ -1450,13 +1486,13 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
     int64_t total_segment_num = 0;
     int64_t total_disk_size = 0;
     // 1. save restore job
+    RestoreJobCloudPB pb;
     std::string to_save_val;
     {
-        RestoreJobCloudPB pb;
         pb.set_tablet_id(tablet_idx.tablet_id());
         pb.mutable_tablet_meta()->Swap(&tablet_meta);
-        pb.set_creation_time(::time(nullptr));
-        pb.set_expiration(request->expiration());
+        pb.set_ctime_s(::time(nullptr));
+        pb.set_expired_at_s(request->expiration());
         pb.set_state(RestoreJobCloudPB::PREPARED);
         total_rowset_num = rs_metas.size();
         for (const auto& rs_meta : rs_metas) {
@@ -1468,16 +1504,19 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
         pb.set_total_row_num(total_row_num);
         pb.set_total_segment_num(total_segment_num);
         pb.set_total_disk_size(total_disk_size);
+        pb.set_committed_rowset_num(0);
+        pb.set_version(version);
         pb.SerializeToString(&to_save_val);
     }
-    LOG_INFO("put restore job")
+    LOG_INFO("prepare restore job")
             .tag("job_restore_tablet_key", hex(key))
             .tag("tablet_id", tablet_idx.tablet_id())
             .tag("state", RestoreJobCloudPB::PREPARED)
             .tag("total_rowset_num", total_rowset_num)
             .tag("total_row_num", total_row_num)
             .tag("total_segment_num", total_segment_num)
-            .tag("total_disk_size", total_disk_size);
+            .tag("total_disk_size", total_disk_size)
+            .tag("version", version);
     txn0->put(key, to_save_val);
     err = txn0->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -1487,7 +1526,12 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
     }
 
     // 2. save restore rowsets
-    for (auto& rowset_meta : rs_metas) {
+    int64_t saved_rowset_num = 0;
+    int32_t max_batch_size = config::max_restore_job_rowsets_per_batch;
+    for (size_t i = 0; i < rs_metas.size(); i += max_batch_size) {
+        size_t end = (i + max_batch_size) > rs_metas.size() ? rs_metas.size() : i + max_batch_size;
+        std::vector<doris::RowsetMetaCloudPB> sub_restore_job_rs_metas(rs_metas.begin() + i,
+                                                                       rs_metas.begin() + end);
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1495,34 +1539,37 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
             msg = "failed to init txn";
             return;
         }
-        // put restore rowset kv
-        std::string restore_job_rs_key;
-        std::string restore_job_rs_val;
-        JobRestoreRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(),
-                                             rowset_meta.end_version()};
-        job_restore_rowset_key(rs_key_info, &restore_job_rs_key);
-        if (!rowset_meta.SerializeToString(&restore_job_rs_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize rowset meta";
-            return;
+        for (auto& rowset_meta : sub_restore_job_rs_metas) {
+            // put restore rowset kv
+            std::string restore_job_rs_key;
+            std::string restore_job_rs_val;
+            JobRestoreRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(),
+                                                 rowset_meta.end_version()};
+            job_restore_rowset_key(rs_key_info, &restore_job_rs_key);
+            if (!rowset_meta.SerializeToString(&restore_job_rs_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize rowset meta";
+                return;
+            }
+            txn->put(restore_job_rs_key, restore_job_rs_val);
+            LOG_INFO("put restore job rowset")
+                    .tag("restore_job_rs_key", hex(restore_job_rs_key))
+                    .tag("tablet_id", tablet_idx.tablet_id())
+                    .tag("rowset_id", rowset_meta.rowset_id_v2())
+                    .tag("rowset_size", restore_job_rs_key.size() + restore_job_rs_val.size())
+                    .tag("rowset_meta", rowset_meta.DebugString());
         }
-        txn->put(restore_job_rs_key, restore_job_rs_val);
-        LOG_INFO("put restore job rowset")
-                .tag("restore_job_rs_key", hex(restore_job_rs_key))
-                .tag("tablet_id", tablet_idx.tablet_id())
-                .tag("rowset_id", rowset_meta.rowset_id_v2())
-                .tag("rowset_size", restore_job_rs_key.size() + restore_job_rs_val.size())
-                .tag("rowset_meta", rowset_meta.DebugString());
-
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to prepare restore job,"
                << " tablet_id=" << tablet_idx.tablet_id()
-               << " rowset_id=" << rowset_meta.rowset_id_v2() << " err=" << err;
+               << " saved_rowset_num=" << saved_rowset_num
+               << " total_rowset_num=" << total_rowset_num << " err=" << err;
             msg = ss.str();
             return;
         }
+        saved_rowset_num += sub_restore_job_rs_metas.size();
     }
 }
 
@@ -1585,7 +1632,17 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
         return;
     }
 
-    if (restore_job_pb.state() != RestoreJobCloudPB::PREPARED) {
+    if (restore_job_pb.state() == RestoreJobCloudPB::COMMITTED) {
+        // duplicate request, previous request succeed, return ok
+        return;
+    } else if (restore_job_pb.state() == RestoreJobCloudPB::RECYCLING) {
+        // RECYCLING, request may arrive when recycle start
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("restore tablet {} is recycling, state: {}", tablet_idx.tablet_id(),
+                          RestoreJobCloudPB::State_Name(restore_job_pb.state()));
+        return;
+    } else if (restore_job_pb.state() != RestoreJobCloudPB::PREPARED) {
+        // Only allow PREPARED -> COMMITTED
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("restore tablet {} with invalid state: {}", tablet_idx.tablet_id(),
                           RestoreJobCloudPB::State_Name(restore_job_pb.state()));
@@ -1606,13 +1663,14 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
 
     if (restore_job_pb.total_rowset_num() != restore_job_rs_metas.size()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("rowset num mismatch, expected {} but got {}",
+        msg = fmt::format("rowset num mismatch, total_rowset_num={}, rs_metas_size={}",
                           restore_job_pb.total_rowset_num(), restore_job_rs_metas.size());
         return;
     }
 
     // 3. convert restore job rowsets to rs meta
     TabletStats tablet_stat;
+    int64_t converted_rowset_num = 0;
     int32_t max_batch_size = config::max_restore_job_rowsets_per_batch;
     for (size_t i = 0; i < restore_job_rs_metas.size(); i += max_batch_size) {
         size_t end = (i + max_batch_size) > restore_job_rs_metas.size()
@@ -1675,19 +1733,16 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
             ++tablet_stat.num_rowsets;
         }
 
-        // 3.2 remove restore job rs keys
-        for (auto& [k, _] : sub_restore_job_rs_metas) {
-            txn->remove(k);
-        }
-
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::COMMIT>(err);
-            ss << "failed to put restore job rowset,"
-               << " tablet_id=" << tablet_idx.tablet_id() << " err=" << err;
+            ss << "failed to commit restore job,"
+               << " tablet_id=" << tablet_idx.tablet_id()
+               << " converted_rowset_num=" << converted_rowset_num << " err=" << err;
             msg = ss.str();
             return;
         }
+        converted_rowset_num += sub_restore_job_rs_metas.size();
     }
 
     if (restore_job_pb.total_row_num() != tablet_stat.num_rows ||
@@ -1833,12 +1888,20 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
         return;
     }
 
-    // 5. remove restore job
-    txn0->remove(key);
-    LOG_INFO("remove restore job")
+    // 5. update restore job
+    std::string to_save_val;
+    restore_job_pb.set_mtime_s(::time(nullptr));
+    restore_job_pb.set_state(RestoreJobCloudPB::COMMITTED);
+    restore_job_pb.set_committed_rowset_num(converted_rowset_num);
+    restore_job_pb.SerializeToString(&to_save_val);
+
+    txn0->put(key, to_save_val);
+    LOG_INFO("commit restore job")
             .tag("job_restore_tablet_key", hex(key))
             .tag("tablet_id", tablet_idx.tablet_id())
-            .tag("state", restore_job_pb.state());
+            .tag("state", restore_job_pb.state())
+            .tag("mtime_s", restore_job_pb.mtime_s())
+            .tag("committed_rowset_num", converted_rowset_num);
     err = txn0->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1906,21 +1969,49 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
         return;
     }
 
-    if (restore_job_pb.state() == RestoreJobCloudPB::DROPPED) {
+    bool is_completed = request->has_is_completed() && request->is_completed();
+    if (restore_job_pb.state() == RestoreJobCloudPB::DROPPED ||
+        restore_job_pb.state() == RestoreJobCloudPB::COMPLETED) {
         LOG_INFO("restore job already finished")
                 .tag("job_restore_tablet_key", hex(key))
-                .tag("tablet_id", tablet_idx.tablet_id());
+                .tag("tablet_id", tablet_idx.tablet_id())
+                .tag("state", restore_job_pb.state());
+        // already final state, return ok
         return;
+    } else if (restore_job_pb.state() == RestoreJobCloudPB::RECYCLING) {
+        // RECYCLING, request may arrive when recycle start
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("restore tablet {} is recycling, state: {}", tablet_idx.tablet_id(),
+                          RestoreJobCloudPB::State_Name(restore_job_pb.state()));
+        return;
+    } else {
+        // PREPARED, COMMITTED state
+        if (is_completed && restore_job_pb.state() != RestoreJobCloudPB::COMMITTED) {
+            // Only allow COMMITTED -> COMPLETED
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("restore tablet {} in invalid state to complete, state: {}",
+                              tablet_idx.tablet_id(),
+                              RestoreJobCloudPB::State_Name(restore_job_pb.state()));
+            return;
+        }
     }
 
     // 2. update restore job
     std::string to_save_val;
-    restore_job_pb.set_state(RestoreJobCloudPB::DROPPED);
+    restore_job_pb.set_state(is_completed ? RestoreJobCloudPB::COMPLETED
+                                          : RestoreJobCloudPB::DROPPED);
+    restore_job_pb.set_need_recycle_data(!is_completed);
     restore_job_pb.SerializeToString(&to_save_val);
-    LOG_INFO("put restore job")
+    LOG_INFO("finish restore job")
             .tag("job_restore_tablet_key", hex(key))
             .tag("tablet_id", tablet_idx.tablet_id())
-            .tag("state", restore_job_pb.state());
+            .tag("state", restore_job_pb.state())
+            .tag("total_rowset_num", restore_job_pb.total_rowset_num())
+            .tag("total_row_num", restore_job_pb.total_row_num())
+            .tag("total_segment_num", restore_job_pb.total_segment_num())
+            .tag("total_disk_size", restore_job_pb.total_disk_size())
+            .tag("committed_rowset_num", restore_job_pb.committed_rowset_num())
+            .tag("is_completed", is_completed);
     txn0->put(key, to_save_val);
     err = txn0->commit();
     if (err != TxnErrorCode::TXN_OK) {
