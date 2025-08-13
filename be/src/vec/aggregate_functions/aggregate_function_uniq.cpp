@@ -22,10 +22,10 @@
 
 #include <string>
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/common/hash_table/hash.h" // IWYU pragma: keep
-#include "vec/core/extended_types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -36,11 +36,11 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
-    return creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
-                                  TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256,
-                                  TYPE_VARCHAR, TYPE_ARRAY>::create<AggregateFunctionUniq,
-                                                                    Data>(argument_types,
-                                                                          result_is_nullable, attr);
+    return creator_with_type_list<
+            TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_DECIMAL32,
+            TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_VARCHAR, TYPE_ARRAY, TYPE_FLOAT,
+            TYPE_DOUBLE>::create<AggregateFunctionUniq, Data>(argument_types, result_is_nullable,
+                                                              attr);
 }
 
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory) {

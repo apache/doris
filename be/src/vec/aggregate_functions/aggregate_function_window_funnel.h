@@ -102,8 +102,8 @@ struct DataValue {
 
 template <PrimitiveType PrimitiveType, typename NativeType>
 struct WindowFunnelState {
-    using DateValueType = std::conditional_t<PrimitiveType == PrimitiveType::TYPE_DATETIMEV2,
-                                             DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
+    static_assert(PrimitiveType == PrimitiveType::TYPE_DATETIMEV2);
+    using DateValueType = DateV2Value<DateTimeV2ValueType>;
     int event_count = 0;
     int64_t window;
     bool enable_mode;
