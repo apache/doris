@@ -41,6 +41,8 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -55,6 +57,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsStmt.class);
@@ -130,8 +133,8 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP,
-                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
-                    TableType.ICEBERG_EXTERNAL_TABLE);
+                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
+                TableType.ICEBERG_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE);
 
         if (table instanceof HMSExternalTable) {
             if (((HMSExternalTable) table).isView()) {
@@ -152,6 +155,13 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
 
         if (table instanceof IcebergExternalTable) {
             if (!((IcebergExternalTable) table).isValidRelatedTable()) {
+                throw new AnalysisException("Table " + tblName + " is not a supported partition table");
+            }
+            return;
+        }
+
+        if (table instanceof PaimonExternalTable) {
+            if (!((PaimonExternalTable) table).isPartitionInvalid(Optional.empty())) {
                 throw new AnalysisException("Table " + tblName + " is not a supported partition table");
             }
             return;
@@ -190,9 +200,10 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
-                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog)) {
+                || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog
+                || catalog instanceof PaimonExternalTable)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
-                catalog.getType()));
+                    catalog.getType()));
         }
 
         // analyze where clause if not null
@@ -301,6 +312,13 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
             builder.addColumn(new Column("Lower Bound", ScalarType.createVarchar(100)));
             builder.addColumn(new Column("Upper Bound", ScalarType.createVarchar(100)));
+        } else if (catalog instanceof PaimonExternalCatalog) {
+            builder.addColumn(new Column("Partition", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("PartitionKey", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("RecordCount", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("FileSizeInBytes", ScalarType.createVarchar(300)))
+                    .addColumn(new Column("FileCount", ScalarType.createVarchar(300)));
+
         } else {
             builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
         }
