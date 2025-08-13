@@ -855,4 +855,60 @@ TEST(MathFunctionTest, lcm_test) {
     }
 }
 
+TEST(MathFunctionTest, isnan_test) {
+    std::string func_name = "isnan";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{DOUBLE(0.0)}, uint8_t {0}},
+                            {{DOUBLE(-1.0)}, uint8_t {0}},
+                            {{DOUBLE(1.0)}, uint8_t {0}},
+                            {{DOUBLE(NAN)}, uint8_t {1}},
+                            {{DOUBLE(INFINITY)}, uint8_t {0}},
+                            {{DOUBLE(-INFINITY)}, uint8_t {0}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{FLOAT(0.0)}, uint8_t {0}},
+                            {{FLOAT(-1.0)}, uint8_t {0}},
+                            {{FLOAT(1.0)}, uint8_t {0}},
+                            {{FLOAT(NAN)}, uint8_t {1}},
+                            {{FLOAT(INFINITY)}, uint8_t {0}},
+                            {{FLOAT(-INFINITY)}, uint8_t {0}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(MathFunctionTest, isinf_test) {
+    std::string func_name = "isinf";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{DOUBLE(0.0)}, uint8_t {0}},
+                            {{DOUBLE(-1.0)}, uint8_t {0}},
+                            {{DOUBLE(1.0)}, uint8_t {0}},
+                            {{DOUBLE(NAN)}, uint8_t {0}},
+                            {{DOUBLE(INFINITY)}, uint8_t {1}},
+                            {{DOUBLE(-INFINITY)}, uint8_t {1}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{FLOAT(0.0)}, uint8_t {0}},
+                            {{FLOAT(-1.0)}, uint8_t {0}},
+                            {{FLOAT(1.0)}, uint8_t {0}},
+                            {{FLOAT(NAN)}, uint8_t {0}},
+                            {{FLOAT(INFINITY)}, uint8_t {1}},
+                            {{FLOAT(-INFINITY)}, uint8_t {1}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+}
+
 } // namespace doris::vectorized
