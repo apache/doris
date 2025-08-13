@@ -142,7 +142,8 @@ public class PaimonColumnValue implements ColumnValue {
     public LocalDateTime getDateTime() {
         Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
         if (dataType instanceof LocalZonedTimestampType) {
-            return ts.toLocalDateTime().atZone(ZoneId.of(timeZone)).toLocalDateTime();
+            return ts.toLocalDateTime().atZone(ZoneId.of("UTC"))
+                    .withZoneSameInstant(ZoneId.of(timeZone)).toLocalDateTime();
         } else {
             return ts.toLocalDateTime();
         }
