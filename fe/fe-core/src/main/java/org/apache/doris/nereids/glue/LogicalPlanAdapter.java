@@ -25,6 +25,7 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -86,6 +87,11 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
             return outFile;
         }
         return null;
+    }
+
+    @Override
+    public boolean hasBlackHoleClause() {
+        return logicalPlan instanceof UnboundBlackholeSink;
     }
 
     @Override

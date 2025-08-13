@@ -23,6 +23,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
+import org.apache.doris.planner.BlackholeSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.qe.AbstractJobProcessor;
@@ -73,6 +74,8 @@ public class QueryProcessor extends AbstractJobProcessor {
         Boolean enableParallelResultSink;
         if (topDataSink instanceof ResultSink) {
             enableParallelResultSink = coordinatorContext.queryOptions.isEnableParallelResultSink();
+        } else if (topDataSink instanceof BlackholeSink) {
+            enableParallelResultSink = true;
         } else {
             enableParallelResultSink = coordinatorContext.queryOptions.isEnableParallelOutfile();
         }

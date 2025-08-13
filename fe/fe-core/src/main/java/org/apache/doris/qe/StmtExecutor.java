@@ -1220,6 +1220,7 @@ public class StmtExecutor {
             channel = context.getMysqlChannel();
         }
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
+        boolean isBlackHoleQuery = queryStmt.hasBlackHoleClause();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
             LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
@@ -1236,7 +1237,8 @@ public class StmtExecutor {
         // TODO support arrow flight sql
         // NOTE: If you want to add another condition about SessionVariable, please consider whether
         // add to CacheAnalyzer.commonCacheCondition
-        if (channel != null && !isOutfileQuery && CacheAnalyzer.canUseCache(context.getSessionVariable())
+        if (channel != null && !isOutfileQuery && !isBlackHoleQuery
+                && CacheAnalyzer.canUseCache(context.getSessionVariable())
                 && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
             if (queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
@@ -1259,6 +1261,7 @@ public class StmtExecutor {
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         CoordInterface coordBase = null;
+        boolean isBlackHoleClause = queryStmt.hasBlackHoleClause();
         if (statementContext.isShortCircuitQuery()) {
             ShortCircuitQueryContext shortCircuitQueryContext =
                         statementContext.getShortCircuitQueryContext() != null
@@ -1311,7 +1314,7 @@ public class StmtExecutor {
 
                 // for outfile query, there will be only one empty batch send back with eos flag
                 // call `copyRowBatch()` first, because batch.getBatch() may be null, if result set is empty
-                if (cacheAnalyzer != null && !isOutfileQuery && !isDryRun) {
+                if (cacheAnalyzer != null && !isOutfileQuery && !isBlackHoleClause && !isDryRun) {
                     cacheAnalyzer.copyRowBatch(batch);
                 }
                 if (batch.getBatch() != null) {
@@ -1321,29 +1324,46 @@ public class StmtExecutor {
                     // will be recognized as a success result
                     // so We need to send fields after first batch arrived
                     if (!isSendFields) {
-                        if (!isOutfileQuery) {
-                            sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                    getReturnTypes(queryStmt));
-                        } else {
+                        if (isOutfileQuery) {
                             if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
                                 outfileWriteSuccess(queryStmt.getOutFileClause());
                             }
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                        } else if (isBlackHoleClause) {
+                            // do nothing
+                        } else {
+                            sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
+                                    getReturnTypes(queryStmt));
                         }
                         isSendFields = true;
                     }
-                    for (ByteBuffer row : batch.getBatch().getRows()) {
-                        channel.sendOnePacket(row);
+                    if (isBlackHoleClause) {
+                        // For blackhole queries, aggregate data by BE nodes
+                        Map<String, String> attachedInfos = batch.getBatch().getAttachedInfos();
+                        if (attachedInfos != null && !attachedInfos.isEmpty()) {
+                            blackholeResultHandler.processBlackholeData(attachedInfos);
+                        }
+                        context.updateReturnRows(0);
+                    } else {
+                        // For non-blackhole queries, send data as before
+                        for (ByteBuffer row : batch.getBatch().getRows()) {
+                            channel.sendOnePacket(row);
+                        }
+                        context.updateReturnRows(batch.getBatch().getRows().size());
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
-                    context.updateReturnRows(batch.getBatch().getRows().size());
                     context.addResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
+                    // For blackhole queries, send aggregated data when query is complete
+                    if (isBlackHoleClause && blackholeResultHandler.hasData()) {
+                        // Send aggregated results to client
+                        blackholeResultHandler.sendAggregatedBlackholeResults(this);
+                    }
                     break;
                 }
             }
-            if (cacheAnalyzer != null && !isDryRun) {
+            if (cacheAnalyzer != null && !isDryRun && !isBlackHoleClause) {
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
                     isSendFields =
                             sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields,
@@ -1359,7 +1379,11 @@ public class StmtExecutor {
                 }
             }
             if (!isSendFields) {
-                if (!isOutfileQuery) {
+                if (isOutfileQuery) {
+                    sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                } else if (isBlackHoleClause) {
+                    // do nothing
+                } else {
                     if (ConnectContext.get() != null && isDryRun) {
                         // Return a one row one column result set, with the real result number
                         long rows = 0;
@@ -1377,12 +1401,11 @@ public class StmtExecutor {
                         sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
                                 getReturnTypes(queryStmt));
                     }
-                } else {
-                    sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                 }
             }
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
+
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
         } catch (QueryTimeoutException e) {
