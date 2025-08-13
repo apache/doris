@@ -24,7 +24,6 @@
 #include <google/protobuf/service.h>
 
 #include <chrono>
-#include <cstdint>
 #include <random>
 #include <type_traits>
 
