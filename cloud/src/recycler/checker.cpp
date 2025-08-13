@@ -221,6 +221,12 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_meta_rowset_key_check) {
+                if (int ret = checker->do_meta_rowset_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
             if (config::enable_delete_bitmap_storage_optimize_v2_check) {
                 if (int ret = checker->do_delete_bitmap_storage_optimize_check(2 /*version*/);
                     ret != 0) {
@@ -1785,7 +1791,6 @@ int InstanceChecker::do_mow_job_key_check() {
     } while (it->more() && !stopped());
     return 0;
 }
-
 int InstanceChecker::do_tablet_stats_key_check() {
     int ret = 0;
 
@@ -2349,6 +2354,7 @@ int InstanceChecker::check_txn_index_key(std::string_view key, std::string_view 
     }
     auto txn_id = std::get<int64_t>(std::get<0>(out[4]));
     auto db_id = std::get<int64_t>(std::get<0>(out[3]));
+    /// get tablet id
     std::string txn_index = txn_index_key({instance_id_, txn_id});
     std::string txn_index_val;
     TxnIndexPB txn_index_pb;
@@ -2493,6 +2499,129 @@ int InstanceChecker::do_txn_key_check() {
     LOG(INFO) << "finish check txn_running_key, num_scanned=" << num_scanned
               << ", num_abnormal=" << num_abnormal;
     return 0;
+}
+
+int InstanceChecker::check_meta_tmp_rowset_key(std::string_view key, std::string_view value) {
+    TxnInfoPB txn_info_pb;
+    std::string_view k1 = key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    decode_key(&k1, &out);
+    // 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}
+    if (!txn_info_pb.ParseFromArray(value.data(), value.size())) {
+        LOG(WARNING) << "failed to parse TxnInfoPB";
+        return -1;
+    }
+    /// get tablet id
+    auto txn_id = std::get<int64_t>(std::get<0>(out[4]));
+    std::string txn_index = txn_index_key({instance_id_, txn_id});
+    std::string txn_index_val;
+    TxnIndexPB txn_index_pb;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn";
+        return -1;
+    }
+    if (txn->get(txn_index, &txn_index_val) != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get txn index key, key=" << txn_index;
+        return -1;
+    }
+    txn_index_pb.ParseFromString(txn_index_val);
+    auto tablet_id = txn_index_pb.tablet_index().tablet_id();
+    std::string meta_tmp_rowset_key = meta_rowset_tmp_key({instance_id_, txn_id, tablet_id});
+    int is_key_exist = key_exist(txn_kv_.get(), meta_tmp_rowset_key);
+    if (is_key_exist == 1) {
+        if (txn_info_pb.status() != TxnStatusPB::TXN_STATUS_VISIBLE) {
+            // clang-format off
+            LOG(INFO) << "meta tmp rowset key not exist but txn status != TXN_STATUS_VISIBLE"
+                        << "meta tmp rowset key=" << meta_tmp_rowset_key
+                        << "txn_info=" << txn_info_pb.ShortDebugString();
+            // clang-format on
+            return 1;
+        }
+    } else if (is_key_exist == 0) {
+        if (txn_info_pb.status() != TxnStatusPB::TXN_STATUS_PREPARED) {
+            // clang-format off
+            LOG(INFO) << "meta tmp rowset key exist but txn status != TXN_STATUS_PREPARED"
+                        << "meta tmp rowset key=" << meta_tmp_rowset_key
+                        << "txn_info=" << txn_info_pb.ShortDebugString();
+            // clang-format on
+            return 1;
+        }
+    } else {
+        LOG(WARNING) << "failed to get key, key=" << meta_tmp_rowset_key;
+        return -1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_meta_rowset_key(std::string_view key, std::string_view value) {
+    RowsetMetaCloudPB meta_rowset_pb;
+    if (!meta_rowset_pb.ParseFromArray(value.data(), value.size())) {
+        LOG(WARNING) << "failed to parse RowsetMetaCloudPB";
+        return -1;
+    }
+    std::string tablet_index_key = meta_tablet_idx_key({instance_id_, meta_rowset_pb.tablet_id()});
+    if (key_exist(txn_kv_.get(), tablet_index_key) == 1) {
+        LOG(WARNING) << "rowset's tablet id not found in fdb"
+                     << "tablet_index_key: " << tablet_index_key
+                     << "rowset meta: " << meta_rowset_pb.ShortDebugString();
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::do_meta_rowset_key_check() {
+    int ret = 0;
+
+    std::string begin = meta_rowset_key({instance_id_, 0, 0});
+    std::string end = meta_rowset_key({instance_id_, INT64_MAX, 0});
+    int64_t num_scanned = 0;
+    int64_t num_loss = 0;
+
+    ret = scan_and_handle_kv(begin, end, [&](std::string_view k, std::string_view v) {
+        num_scanned++;
+        int ret = check_meta_rowset_key(k, v);
+        if (ret == 1) {
+            num_loss++;
+        }
+        return ret;
+    });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to check meta rowset key,";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "meta rowset key may be loss, num_scanned=" << num_scanned
+                     << ", num_loss=" << num_loss;
+    }
+    LOG(INFO) << "meta rowset key check finish, num_scanned=" << num_scanned
+              << ", num_loss=" << num_loss;
+
+    begin = txn_info_key({instance_id_, 0, 0});
+    end = txn_info_key({instance_id_, INT64_MAX, 0});
+    num_scanned = 0;
+    num_loss = 0;
+
+    ret = scan_and_handle_kv(begin, end, [&](std::string_view k, std::string_view v) {
+        num_scanned++;
+        int ret = check_meta_tmp_rowset_key(k, v);
+        if (ret == 1) {
+            num_loss++;
+        }
+        return ret;
+    });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to check tmp meta rowset key";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "meta tmp rowset key may be loss, num_scanned=" << num_scanned
+                     << ", num_loss=" << num_loss;
+    }
+    LOG(INFO) << "meta tmp rowset key check finish, num_scanned=" << num_scanned
+              << ", num_loss=" << num_loss;
+
+    return ret;
 }
 
 } // namespace doris::cloud
