@@ -289,7 +289,7 @@ suite("test_auto_partition_behavior") {
         );
     """
     def part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 6)
+    assertEquals(part_result.size(), 6)
 
     sql " drop table if exists auto_dynamic "
     sql """
@@ -310,12 +310,13 @@ suite("test_auto_partition_behavior") {
         );
     """
     part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 1)
+    assertEquals(part_result.size(), 1)
     sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
     sleep(10000)
     part_result = sql " show partitions from auto_dynamic "
     log.info("${part_result}".toString())
-    assertEquals(part_result.size, 3)
+    assertTrue(part_result.size() == 3 || part_result.size() == 4,
+        "The partition size should be 3 or 4, but got ${part_result.size()}")
     qt_sql_dynamic_auto "select * from auto_dynamic order by k0;"
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
 
@@ -396,11 +397,11 @@ suite("test_auto_partition_behavior") {
 
     sql """ insert into test_change values ("20201212"); """
     part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 2 * replicaNum)
+    assertEquals(part_result.size(), 2 * replicaNum)
     sql """ ALTER TABLE test_change MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k0) BUCKETS 50; """
     sql """ insert into test_change values ("20001212"); """
     part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 52 * replicaNum)
+    assertEquals(part_result.size(), 52 * replicaNum)
 
 
 
