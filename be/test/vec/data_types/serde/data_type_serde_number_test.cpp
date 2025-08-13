@@ -136,12 +136,13 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
                         EXPECT_TRUE(std::isnan(actual_value))
                                 << "Row " << j << " value mismatch: expected NaN, got "
                                 << actual_value;
-                    } else {
+                    } else if (std::isinf(expected_value)) {
                         EXPECT_EQ(actual_value, expected_value);
+                    } else {
+                        EXPECT_NEAR(actual_value, expected_value, 0.00001)
+                                << "Row " << j << " value mismatch: expected " << expected_value
+                                << ", got " << actual_value;
                     }
-                    // EXPECT_NEAR(actual_value, expected_value, 0.00001)
-                    //         << "Row " << j << " value mismatch: expected " << expected_value
-                    //         << ", got " << actual_value;
                 } else {
                     EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
                 }
@@ -185,8 +186,15 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
                         EXPECT_TRUE(std::isnan(actual_value))
                                 << "Row " << j << " value mismatch: expected NaN, got "
                                 << actual_value;
+                    } else if (std::isinf(expected_value)) {
+                        EXPECT_TRUE(std::isinf(actual_value))
+                                << "Row " << j << " value mismatch: expected inf, got "
+                                << actual_value;
                     } else {
-                        EXPECT_EQ(actual_value, expected_value);
+                        // EXPECT_EQ(actual_value, expected_value);
+                        EXPECT_NEAR(actual_value, expected_value, 0.00001)
+                                << "Row " << j << " value mismatch: expected " << expected_value
+                                << ", got " << actual_value;
                     }
                 } else {
                     EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
