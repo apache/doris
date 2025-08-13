@@ -39,6 +39,8 @@ import java.util.regex.Pattern;
  * create Sql block rule Commands.
  */
 public class CreateSqlBlockRuleCommand extends SqlBlockRuleCommand {
+
+    public static final String STRING_NOT_SET = SqlBlockUtil.STRING_DEFAULT;
     private static final String NAME_TYPE = "SQL BLOCK RULE NAME";
     private final boolean ifNotExists;
 
@@ -95,5 +97,9 @@ public class CreateSqlBlockRuleCommand extends SqlBlockRuleCommand {
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 }

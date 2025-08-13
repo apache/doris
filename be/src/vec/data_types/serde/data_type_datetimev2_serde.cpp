@@ -322,10 +322,9 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         slice.trim_quote();
     }
     UInt64 val = 0;
-    if (ReadBuffer rb(slice.data, slice.size);
-        !read_datetime_v2_text_impl<UInt64>(val, rb, _scale)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (StringRef str(slice.data, slice.size);
+        !read_datetime_v2_text_impl<UInt64>(val, str, _scale)) {
+        return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();

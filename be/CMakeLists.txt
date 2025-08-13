@@ -277,6 +277,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
 add_compile_options(-g
+                    -gdwarf-5
                     -Wall
                     -Wextra
                     -Werror
@@ -387,10 +388,6 @@ if (USE_UNWIND)
     if (COMPILER_CLANG)
         add_compile_options(-gdwarf-aranges)
     endif()
-endif()
-
-if (USE_DWARF)
-    add_compile_options(-gdwarf-5)
 endif()
 
 # For CMAKE_BUILD_TYPE=Debug

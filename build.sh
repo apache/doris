@@ -401,10 +401,6 @@ if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
 fi
 
-if [[ -z "${USE_DWARF}" ]]; then
-    USE_DWARF='OFF'
-fi
-
 if [[ -z "${USE_UNWIND}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         USE_UNWIND='ON'
@@ -501,7 +497,6 @@ echo "Get params:
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
-    USE_DWARF                           -- ${USE_DWARF}
     USE_UNWIND                          -- ${USE_UNWIND}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
@@ -604,7 +599,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
@@ -652,7 +646,6 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \

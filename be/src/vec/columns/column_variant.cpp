@@ -45,6 +45,7 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
 #include "util/defer_op.h"
@@ -61,6 +62,7 @@
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/common/unaligned.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -206,60 +208,52 @@ void ColumnVariant::Subcolumn::add_new_column_part(DataTypePtr type) {
 }
 
 void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
-    auto base_type = info.scalar_type_id;
-    if (base_type == PrimitiveType::INVALID_TYPE && info.num_dimensions == 0) {
+    if (field.is_null()) {
         insert_default();
         return;
     }
-    ++num_rows;
-    auto column_dim = least_common_type.get_dimensions();
-    auto value_dim = info.num_dimensions;
-    if (least_common_type.get_base()->get_primitive_type() == INVALID_TYPE) {
-        column_dim = value_dim;
-    }
-    if (base_type == PrimitiveType::INVALID_TYPE) {
-        value_dim = column_dim;
-    }
-    bool type_changed = false;
-    if (value_dim != column_dim || info.num_dimensions >= 2) {
-        // Deduce to JSONB
-        VLOG_DEBUG << fmt::format(
-                "Dimension of types mismatched between inserted value and column, "
-                "expected:{}, but meet:{} for type:{}",
-                column_dim, value_dim, least_common_type.get()->get_name());
-        base_type = MOST_COMMON_TYPE_ID;
-        value_dim = 0;
-        type_changed = true;
-    }
-    // Currently we support specify predefined schema for other types include decimal, datetime ...etc
-    // so we should set specified info to create correct types, and those predefined types are static and
-    // no conflict, so we can set them directly.
-    auto base_data_type =
-            create_array_of_type(base_type, value_dim, is_nullable, info.precision, info.scale);
+    auto from_type_id = info.scalar_type_id;
+    auto from_dim = info.num_dimensions;
+    auto least_common_type_id = least_common_type.get_base_type_id();
+    auto least_common_type_dim = least_common_type.get_dimensions();
+    bool type_changed = info.need_convert;
     if (data.empty()) {
-        add_new_column_part(base_data_type);
-    } else if ((least_common_type.get_base_type_id() != base_type &&
-                base_type != PrimitiveType::INVALID_TYPE) ||
-               type_changed) {
-        if (schema_util::is_conversion_required_between_integers(
-                    base_type, least_common_type.get_base_type_id())) {
-            DataTypePtr least_type;
-            get_least_supertype_jsonb(DataTypes {base_data_type, least_common_type.get()},
-                                      &least_type);
-            if (!least_type->equals(*base_data_type)) {
+        if (from_dim > 1) {
+            add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
+            type_changed = true;
+        } else {
+            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable,
+                                                     info.precision, info.scale));
+        }
+    } else {
+        if (least_common_type_dim != from_dim) {
+            add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
+            if (from_type_id != PrimitiveType::TYPE_JSONB || from_dim != 0) {
                 type_changed = true;
             }
-            add_new_column_part(least_type);
+        } else {
+            if (least_common_type_id != from_type_id &&
+                schema_util::is_conversion_required_between_integers(from_type_id,
+                                                                     least_common_type_id)) {
+                type_changed = true;
+                DataTypePtr new_least_common_base_type;
+                get_least_supertype_jsonb(PrimitiveTypeSet {from_type_id, least_common_type_id},
+                                          &new_least_common_base_type);
+                if (new_least_common_base_type->get_primitive_type() != least_common_type_id) {
+                    add_new_column_part(
+                            create_array_of_type(new_least_common_base_type->get_primitive_type(),
+                                                 least_common_type_dim, is_nullable));
+                }
+            }
         }
     }
-    // 1. type changed means encounter different type, we need to convert it to the least common type
-    // 2. need_convert means the type is not the same as the least common type, we need to convert it
-    if (type_changed || info.need_convert) {
+
+    if (type_changed) {
         Field new_field;
         convert_field_to_type(field, *least_common_type.get(), &new_field);
         field = new_field;
     }
-
+    ++num_rows;
     data.back()->insert(field);
 }
 
@@ -871,63 +865,70 @@ struct PackedUInt128 {
     uint128_t value;
 } __attribute__((packed));
 
-const char* parse_binary_from_sparse_column(FieldType type, const char* data, Field& res,
-                                            FieldInfo& info_res) {
+const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type, const char* data,
+                                                                  Field& res, FieldInfo& info_res) {
     info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
     const char* end = data;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_STRING: {
-        size_t size = *reinterpret_cast<const size_t*>(data);
+        size_t size = unaligned_load<size_t>(data);
         data += sizeof(size_t);
         res = Field::create_field<TYPE_STRING>(String(data, size));
         end = data + size;
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        res = Field::create_field<TYPE_TINYINT>(Int8(*reinterpret_cast<const Int8*>(data)));
+        Int8 v = unaligned_load<Int8>(data);
+        res = Field::create_field<TYPE_TINYINT>(v);
         end = data + sizeof(Int8);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        res = Field::create_field<TYPE_SMALLINT>(Int16(*reinterpret_cast<const Int16*>(data)));
+        Int16 v = unaligned_load<Int16>(data);
+        res = Field::create_field<TYPE_SMALLINT>(v);
         end = data + sizeof(Int16);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_INT: {
-        res = Field::create_field<TYPE_INT>(Int32(*reinterpret_cast<const Int32*>(data)));
+        Int32 v = unaligned_load<Int32>(data);
+        res = Field::create_field<TYPE_INT>(v);
         end = data + sizeof(Int32);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        res = Field::create_field<TYPE_BIGINT>(Int64(*reinterpret_cast<const Int64*>(data)));
+        Int64 v = unaligned_load<Int64>(data);
+        res = Field::create_field<TYPE_BIGINT>(v);
         end = data + sizeof(Int64);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        res = Field::create_field<TYPE_LARGEINT>(
-                Int128(reinterpret_cast<const PackedInt128*>(data)->value));
+        PackedInt128 pack;
+        memcpy(&pack, data, sizeof(PackedInt128));
+        res = Field::create_field<TYPE_LARGEINT>(Int128(pack.value));
         end = data + sizeof(PackedInt128);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        res = Field::create_field<TYPE_FLOAT>(Float32(*reinterpret_cast<const Float32*>(data)));
+        Float32 v = unaligned_load<Float32>(data);
+        res = Field::create_field<TYPE_FLOAT>(v);
         end = data + sizeof(Float32);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        res = Field::create_field<TYPE_DOUBLE>(Float64(*reinterpret_cast<const Float64*>(data)));
+        Float64 v = unaligned_load<Float64>(data);
+        res = Field::create_field<TYPE_DOUBLE>(v);
         end = data + sizeof(Float64);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        size_t size = *reinterpret_cast<const size_t*>(data);
+        size_t size = unaligned_load<size_t>(data);
         data += sizeof(size_t);
         res = Field::create_field<TYPE_JSONB>(JsonbField(data, size));
         end = data + size;
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        const size_t size = *reinterpret_cast<const size_t*>(data);
+        const size_t size = unaligned_load<size_t>(data);
         data += sizeof(size_t);
         res = Field::create_field<TYPE_ARRAY>(Array(size));
         auto& array = res.get<Array>();
@@ -948,24 +949,30 @@ const char* parse_binary_from_sparse_column(FieldType type, const char* data, Fi
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        res = Field::create_field<TYPE_IPV4>(IPv4(*reinterpret_cast<const IPv4*>(data)));
+        IPv4 v = unaligned_load<IPv4>(data);
+        res = Field::create_field<TYPE_IPV4>(v);
         end = data + sizeof(IPv4);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        res = Field::create_field<TYPE_IPV6>(reinterpret_cast<const PackedUInt128*>(data)->value);
+        PackedUInt128 pack;
+        memcpy(&pack, data, sizeof(PackedUInt128));
+        auto v = pack.value;
+        res = Field::create_field<TYPE_IPV6>(v);
         end = data + sizeof(PackedUInt128);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        res = Field::create_field<TYPE_DATEV2>(*reinterpret_cast<const UInt32*>(data));
+        UInt32 v = unaligned_load<UInt32>(data);
+        res = Field::create_field<TYPE_DATEV2>(v);
         end = data + sizeof(UInt32);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
-        res = Field::create_field<TYPE_DATETIMEV2>(*reinterpret_cast<const UInt64*>(data));
+        UInt64 v = unaligned_load<UInt64>(data);
+        res = Field::create_field<TYPE_DATETIMEV2>(v);
         info_res.precision = -1;
         info_res.scale = static_cast<int>(scale);
         end = data + sizeof(UInt64);
@@ -976,7 +983,8 @@ const char* parse_binary_from_sparse_column(FieldType type, const char* data, Fi
         data += sizeof(uint8_t);
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
-        res = Field::create_field<TYPE_DECIMAL32>(Decimal32(*reinterpret_cast<const Int32*>(data)));
+        Int32 v = unaligned_load<Int32>(data);
+        res = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
         info_res.precision = static_cast<int>(precision);
         info_res.scale = static_cast<int>(scale);
         end = data + sizeof(Int32);
@@ -987,7 +995,8 @@ const char* parse_binary_from_sparse_column(FieldType type, const char* data, Fi
         data += sizeof(uint8_t);
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
-        res = Field::create_field<TYPE_DECIMAL64>(Decimal64(*reinterpret_cast<const Int64*>(data)));
+        Int64 v = unaligned_load<Int64>(data);
+        res = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
         info_res.precision = static_cast<int>(precision);
         info_res.scale = static_cast<int>(scale);
         end = data + sizeof(Int64);
@@ -998,8 +1007,9 @@ const char* parse_binary_from_sparse_column(FieldType type, const char* data, Fi
         data += sizeof(uint8_t);
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
-        res = Field::create_field<TYPE_DECIMAL128I>(
-                Decimal128V3(reinterpret_cast<const PackedInt128*>(data)->value));
+        PackedInt128 pack;
+        memcpy(&pack, data, sizeof(PackedInt128));
+        res = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
         info_res.precision = static_cast<int>(precision);
         info_res.scale = static_cast<int>(scale);
         end = data + sizeof(PackedInt128);
@@ -1010,8 +1020,9 @@ const char* parse_binary_from_sparse_column(FieldType type, const char* data, Fi
         data += sizeof(uint8_t);
         const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
         data += sizeof(uint8_t);
-        res = Field::create_field<TYPE_DECIMAL256>(
-                Decimal256(*reinterpret_cast<const wide::Int256*>(data)));
+        wide::Int256 v;
+        memcpy(&v, data, sizeof(wide::Int256));
+        res = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
         info_res.precision = static_cast<int>(precision);
         info_res.scale = static_cast<int>(scale);
         end = data + sizeof(wide::Int256);
@@ -1560,7 +1571,6 @@ void ColumnVariant::serialize_one_row_to_string(int64_t row, BufferWritable& out
         return;
     }
     serialize_one_row_to_json_format(row, output, nullptr);
-    return;
 }
 
 /// Struct that represents elements of the JSON path.

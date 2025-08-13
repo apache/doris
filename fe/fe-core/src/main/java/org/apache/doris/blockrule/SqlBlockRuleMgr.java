@@ -17,9 +17,6 @@
 
 package org.apache.doris.blockrule;
 
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -30,6 +27,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -104,13 +103,6 @@ public class SqlBlockRuleMgr implements Writable {
         }
     }
 
-    /**
-     * Create SqlBlockRule for create stmt.
-     **/
-    public void createSqlBlockRule(CreateSqlBlockRuleStmt stmt) throws UserException {
-        createSqlBlockRule(SqlBlockRule.fromCreateStmt(stmt), stmt.isIfNotExists());
-    }
-
     public void createSqlBlockRule(SqlBlockRule sqlBlockRule, boolean isIfNotExists) throws UserException {
         writeLock();
         try {
@@ -137,13 +129,6 @@ public class SqlBlockRuleMgr implements Writable {
         LOG.info("replay create sql block rule: {}", sqlBlockRule);
     }
 
-    /**
-     * Alter SqlBlockRule for alter stmt.
-     **/
-    public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws AnalysisException, DdlException {
-        alterSqlBlockRule(SqlBlockRule.fromAlterStmt(stmt));
-    }
-
     public void alterSqlBlockRule(SqlBlockRule sqlBlockRule) throws AnalysisException, DdlException {
         writeLock();
         try {
@@ -153,19 +138,19 @@ public class SqlBlockRuleMgr implements Writable {
             }
             SqlBlockRule originRule = nameToSqlBlockRuleMap.get(ruleName);
 
-            if (sqlBlockRule.getSql().equals(CreateSqlBlockRuleStmt.STRING_NOT_SET)) {
+            if (sqlBlockRule.getSql().equals(CreateSqlBlockRuleCommand.STRING_NOT_SET)) {
                 sqlBlockRule.setSql(originRule.getSql());
             }
-            if (sqlBlockRule.getSqlHash().equals(CreateSqlBlockRuleStmt.STRING_NOT_SET)) {
+            if (sqlBlockRule.getSqlHash().equals(CreateSqlBlockRuleCommand.STRING_NOT_SET)) {
                 sqlBlockRule.setSqlHash(originRule.getSqlHash());
             }
-            if (sqlBlockRule.getPartitionNum().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getPartitionNum().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setPartitionNum(originRule.getPartitionNum());
             }
-            if (sqlBlockRule.getTabletNum().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getTabletNum().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setTabletNum(originRule.getTabletNum());
             }
-            if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setCardinality(originRule.getCardinality());
             }
             if (sqlBlockRule.getGlobal() == null) {
@@ -196,13 +181,6 @@ public class SqlBlockRuleMgr implements Writable {
 
     private void unprotectedAdd(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
-    }
-
-    /**
-     * Drop SqlBlockRule for drop stmt.
-     **/
-    public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws DdlException {
-        dropSqlBlockRule(stmt.getRuleNames(), stmt.isIfExists());
     }
 
     public void dropSqlBlockRule(List<String> ruleNames, boolean isIfExists) throws DdlException {

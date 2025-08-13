@@ -35,6 +35,7 @@ namespace doris::cloud {
 // throughout the lifetime of the MetaReader instance.
 class MetaReader {
 public:
+    MetaReader(std::string_view instance_id) : MetaReader(instance_id, nullptr) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv)
             : MetaReader(instance_id, txn_kv, Versionstamp::max(), false) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv, Versionstamp snapshot_version)
@@ -122,6 +123,17 @@ public:
                                         std::unordered_map<int64_t, VersionPB>* versions,
                                         std::unordered_map<int64_t, Versionstamp>* versionstamps) {
         return get_partition_versions(txn, partition_ids, versions, versionstamps, snapshot_);
+    }
+
+    // Get the partition versions from the given partition_ids.
+    // If the partition id is not found, it will be set to 1 in the versions map.
+    TxnErrorCode get_partition_versions(Transaction* txn, const std::vector<int64_t>& partition_ids,
+                                        std::unordered_map<int64_t, int64_t>* versions,
+                                        int64_t* last_pending_txn_id, bool snapshot);
+    TxnErrorCode get_partition_versions(Transaction* txn, const std::vector<int64_t>& partition_ids,
+                                        std::unordered_map<int64_t, int64_t>* versions,
+                                        int64_t* last_pending_txn_id) {
+        return get_partition_versions(txn, partition_ids, versions, last_pending_txn_id, snapshot_);
     }
 
     // Get the tablet load stats for the given tablet
@@ -226,6 +238,20 @@ public:
                                 snapshot_);
     }
 
+    // Get the load rowset meta for the given tablet_id and version.
+    TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot);
+    TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot);
+    TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta) {
+        return get_load_rowset_meta(tablet_id, version, rowset_meta, snapshot_);
+    }
+    TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta) {
+        return get_load_rowset_meta(txn, tablet_id, version, rowset_meta, snapshot_);
+    }
+
     // Get the tablet meta keys.
     TxnErrorCode get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
                                  Versionstamp* versionstamp, bool snapshot);
@@ -254,6 +280,30 @@ public:
     TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
                                               int64_t* first_txn_id) {
         return get_partition_pending_txn_id(txn, partition_id, first_txn_id, snapshot_);
+    }
+
+    // Get the index of the given index id.
+    TxnErrorCode get_index_index(int64_t index_id, IndexIndexPB* index, bool snapshot);
+    TxnErrorCode get_index_index(Transaction* txn, int64_t index_id, IndexIndexPB* index,
+                                 bool snapshot);
+    TxnErrorCode get_index_index(int64_t index_id, IndexIndexPB* index) {
+        return get_index_index(index_id, index, snapshot_);
+    }
+    TxnErrorCode get_index_index(Transaction* txn, int64_t index_id, IndexIndexPB* index) {
+        return get_index_index(txn, index_id, index, snapshot_);
+    }
+
+    // Get the partition index for the given partition_id.
+    TxnErrorCode get_partition_index(int64_t partition_id, PartitionIndexPB* partition_index,
+                                     bool snapshot);
+    TxnErrorCode get_partition_index(Transaction* txn, int64_t partition_id,
+                                     PartitionIndexPB* partition_index, bool snapshot);
+    TxnErrorCode get_partition_index(int64_t partition_id, PartitionIndexPB* partition_index) {
+        return get_partition_index(partition_id, partition_index, snapshot_);
+    }
+    TxnErrorCode get_partition_index(Transaction* txn, int64_t partition_id,
+                                     PartitionIndexPB* partition_index) {
+        return get_partition_index(txn, partition_id, partition_index, snapshot_);
     }
 
 private:

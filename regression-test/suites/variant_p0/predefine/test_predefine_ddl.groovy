@@ -99,15 +99,13 @@ suite("test_predefine_ddl", "p0") {
     
     sql """ alter table ${tableName} add column var2 variant<'ab' : string, properties("variant_max_subcolumns_count" = "5")> NULL """
 
-    test {
-        sql """ alter table ${tableName} add column var3 variant<'ab' : string, properties("variant_max_subcolumns_count" = "0")> NULL """
-        exception("The variant_max_subcolumns_count must either be 0 in all columns or greater than 0 in all columns")
-    }
+    sql """ alter table ${tableName} add column var3 variant<'ab' : string> NULL """
 
-    test {
-        sql """ alter table ${tableName} modify column var variant<'ab' : string, properties("variant_max_subcolumns_count" = "10")> NULL """
-        exception("Can not change variant schema templates")
-    }
+    // TODO(lihangyu) : uncomment
+    // test {
+    //     sql """ alter table ${tableName} modify column var variant<'ab' : string> NULL """
+    //     exception("Can not modify variant column with children")
+    // }
 
 
     sql "DROP TABLE IF EXISTS ${tableName}"

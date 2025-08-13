@@ -556,8 +556,10 @@ TEST_F(PhraseQueryTest, test_parser_info) {
     properties.insert({"support_phrase", "true"});
     properties.insert({"lower_case", "true"});
 
-    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info) {
-        PhraseQuery::parser_info(search_str, properties, query_info);
+    OlapReaderStatistics stats;
+    auto parser_info = [&properties, &stats](std::string& search_str,
+                                             InvertedIndexQueryInfo& query_info) {
+        PhraseQuery::parser_info(&stats, search_str, properties, query_info);
     };
 
     auto parser = [&parser_info](std::string search_str, std::string res1, size_t res2,
@@ -591,8 +593,10 @@ TEST_F(PhraseQueryTest, test_parser_info1) {
     properties.insert({"support_phrase", "true"});
     properties.insert({"lower_case", "true"});
 
-    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info) {
-        PhraseQuery::parser_info(search_str, properties, query_info);
+    OlapReaderStatistics stats;
+    auto parser_info = [&properties, &stats](std::string& search_str,
+                                             InvertedIndexQueryInfo& query_info) {
+        PhraseQuery::parser_info(&stats, search_str, properties, query_info);
     };
 
     {

@@ -519,17 +519,24 @@ message RestoreJobCloudPB {
     enum State {
         UNKNOWN = 0;
         PREPARED = 1;
-        DROPPED = 2;
+        COMMITTED = 2;
+        DROPPED = 3;
+        COMPLETED = 4;
+        RECYCLING = 5;
     }
     optional int64 tablet_id = 1;
-    optional int64 creation_time = 2;
-    optional int64 expiration = 3; // expiration timestamp
-    optional doris.TabletMetaCloudPB tablet_meta = 4;
-    optional State state = 5;
-    optional int64 total_rowset_num = 6;
-    optional int64 total_row_num = 7;
-    optional int64 total_segment_num = 8;
-    optional int64 total_disk_size = 9;
+    optional int64 ctime_s = 2;
+    optional int64 mtime_s = 3;
+    optional int64 expired_at_s = 4; // expiration timestamp
+    optional doris.TabletMetaCloudPB tablet_meta = 5;
+    optional State state = 6;
+    optional int64 total_rowset_num = 7;
+    optional int64 total_row_num = 8;
+    optional int64 total_segment_num = 9;
+    optional int64 total_disk_size = 10;
+    optional int64 committed_rowset_num = 11;
+    optional bool need_recycle_data = 12;
+    optional int64 version = 13;
 }
 
 message JobRecyclePB {
@@ -1275,6 +1282,7 @@ message RestoreJobRequest {
     optional doris.TabletMetaCloudPB tablet_meta = 3;
     optional int64 expiration = 4;
     optional string request_ip = 5;
+    optional bool is_completed = 6;
 }
 
 message RestoreJobResponse {
