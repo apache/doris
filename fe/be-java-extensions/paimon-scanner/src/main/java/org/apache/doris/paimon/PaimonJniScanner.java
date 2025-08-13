@@ -44,13 +44,9 @@ import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
-    @Deprecated
-    private static final String PAIMON_OPTION_PREFIX = "paimon.";
-    @Deprecated
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
 
     private final Map<String, String> params;
-    @Deprecated
     private final Map<String, String> hadoopOptionParams;
     private final String paimonSplit;
     private final String paimonPredicate;

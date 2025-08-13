@@ -83,7 +83,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_START_TIMESTAMP = "startTimestamp";
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
-    private static final String DEFAULT_INCREMENTAL_BETWEEN_SCAN_MODE = "auto";
 
     private enum SplitReadType {
         JNI,
@@ -213,15 +212,6 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
-        fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
-                .collect(Collectors.joining(",")));
-        fileDesc.setDbName(((PaimonExternalTable) source.getTargetTable()).getDbName());
-        fileDesc.setPaimonOptions(((PaimonExternalCatalog) source.getCatalog()).getPaimonOptionsMap());
-        fileDesc.setTableName(source.getTargetTable().getName());
-        fileDesc.setCtlId(source.getCatalog().getId());
-        fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
-        fileDesc.setTblId(source.getTargetTable().getId());
-        fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
         // The hadoop conf should be same with
         // PaimonExternalCatalog.createCatalog()#getConfiguration()
         fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getBackendStorageProperties());
