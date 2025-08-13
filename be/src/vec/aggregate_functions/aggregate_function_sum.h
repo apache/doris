@@ -69,7 +69,9 @@ struct AggregateFunctionSumData {
 /// Counts the sum of the numbers.
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionSum final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;

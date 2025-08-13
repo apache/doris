@@ -52,7 +52,9 @@ template <PrimitiveType T, typename TResult, typename Data>
 class AggregateFunctionApproxTopSum final
         : public IAggregateFunctionDataHelper<Data,
                                               AggregateFunctionApproxTopSum<T, TResult, Data>>,
-          AggregateFunctionApproxTop {
+          AggregateFunctionApproxTop,
+          VarargsExpression,
+          NullableAggregateFunction {
 private:
     using State = AggregateFunctionTopKGenericData;
 

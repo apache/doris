@@ -253,7 +253,9 @@ protected:
 template <typename Op>
 class AggregateFunctionBitmapOp final
         : public AggregateFunctionBitmapSerializationHelper<AggregateFunctionBitmapData<Op>,
-                                                            AggregateFunctionBitmapOp<Op>> {
+                                                            AggregateFunctionBitmapOp<Op>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultDataType = BitmapValue;
     using ColVecType = ColumnBitmap;
@@ -333,7 +335,9 @@ template <bool arg_is_nullable, typename ColVecType>
 class AggregateFunctionBitmapCount final
         : public AggregateFunctionBitmapSerializationHelper<
                   AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>,
-                  AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>> {
+                  AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 public:
     // using ColVecType = ColumnBitmap;
     using ColVecResult = ColumnInt64;
