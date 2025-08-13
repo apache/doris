@@ -92,18 +92,19 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _ctz(ctz),
           _io_ctx(io_ctx),
           _state(state),
-          _meta_cache(meta_cache),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true
                                    : state->query_options().enable_parquet_filter_by_min_max) {
+    _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
     _init_file_description();
 }
 
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat)
+                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
+                             bool enable_lazy_mat)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
@@ -113,6 +114,7 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _enable_filter_by_min_max(
                   state == nullptr ? true
                                    : state->query_options().enable_parquet_filter_by_min_max) {
+    _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
 }
@@ -222,6 +224,11 @@ Status ParquetReader::_open_file() {
                                                  _file_reader, _io_ctx->file_reader_stats)
                                        : _file_reader;
     }
+    if (_file_metadata) {
+        std::cout << "_file_metadata not null\n";
+    } else {
+        std::cout << "_file_metadata is null\n";
+    }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
         if (_tracing_file_reader->size() <= sizeof(PARQUET_VERSION_NUMBER)) {
@@ -232,25 +239,28 @@ Status ParquetReader::_open_file() {
         }
         size_t meta_size = 0;
         if (_meta_cache == nullptr) {
-            auto st =
-                    parse_thrift_footer(_tracing_file_reader, &_file_metadata, &meta_size, _io_ctx);
-            // wrap it with unique ptr, so that it can be released finally.
-            _file_metadata_ptr.reset(_file_metadata);
-            RETURN_IF_ERROR(st);
+            // wrap _file_metadata with unique ptr, so that it can be released finally.
+            RETURN_IF_ERROR(parse_thrift_footer(_tracing_file_reader, &_file_metadata_ptr,
+                                                &meta_size, _io_ctx));
+            _file_metadata = _file_metadata_ptr.get();
 
             _column_statistics.read_bytes += meta_size;
             // parse magic number & parse meta data
             _column_statistics.meta_read_calls += 1;
         } else {
-            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_tracing_file_reader, _io_ctx,
-                                                            _file_description.mtime, &meta_size,
-                                                            &_meta_cache_handle));
-            _column_statistics.read_bytes += meta_size;
-            if (meta_size > 0) {
+            const auto& file_meta_cache_key =
+                    FileMetaCache::get_key(_tracing_file_reader, _file_description);
+            if (!_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
+                RETURN_IF_ERROR(parse_thrift_footer(_file_reader, &_file_metadata_ptr, &meta_size,
+                                                    _io_ctx));
+                // _file_metadata_ptr.release() : move control of _file_metadata to _meta_cache_handle
+                _meta_cache->insert(file_meta_cache_key, _file_metadata_ptr.release(),
+                                    &_meta_cache_handle);
+                _file_metadata = _meta_cache_handle.data<FileMetaData>();
+                _column_statistics.read_bytes += meta_size;
                 _column_statistics.meta_read_calls += 1;
             }
-
-            _file_metadata = (FileMetaData*)_meta_cache_handle.data<FileMetaData>();
+            _file_metadata = _meta_cache_handle.data<FileMetaData>();
         }
 
         if (_file_metadata == nullptr) {
@@ -291,12 +301,6 @@ void ParquetReader::_init_file_description() {
     _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : -1;
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
-    }
-}
-
-void ParquetReader::iceberg_sanitize(const std::vector<std::string>& read_columns) {
-    if (_file_metadata != nullptr) {
-        _file_metadata->iceberg_sanitize(read_columns);
     }
 }
 

@@ -30,7 +30,7 @@ class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                  RuntimeState* state, const TFileScanRangeParams& params,
-                 const TFileRangeDesc& range, io::IOContext* io_ctx);
+                 const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache);
 
     ~PaimonReader() override = default;
 
@@ -54,8 +54,9 @@ public:
     ENABLE_FACTORY_CREATOR(PaimonOrcReader);
     PaimonOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                     RuntimeState* state, const TFileScanRangeParams& params,
-                    const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                    const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                           meta_cache) {};
     ~PaimonOrcReader() final = default;
 
     void set_delete_rows() final {
@@ -90,8 +91,10 @@ public:
     ENABLE_FACTORY_CREATOR(PaimonParquetReader);
     PaimonParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                         RuntimeState* state, const TFileScanRangeParams& params,
-                        const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                        const TFileRangeDesc& range, io::IOContext* io_ctx,
+                        FileMetaCache* meta_cache)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                           meta_cache) {};
     ~PaimonParquetReader() final = default;
 
     void set_delete_rows() final {

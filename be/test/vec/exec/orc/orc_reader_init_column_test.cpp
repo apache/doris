@@ -54,7 +54,7 @@ TEST_F(OrcReaderInitColumnTest, InitReadColumn) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
         reader->_reader = std::move(orc_reader);
         std::vector<std::string> tmp;
         tmp.emplace_back("col1");
@@ -73,7 +73,7 @@ TEST_F(OrcReaderInitColumnTest, CheckAcidSchemaTest) {
     using namespace orc;
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
     // 1. Test standard ACID schema
     {
         // Create standard ACID structure
@@ -140,7 +140,7 @@ TEST_F(OrcReaderInitColumnTest, RemoveAcidTest) {
     using namespace orc;
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, true);
+    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
     // 1. Test removing ACID info from ACID schema
     {
         // Create ACID schema
