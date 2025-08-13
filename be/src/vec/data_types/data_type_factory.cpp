@@ -102,6 +102,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
             names.push_back(col_desc.get_sub_column(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+        nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count());
     } else {
         nested =
                 _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
@@ -169,7 +171,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_STRING);
         break;
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
-        result = std::make_shared<vectorized::DataTypeVariant>();
+        result = std::make_shared<vectorized::DataTypeVariant>(0);
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
@@ -236,7 +238,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeString>();
         break;
     case PGenericType::VARIANT:
-        nested = std::make_shared<DataTypeVariant>();
+        nested = std::make_shared<DataTypeVariant>(pcolumn.variant_max_subcolumns_count());
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();
@@ -432,7 +434,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case TYPE_VARIANT:
-        nested = std::make_shared<vectorized::DataTypeVariant>();
+        nested = std::make_shared<vectorized::DataTypeVariant>(0);
         break;
     case TYPE_STRING:
     case TYPE_CHAR:
@@ -502,6 +504,14 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
     case TTypeNodeType::SCALAR: {
         DCHECK(node.__isset.scalar_type);
         const TScalarType& scalar_type = node.scalar_type;
+        if (scalar_type.type == TPrimitiveType::VARIANT) {
+            DCHECK(scalar_type.variant_max_subcolumns_count >= 0)
+                    << "count is: " << scalar_type.variant_max_subcolumns_count;
+            return is_nullable ? make_nullable(std::make_shared<vectorized::DataTypeVariant>(
+                                         scalar_type.variant_max_subcolumns_count))
+                               : std::make_shared<vectorized::DataTypeVariant>(
+                                         scalar_type.variant_max_subcolumns_count);
+        }
         return create_data_type(thrift_to_type(scalar_type.type), is_nullable,
                                 scalar_type.__isset.precision ? scalar_type.precision : 0,
                                 scalar_type.__isset.scale ? scalar_type.scale : 0,
@@ -603,7 +613,7 @@ DataTypePtr DataTypeFactory::create_data_type(
             // Do nothing
             nested = std::make_shared<DataTypeAggState>();
         } else if (primitive_type == TYPE_VARIANT) {
-            nested = std::make_shared<DataTypeVariant>();
+            nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count());
         } else {
             return create_data_type(primitive_type, is_nullable,
                                     scalar_type.has_precision() ? scalar_type.precision() : 0,
@@ -644,7 +654,7 @@ DataTypePtr DataTypeFactory::create_data_type(
         break;
     }
     case TTypeNodeType::VARIANT: {
-        nested = std::make_shared<DataTypeVariant>();
+        nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count());
         break;
     }
     default:
