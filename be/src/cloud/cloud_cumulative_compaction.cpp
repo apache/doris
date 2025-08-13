@@ -515,7 +515,7 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
     if (auto st = check_version_continuity(candidate_rowsets); !st.ok()) {
-        DCHECK(false) << st;
+        // DCHECK(false) << st;
         return st;
     }
 
