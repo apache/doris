@@ -2,9 +2,9 @@
 -- !salt_shape --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN shuffle] hashCondition=((r1$c$1 = r2$c$2) and (t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id];RF1 r2$c$2->[if((id = 1), cast(random(0, 39) as TINYINT), 0)]
+----hashJoin[INNER_JOIN shuffle] hashCondition=((r1$c$1 = r2$c$2) and (t1.id = t2.id)) otherCondition=()
 ------PhysicalProject
---------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+--------PhysicalOlapScan[t1]
 ------PhysicalProject
 --------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((skewValue$c$4 = t2.id)) otherCondition=()
 ----------PhysicalProject

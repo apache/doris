@@ -75,12 +75,6 @@ public class SkewJoin extends OneRewriteRuleFactory {
         if (ConnectContext.get() == null) {
             return null;
         }
-        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-        if (right.getStats().getRowCount() < sessionVariable.getBroadcastRowCountLimit() / 100) {
-            DistributeHint hint = new DistributeHint(DistributeType.BROADCAST_RIGHT);
-            join.setHint(hint);
-            return join;
-        }
 
         EqualPredicate equal = (EqualPredicate) join.getHashJoinConjuncts().get(0);
         if (join.left().getOutputSet().contains(equal.right())) {
@@ -107,9 +101,18 @@ public class SkewJoin extends OneRewriteRuleFactory {
             return null;
         }
 
-        DistributeHint hint = new DistributeHint(DistributeType.SHUFFLE_RIGHT,
-                new JoinSkewInfo(skewExpr, hotValues, false));
-        join.setHint(hint);
-        return SaltJoin.transform(join);
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        // broadcast join for small right table
+        // salt join for large right table
+        if (right.getStats().getRowCount() < sessionVariable.getBroadcastRowCountLimit() / 100) {
+            DistributeHint hint = new DistributeHint(DistributeType.BROADCAST_RIGHT);
+            join.setHint(hint);
+            return join;
+        } else {
+            DistributeHint hint = new DistributeHint(DistributeType.SHUFFLE_RIGHT,
+                    new JoinSkewInfo(skewExpr, hotValues, false));
+            join.setHint(hint);
+            return SaltJoin.transform(join);
+        }
     }
 }
