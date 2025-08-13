@@ -402,13 +402,14 @@ Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type even
     return st;
 }
 
-std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id, bool& refresh) {
+std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id, bool bypass_cache,
+                                                               bool& cache_hit) {
     std::vector<TReplicaInfo> replicas;
     std::vector<int64_t> cancelled_jobs;
     std::lock_guard<std::mutex> lock(_mtx);
-    bool any_cache_hit = false;
+    cache_hit = false;
     for (auto& [job_id, cache] : _tablet_replica_cache) {
-        if (!refresh) {
+        if (!bypass_cache) {
             auto it = cache.find(tablet_id);
             if (it != cache.end()) {
                 // check ttl expire
@@ -418,7 +419,7 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
                     replicas.push_back(it->second.second);
                     LOG(INFO) << "get_replica_info: cache hit, tablet_id=" << tablet_id
                               << ", job_id=" << job_id;
-                    any_cache_hit = true;
+                    cache_hit = true;
                     continue;
                 } else {
                     LOG(INFO) << "get_replica_info: cache expired, tablet_id=" << tablet_id
@@ -430,9 +431,9 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
                       << ", job_id=" << job_id;
         }
 
-        if (!any_cache_hit) {
-            // we set the refresh flag to true only when we do not hit any cache
-            refresh = true;
+        if (!cache_hit) {
+            // We are trying to save one retry by refresh all the remaining caches
+            bypass_cache = true;
         }
         ClusterInfo* cluster_info = ExecEnv::GetInstance()->cluster_info();
         if (cluster_info == nullptr) {
@@ -501,18 +502,17 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 }
 
 void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
-    bool refresh = false;
-    auto replicas = get_replica_info(rs_meta.tablet_id(), refresh);
+    bool cache_hit = false;
+    auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
     if (replicas.empty()) {
         LOG(INFO) << "There is no need to warmup tablet=" << rs_meta.tablet_id()
                   << ", skipping rowset=" << rs_meta.rowset_id().to_string();
         return;
     }
-    Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, refresh);
-    if (!refresh && !st.ok() && st.is<ErrorCode::TABLE_NOT_FOUND>()) {
-        refresh = true;
-        replicas = get_replica_info(rs_meta.tablet_id(), refresh);
-        st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, refresh);
+    Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, !cache_hit);
+    if (cache_hit && !st.ok() && st.is<ErrorCode::TABLE_NOT_FOUND>()) {
+        replicas = get_replica_info(rs_meta.tablet_id(), true, cache_hit);
+        st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, true);
     }
     if (!st.ok()) {
         LOG(WARNING) << "Failed to warm up rowset, tablet_id=" << rs_meta.tablet_id()
@@ -637,8 +637,8 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
 void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
                                        const std::vector<RecycledRowsets>& rowsets) {
     LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowsets.size();
-    bool refresh = false;
-    auto replicas = get_replica_info(tablet_id, refresh);
+    bool cache_hit = false;
+    auto replicas = get_replica_info(tablet_id, false, cache_hit);
     if (replicas.empty()) {
         return;
     }
