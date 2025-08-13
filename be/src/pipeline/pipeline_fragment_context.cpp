@@ -46,6 +46,7 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/blackhole_sink_operator.h"
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
@@ -105,6 +106,8 @@
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/result_block_buffer.h"
+#include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -1168,6 +1171,18 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         if (sources.empty()) {
             return Status::InternalError("size of sources must be greater than 0");
         }
+        break;
+    }
+    case TDataSinkType::BLACKHOLE_SINK: {
+        if (!thrift_sink.__isset.blackhole_sink) {
+            return Status::InternalError("Missing blackhole sink.");
+        }
+
+        TDataStreamSink empty_sink;
+        std::vector<TPlanFragmentDestination> empty_destinations;
+
+        _sink.reset(new BlackholeSinkOperatorX(next_sink_operator_id(), 0, empty_sink,
+                                               empty_destinations));
         break;
     }
     default:

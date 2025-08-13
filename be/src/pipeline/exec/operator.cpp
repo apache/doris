@@ -24,6 +24,7 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/blackhole_sink_operator.h"
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
@@ -772,6 +773,7 @@ DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
+DECLARE_OPERATOR(BlackholeSinkLocalState)
 DECLARE_OPERATOR(SortSinkLocalState)
 DECLARE_OPERATOR(SpillSortSinkLocalState)
 DECLARE_OPERATOR(LocalExchangeSinkLocalState)

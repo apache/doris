@@ -40,6 +40,7 @@ import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -68,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
@@ -141,8 +143,9 @@ public class BindSink implements AnalysisRuleFactory {
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
                 RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink)),
                 RuleType.BINDING_INSERT_DICTIONARY_TABLE
-                        .build(unboundDictionarySink().thenApply(this::bindDictionarySink))
-        );
+                        .build(unboundDictionarySink().thenApply(this::bindDictionarySink)),
+                RuleType.BINDING_INSERT_BLACKHOLE_SINK.build(unboundBlackholeSink().thenApply(this::bindBlackHoleSink))
+                );
     }
 
     private Plan bindOlapTableSink(MatchingContext<UnboundTableSink<Plan>> ctx) {
@@ -509,6 +512,20 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
         return columnToOutput;
+    }
+
+    private Plan bindBlackHoleSink(MatchingContext<UnboundBlackholeSink<Plan>> ctx) {
+        UnboundBlackholeSink<?> sink = ctx.root;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        LogicalBlackholeSink<?> boundSink = new LogicalBlackholeSink<>(
+                child.getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(ImmutableList.toImmutableList()),
+                Optional.empty(),
+                Optional.empty(),
+                child);
+        return boundSink;
     }
 
     private Plan bindHiveTableSink(MatchingContext<UnboundHiveTableSink<Plan>> ctx) {

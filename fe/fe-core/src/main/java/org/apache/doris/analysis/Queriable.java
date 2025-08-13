@@ -30,6 +30,8 @@ public interface Queriable {
 
     OutFileClause getOutFileClause();
 
+    boolean hasBlackHoleClause();
+
     boolean isExplain();
 
     ExplainOptions getExplainOptions();

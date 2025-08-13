@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
@@ -125,6 +126,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     /* ********************************************************************************************
      * sink Node, in lexicographical order
      * ******************************************************************************************** */
+
+    @Override
+    public Void visitPhysicalBlackholeSink(PhysicalBlackholeSink<? extends Plan> sink, PlanContext context) {
+        // Blackhole sink need parallel instance
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        return null;
+    }
 
     @Override
     public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
