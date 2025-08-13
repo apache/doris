@@ -17,11 +17,12 @@
 
 suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     def table_name = "var_index"
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql "DROP TABLE IF EXISTS var_index"
     sql """
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
-            v variant,
+            v variant<'timestamp' : double, 'a' : int, 'b' : string, 'c' : int>,
             INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
@@ -33,6 +34,8 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     sql """insert into var_index values(2, '{"a" : 18811, "b" : "hello world", "c" : 1181111}')"""
     sql """insert into var_index values(3, '{"a" : 18811, "b" : "hello wworld", "c" : 11111}')"""
     sql """insert into var_index values(4, '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
+    qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
+    trigger_and_wait_compaction(table_name, "full")
     sql """ set enable_common_expr_pushdown = true """
     sql """set enable_match_without_inverted_index = false""" 
     qt_sql """select * from var_index where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
@@ -42,12 +45,14 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     // insert double/float/array/json
     sql """insert into var_index values(6, '{"timestamp": 1713283200.060359}')"""
     sql """insert into var_index values(7, '{"timestamp": 17.0}')"""
-    sql """insert into var_index values(8, '{"timestamp": [123]}')"""
+    sql """insert into var_index values(8, '{"arr": [123]}')"""
     sql """insert into var_index values(9, '{"timestamp": 17.0}'),(10, '{"timestamp": "17.0"}')"""
     sql """insert into var_index values(11, '{"nested": [{"a" : 1}]}'),(11, '{"nested": [{"b" : "1024"}]}')"""
+    trigger_and_wait_compaction(table_name, "full")
     qt_sql "select * from var_index order by k limit 15"
 
     sql "DROP TABLE IF EXISTS var_index"
+    boolean findException = false
     try {
         sql """
             CREATE TABLE IF NOT EXISTS var_index (
@@ -62,8 +67,11 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     } catch (Exception e) {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
+        findException = true
     }
+    assertTrue(findException)
 
+    findException = false
     sql """
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
@@ -79,7 +87,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     } catch (Exception e) {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
+        findException = true
     }
+    assertTrue(findException)
 
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
         if (isCloudMode()) {
