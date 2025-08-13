@@ -212,6 +212,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         // because it is used to compare with probe side hash key column
 
         if (p._should_keep_hash_key_column && _build_col_ids.size() == 1) {
+            DCHECK_LT(_build_col_ids[0], p._should_keep_column_flags.size());
             p._should_keep_column_flags[_build_col_ids[0]] = true;
         }
 
