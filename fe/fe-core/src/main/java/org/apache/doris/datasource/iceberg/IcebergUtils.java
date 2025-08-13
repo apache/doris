@@ -78,6 +78,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
@@ -101,6 +102,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
+import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.iceberg.util.LocationUtil;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
@@ -111,14 +113,19 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.Month;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -599,6 +606,83 @@ public class IcebergUtils {
                 return new StructType(nestedTypes);
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
+        }
+    }
+
+    public static Map<String, String> getPartitionInfoMap(PartitionData partitionData, String timeZone) {
+        Map<String, String> partitionInfoMap = new HashMap<>();
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            Object value = partitionData.get(i);
+            try {
+                String partitionString = serializePartitionValue(field.type(), value, timeZone);
+                partitionInfoMap.put(field.name(), partitionString);
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
+                        e.getMessage());
+                return null;
+            }
+        }
+        return partitionInfoMap;
+    }
+
+    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
+        switch (type.typeId()) {
+            case BOOLEAN:
+            case INTEGER:
+            case LONG:
+            case STRING:
+            case UUID:
+            case DECIMAL:
+                if (value == null) {
+                    return null;
+                }
+                return value.toString();
+            case FIXED:
+            case BINARY:
+                if (value == null) {
+                    return null;
+                }
+                // Fixed and binary types are stored as ByteBuffer
+                ByteBuffer buffer = (ByteBuffer) value;
+                byte[] res = new byte[buffer.limit()];
+                buffer.get(res);
+                return new String(res, StandardCharsets.UTF_8);
+            case DATE:
+                if (value == null) {
+                    return null;
+                }
+                // Iceberg date is stored as days since epoch (1970-01-01)
+                LocalDate date = LocalDate.ofEpochDay((Integer) value);
+                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+            case TIME:
+                if (value == null) {
+                    return null;
+                }
+                // Iceberg time is stored as microseconds since midnight
+                long micros = (Long) value;
+                LocalTime time = LocalTime.ofNanoOfDay(micros * 1000);
+                return time.format(DateTimeFormatter.ISO_LOCAL_TIME);
+            case TIMESTAMP:
+                if (value == null) {
+                    return null;
+                }
+                // Iceberg timestamp is stored as microseconds since epoch
+                // (1970-01-01T00:00:00)
+                long timestampMicros = (Long) value;
+                TimestampType timestampType = (TimestampType) type;
+                LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
+                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
+                        ZoneOffset.UTC);
+                // type is timestamptz if timestampType.shouldAdjustToUTC() is true
+                if (timestampType.shouldAdjustToUTC()) {
+                    timestamp = timestamp.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of(timeZone))
+                            .toLocalDateTime();
+                }
+                return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            default:
+                throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
         }
     }
 

@@ -28,7 +28,6 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris {
 namespace vectorized {
@@ -58,17 +57,6 @@ void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, si
         std::string str = JsonbToJson::jsonb_to_json_string(s.data, s.size);
         ostr.write(str.c_str(), str.size());
     }
-}
-
-Status DataTypeJsonb::from_string(ReadBuffer& rb, IColumn* column) const {
-    JsonBinaryValue value;
-    // Throw exception if rb.count is large than INT32_MAX
-    RETURN_IF_ERROR(value.from_json_string(rb.position(), cast_set<Int32>(rb.count())));
-
-    auto* column_string = static_cast<ColumnString*>(column);
-    column_string->insert_data(value.value(), value.size());
-
-    return Status::OK();
 }
 
 Field DataTypeJsonb::get_default() const {

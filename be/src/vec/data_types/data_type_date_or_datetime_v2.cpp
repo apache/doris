@@ -33,7 +33,6 @@
 #include "vec/core/types.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -99,17 +98,6 @@ void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWrit
     char* pos = val.to_string(buf);
     // DateTime to_string the end is /0
     ostr.write(buf, pos - buf - 1);
-}
-
-Status DataTypeDateV2::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = assert_cast<ColumnDateV2*>(column);
-    UInt32 val = 0;
-    if (!read_date_v2_text_impl<UInt32>(val, rb)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
-    column_data->insert_value(val);
-    return Status::OK();
 }
 
 MutableColumnPtr DataTypeDateV2::create_column() const {
@@ -196,17 +184,6 @@ void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
     char buf[64];
     char* pos = val.to_string(buf, _scale);
     ostr.write(buf, pos - buf - 1);
-}
-
-Status DataTypeDateTimeV2::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = assert_cast<ColumnDateTimeV2*>(column);
-    UInt64 val = 0;
-    if (!read_datetime_v2_text_impl<UInt64>(val, rb, _scale)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
-    }
-    column_data->insert_value(val);
-    return Status::OK();
 }
 
 void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {

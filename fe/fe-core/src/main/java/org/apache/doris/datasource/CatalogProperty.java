@@ -170,9 +170,10 @@ public class CatalogProperty {
 
                     for (StorageProperties sp : storageMap.values()) {
                         Map<String, String> backendProps = sp.getBackendConfigProperties();
-                        if (backendProps != null) {
-                            result.putAll(backendProps);
-                        }
+                        // the backend property's value can not be null, because it will be serialized to thrift,
+                        // which does not support null value.
+                        backendProps.entrySet().stream().filter(e -> e.getValue() != null)
+                                .forEach(e -> result.put(e.getKey(), e.getValue()));
                     }
 
                     this.backendStorageProperties = result;

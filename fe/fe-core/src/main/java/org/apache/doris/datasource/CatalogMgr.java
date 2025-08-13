@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -276,13 +275,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Remove the catalog instance by name and write the meta log.
-     */
-    public void dropCatalog(DropCatalogStmt stmt) throws UserException {
-        dropCatalog(stmt.getCatalogName(), stmt.isSetIfExists());
     }
 
     /**

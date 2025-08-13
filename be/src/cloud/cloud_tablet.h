@@ -49,6 +49,12 @@ struct SyncOptions {
     int64_t query_version = -1;
 };
 
+struct RecycledRowsets {
+    RowsetId rowset_id;
+    int64_t num_segments;
+    std::vector<std::string> index_file_names;
+};
+
 class CloudTablet final : public BaseTablet {
 public:
     CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta);
@@ -284,7 +290,10 @@ public:
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
 
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
+    // For each given rowset not in active use, clears its file cache and returns its
+    // ID, segment count, and index file names as RecycledRowsets entries.
+    static std::vector<RecycledRowsets> recycle_cached_data(
+            const std::vector<RowsetSharedPtr>& rowsets);
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version

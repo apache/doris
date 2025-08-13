@@ -36,7 +36,7 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr) {
-    assert_unary(name, argument_types);
+    assert_arity_range(name, argument_types, 1, 1);
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_STRING:
     case PrimitiveType::TYPE_CHAR:

@@ -75,10 +75,10 @@ TEST_F(TabletSchemaIndexTest, TestAddInvertedIndex) {
     _tablet_schema->append_index(std::move(index));
 
     // Verify index mapping
-    auto* found_index = _tablet_schema->inverted_index(100, "suffix1");
-    ASSERT_NE(found_index, nullptr);
-    EXPECT_EQ(found_index->index_id(), 1);
-    EXPECT_EQ(found_index->get_index_suffix(), "suffix1");
+    auto found_indexs = _tablet_schema->inverted_indexs(100, "suffix1");
+    ASSERT_FALSE(found_indexs.empty());
+    EXPECT_EQ(found_indexs[0]->index_id(), 1);
+    EXPECT_EQ(found_indexs[0]->get_index_suffix(), "suffix1");
 }
 
 TEST_F(TabletSchemaIndexTest, TestRemoveIndex) {
@@ -90,28 +90,28 @@ TEST_F(TabletSchemaIndexTest, TestRemoveIndex) {
     _tablet_schema->remove_index(1);
 
     // Verify index 1 removed
-    EXPECT_EQ(_tablet_schema->inverted_index(100, "suffix1"), nullptr);
+    EXPECT_TRUE(_tablet_schema->inverted_indexs(100, "suffix1").empty());
 
     // Verify index 2 still exists
-    auto* found_index = _tablet_schema->inverted_index(200, "suffix2");
-    ASSERT_NE(found_index, nullptr);
-    EXPECT_EQ(found_index->index_id(), 2);
+    auto found_indexs = _tablet_schema->inverted_indexs(200, "suffix2");
+    ASSERT_FALSE(found_indexs.empty());
+    EXPECT_EQ(found_indexs[0]->index_id(), 2);
 }
 
 TEST_F(TabletSchemaIndexTest, TestUpdateIndex) {
     // Add initial index
     _tablet_schema->append_index(create_test_index(1, IndexType::INVERTED, {100}, "old_suffix"));
-    ASSERT_NE(_tablet_schema->inverted_index(100, "old_suffix"), nullptr);
+    ASSERT_FALSE(_tablet_schema->inverted_indexs(100, "old_suffix").empty());
 
     // Update index with new suffix
     _tablet_schema->remove_index(1);
     _tablet_schema->append_index(create_test_index(1, IndexType::INVERTED, {100}, "new_suffix"));
 
     // Verify update
-    EXPECT_EQ(_tablet_schema->inverted_index(100, "old_suffix"), nullptr);
-    auto* found_index = _tablet_schema->inverted_index(100, "new_suffix");
-    ASSERT_NE(found_index, nullptr);
-    EXPECT_EQ(found_index->get_index_suffix(), "new%5Fsuffix");
+    EXPECT_TRUE(_tablet_schema->inverted_indexs(100, "old_suffix").empty());
+    auto found_indexs = _tablet_schema->inverted_indexs(100, "new_suffix");
+    ASSERT_FALSE(found_indexs.empty());
+    EXPECT_EQ(found_indexs[0]->get_index_suffix(), "new%5Fsuffix");
 }
 
 TEST_F(TabletSchemaIndexTest, TestMultipleColumnsIndex) {
@@ -120,10 +120,11 @@ TEST_F(TabletSchemaIndexTest, TestMultipleColumnsIndex) {
     _tablet_schema->append_index(std::move(index));
 
     // Verify both columns mapped
-    auto* index1 = _tablet_schema->inverted_index(100, "multi_col");
-    auto* index2 = _tablet_schema->inverted_index(200, "multi_col");
-    ASSERT_NE(index1, nullptr);
-    ASSERT_EQ(index1, index2); // Should point to same index
+    auto index1 = _tablet_schema->inverted_indexs(100, "multi_col");
+    auto index2 = _tablet_schema->inverted_indexs(200, "multi_col");
+    ASSERT_FALSE(index1.empty());
+    ASSERT_FALSE(index2.empty());
+    ASSERT_EQ(index1[0]->index_id(), index2[0]->index_id()); // Should point to same index
 }
 
 TEST_F(TabletSchemaIndexTest, TestDuplicateIndexKey) {
@@ -132,16 +133,16 @@ TEST_F(TabletSchemaIndexTest, TestDuplicateIndexKey) {
     _tablet_schema->append_index(create_test_index(2, IndexType::INVERTED, {100}, "suffix"));
 
     // The last added should override
-    auto* found_index = _tablet_schema->inverted_index(100, "suffix");
-    ASSERT_NE(found_index, nullptr);
-    EXPECT_EQ(found_index->index_id(), 1);
+    auto found_indexs = _tablet_schema->inverted_indexs(100, "suffix");
+    ASSERT_FALSE(found_indexs.empty());
+    EXPECT_EQ(found_indexs[0]->index_id(), 1);
 }
 
 TEST_F(TabletSchemaIndexTest, TestClearIndexes) {
     _tablet_schema->append_index(create_test_index(1, IndexType::INVERTED, {100}));
     _tablet_schema->clear_index();
 
-    EXPECT_EQ(_tablet_schema->inverted_index(100, ""), nullptr);
+    EXPECT_TRUE(_tablet_schema->inverted_indexs(100, "").empty());
     EXPECT_TRUE(_tablet_schema->inverted_indexes().empty());
 }
 
@@ -159,10 +160,10 @@ TEST_F(TabletSchemaIndexTest, TestUpdateIndexMethod) {
 
     _tablet_schema->update_index(col, IndexType::INVERTED, {std::move(new_index)});
 
-    const TabletIndex* updated_index = _tablet_schema->inverted_index(100, "v2");
-    ASSERT_NE(updated_index, nullptr);
-    EXPECT_EQ(updated_index->index_id(), 1);
-    EXPECT_EQ(updated_index->properties().at("new_prop"), "value");
+    auto updated_indexs = _tablet_schema->inverted_indexs(100, "v2");
+    ASSERT_FALSE(updated_indexs.empty());
+    EXPECT_EQ(updated_indexs[0]->index_id(), 1);
+    EXPECT_EQ(updated_indexs[0]->properties().at("new_prop"), "value");
 
     auto key = std::make_tuple(IndexType::INVERTED, 100, "v2");
     EXPECT_NE(_tablet_schema->_col_id_suffix_to_index.find(key),
@@ -177,8 +178,8 @@ TEST_F(TabletSchemaIndexTest, TestUpdateIndexAddNewWhenNotExist) {
     TabletIndex new_index = create_test_index(2, IndexType::INVERTED, {200}, "v3");
     _tablet_schema->update_index(col, IndexType::INVERTED, {std::move(new_index)});
 
-    const TabletIndex* index = _tablet_schema->inverted_index(200, "v3");
-    ASSERT_EQ(index, nullptr);
+    auto indexs = _tablet_schema->inverted_indexs(200, "v3");
+    ASSERT_TRUE(indexs.empty());
 }
 
 TEST_F(TabletSchemaIndexTest, TestUpdateIndexWithMultipleColumns) {
@@ -194,7 +195,7 @@ TEST_F(TabletSchemaIndexTest, TestUpdateIndexWithMultipleColumns) {
     TabletIndex new_multi_index = create_test_index(3, IndexType::NGRAM_BF, {300, 400});
     _tablet_schema->append_index(std::move(new_multi_index));
 
-    ASSERT_NE(_tablet_schema->inverted_index(300, "multi"), nullptr);
+    EXPECT_FALSE(_tablet_schema->inverted_indexs(300, "multi").empty());
     EXPECT_NE(_tablet_schema->get_ngram_bf_index(400), nullptr);
 }
 

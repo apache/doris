@@ -183,7 +183,8 @@ class DBManager(object):
                 "s3.bucket" = "{cloud_store_config['DORIS_CLOUD_BUCKET']}",
                 "s3.region" = "{cloud_store_config['DORIS_CLOUD_REGION']}",
                 "s3.root.path" = "{str(uuid.uuid4())}",
-                "provider" = "{cloud_store_config['DORIS_CLOUD_PROVIDER']}"
+                "provider" = "{cloud_store_config['DORIS_CLOUD_PROVIDER']}",
+                "use_path_style" = "false"
             );
             """
             # create hk storage vault from beijing cost 14s

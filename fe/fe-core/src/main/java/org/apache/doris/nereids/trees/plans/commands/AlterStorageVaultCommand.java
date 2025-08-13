@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -55,9 +56,24 @@ public class AlterStorageVaultCommand extends Command implements ForwardWithSync
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        StorageVault.StorageVaultType vaultType = StorageVaultType.fromString(properties.get(TYPE));
-        if (vaultType == StorageVault.StorageVaultType.UNKNOWN) {
-            throw new AnalysisException("Unsupported Storage Vault type: " + type);
+
+        StorageVault.StorageVaultType vaultType;
+        if (properties.containsKey(TYPE)) {
+            vaultType = StorageVaultType.fromString(properties.get(TYPE));
+            if (vaultType == StorageVaultType.UNKNOWN) {
+                throw new AnalysisException("Unsupported Storage Vault type: " + type);
+            }
+        } else {
+            // auto-detect
+            try {
+                vaultType = Env.getCurrentEnv().getStorageVaultMgr().getStorageVaultTypeByName(name);
+                if (vaultType == StorageVaultType.UNKNOWN) {
+                    throw new AnalysisException("Storage vault '" + name + "' does not exist or has unknown type. "
+                            + "You can use `SHOW STORAGE VAULT` to get all available vaults.");
+                }
+            } catch (DdlException e) {
+                throw new AnalysisException("Failed to get storage vault type: " + e.getMessage());
+            }
         }
 
         FeNameFormat.checkStorageVaultName(name);

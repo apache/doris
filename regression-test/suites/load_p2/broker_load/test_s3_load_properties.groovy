@@ -30,7 +30,7 @@ suite("test_s3_load_properties", "p2") {
         forComputeGroupStr = " for  $validCluster "
     }
 
-    sql "create workload group if not exists broker_load_test $forComputeGroupStr properties ( 'cpu_share'='1024'); "
+    sql "create workload group if not exists broker_load_test $forComputeGroupStr properties ( 'min_cpu_percent'='0'); "
 
     sql "set workload_group=broker_load_test;"
 

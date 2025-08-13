@@ -392,6 +392,11 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
     ASSERT_TRUE(out_rowset);
 
+    // check no variant subcolumns in output rowset
+    for (const auto& column : out_rowset->tablet_schema()->columns()) {
+        EXPECT_FALSE(column->is_extracted_column());
+    }
+
     // 7. check output rowset
     EXPECT_TRUE(schema_util::VariantCompactionUtil::check_path_stats(rowsets, out_rowset, _tablet)
                         .ok());
@@ -628,6 +633,11 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
     ASSERT_TRUE(out_rowset);
+
+    // check no variant subcolumns in output rowset
+    for (const auto& column : out_rowset->tablet_schema()->columns()) {
+        EXPECT_FALSE(column->is_extracted_column());
+    }
 
     // 7. check output rowset
     EXPECT_TRUE(schema_util::VariantCompactionUtil::check_path_stats(rowsets, out_rowset, _tablet)

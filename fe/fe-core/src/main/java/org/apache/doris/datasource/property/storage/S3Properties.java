@@ -46,10 +46,15 @@ import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
 
-    private static final String[] ENDPOINT_NAMES = {
+    private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"
     };
+
+    private static final String[] REGION_NAMES_FOR_GUESSING = {
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
+    };
+
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
@@ -61,21 +66,21 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
     @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region"},
+            "aws.glue.region", "iceberg.rest.signing-region"},
             required = false,
             description = "The region of S3.")
     protected String region = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
-            "aws.glue.access-key", "client.credentials-provider.glue.access_key"},
+            "aws.glue.access-key", "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id"},
             required = false,
             description = "The access key of S3. Optional for anonymous access to public datasets.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
-            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
+            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key"},
             required = false,
             description = "The secret key of S3. Optional for anonymous access to public datasets.")
     protected String secretKey = "";
@@ -189,7 +194,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * @return
      */
     protected static boolean guessIsMe(Map<String, String> origProps) {
-        String endpoint = Stream.of(ENDPOINT_NAMES)
+        String endpoint = Stream.of(ENDPOINT_NAMES_FOR_GUESSING)
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()
@@ -203,11 +208,26 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (!Strings.isNullOrEmpty(endpoint)) {
             return endpoint.contains("amazonaws.com");
         }
+
+        // guess from URI
         Optional<String> uriValue = origProps.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase("uri"))
                 .map(Map.Entry::getValue)
                 .findFirst();
-        return uriValue.isPresent() && uriValue.get().contains("amazonaws.com");
+        if (uriValue.isPresent()) {
+            return uriValue.get().contains("amazonaws.com");
+        }
+
+        // guess from region
+        String region = Stream.of(REGION_NAMES_FOR_GUESSING)
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (!Strings.isNullOrEmpty(region)) {
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -278,4 +298,16 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                     "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
         }
     }
+
+    @Override
+    protected String getEndpointFromRegion() {
+        if (!StringUtils.isBlank(endpoint)) {
+            return endpoint;
+        }
+        if (StringUtils.isBlank(region)) {
+            return "";
+        }
+        return "https://s3." + region + ".amazonaws.com";
+    }
 }
+

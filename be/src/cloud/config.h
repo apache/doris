@@ -131,5 +131,16 @@ DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
 
 DECLARE_mInt64(warm_up_rowset_slow_log_ms);
 
+// When event driven warm-up is enabled by the user, turning on this option can help
+// avoid file cache misses in the read cluster caused by compaction.
+// If enabled, compaction will wait for the warm-up to complete before committing.
+//
+// ATTN: Enabling this option may slow down compaction due to the added wait.
+DECLARE_mBool(enable_compaction_delay_commit_for_warm_up);
+
+DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
+
+DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

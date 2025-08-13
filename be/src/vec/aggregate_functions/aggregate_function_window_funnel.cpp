@@ -40,10 +40,6 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
         return creator_without_type::create<
                 AggregateFunctionWindowFunnel<PrimitiveType::TYPE_DATETIMEV2, UInt64>>(
                 argument_types, result_is_nullable, attr);
-    } else if (argument_types[2]->get_primitive_type() == TYPE_DATETIME) {
-        return creator_without_type::create<
-                AggregateFunctionWindowFunnel<PrimitiveType::TYPE_DATETIME, Int64>>(
-                argument_types, result_is_nullable, attr);
     } else {
         LOG(WARNING) << "Only support DateTime type as window argument!";
         return nullptr;

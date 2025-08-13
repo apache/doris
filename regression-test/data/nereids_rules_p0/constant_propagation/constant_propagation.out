@@ -227,6 +227,112 @@ PhysicalResultSink
 -- !join_11_result --
 10
 
+-- !join_12_shape --
+PhysicalResultSink
+--PhysicalProject[$c$1 AS `1  in (select null from t2)`]
+----hashJoin[LEFT_SEMI_JOIN] hashCondition=() otherCondition=() markCondition=((cast(null as TINYINT) = 1))
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[t1]
+------PhysicalProject[NULL AS `null`]
+--------PhysicalStorageLayerAggregate[t2]
+
+-- !join_12_result --
+\N
+\N
+
+-- !join_13_shape --
+PhysicalResultSink
+--PhysicalProject[$c$1 AS `1 not in (select null from t2)`]
+----hashJoin[LEFT_ANTI_JOIN] hashCondition=() otherCondition=() markCondition=((cast(null as TINYINT) = 1))
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[t1]
+------PhysicalProject[NULL AS `null`]
+--------PhysicalStorageLayerAggregate[t2]
+
+-- !join_13_result --
+\N
+\N
+
+-- !join_14_shape --
+PhysicalResultSink
+--PhysicalProject[$c$1 AS `null  in (select c1 from s2)`]
+----hashJoin[LEFT_SEMI_JOIN] hashCondition=() otherCondition=() markCondition=((NULL = s2.c1))
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[s1]
+------PhysicalProject[s2.c1]
+--------PhysicalOlapScan[s2]
+
+-- !join_14_result --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !join_15_shape --
+PhysicalResultSink
+--PhysicalProject[$c$1 AS `null  in (select 1 from s2)`]
+----hashJoin[LEFT_SEMI_JOIN] hashCondition=() otherCondition=() markCondition=((NULL = 1))
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[s1]
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[s2]
+
+-- !join_15_result --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !join_16_shape --
+PhysicalResultSink
+--PhysicalProject[$c$1 AS `1  in (select null from s2)`]
+----hashJoin[LEFT_SEMI_JOIN] hashCondition=() otherCondition=() markCondition=((cast(null as TINYINT) = 1))
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[s1]
+------PhysicalProject[NULL AS `null`]
+--------PhysicalStorageLayerAggregate[s2]
+
+-- !join_16_result --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !join_17_shape --
+PhysicalResultSink
+--PhysicalProject[$c$1 AS `1 not in (select null from s2)`]
+----hashJoin[LEFT_ANTI_JOIN] hashCondition=() otherCondition=() markCondition=((cast(null as TINYINT) = 1))
+------PhysicalProject[1 AS `1`]
+--------PhysicalStorageLayerAggregate[s1]
+------PhysicalProject[NULL AS `null`]
+--------PhysicalStorageLayerAggregate[s2]
+
+-- !join_17_result --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
 -- !subquery_1_shape --
 PhysicalResultSink
 --PhysicalEmptyRelation

@@ -137,9 +137,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
@@ -165,7 +165,7 @@ public:
         EXPECT_TRUE(result.has_value()) << "Failed to open compound reader";
 
         auto index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
-        auto searcher_result = index_searcher_builder->get_index_searcher(result.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(result.value().get());
         EXPECT_TRUE(searcher_result.has_value());
 
         auto* fulltext_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_result.value());
@@ -217,11 +217,17 @@ TEST_F(PhrasePrefixQueryTest, test_single_term_prefix_query) {
     ASSERT_NE(searcher, nullptr);
 
     // Test PhrasePrefixQuery with single term (acts as prefix query)
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhrasePrefixQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";                 // c2 column unique_id in V2 format
@@ -273,11 +279,17 @@ TEST_F(PhrasePrefixQueryTest, test_multi_term_phrase_prefix_query) {
     ASSERT_NE(searcher, nullptr);
 
     // Test PhrasePrefixQuery with multiple terms
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhrasePrefixQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
@@ -321,11 +333,17 @@ TEST_F(PhrasePrefixQueryTest, test_empty_terms_exception) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhrasePrefixQuery query(searcher, context);
 
     // Test with empty terms - should throw exception
     InvertedIndexQueryInfo query_info;
@@ -369,11 +387,17 @@ TEST_F(PhrasePrefixQueryTest, test_max_expansions_limit) {
     ASSERT_NE(searcher, nullptr);
 
     // Test with limited max_expansions
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 3; // Limit to 3 expansions
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhrasePrefixQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";                 // c2 column unique_id in V2 format
@@ -412,11 +436,17 @@ TEST_F(PhrasePrefixQueryTest, test_no_prefix_matches) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhrasePrefixQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1";                 // c2 column unique_id in V2 format
@@ -460,11 +490,17 @@ TEST_F(PhrasePrefixQueryTest, test_phrase_with_no_prefix_expansion) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+
+    PhrasePrefixQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format

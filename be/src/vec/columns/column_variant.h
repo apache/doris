@@ -51,7 +51,6 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_variant.h"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/io/reader_buffer.h"
 #include "vec/json/path_in_data.h"
 
 class SipHash;

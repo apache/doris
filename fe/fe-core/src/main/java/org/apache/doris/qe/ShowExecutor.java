@@ -20,31 +20,18 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.ShowAlterStmt;
-import org.apache.doris.analysis.ShowCreateLoadStmt;
-import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.PartitionColumnStatistic;
-import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
-import org.apache.doris.statistics.ResultRow;
-import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.system.Diagnoser;
 
 import com.google.common.base.Preconditions;
@@ -52,12 +39,8 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -78,10 +61,6 @@ public class ShowExecutor {
         checkStmtSupported();
         if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowEnginesStmt) {
-            handleShowEngines();
-        } else if (stmt instanceof ShowCreateLoadStmt) {
-            handleShowCreateLoad();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
         } else if (stmt instanceof DiagnoseTabletStmt) {
@@ -99,23 +78,6 @@ public class ShowExecutor {
     private void handleEmtpy() {
         // Only success
         resultSet = new ShowResultSet(stmt.getMetaData(), EMPTY_SET);
-    }
-
-    // Handle show engines
-    private void handleShowEngines() {
-        ShowEnginesStmt showStmt = (ShowEnginesStmt) stmt;
-        List<List<String>> rowSet = Lists.newArrayList();
-        rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of Doris", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("MySQL", "YES", "MySQL server which data is in it", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("ELASTICSEARCH", "YES", "ELASTICSEARCH cluster which data is in it",
-                "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("HIVE", "YES", "HIVE database which data is in it", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("ICEBERG", "YES", "ICEBERG data lake which data is in it", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("ODBC", "YES", "ODBC driver which data we can connect", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("HUDI", "YES", "HUDI data lake which data is in it", "NO", "NO", "NO"));
-
-        // Only success
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
 
     /***
@@ -217,124 +179,6 @@ public class ShowExecutor {
             rows = procNodeI.fetchResult().getRows();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowCreateLoad() throws AnalysisException {
-        ShowCreateLoadStmt showCreateLoadStmt = (ShowCreateLoadStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        String labelName = showCreateLoadStmt.getLabel();
-
-        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
-        Env env = ctx.getEnv();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showCreateLoadStmt.getDb());
-        long dbId = db.getId();
-        try {
-            List<Pair<Long, String>> result = env.getLoadManager().getCreateLoadStmt(dbId, labelName);
-            rows.addAll(result.stream().map(pair -> Lists.newArrayList(String.valueOf(pair.first), pair.second))
-                    .collect(Collectors.toList()));
-        } catch (DdlException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-        resultSet = new ShowResultSet(showCreateLoadStmt.getMetaData(), rows);
-    }
-
-    private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            TableIf tableIf) {
-        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(
-                tableIf.getDatabase().getCatalog().getId(), tableIf.getDatabase().getId(), tableIf.getId());
-        // row[4] is index id, row[5] is column name.
-        for (ResultRow row : resultRows) {
-            String indexName = tableIf.getName();
-            long indexId = Long.parseLong(row.get(4));
-            if (tableIf instanceof OlapTable) {
-                OlapTable olapTable = (OlapTable) tableIf;
-                indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
-            }
-            if (indexName == null) {
-                continue;
-            }
-            try {
-                columnStatistics.add(Pair.of(Pair.of(indexName, row.get(5)), ColumnStatistic.fromResultRow(row)));
-            } catch (Exception e) {
-                LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(e);
-                }
-            }
-        }
-    }
-
-    private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            Set<String> columnNames, TableIf tableIf, boolean showCache)
-            throws AnalysisException {
-        ConnectContext connectContext = ConnectContext.get();
-        for (String colName : columnNames) {
-            // Olap base index use -1 as index id.
-            List<Long> indexIds = Lists.newArrayList();
-            if (tableIf instanceof OlapTable) {
-                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
-            } else {
-                indexIds.add(-1L);
-            }
-            for (long indexId : indexIds) {
-                String indexName = tableIf.getName();
-                if (tableIf instanceof OlapTable) {
-                    OlapTable olapTable = (OlapTable) tableIf;
-                    indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
-                }
-                if (indexName == null) {
-                    continue;
-                }
-                // Show column statistics in columnStatisticsCache.
-                ColumnStatistic columnStatistic;
-                if (showCache) {
-                    columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName, connectContext);
-                } else {
-                    columnStatistic = StatisticsRepository.queryColumnStatisticsByName(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                }
-                columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
-            }
-        }
-    }
-
-    private Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> getCachedPartitionColumnStats(
-            Set<String> columnNames, List<String> partitionNames, TableIf tableIf) {
-        Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> ret = new HashMap<>();
-        long catalogId = tableIf.getDatabase().getCatalog().getId();
-        long dbId = tableIf.getDatabase().getId();
-        long tableId = tableIf.getId();
-        ConnectContext ctx = ConnectContext.get();
-        for (String colName : columnNames) {
-            // Olap base index use -1 as index id.
-            List<Long> indexIds = Lists.newArrayList();
-            if (tableIf instanceof OlapTable) {
-                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
-            } else {
-                indexIds.add(-1L);
-            }
-            for (long indexId : indexIds) {
-                String indexName = tableIf.getName();
-                if (tableIf instanceof OlapTable) {
-                    OlapTable olapTable = (OlapTable) tableIf;
-                    indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
-                }
-                if (indexName == null) {
-                    continue;
-                }
-                for (String partName : partitionNames) {
-                    PartitionColumnStatistic partitionStatistics = Env.getCurrentEnv().getStatisticsCache()
-                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName, ctx);
-                    ret.put(new PartitionColumnStatisticCacheKey(catalogId, dbId, tableId, indexId, partName, colName),
-                            partitionStatistics);
-                }
-            }
-        }
-        return ret;
     }
 
     private void handleAdminDiagnoseTablet() {

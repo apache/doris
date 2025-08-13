@@ -280,3 +280,6 @@ icebergS3TablesCatalog = ""
 enableExternalHudiTest = false
 // The properties string of hudi catalog
 hudiEmrCatalog = ""
+icebergS3TablesCatalog=""
+icebergS3TablesCatalogGlueRest=""
+

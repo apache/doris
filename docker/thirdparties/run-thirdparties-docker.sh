@@ -623,6 +623,8 @@ start_kerberos() {
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
+    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
     for i in {1..2}; do
         . "${ROOT}"/docker-compose/kerberos/kerberos${i}_settings.env
         envsubst <"${ROOT}"/docker-compose/kerberos/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/kerberos/hadoop-hive-${i}.env

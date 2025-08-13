@@ -170,12 +170,128 @@ suite("test_routine_load_alter","p0") {
                     assertEquals(20, res[0][0])
                     break
                 }
-                sleep(5000)
+                sleep(1000)
                 count++
             }
             qt_sql_alter_after "select * from ${tableName} order by k1" 
         } finally {
             sql "stop routine load for ${jobName}"
+            sql "truncate table ${tableName}"
+        }
+
+        // test alter columns
+        try {
+            sql """
+                CREATE ROUTINE LOAD ${jobName} ON ${tableName}
+                COLUMNS TERMINATED BY "|",
+                COLUMNS(k1, k2)
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "${kafkaCsvTpoics[0]}",
+                    "kafka_partitions" = "0",
+                    "kafka_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            sql "sync"
+            sql "pause routine load for ${jobName}"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} COLUMNS(k1, k2, v1, v2, v3, v4);"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} COLUMNS TERMINATED BY ',';"
+            sql "resume routine load for ${jobName}"
+            def count = 0
+            while (true) {
+                def res = sql "select count(*) from ${tableName}"
+                log.info("count: ${res[0][0]}".toString())
+                def state = sql "show routine load for ${jobName}"
+                log.info("routine load state: ${state[0][8].toString()}".toString())
+                log.info("routine load properties: ${state[0][11].toString()}".toString())
+                log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                if (res[0][0] > 0) {
+                    break
+                }
+                if (count >= 120) {
+                    log.error("routine load can not visible for long time")
+                    assertEquals(20, res[0][0])
+                    break
+                }
+                sleep(1000)
+                count++
+            }
+            def res = sql "select * from ${tableName} order by k1"
+            log.info("res: ${res.size()}".toString())
+            assertEquals(3, res.size())
+        } finally {
+            sql "stop routine load for ${jobName}"
+            sql "truncate table ${tableName}"
+        }
+
+        // test show after alter
+        try {
+            sql """
+                CREATE ROUTINE LOAD ${jobName} ON ${tableName}
+                COLUMNS TERMINATED BY ",",
+                COLUMNS(k1, k2)
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "${kafkaCsvTpoics[0]}",
+                    "kafka_partitions" = "0",
+                    "kafka_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            sql "sync"
+            sql "pause routine load for ${jobName}"
+            def res = sql "show routine load for ${jobName}"
+            log.info("routine load job properties: ${res[0][11].toString()}".toString())
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"desired_concurrent_number\" = \"1\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"max_error_number\" = \"1\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"max_batch_rows\" = \"300001\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"max_batch_size\" = \"209715201\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"max_batch_interval\" = \"6\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"max_filter_ratio\" = \"0.5\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"jsonpaths\" = \"jsonpaths\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"json_root\" = \"json_root\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"strip_outer_array\" = \"true\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"strict_mode\" = \"true\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"timezone\" = \"Asia/Shanghai\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"num_as_string\" = \"true\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"fuzzy_parse\" = \"true\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"max_filter_ratio\" = \"0.5\");"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} COLUMNS(k00, k01, k02, k03, k04, k05);"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} COLUMNS TERMINATED BY ',';"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PRECEDING FILTER k00 = 8;"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} WHERE k00 = 8;"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} DELETE ON k00 = 8;"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} PARTITION(p1);"
+            sql "ALTER ROUTINE LOAD FOR ${jobName} ORDER BY k00;"
+            res = sql "show routine load for ${jobName}"
+            log.info("routine load job properties: ${res[0][11].toString()}".toString())
+
+            res = sql "show routine load for ${jobName}"
+            def json = parseJson(res[0][11])
+            assertEquals("1", json.desired_concurrent_number.toString())
+            assertEquals("1", json.max_error_number.toString())
+            assertEquals("300001", json.max_batch_rows.toString())
+            assertEquals("209715201", json.max_batch_size.toString())
+            assertEquals("6", json.max_batch_interval.toString())
+            assertEquals("0.5", json.max_filter_ratio.toString())
+            assertEquals("jsonpaths", json.jsonpaths.toString())
+            assertEquals("json_root", json.json_root.toString())
+            assertEquals("true", json.strict_mode.toString())
+            assertEquals("true", json.strip_outer_array.toString())
+            assertEquals("Asia/Shanghai", json.timezone.toString())
+            assertEquals("true", json.num_as_string.toString())
+            assertEquals("k00,k01,k02,k03,k04,k05", json.columnToColumnExpr.toString())
+            assertEquals("','", json.column_separator.toString())
+            assertEquals("(CAST(k00 AS double) = CAST(8 AS double))", json.precedingFilter.toString())
+            assertEquals("(CAST(k00 AS double) = CAST(8 AS double))", json.whereExpr.toString())
+            assertEquals("p1", json.partitions.toString())
+            assertEquals("k00", json.sequence_col.toString())
+        } finally {
+            sql "stop routine load for ${jobName}"
+            sql "truncate table ${tableName}"
         }
     }
 }

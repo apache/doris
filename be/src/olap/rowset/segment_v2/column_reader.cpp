@@ -370,16 +370,17 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::new_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
+Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                         const TabletIndex* index_meta,
-                                        const StorageReadOptions& read_options,
                                         std::unique_ptr<IndexIterator>* iterator) {
-    RETURN_IF_ERROR(_ensure_index_loaded(std::move(index_file_reader), index_meta));
+    RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
-        if (_index_reader) {
-            RETURN_IF_ERROR(_index_reader->new_iterator(read_options.io_ctx, read_options.stats,
-                                                        read_options.runtime_state, iterator));
+        auto iter = _index_readers.find(index_meta->index_id());
+        if (iter != _index_readers.end()) {
+            if (iter->second != nullptr) {
+                RETURN_IF_ERROR(iter->second->new_iterator(iterator));
+            }
         }
     }
     return Status::OK();
@@ -659,12 +660,17 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
     return Status::OK();
 }
 
-Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_reader,
+Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
                                  const TabletIndex* index_meta) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
-    if (_index_reader != nullptr && index_meta &&
-        _index_reader->get_index_id() == index_meta->index_id()) {
+    if (index_meta == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "Failed to load inverted index: index metadata is null");
+    }
+
+    auto it = _index_readers.find(index_meta->index_id());
+    if (it != _index_readers.end()) {
         return Status::OK();
     }
 
@@ -678,17 +684,18 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
         type = _type_info->type();
     }
 
+    IndexReaderPtr index_reader;
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {
-                _index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-                _index_reader =
+                index_reader =
                         StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -697,18 +704,16 @@ Status ColumnReader::_load_index(std::shared_ptr<IndexFileReader> index_file_rea
         }
     } else if (is_numeric_type(type)) {
         try {
-            _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
+            index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "create BkdIndexReader error: {}", e.what());
         }
     } else {
-        _index_reader.reset();
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Field type {} is not supported for inverted index", type);
     }
-    // TODO: move has null to inverted_index_reader's query function
-    //bool has_null = true;
-    //RETURN_IF_ERROR(index_file_reader->has_null(index_meta, &has_null));
-    //_inverted_index->set_has_null(has_null);
+    _index_readers[index_meta->index_id()] = index_reader;
     return Status::OK();
 }
 
@@ -1522,7 +1527,6 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     // "NULL" is a special default value which means the default value is null.
     if (_has_default_value) {
         if (_default_value == "NULL") {
-            DCHECK(_is_nullable);
             _is_default_value_null = true;
         } else {
             _type_size = _type_info->size();

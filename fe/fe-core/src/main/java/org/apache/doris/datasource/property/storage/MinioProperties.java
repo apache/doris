@@ -94,4 +94,11 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     protected Set<Pattern> endpointPatterns() {
         return ImmutableSet.of(Pattern.compile("^(?:https?://)?[a-zA-Z0-9.-]+(?::\\d+)?$"));
     }
+
+    protected void setEndpointIfPossible() {
+        super.setEndpointIfPossible();
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Property minio.endpoint is required.");
+        }
+    }
 }

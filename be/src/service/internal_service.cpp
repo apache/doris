@@ -45,6 +45,7 @@
 #include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -340,6 +341,8 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
         st = _exec_plan_fragment_impl(request->request(), version, compact);
     } catch (const Exception& e) {
         st = e.to_status();
+    } catch (const std::exception& e) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
     } catch (...) {
         st = Status::Error(ErrorCode::INTERNAL_ERROR,
                            "_exec_plan_fragment_impl meet unknown error");
@@ -2220,6 +2223,8 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                         });
             } catch (const Exception& e) {
                 st = e.to_status();
+            } catch (const std::exception& e) {
+                st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
             } catch (...) {
                 st = Status::Error(ErrorCode::INTERNAL_ERROR,
                                    "_exec_plan_fragment_impl meet unknown error");

@@ -48,7 +48,6 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -188,23 +187,6 @@ std::string DataTypeDecimal<T>::to_string(const FieldType& value) const {
         auto decemalv2_value = (DecimalV2Value)value;
         return decemalv2_value.to_string(get_format_scale());
     }
-}
-
-template <PrimitiveType T>
-Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto& column_data = static_cast<ColumnType&>(*column).get_data();
-    FieldType val {};
-    StringRef str_ref(rb.position(), rb.count());
-    StringParser::ParseResult res =
-            read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), FieldType>(
-                    val, str_ref, precision, scale);
-    if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
-        column_data.emplace_back(val);
-        return Status::OK();
-    }
-    return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
-                                   std::string(rb.position(), rb.count()).c_str(),
-                                   DataTypeDecimalSerDe<T>::get_primitive_type());
 }
 
 // binary: const flag | row num | real_saved_num | data

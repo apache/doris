@@ -17,7 +17,6 @@
 
 package org.apache.doris.plugin;
 
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -167,13 +166,6 @@ public class PluginMgr implements Writable {
             pluginLoader.uninstall();
             throw e;
         }
-    }
-
-
-    // install a plugin from user's command.
-    // install should be successfully, or nothing should be left if failed to install.
-    public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
-        return installPlugin(stmt.getPluginPath(), stmt.getProperties(), stmt.getMd5sum());
     }
 
     private void addDialectPlugin(DialectConverterPlugin plugin, PluginInfo info) {

@@ -185,7 +185,9 @@ public:
 template <PrimitiveType T, typename Data, bool has_offset>
 class AggregateFunctionLinearHistogram final
         : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionLinearHistogram<T, Data, has_offset>> {
+                  Data, AggregateFunctionLinearHistogram<T, Data, has_offset>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
 

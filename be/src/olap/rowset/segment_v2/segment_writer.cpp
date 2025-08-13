@@ -69,7 +69,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -229,11 +228,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (!skip_inverted_index) {
         auto inverted_indexs = schema->inverted_indexs(column);
         if (!inverted_indexs.empty()) {
-            // TODO(lihangyu) multi indexes
-            // for (const auto& index : inverted_indexs) {
-            //     opts.inverted_indexs.emplace_back(index);
-            // }
-            opts.inverted_index = inverted_indexs.front();
+            opts.inverted_indexes = inverted_indexs;
             opts.need_inverted_index = true;
             DCHECK(_index_file_writer != nullptr);
         }

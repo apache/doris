@@ -1353,8 +1353,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         return false;
     }
 
-    public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        Database db = this.fullNameToDb.get(dbName);
+    public void replayCreateTable(String dbName, long dbId, Table table) throws MetaNotFoundException {
+        if (dbId != -1L) {
+            Database db = getDbOrMetaException(dbId);
+            replayCreateTableInternal(db, table);
+        } else {
+            // Compatible with old logic
+            Database db = getDbOrMetaException(dbName);
+            replayCreateTableInternal(db, table);
+        }
+    }
+
+    private void replayCreateTableInternal(Database db, Table table) throws MetaNotFoundException {
         try {
             db.createTableWithLock(table, true, false);
         } catch (DdlException e) {
@@ -3181,7 +3191,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Long tabletId : tabletIdSet) {
                     Env.getCurrentInvertedIndex().deleteTablet(tabletId);
                 }
-                LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
+                LOG.info("duplicate create table[{};{}] in db[{};{}], skip next steps",
+                        tableName, tableId, db.getName(), db.getId());
             } else {
                 // if table not exists, then db.createTableWithLock will write an editlog.
                 hadLogEditCreateTable = true;
@@ -3195,7 +3206,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             backendsPerBucketSeq);
                     Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
                 }
-                LOG.info("successfully create table[{};{}]", tableName, tableId);
+                LOG.info("successfully create table[{};{}] in db[{};{}]",
+                        tableName, tableId, db.getName(), db.getId());
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
                 // register or remove table from DynamicPartition after table created

@@ -76,6 +76,9 @@ bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_call_unix_ts(
         "file_cache_warm_up_rowset_last_call_unix_ts", 0);
 bvar::Adder<uint64_t> file_cache_warm_up_failed_task_num("file_cache_warm_up", "failed_task_num");
 
+bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
+        "file_cache_warm_up_rowset_wait_for_compaction_latency");
+
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
 }
@@ -497,8 +500,9 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
     return replicas;
 }
 
-void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
-    auto replicas = get_replica_info(rs_meta.tablet_id());
+void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    auto tablet_id = rs_meta.tablet_id();
+    auto replicas = get_replica_info(tablet_id);
     if (replicas.empty()) {
         LOG(INFO) << "There is no need to warmup tablet=" << rs_meta.tablet_id()
                   << ", skipping rowset=" << rs_meta.rowset_id().to_string();
@@ -512,6 +516,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
     PWarmUpRowsetRequest request;
     request.add_rowset_metas()->CopyFrom(rs_meta.get_rowset_pb());
     request.set_unix_ts_us(now_ts);
+    request.set_sync_wait_timeout_ms(sync_wait_timeout_ms);
     for (auto& replica : replicas) {
         // send sync request
         std::string host = replica.host;
@@ -576,41 +581,55 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
         }
 
         brpc::Controller cntl;
+        if (sync_wait_timeout_ms > 0) {
+            cntl.set_timeout_ms(sync_wait_timeout_ms + 1000);
+        }
         PWarmUpRowsetResponse response;
+        MonotonicStopWatch watch;
+        watch.start();
         brpc_stub->warm_up_rowset(&cntl, &request, &response, nullptr);
+        if (cntl.Failed()) {
+            LOG_WARNING("warm up rowset {} for tablet {} failed, rpc error: {}",
+                        rs_meta.rowset_id().to_string(), tablet_id, cntl.ErrorText());
+            return;
+        }
+        if (sync_wait_timeout_ms > 0) {
+            auto cost_us = watch.elapsed_time_microseconds();
+            VLOG_DEBUG << "warm up rowset wait for compaction: " << cost_us << " us";
+            if (cost_us / 1000 > sync_wait_timeout_ms) {
+                LOG_WARNING(
+                        "Warm up rowset {} for tabelt {} wait for compaction timeout, takes {} ms",
+                        rs_meta.rowset_id().to_string(), tablet_id, cost_us / 1000);
+            }
+            g_file_cache_warm_up_rowset_wait_for_compaction_latency << cost_us;
+        }
     }
 }
 
-void CloudWarmUpManager::recycle_cache(
-        int64_t tablet_id, const std::vector<RowsetId>& rowset_ids,
-        const std::vector<int64_t>& num_segments,
-        const std::vector<std::vector<std::string>>& index_file_names) {
-    LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowset_ids.size();
+void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
+                                       const std::vector<RecycledRowsets>& rowsets) {
+    LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowsets.size();
     auto replicas = get_replica_info(tablet_id);
     if (replicas.empty()) {
         return;
     }
-    if (rowset_ids.size() != num_segments.size()) {
-        LOG(WARNING) << "recycle_cache: rowset_ids size mismatch with num_segments";
-        return;
-    }
 
     PRecycleCacheRequest request;
-    for (int i = 0; i < rowset_ids.size(); i++) {
+    for (const auto& rowset : rowsets) {
         RecycleCacheMeta* meta = request.add_cache_metas();
         meta->set_tablet_id(tablet_id);
-        meta->set_rowset_id(rowset_ids[i].to_string());
-        meta->set_num_segments(num_segments[i]);
-        for (const auto& name : index_file_names[i]) {
+        meta->set_rowset_id(rowset.rowset_id.to_string());
+        meta->set_num_segments(rowset.num_segments);
+        for (const auto& name : rowset.index_file_names) {
             meta->add_index_file_names(name);
         }
-        g_file_cache_recycle_cache_requested_segment_num << num_segments[i];
-        g_file_cache_recycle_cache_requested_index_num << index_file_names[i].size();
+        g_file_cache_recycle_cache_requested_segment_num << rowset.num_segments;
+        g_file_cache_recycle_cache_requested_index_num << rowset.index_file_names.size();
     }
+    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
     for (auto& replica : replicas) {
         // send sync request
         std::string host = replica.host;
-        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
         if (dns_cache == nullptr) {
             LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
         } else if (!is_valid_ip(replica.host)) {

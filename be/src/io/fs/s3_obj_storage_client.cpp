@@ -114,30 +114,43 @@ using Aws::S3::Model::UploadPartOutcome;
 namespace doris::io {
 using namespace Aws::S3::Model;
 
+static constexpr int S3_REQUEST_THRESHOLD_MS = 5000;
+
 ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
         const ObjectStoragePathOptions& opts) {
-    CreateMultipartUploadRequest create_request;
-    create_request.WithBucket(opts.bucket).WithKey(opts.key);
-    create_request.SetContentType("application/octet-stream");
+    CreateMultipartUploadRequest request;
+    request.WithBucket(opts.bucket).WithKey(opts.key);
+    request.SetContentType("application/octet-stream");
 
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
+    MonotonicStopWatch watch;
+    watch.start();
+
     auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_put_rate_limit([&]() { return _client->CreateMultipartUpload(create_request); }),
-            "s3_file_writer::create_multi_part_upload", std::cref(create_request).get());
+            s3_put_rate_limit([&]() { return _client->CreateMultipartUpload(request); }),
+            "s3_file_writer::create_multi_part_upload", std::cref(request).get());
     SYNC_POINT_CALLBACK("s3_file_writer::_open", &outcome);
+    watch.stop();
 
-    if (outcome.IsSuccess()) {
-        return ObjectStorageUploadResponse {.upload_id {outcome.GetResult().GetUploadId()}};
+    s3_bvar::s3_multi_part_upload_latency << watch.elapsed_time_microseconds();
+    const auto& request_id = outcome.IsSuccess() ? outcome.GetResult().GetRequestId()
+                                                 : outcome.GetError().GetRequestId();
+
+    LOG_IF(INFO, watch.elapsed_time_milliseconds() > S3_REQUEST_THRESHOLD_MS)
+            << "CreateMultipartUpload cost=" << watch.elapsed_time_milliseconds() << "ms"
+            << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key;
+
+    if (!outcome.IsSuccess()) {
+        auto st = s3fs_error(outcome.GetError(), fmt::format("failed to CreateMultipartUpload: {} ",
+                                                             opts.path.native()));
+        LOG(WARNING) << st << " request_id=" << request_id;
+        return ObjectStorageUploadResponse {
+                .resp = {convert_to_obj_response(std::move(st)),
+                         static_cast<int>(outcome.GetError().GetResponseCode()),
+                         outcome.GetError().GetRequestId()},
+        };
     }
 
-    return ObjectStorageUploadResponse {
-            .resp = {convert_to_obj_response(
-                             s3fs_error(outcome.GetError(),
-                                        fmt::format("failed to create multipart upload {} ",
-                                                    opts.path.native()))),
-                     static_cast<int>(outcome.GetError().GetResponseCode()),
-                     outcome.GetError().GetRequestId()},
-    };
+    return ObjectStorageUploadResponse {.upload_id {outcome.GetResult().GetUploadId()}};
 }
 
 ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOptions& opts,
@@ -150,68 +163,91 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
     request.SetBody(string_view_stream);
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
-    auto response = SYNC_POINT_HOOK_RETURN_VALUE(
+
+    MonotonicStopWatch watch;
+    watch.start();
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
             s3_put_rate_limit([&]() { return _client->PutObject(request); }),
             "s3_file_writer::put_object", std::cref(request).get(), &stream);
-    if (!response.IsSuccess()) {
-        auto st = s3fs_error(response.GetError(),
-                             fmt::format("failed to put object {}", opts.path.native()));
-        LOG(WARNING) << st;
+
+    watch.stop();
+
+    s3_bvar::s3_put_latency << watch.elapsed_time_microseconds();
+    const auto& request_id = outcome.IsSuccess() ? outcome.GetResult().GetRequestId()
+                                                 : outcome.GetError().GetRequestId();
+
+    if (!outcome.IsSuccess()) {
+        auto st = s3fs_error(outcome.GetError(),
+                             fmt::format("failed to put object: {}", opts.path.native()));
+        LOG(WARNING) << st << ", request_id=" << request_id;
         return ObjectStorageResponse {convert_to_obj_response(std::move(st)),
-                                      static_cast<int>(response.GetError().GetResponseCode()),
-                                      response.GetError().GetRequestId()};
+                                      static_cast<int>(outcome.GetError().GetResponseCode()),
+                                      request_id};
     }
+
+    LOG_IF(INFO, watch.elapsed_time_milliseconds() > S3_REQUEST_THRESHOLD_MS)
+            << "PutObject cost=" << watch.elapsed_time_milliseconds() << "ms"
+            << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key;
     return ObjectStorageResponse::OK();
 }
 
 ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStoragePathOptions& opts,
                                                             std::string_view stream, int part_num) {
-    UploadPartRequest upload_request;
-    upload_request.WithBucket(opts.bucket)
+    UploadPartRequest request;
+    request.WithBucket(opts.bucket)
             .WithKey(opts.key)
             .WithPartNumber(part_num)
             .WithUploadId(*opts.upload_id);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
 
-    upload_request.SetBody(string_view_stream);
+    request.SetBody(string_view_stream);
 
     Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-    upload_request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
 
-    upload_request.SetContentLength(stream.size());
-    upload_request.SetContentType("application/octet-stream");
+    request.SetContentLength(stream.size());
+    request.SetContentType("application/octet-stream");
 
-    UploadPartOutcome upload_part_outcome;
-    {
-        SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-        upload_part_outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-                s3_put_rate_limit([&]() { return _client->UploadPart(upload_request); }),
-                "s3_file_writer::upload_part", std::cref(upload_request).get(), &stream);
-    }
-    TEST_SYNC_POINT_CALLBACK("S3FileWriter::_upload_one_part", &upload_part_outcome);
-    if (!upload_part_outcome.IsSuccess()) {
-        auto s = Status::IOError(
-                "failed to upload part (bucket={}, key={}, part_num={}, up_load_id={}): {}, "
-                "exception {}, error code {}",
+    MonotonicStopWatch watch;
+    watch.start();
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
+            s3_put_rate_limit([&]() { return _client->UploadPart(request); }),
+            "s3_file_writer::upload_part", std::cref(request).get(), &stream);
+
+    watch.stop();
+
+    s3_bvar::s3_multi_part_upload_latency << watch.elapsed_time_microseconds();
+    const auto& request_id = outcome.IsSuccess() ? outcome.GetResult().GetRequestId()
+                                                 : outcome.GetError().GetRequestId();
+
+    TEST_SYNC_POINT_CALLBACK("S3FileWriter::_upload_one_part", &outcome);
+    if (!outcome.IsSuccess()) {
+        auto st = Status::IOError(
+                "failed to UploadPart bucket={}, key={}, part_num={}, upload_id={}, message={}, "
+                "exception_name={}, response_code={}, request_id={}",
                 opts.bucket, opts.path.native(), part_num, *opts.upload_id,
-                upload_part_outcome.GetError().GetMessage(),
-                upload_part_outcome.GetError().GetExceptionName(),
-                upload_part_outcome.GetError().GetResponseCode());
-        LOG_WARNING(s.to_string());
+                outcome.GetError().GetMessage(), outcome.GetError().GetExceptionName(),
+                outcome.GetError().GetResponseCode(), request_id);
+
+        LOG(WARNING) << st << ", request_id=" << request_id;
         return ObjectStorageUploadResponse {
-                .resp = {convert_to_obj_response(std::move(s)),
-                         static_cast<int>(upload_part_outcome.GetError().GetResponseCode()),
-                         upload_part_outcome.GetError().GetRequestId()}};
+                .resp = {convert_to_obj_response(std::move(st)),
+                         static_cast<int>(outcome.GetError().GetResponseCode()),
+                         outcome.GetError().GetRequestId()}};
     }
-    return ObjectStorageUploadResponse {.etag = upload_part_outcome.GetResult().GetETag()};
+
+    LOG_IF(INFO, watch.elapsed_time_milliseconds() > S3_REQUEST_THRESHOLD_MS)
+            << "UploadPart cost=" << watch.elapsed_time_milliseconds() << "ms"
+            << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key
+            << ", part_num=" << part_num << ", upload_id=" << *opts.upload_id;
+    return ObjectStorageUploadResponse {.etag = outcome.GetResult().GetETag()};
 }
 
 ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
         const ObjectStoragePathOptions& opts,
         const std::vector<ObjectCompleteMultiPart>& completed_parts) {
-    CompleteMultipartUploadRequest complete_request;
-    complete_request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
+    CompleteMultipartUploadRequest request;
+    request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
 
     CompletedMultipartUpload completed_upload;
     std::vector<CompletedPart> complete_parts;
@@ -223,23 +259,35 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
                                return part;
                            });
     completed_upload.SetParts(std::move(complete_parts));
-    complete_request.WithMultipartUpload(completed_upload);
+    request.WithMultipartUpload(completed_upload);
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3FileWriter::_complete:3", ObjectStorageResponse(), this);
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-    auto complete_outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_put_rate_limit([&]() { return _client->CompleteMultipartUpload(complete_request); }),
-            "s3_file_writer::complete_multi_part", std::cref(complete_request).get());
 
-    if (!complete_outcome.IsSuccess()) {
-        auto st = s3fs_error(complete_outcome.GetError(),
-                             fmt::format("failed to complete multi part upload {}, upload_id={}",
+    MonotonicStopWatch watch;
+    watch.start();
+    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
+            s3_put_rate_limit([&]() { return _client->CompleteMultipartUpload(request); }),
+            "s3_file_writer::complete_multi_part", std::cref(request).get());
+
+    watch.stop();
+    s3_bvar::s3_multi_part_upload_latency << watch.elapsed_time_microseconds();
+    const auto& request_id = outcome.IsSuccess() ? outcome.GetResult().GetRequestId()
+                                                 : outcome.GetError().GetRequestId();
+
+    if (!outcome.IsSuccess()) {
+        auto st = s3fs_error(outcome.GetError(),
+                             fmt::format("failed to CompleteMultipartUpload: {}, upload_id={}",
                                          opts.path.native(), *opts.upload_id));
-        LOG(WARNING) << st;
+        LOG(WARNING) << st << ", request_id=" << request_id;
         return {convert_to_obj_response(std::move(st)),
-                static_cast<int>(complete_outcome.GetError().GetResponseCode()),
-                complete_outcome.GetError().GetRequestId()};
+                static_cast<int>(outcome.GetError().GetResponseCode()),
+                outcome.GetError().GetRequestId()};
     }
+
+    LOG_IF(INFO, watch.elapsed_time_milliseconds() > S3_REQUEST_THRESHOLD_MS)
+            << "CompleteMultipartUpload cost=" << watch.elapsed_time_milliseconds() << "ms"
+            << ", request_id=" << request_id << ", bucket=" << opts.bucket << ", key=" << opts.key
+            << ", upload_id=" << *opts.upload_id;
     return ObjectStorageResponse::OK();
 }
 
@@ -287,9 +335,9 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
     }
     *size_return = outcome.GetResult().GetContentLength();
     if (*size_return != bytes_read) {
-        return {convert_to_obj_response(
-                Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
-                                      opts.path.native(), *size_return, bytes_read))};
+        return {convert_to_obj_response(Status::InternalError(
+                "failed to read from {}(bytes read: {}, bytes req: {}), request_id: {}",
+                opts.path.native(), *size_return, bytes_read, outcome.GetResult().GetRequestId()))};
     }
     return ObjectStorageResponse::OK();
 }
@@ -323,9 +371,10 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
         }
         is_trucated = outcome.GetResult().GetIsTruncated();
         if (is_trucated && outcome.GetResult().GetNextContinuationToken().empty()) {
-            return {convert_to_obj_response(Status::InternalError(
-                    "failed to list {}, is_trucated is true, but next continuation token is empty",
-                    opts.prefix))};
+            return {convert_to_obj_response(
+                    Status::InternalError("failed to list {}, is_trucated is true, but next "
+                                          "continuation token is empty, request_id={}",
+                                          opts.prefix, outcome.GetResult().GetRequestId()))};
         }
 
         request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
@@ -358,8 +407,9 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
     }
     if (!delete_outcome.GetResult().GetErrors().empty()) {
         const auto& e = delete_outcome.GetResult().GetErrors().front();
-        return {convert_to_obj_response(Status::InternalError("failed to delete object {}: {}",
-                                                              e.GetKey(), e.GetMessage()))};
+        return {convert_to_obj_response(
+                Status::InternalError("failed to delete object {}: {}, request_id={}", e.GetKey(),
+                                      e.GetMessage(), delete_outcome.GetResult().GetRequestId()))};
     }
     return ObjectStorageResponse::OK();
 }
@@ -423,7 +473,8 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
             if (!delete_outcome.GetResult().GetErrors().empty()) {
                 const auto& e = delete_outcome.GetResult().GetErrors().front();
                 return {convert_to_obj_response(Status::InternalError(
-                        "failed to delete object {}: {}", opts.key, e.GetMessage()))};
+                        "failed to delete object {}: {}, request_id={}", opts.key, e.GetMessage(),
+                        delete_outcome.GetResult().GetRequestId()))};
             }
         }
         is_trucated = result.GetIsTruncated();

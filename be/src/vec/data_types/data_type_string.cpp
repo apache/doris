@@ -40,7 +40,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -61,12 +60,6 @@ void DataTypeString::to_string(const class doris::vectorized::IColumn& column, s
 
     const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     ostr.write(value.data, value.size);
-}
-
-Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnString*>(column);
-    column_data->insert_data(rb.position(), rb.count());
-    return Status::OK();
 }
 
 Field DataTypeString::get_default() const {

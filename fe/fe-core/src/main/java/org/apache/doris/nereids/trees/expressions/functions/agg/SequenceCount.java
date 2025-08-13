@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
@@ -44,8 +43,6 @@ public class SequenceCount extends NotNullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateV2Type.INSTANCE, BooleanType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                    .varArgs(StringType.INSTANCE, DateTimeType.INSTANCE, BooleanType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, BooleanType.INSTANCE)
     );

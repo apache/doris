@@ -741,6 +741,9 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public String getExplainString(ExplainOptions explainOptions) {
+        if (getConnectContext().getSessionVariable().enableExplainNone) {
+            return "";
+        }
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
         String plan = "";
         String mvSummary = "";
@@ -897,7 +900,7 @@ public class NereidsPlanner extends Planner {
     }
 
     public ConnectContext getConnectContext() {
-        return cascadesContext.getConnectContext();
+        return cascadesContext == null ? ConnectContext.get() : cascadesContext.getConnectContext();
     }
 
     public StatementContext getStatementContext() {

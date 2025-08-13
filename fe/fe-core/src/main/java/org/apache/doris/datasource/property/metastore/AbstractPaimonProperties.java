@@ -85,7 +85,6 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
             catalogOptions.set("s3.endpoint", s3Properties.getEndpoint());
             catalogOptions.set("s3.region", s3Properties.getRegion());
         }
-
     }
 
     protected void appendCatalogOptions(List<StorageProperties> storagePropertiesList) {
@@ -93,6 +92,8 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
             catalogOptions.set(CatalogOptions.WAREHOUSE.key(), warehouse);
         }
         catalogOptions.set(CatalogOptions.METASTORE.key(), getMetastoreType());
+
+        // FIXME(cmy): Rethink these custom properties
         origProps.forEach((k, v) -> {
             if (k.toLowerCase().startsWith(USER_PROPERTY_PREFIX)) {
                 String newKey = k.substring(USER_PROPERTY_PREFIX.length());
@@ -101,6 +102,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
                 }
             }
         });
+
         appendS3PropertiesIsNeeded(storagePropertiesList);
     }
 

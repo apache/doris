@@ -35,6 +35,7 @@ namespace doris::cloud {
 // throughout the lifetime of the MetaReader instance.
 class MetaReader {
 public:
+    MetaReader(std::string_view instance_id) : MetaReader(instance_id, nullptr) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv)
             : MetaReader(instance_id, txn_kv, Versionstamp::max(), false) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv, Versionstamp snapshot_version)
@@ -177,43 +178,33 @@ public:
     }
 
     // Get the tablet index for the given tablet_id.
-    TxnErrorCode get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index,
-                                  Versionstamp* versionstamp, bool snapshot);
+    TxnErrorCode get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index, bool snapshot);
     TxnErrorCode get_tablet_index(Transaction* txn, int64_t tablet_id, TabletIndexPB* tablet_index,
-                                  Versionstamp* versionstamp, bool snapshot);
-    TxnErrorCode get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index,
-                                  Versionstamp* versionstamp) {
-        return get_tablet_index(tablet_id, tablet_index, versionstamp, snapshot_);
+                                  bool snapshot);
+    TxnErrorCode get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index) {
+        return get_tablet_index(tablet_id, tablet_index, snapshot_);
     }
-    TxnErrorCode get_tablet_index(Transaction* txn, int64_t tablet_id, TabletIndexPB* tablet_index,
-                                  Versionstamp* versionstamp) {
-        return get_tablet_index(txn, tablet_id, tablet_index, versionstamp, snapshot_);
+    TxnErrorCode get_tablet_index(Transaction* txn, int64_t tablet_id,
+                                  TabletIndexPB* tablet_index) {
+        return get_tablet_index(txn, tablet_id, tablet_index, snapshot_);
     }
 
     // Get the tablet indexes for the given tablet_ids.
     //
-    // Only the set parameters will be filled:
-    // - If `tablet_indexes` is not nullptr, it will be filled with the TabletIndexPB for each tablet_id.
-    // - If `versionstamps` is not nullptr, it will be filled with the Versionstamp for each tablet_id.
-    //
     // If a tablet_id does not exists, then it will not be included in the respective map.
     TxnErrorCode get_tablet_indexes(const std::vector<int64_t>& tablet_ids,
                                     std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
-                                    std::unordered_map<int64_t, Versionstamp>* versionstamps,
                                     bool snapshot);
     TxnErrorCode get_tablet_indexes(Transaction* txn, const std::vector<int64_t>& tablet_ids,
                                     std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
-                                    std::unordered_map<int64_t, Versionstamp>* versionstamps,
                                     bool snapshot);
     TxnErrorCode get_tablet_indexes(const std::vector<int64_t>& tablet_ids,
-                                    std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
-                                    std::unordered_map<int64_t, Versionstamp>* versionstamps) {
-        return get_tablet_indexes(tablet_ids, tablet_indexes, versionstamps, snapshot_);
+                                    std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes) {
+        return get_tablet_indexes(tablet_ids, tablet_indexes, snapshot_);
     }
     TxnErrorCode get_tablet_indexes(Transaction* txn, const std::vector<int64_t>& tablet_ids,
-                                    std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
-                                    std::unordered_map<int64_t, Versionstamp>* versionstamps) {
-        return get_tablet_indexes(txn, tablet_ids, tablet_indexes, versionstamps, snapshot_);
+                                    std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes) {
+        return get_tablet_indexes(txn, tablet_ids, tablet_indexes, snapshot_);
     }
 
     // Get the rowset meta for the given tablet_id and version range.
@@ -249,6 +240,45 @@ public:
     TxnErrorCode get_tablet_meta(Transaction* txn, int64_t tablet_id,
                                  TabletMetaCloudPB* tablet_meta, Versionstamp* versionstamp) {
         return get_tablet_meta(txn, tablet_id, tablet_meta, versionstamp, snapshot_);
+    }
+
+    // Gets the first pending transaction ID from the partition version.
+    //
+    // The first pending txn id is stored in `first_txn_id`. Sets -1 if no pending transactions exist.
+    TxnErrorCode get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
+                                              bool snapshot);
+    TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
+                                              int64_t* first_txn_id, bool snapshot);
+    TxnErrorCode get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id) {
+        return get_partition_pending_txn_id(partition_id, first_txn_id, snapshot_);
+    }
+    TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
+                                              int64_t* first_txn_id) {
+        return get_partition_pending_txn_id(txn, partition_id, first_txn_id, snapshot_);
+    }
+
+    // Get the index of the given index id.
+    TxnErrorCode get_index_index(int64_t index_id, IndexIndexPB* index, bool snapshot);
+    TxnErrorCode get_index_index(Transaction* txn, int64_t index_id, IndexIndexPB* index,
+                                 bool snapshot);
+    TxnErrorCode get_index_index(int64_t index_id, IndexIndexPB* index) {
+        return get_index_index(index_id, index, snapshot_);
+    }
+    TxnErrorCode get_index_index(Transaction* txn, int64_t index_id, IndexIndexPB* index) {
+        return get_index_index(txn, index_id, index, snapshot_);
+    }
+
+    // Get the partition index for the given partition_id.
+    TxnErrorCode get_partition_index(int64_t partition_id, PartitionIndexPB* partition_index,
+                                     bool snapshot);
+    TxnErrorCode get_partition_index(Transaction* txn, int64_t partition_id,
+                                     PartitionIndexPB* partition_index, bool snapshot);
+    TxnErrorCode get_partition_index(int64_t partition_id, PartitionIndexPB* partition_index) {
+        return get_partition_index(partition_id, partition_index, snapshot_);
+    }
+    TxnErrorCode get_partition_index(Transaction* txn, int64_t partition_id,
+                                     PartitionIndexPB* partition_index) {
+        return get_partition_index(txn, partition_id, partition_index, snapshot_);
     }
 
 private:

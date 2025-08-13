@@ -20,7 +20,6 @@
 #include <string>
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
@@ -31,43 +30,11 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
-    if (argument_types.size() == 1) {
-        AggregateFunctionPtr res(
-                creator_with_numeric_type::create<AggregateFunctionUniqDistributeKey, Data>(
-                        argument_types, result_is_nullable, attr));
-        if (res) {
-            return res;
-        } else {
-            switch (argument_types[0]->get_primitive_type()) {
-            case PrimitiveType::TYPE_DECIMAL32:
-                return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL32>>>(
-                        argument_types, result_is_nullable, attr);
-            case PrimitiveType::TYPE_DECIMAL64:
-                return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL64>>>(
-                        argument_types, result_is_nullable, attr);
-            case PrimitiveType::TYPE_DECIMAL128I:
-                return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL128I>>>(
-                        argument_types, result_is_nullable, attr);
-            case PrimitiveType::TYPE_DECIMALV2:
-                return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMALV2>>>(
-                        argument_types, result_is_nullable, attr);
-            case PrimitiveType::TYPE_STRING:
-            case PrimitiveType::TYPE_CHAR:
-            case PrimitiveType::TYPE_VARCHAR:
-                return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<TYPE_STRING, Data<TYPE_STRING>>>(
-                        argument_types, result_is_nullable, attr);
-            default:
-                break;
-            }
-        }
-    }
-
-    return nullptr;
+    return creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
+                                  TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256,
+                                  TYPE_VARCHAR>::create<AggregateFunctionUniqDistributeKey,
+                                                        Data>(argument_types, result_is_nullable,
+                                                              attr);
 }
 
 void register_aggregate_function_uniq_distribute_key(AggregateFunctionSimpleFactory& factory) {

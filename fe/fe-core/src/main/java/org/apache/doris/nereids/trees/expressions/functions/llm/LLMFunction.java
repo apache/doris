@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -84,11 +83,6 @@ public abstract class LLMFunction extends ScalarFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         checkLegalityAfterRewrite();
-    }
-
-    @Override
-    public StringType getDataType() {
-        return StringType.INSTANCE;
     }
 
     @Override

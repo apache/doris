@@ -32,10 +32,10 @@ AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
-    assert_binary(name, argument_types);
+    assert_arity_range(name, argument_types, 2, 2);
 
     DCHECK(argument_types[0]->get_primitive_type() == argument_types[1]->get_primitive_type());
-    return creator_with_numeric_type::create<AggregateFunctionBinary, CorrMomentStat>(
+    return creator_with_type_list<TYPE_DOUBLE>::create<AggregateFunctionBinary, CorrMomentStat>(
             argument_types, result_is_nullable, attr);
 }
 
@@ -43,20 +43,17 @@ void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory) 
     factory.register_function_both("corr", create_aggregate_corr_function);
 }
 
+template <PrimitiveType T>
+using CorrWelfordMomentStat = StatFunc<T, CorrMomentWelford>;
+
 AggregateFunctionPtr create_aggregate_corr_welford_function(const std::string& name,
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr) {
-    assert_binary(name, argument_types);
+    assert_arity_range(name, argument_types, 2, 2);
 
-    if (argument_types[0]->get_primitive_type() != TYPE_DOUBLE ||
-        argument_types[1]->get_primitive_type() != TYPE_DOUBLE) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Aggregate function {} only support double", name);
-    }
-
-    return creator_without_type::create<
-            AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, CorrMomentWelford>>>(
+    return creator_with_type_list<TYPE_DOUBLE>::create<AggregateFunctionBinary,
+                                                       CorrWelfordMomentStat>(
             argument_types, result_is_nullable, attr);
 }
 

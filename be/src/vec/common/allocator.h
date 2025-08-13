@@ -47,11 +47,6 @@
 #define ALLOCATOR_ASLR 1
 #endif
 
-#if !defined(__APPLE__) && !defined(__FreeBSD__)
-#else
-#define _DARWIN_C_SOURCE
-#endif
-
 #include <sys/mman.h>
 
 #include <algorithm>

@@ -31,7 +31,7 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
-//#include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
+#include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -120,43 +120,42 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIterator** reader,
     return Status::OK();
 }
 
-// Status VariantColumnReader::_create_sparse_merge_reader(ColumnIterator** iterator,
-//                                                         const StorageReadOptions* opts,
-//                                                         const TabletColumn& target_col,
-//                                                         ColumnIterator* inner_iter) {
-//     // Get subcolumns path set from tablet schema
-//     const auto& path_set_info = opts->tablet_schema->path_set_info(target_col.parent_unique_id());
-//
-//     // Build substream reader tree for merging subcolumns into sparse column
-//     SubstreamReaderTree src_subcolumns_for_sparse;
-//     for (const auto& subcolumn_reader : *_subcolumn_readers) {
-//         const auto& path = subcolumn_reader->path.get_path();
-//         if (path_set_info.sparse_path_set.find(StringRef(path)) ==
-//             path_set_info.sparse_path_set.end()) {
-//             // The subcolumn is not a sparse column, skip it
-//             continue;
-//         }
-//         // Create subcolumn iterator
-//         ColumnIterator* it;
-//         RETURN_IF_ERROR(subcolumn_reader->data.reader->new_iterator(&it, nullptr));
-//         std::unique_ptr<ColumnIterator> it_ptr(it);
-//
-//         // Create substream reader and add to tree
-//         SubstreamIterator reader(subcolumn_reader->data.file_column_type->create_column(),
-//                                  std::move(it_ptr), subcolumn_reader->data.file_column_type);
-//         if (!src_subcolumns_for_sparse.add(subcolumn_reader->path, std::move(reader))) {
-//             return Status::InternalError("Failed to add node path {}", path);
-//         }
-//     }
-//     VLOG_DEBUG << "subcolumns to merge " << src_subcolumns_for_sparse.size();
-//     // Create sparse column merge reader
-//     TODO(lihangyu): uncomment
-//     *iterator = new SparseColumnMergeIterator(path_set_info,
-//                                               std::unique_ptr<ColumnIterator>(inner_iter),
-//                                               std::move(src_subcolumns_for_sparse),
-//                                               const_cast<StorageReadOptions*>(opts), target_col);
-//     return Status::OK();
-// }
+Status VariantColumnReader::_create_sparse_merge_reader(ColumnIterator** iterator,
+                                                        const StorageReadOptions* opts,
+                                                        const TabletColumn& target_col,
+                                                        ColumnIterator* inner_iter) {
+    // Get subcolumns path set from tablet schema
+    const auto& path_set_info = opts->tablet_schema->path_set_info(target_col.parent_unique_id());
+
+    // Build substream reader tree for merging subcolumns into sparse column
+    SubstreamReaderTree src_subcolumns_for_sparse;
+    for (const auto& subcolumn_reader : *_subcolumn_readers) {
+        const auto& path = subcolumn_reader->path.get_path();
+        if (path_set_info.sparse_path_set.find(StringRef(path)) ==
+            path_set_info.sparse_path_set.end()) {
+            // The subcolumn is not a sparse column, skip it
+            continue;
+        }
+        // Create subcolumn iterator
+        ColumnIterator* it;
+        RETURN_IF_ERROR(subcolumn_reader->data.reader->new_iterator(&it, nullptr));
+        std::unique_ptr<ColumnIterator> it_ptr(it);
+
+        // Create substream reader and add to tree
+        SubstreamIterator reader(subcolumn_reader->data.file_column_type->create_column(),
+                                 std::move(it_ptr), subcolumn_reader->data.file_column_type);
+        if (!src_subcolumns_for_sparse.add(subcolumn_reader->path, std::move(reader))) {
+            return Status::InternalError("Failed to add node path {}", path);
+        }
+    }
+    VLOG_DEBUG << "subcolumns to merge " << src_subcolumns_for_sparse.size();
+    // Create sparse column merge reader
+    *iterator = new SparseColumnMergeIterator(path_set_info,
+                                              std::unique_ptr<ColumnIterator>(inner_iter),
+                                              std::move(src_subcolumns_for_sparse),
+                                              const_cast<StorageReadOptions*>(opts), target_col);
+    return Status::OK();
+}
 
 Status VariantColumnReader::_new_default_iter_with_same_nested(ColumnIterator** iterator,
                                                                const TabletColumn& tablet_column) {
@@ -206,15 +205,14 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
     const auto* node =
             target_col.has_path_info() ? _subcolumn_readers->find_leaf(relative_path) : nullptr;
     if (!node) {
-        // TODO(lihangyu): uncomment
-        // if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
-        //     // read sparse column and filter extracted columns in subcolumn_path_map
-        //     ColumnIterator* inner_iter;
-        //     RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
-        //     // get subcolumns in sparse path set which will be merged into sparse column
-        //     RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col, inner_iter));
-        //     return Status::OK();
-        // }
+        if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
+            // read sparse column and filter extracted columns in subcolumn_path_map
+            ColumnIterator* inner_iter;
+            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
+            // get subcolumns in sparse path set which will be merged into sparse column
+            RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col, inner_iter));
+            return Status::OK();
+        }
 
         if (target_col.is_nested_subcolumn()) {
             // using the sibling of the nested column to fill the target nested column
@@ -273,6 +271,14 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
             _statistics->sparse_column_non_null_size.find(relative_path.get_path()) !=
                     _statistics->sparse_column_non_null_size.end();
 
+    DBUG_EXECUTE_IF("exist_in_sparse_column_must_be_false", {
+        if (existed_in_sparse_column) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "exist_in_sparse_column_must_be_false, relative_path: {}",
+                    relative_path.get_path());
+        }
+    })
+
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
@@ -280,7 +286,8 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
                                                 config::variant_max_sparse_column_statistics_size;
 
     // If the variant column has extracted columns and is a compaction reader, then read flat leaves
-    // Otherwise read hierarchical data, since the variant subcolumns are flattened in schema_util::get_extended_compaction_schema
+    // Otherwise read hierarchical data, since the variant subcolumns are flattened in schema_util::VariantCompactionUtil::get_extended_compaction_schema
+    // when config::enable_vertical_compact_variant_subcolumns is true
     auto has_extracted_columns_in_compaction = [](const StorageReadOptions* opts) {
         return opts != nullptr && opts->tablet_schema != nullptr &&
                std::ranges::any_of(
@@ -416,20 +423,19 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
             }
             _subcolumn_readers->add(relative_path,
                                     SubcolumnReader {std::move(reader), get_data_type_fn()});
-            // TODO(lihangyu): uncomment
-            // TabletSchema::SubColumnInfo sub_column_info;
-            // // if subcolumn has index, add index to _variant_subcolumns_indexes
-            // if (vectorized::schema_util::generate_sub_column_info(
-            //             *opts.tablet_schema, self_column_pb.unique_id(), relative_path.get_path(),
-            //             &sub_column_info) &&
-            //     !sub_column_info.indexes.empty()) {
-            //     _variant_subcolumns_indexes[path.get_path()] = std::move(sub_column_info.indexes);
-            // }
+            TabletSchema::SubColumnInfo sub_column_info;
+            // if subcolumn has index, add index to _variant_subcolumns_indexes
+            if (vectorized::schema_util::generate_sub_column_info(
+                        *opts.tablet_schema, self_column_pb.unique_id(), relative_path.get_path(),
+                        &sub_column_info) &&
+                !sub_column_info.indexes.empty()) {
+                _variant_subcolumns_indexes[path.get_path()] = std::move(sub_column_info.indexes);
+            }
             // if parent column has index, add index to _variant_subcolumns_indexes
-            // else if (!parent_index.empty()) {
-            vectorized::schema_util::inherit_index(
-                    parent_index, _variant_subcolumns_indexes[path.get_path()], column_pb);
-            //}
+            else if (!parent_index.empty()) {
+                vectorized::schema_util::inherit_index(
+                        parent_index, _variant_subcolumns_indexes[path.get_path()], column_pb);
+            }
         }
     }
 
