@@ -297,12 +297,12 @@ Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
                                            std::unique_ptr<ColumnWriter>* writer) {
     if (column->is_extracted_column()) {
         VLOG_DEBUG << "gen subwriter for " << column->path_info_ptr()->get_path();
-        *writer = std::unique_ptr<ColumnWriter>(new VariantSubcolumnWriter(
-                opts, column, std::unique_ptr<Field>(FieldFactory::create(*column))));
+        *writer = std::make_unique<VariantSubcolumnWriter>(
+                opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));
         return Status::OK();
     }
-    *writer = std::unique_ptr<ColumnWriter>(new VariantColumnWriter(
-            opts, column, std::unique_ptr<Field>(FieldFactory::create(*column))));
+    *writer = std::make_unique<VariantColumnWriter>(
+            opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));
     return Status::OK();
 }
 
