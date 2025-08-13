@@ -487,6 +487,9 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     }
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
+    if (eq_join_conjuncts.empty()) {
+        return Status::InternalError("hash join must have eq conjuncts");
+    }
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
         vectorized::VExprContextSPtr build_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, build_ctx));
@@ -553,7 +556,7 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
             }
         }
     };
-    init_keep_column_flags(row_desc().tuple_descriptors(), _should_keep_column_flags);
+    init_keep_column_flags(_intermediate_row_desc->tuple_descriptors(), _should_keep_column_flags);
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
     return vectorized::VExpr::open(_build_expr_ctxs, state);
 }

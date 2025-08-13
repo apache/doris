@@ -83,6 +83,15 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
                    "but this is "
                 << _join_op;
     }
+    if (tnode.__isset.hash_join_node) {
+        _intermediate_row_desc = std::make_unique<RowDescriptor>(
+                descs, tnode.hash_join_node.vintermediate_tuple_id_list,
+                std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size()));
+    } else if (tnode.__isset.nested_loop_join_node) {
+        _intermediate_row_desc = std::make_unique<RowDescriptor>(
+                descs, tnode.nested_loop_join_node.vintermediate_tuple_id_list,
+                std::vector<bool>(tnode.nested_loop_join_node.vintermediate_tuple_id_list.size()));
+    }
 }
 
 #define APPLY_FOR_JOINOP_VARIANTS(M) \

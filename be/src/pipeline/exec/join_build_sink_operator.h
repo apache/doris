@@ -69,6 +69,8 @@ protected:
     const bool _short_circuit_for_null_in_build_side;
 
     const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+
+    std::unique_ptr<RowDescriptor> _intermediate_row_desc;
 };
 
 #include "common/compile_check_end.h"
