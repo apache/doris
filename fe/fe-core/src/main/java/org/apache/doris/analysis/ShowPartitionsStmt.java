@@ -161,7 +161,7 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
         }
 
         if (table instanceof PaimonExternalTable) {
-            if (!((PaimonExternalTable) table).isPartitionInvalid(Optional.empty())) {
+            if (((PaimonExternalTable) table).isPartitionInvalid(Optional.empty())) {
                 throw new AnalysisException("Table " + tblName + " is not a supported partition table");
             }
             return;
@@ -201,7 +201,7 @@ public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser 
         // disallow unsupported catalog
         if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
                 || catalog instanceof MaxComputeExternalCatalog || catalog instanceof IcebergExternalCatalog
-                || catalog instanceof PaimonExternalTable)) {
+                || catalog instanceof PaimonExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                     catalog.getType()));
         }
