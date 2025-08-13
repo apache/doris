@@ -672,7 +672,7 @@ public abstract class TestWithFeService {
     public void recoverTable(String table) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         RecoverTableCommand command = (RecoverTableCommand) nereidsParser.parseSingle(table);
-        Env.getCurrentEnv().recoverTable(command.getDbName(), command.getTblName(),command.getNewTableName(), command.getTableId());
+        Env.getCurrentEnv().recoverTable(command.getDbName(), command.getTblName(), command.getNewTableName(), command.getTableId());
     }
 
     public void createCatalog(String sql) throws Exception {
