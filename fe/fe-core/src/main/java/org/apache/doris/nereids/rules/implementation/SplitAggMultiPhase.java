@@ -272,7 +272,6 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         return true;
     }
 
-
     /**
      * LogicalAggregate(groupByExpr=[a], outputExpr=[a,count(distinct b)])
      * ->
@@ -355,7 +354,6 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         Alias sumAliasFour = new Alias(aliasTarget.getExprId(),
                 new AggregateExpression(thirdAggFunc, fourthParam, thirdCountAlias.toSlot()),
                 aliasTarget.getName());
-        DataType t = sumAliasFour.child().getDataType();
         fourthPhaseAggOutput.add(sumAliasFour);
         return new PhysicalHashAggregate<>(thirdPhaseAggGroupBy,
                 fourthPhaseAggOutput.build(), Optional.of(logicalAgg.getGroupByExpressions()), fourthParam,
