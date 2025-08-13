@@ -209,23 +209,11 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                 // with time_zone info
                 // YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+08:00
                 // or 2022-08-08T12:10:10.000Z or YYYY-MM-DDTHH:MM:SS-08:00
-                // Also support format without colon like +0900
-                std::string tz_str = value.as_string();
-                std::string normalized_date = str_date;
-
-                // If timezone format is like +0900, convert it to +09:00 for cctz
-                if (tz_str.length() == 5 && (tz_str[0] == '+' || tz_str[0] == '-') &&
-                    tz_str.find(':') == std::string::npos) {
-                    std::string normalized_tz = tz_str.substr(0, 3) + ":" + tz_str.substr(3);
-                    normalized_date = str_date.substr(0, str_date.length() - 5) + normalized_tz;
-                    tz_str = normalized_tz;
-                }
-
                 fmt = "%Y-%m-%dT%H:%M:%E*S%Ez";
                 cctz::time_zone ctz;
                 // find time_zone by time_zone suffix string
-                TimezoneUtils::find_cctz_time_zone(tz_str, ctz);
-                ok = cctz::parse(fmt, normalized_date, ctz, &tp);
+                TimezoneUtils::find_cctz_time_zone(value.as_string(), ctz);
+                ok = cctz::parse(fmt, str_date, ctz, &tp);
             } else {
                 // without time_zone info
                 // 2022-08-08T12:10:10.000
