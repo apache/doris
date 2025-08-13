@@ -69,31 +69,32 @@ public class SplitAggMultiPhase extends SplitAggRule implements ExplorationRuleF
     /**
      * select count(distinct a) group by b (deduplicated agg hashShuffle by group by key b)
      * splitToTwoPlusOnePhase:
-     *   agg(group by b, count(a))
-     *     +--agg(group by a,b)
+     *   agg(group by b, count(a); distinct global)
+     *     +--agg(group by a,b; global)
      *       +--hashShuffle(b)
-     *         +--agg(group by a,b)
+     *         +--agg(group by a,b; local)
      * splitToOnePlusOnePhase:
-     *   agg(group by b, count(a))
-     *     +--agg(group by a,b)
+     *   agg(group by b, count(a); distinct global)
+     *     +--agg(group by a,b; global)
      *       +--hashShuffle(b)
      * splitToOnePlusTwoPhase: (deduplicated agg hashShuffle by distinct key a)
-     *   agg(group by b, count(a))
+     *   agg(group by b, count(a); distinct global)
      *     +--hashShuffle(b)
-     *       +--agg(group by a,b)
+     *       +--agg(group by a,b; global)
      *         +--hashShuffle(a)
-     *   agg(group by b, count(a))
+     *
+     *   agg(group by b, count(a); distinct global)
      *     +--hashShuffle(b)
-     *       +--agg(group by b, count(a))
-     *         +--agg(group by a,b)
+     *       +--agg(group by b, count(a); distinct local)
+     *         +--agg(group by a,b; global)
      *           +--hashShuffle(a)
      * splitToTwoPlusTwoPhase:
-     *   agg(group by b, count(a))
+     *   agg(group by b, count(a); distinct global)
      *     +--hashShuffle(b)
-     *       +--(group by b, count(a))
-     *         +--agg(group by a,b)
+     *       +--agg(group by b, count(a); distinct local)
+     *         +--agg(group by a,b; global)
      *           +--hashShuffle(a,b)
-     *             +--agg(group by a,b)
+     *             +--agg(group by a,b; local)
      */
     private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
         if (shouldUseThreePhase(aggregate)) {
