@@ -754,7 +754,7 @@ void Block::erase_tmp_columns() noexcept {
     }
 }
 
-void Block::clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+void Block::clear_column_mem_not_keep(const std::vector<uint8_t>& column_keep_flags,
                                       bool need_keep_first) {
     if (data.size() >= column_keep_flags.size()) {
         auto origin_rows = rows();
