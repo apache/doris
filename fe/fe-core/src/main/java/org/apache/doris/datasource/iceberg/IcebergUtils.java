@@ -109,6 +109,7 @@ import org.apache.iceberg.util.StructProjection;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.types.DataTypeRoot;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -829,6 +830,9 @@ public class IcebergUtils {
                             IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
                             true, field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
+            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                column.setWithTZExtraInfo();
+            }
             resSchema.add(column);
         }
         return resSchema;
