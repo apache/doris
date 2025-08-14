@@ -210,6 +210,9 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.EtlJobType;
@@ -289,6 +292,7 @@ import java.util.Date;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1911,6 +1915,8 @@ public class ShowExecutor {
             handleShowMaxComputeTablePartitions(showStmt);
         } else if (showStmt.getCatalog() instanceof IcebergExternalCatalog) {
             handleShowIcebergTablePartitions(showStmt);
+        } else if (showStmt.getCatalog() instanceof PaimonExternalCatalog) {
+            handleShowPaimonTablePartitions(showStmt);
         } else {
             handleShowHMSTablePartitions(showStmt);
         }
@@ -2011,6 +2017,61 @@ public class ShowExecutor {
             row.add(items.upperEndpoint().toString());
             rows.add(row);
         }
+        // sort by partition name
+        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
+            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
+        } else {
+            rows.sort(Comparator.comparing(x -> x.get(0)));
+        }
+        if (limit != null && limit.hasLimit()) {
+            int beginIndex = (int) limit.getOffset();
+            int endIndex = (int) (beginIndex + limit.getLimit());
+            if (endIndex > rows.size()) {
+                endIndex = rows.size();
+            }
+            rows = rows.subList(beginIndex, endIndex);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+
+    private void handleShowPaimonTablePartitions(ShowPartitionsStmt showStmt) throws AnalysisException {
+        PaimonExternalCatalog paimonCatalog = (PaimonExternalCatalog) showStmt.getCatalog();
+        String db = showStmt.getTableName().getDb();
+        String tbl = showStmt.getTableName().getTbl();
+        PaimonExternalDatabase database = (PaimonExternalDatabase) paimonCatalog.getDb(db)
+                .orElseThrow(() -> new AnalysisException("Paimon database '" + db + "' does not exist"));
+        PaimonExternalTable paimonTable = database.getTable(tbl)
+                .orElseThrow(() -> new AnalysisException("Paimon table '" + db + "." + tbl + "' does not exist"));
+        LimitElement limit = showStmt.getLimitElement();
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+
+        Map<String, org.apache.paimon.partition.Partition> partitionSnapshot = paimonTable.getPartitionSnapshot(
+                Optional.empty());
+        if (partitionSnapshot == null) {
+            partitionSnapshot = Collections.emptyMap();
+        }
+
+        LinkedHashSet<String> partitionColumnNames = paimonTable
+                .getPartitionColumns(Optional.empty())
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        String partitionColumnsStr = String.join(",", partitionColumnNames);
+
+        List<List<String>> rows = partitionSnapshot
+                .entrySet()
+                .stream()
+                .map(entry -> {
+                    List<String> row = new ArrayList<>(5);
+                    row.add(entry.getKey());
+                    row.add(partitionColumnsStr);
+                    row.add(String.valueOf(entry.getValue().recordCount()));
+                    row.add(String.valueOf(entry.getValue().fileSizeInBytes()));
+                    row.add(String.valueOf(entry.getValue().fileCount()));
+                    return row;
+                }).collect(Collectors.toList());
+
         // sort by partition name
         if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
             rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
