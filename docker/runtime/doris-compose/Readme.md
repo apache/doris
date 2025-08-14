@@ -117,7 +117,7 @@ So if multiple users use different `LOCAL_DORIS_PATH`, their clusters may have d
 ### Create a cluster or recreate its containers
 
 ```shell
-python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?> 
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?>
     --add-fe-num  <add-fe-num>  --add-be-num <add-be-num>
     [--fe-id <fd-id> --be-id <be-id>]
     ...
@@ -176,10 +176,22 @@ Otherwise it will just list summary of each clusters.
 There are more options about doris-compose. Just try
 
 ```shell
-python docker/runtime/doris-compose/doris-compose.py <command> -h 
+python docker/runtime/doris-compose/doris-compose.py <command> -h
 ```
 
+### Docker suite in regression test
+
+Regression test support running a suite in a docker doris cluster.
+
+See the example [demo_p0/docker_action.groovy](https://github.com/apache/doris/blob/master/regression-test/suites/demo_p0/docker_action.groovy).
+
+The docker suite can specify fe num and be num,  and add/drop/start/stop/restart the fe and be.
+
+Before run a docker suite, read the annotation in `demo_p0/docker_action.groovy` carefully.
+
 ### Generate regression custom conf file
+
+provide a  command for let the regression test connect to a docker cluster.
 
 ```shell
 python docker/runtime/doris-compose/doris-compose.py config <cluster-name>  <doris-root-path>  [-q]  [--connect-follow-fe]
