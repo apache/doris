@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LockTablesStmt;
@@ -1009,8 +1008,6 @@ public class StmtExecutor {
                 handleDdlStmt();
             } else if (parsedStmt instanceof ShowStmt) {
                 handleShow();
-            } else if (parsedStmt instanceof ExportStmt) {
-                handleExportStmt();
             } else if (parsedStmt instanceof UnlockTablesStmt) {
                 handleUnlockTablesStmt();
             } else if (parsedStmt instanceof LockTablesStmt) {
@@ -2170,11 +2167,6 @@ public class StmtExecutor {
             LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
-    }
-
-    private void handleExportStmt() throws Exception {
-        ExportStmt exportStmt = (ExportStmt) parsedStmt;
-        context.getEnv().getExportMgr().addExportJobAndRegisterTask(exportStmt.getExportJob());
     }
 
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
