@@ -124,10 +124,6 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
@@ -166,6 +162,10 @@ import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggThroughJoinOnPkFk;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggThroughJoinOneSide;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggWithDistinctThroughJoinOneSide;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -642,18 +642,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new MergeAggregate()
                         )
                 ),
-                topic("Eager aggregation",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
-                                LogicalAggregate.class, LogicalJoin.class
-                        ),
-                        costBased(topDown(
-                                new PushDownAggWithDistinctThroughJoinOneSide(),
-                                new PushDownAggThroughJoinOneSide(),
-                                new PushDownAggThroughJoin()
-                        )),
-                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
-                        topDown(new PushCountIntoUnionAll())
-                ),
 
                 // this rule should invoke after infer predicate and push down distinct, and before push down limit
                 topic("eliminate join according unique or foreign key",
@@ -664,14 +652,26 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("join skew salting rewrite",
                         topDown(new SaltJoin())),
                 topic("eliminate Aggregate according to fd items",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
+                        cascadesContext -> cascadesContext
+                                .rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
                         topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
-
+                topic("Eager aggregation",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
+                               LogicalAggregate.class, LogicalJoin.class
+                        ),
+                        custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
+                        costBased(topDown(
+                                new PushDownAggWithDistinctThroughJoinOneSide(),
+                                new PushDownAggThroughJoinOneSide()
+                                )),
+                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        topDown(new PushCountIntoUnionAll())
+                ),
                 topic("Limit optimization",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalLimit.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalTopN.class)

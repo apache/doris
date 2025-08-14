@@ -123,7 +123,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public static final Logger LOG = LogManager.getLogger(ExpressionEstimation.class);
     public static final long DAYS_FROM_0_TO_1970 = 719528;
     public static final long DAYS_FROM_0_TO_9999 = 3652424;
-    private static final ExpressionEstimation INSTANCE = new ExpressionEstimation();
+    public static final ExpressionEstimation INSTANCE = new ExpressionEstimation();
 
     /**
      * returned columnStat is newly created or a copy of stats

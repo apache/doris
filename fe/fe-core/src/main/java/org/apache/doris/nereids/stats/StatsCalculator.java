@@ -1336,7 +1336,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     /**
      * computeAggregate
      */
-    public static double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
+    public static double estimateGroupByRowCount(List<? extends Expression> groupByExpressions, Statistics childStats) {
         double rowCount = 1;
         // if there is group-bys, output row count is childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO,
         // o.w. output row count is 1
