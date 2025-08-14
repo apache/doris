@@ -50,7 +50,7 @@ suite("test_paimon_s3", "p0,external,doris,external_docker,external_docker_doris
     }
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String s3_warehouse = "s3a://selectdb-qa-datalake-test-hk/paimon_warehouse"
+        String s3_warehouse = "s3://selectdb-qa-datalake-test-hk/paimon_warehouse"
         String aws_ak = context.config.otherConfigs.get("AWSAK")
         String aws_sk = context.config.otherConfigs.get("AWSSK")
         String aws_endpoint = "s3.ap-east-1.amazonaws.com"

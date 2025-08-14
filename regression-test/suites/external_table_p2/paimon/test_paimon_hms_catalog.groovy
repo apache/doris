@@ -112,7 +112,7 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
       'fs.defaultFS' = 'hdfs://${extHiveHmsHost}:${extHiveHdfsHost}'
     """
     /**************** AWS S3*******************/
-    String s3_warehouse = "s3a://selectdb-qa-datalake-test-hk/paimon_warehouse"
+    String s3_warehouse = "s3://selectdb-qa-datalake-test-hk/paimon_warehouse"
     String aws_ak = context.config.otherConfigs.get("AWSAK")
     String aws_sk = context.config.otherConfigs.get("AWSSK")
     String aws_endpoint = "s3.ap-east-1.amazonaws.com"
