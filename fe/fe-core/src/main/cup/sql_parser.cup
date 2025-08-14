@@ -947,7 +947,6 @@ nonterminal Boolean opt_force;
 nonterminal Boolean opt_cached;
 nonterminal IndexDef.IndexType opt_index_type;
 
-nonterminal ShowAlterStmt.AlterType opt_alter_type;
 nonterminal Boolean opt_builtin;
 nonterminal ExplainOptions opt_explain_options;
 
@@ -2449,10 +2448,6 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
     :}
-    | KW_DROP KW_WORKLOAD KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
-    {:
-        RESULT = new DropWorkloadSchedPolicyStmt(ifExists, policyName);
-    :}
     | KW_DROP KW_INVERTED KW_INDEX KW_ANALYZER opt_if_exists:ifExists ident:policyName
     {:
         RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.ANALYZER, policyName);
@@ -3354,11 +3349,6 @@ show_param ::=
     {:
         RESULT = new ShowProcedureStmt();
     :}
-    /* Show alter table statement: used to show process of alter table statement */
-    | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
-    :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
@@ -3501,21 +3491,6 @@ opt_id ::=
     | INTEGER_LITERAL:id
     {:
         RESULT = id;
-    :}
-    ;
-
-opt_alter_type ::=
-    KW_ROLLUP
-    {:
-        RESULT = ShowAlterStmt.AlterType.ROLLUP;
-    :}
-    | KW_MATERIALIZED KW_VIEW
-    {:
-        RESULT =  ShowAlterStmt.AlterType.ROLLUP;
-    :}
-    | KW_COLUMN
-    {:
-        RESULT = ShowAlterStmt.AlterType.COLUMN;
     :}
     ;
 
