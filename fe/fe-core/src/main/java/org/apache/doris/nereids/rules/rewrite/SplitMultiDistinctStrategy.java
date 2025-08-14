@@ -39,10 +39,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -53,9 +51,7 @@ public class SplitMultiDistinctStrategy {
     public static Plan rewrite(LogicalAggregate<? extends Plan> agg, DistinctSelectorContext ctx) {
         List<Alias> distinctFuncWithAlias = new ArrayList<>();
         List<Alias> otherAggFuncs = new ArrayList<>();
-        if (!needTransform((LogicalAggregate<Plan>) agg, distinctFuncWithAlias, otherAggFuncs)) {
-            return agg;
-        }
+        collectInfo(agg, distinctFuncWithAlias, otherAggFuncs);
         LogicalAggregate<Plan> cloneAgg = (LogicalAggregate<Plan>) LogicalPlanDeepCopier.INSTANCE
                 .deepCopy(agg, new DeepCopierContext());
         LogicalCTEProducer<Plan> producer = new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(),
@@ -154,12 +150,13 @@ public class SplitMultiDistinctStrategy {
     //     FROM test_skew_hint2
     //     GROUP BY a;
     // 这个sql如果没有cte改写，后面会给出错误的计划
-    private static boolean needTransform(LogicalAggregate<Plan> agg, List<Alias> aliases, List<Alias> otherAggFuncs) {
+    private static void collectInfo(LogicalAggregate<? extends Plan> agg, List<Alias> aliases,
+            List<Alias> otherAggFuncs) {
         // TODO with source repeat aggregate need to be supported in future
-        if (agg.getSourceRepeat().isPresent()) {
-            return false;
-        }
-        Set<Expression> distinctFunc = new HashSet<>();
+        // 这个可能也没有关系，可以先注释掉，之后加一下关于grouping的测试
+        // if (agg.getSourceRepeat().isPresent()) {
+        //     return false;
+        // }
         boolean distinctMultiColumns = false;
         for (NamedExpression namedExpression : agg.getOutputExpressions()) {
             if (!(namedExpression instanceof Alias) || !(namedExpression.child(0) instanceof AggregateFunction)) {
@@ -168,14 +165,10 @@ public class SplitMultiDistinctStrategy {
             AggregateFunction aggFunc = (AggregateFunction) namedExpression.child(0);
             if (aggFunc instanceof SupportMultiDistinct && aggFunc.isDistinct()) {
                 aliases.add((Alias) namedExpression);
-                distinctFunc.add(aggFunc);
                 distinctMultiColumns = distinctMultiColumns || isDistinctMultiColumns(aggFunc);
             } else {
                 otherAggFuncs.add((Alias) namedExpression);
             }
-        }
-        if (distinctFunc.size() <= 1) {
-            return false;
         }
         // when this aggregate is not distinctMultiColumns, and group by expressions is not empty
         // e.g. sql1: select count(distinct a), count(distinct b) from t1 group by c;
@@ -185,7 +178,6 @@ public class SplitMultiDistinctStrategy {
         // if (!distinctMultiColumns && !agg.getGroupByExpressions().isEmpty()) {
         //     return false;
         // }
-        return true;
     }
 
     private static LogicalProject<Plan> constructProject(List<Expression> groupBy, Map<Alias, Alias> joinOutput,

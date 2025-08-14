@@ -145,7 +145,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             Statistics aggStatistics = agg.getGroupExpression().get().getOwnerGroup().getStatistics();
             Statistics inputStatistics = agg.getGroupExpression().get().childStatistics(0);
             // 如果有未知的统计信息,那么直接禁用一阶段
-            if (AggregateUtils.hasUnknownStatistics(agg, inputStatistics)) {
+            if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics)) {
                 if (shouldBanOnePhaseAgg(agg)) {
                     return ImmutableList.of();
                 }

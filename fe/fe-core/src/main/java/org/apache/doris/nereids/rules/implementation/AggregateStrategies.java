@@ -718,11 +718,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return connectContext != null && connectContext.getSessionVariable().isEnablePushDownStringMinMax();
     }
 
-    private boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
-        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr ->
-                expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
-    }
-
     private boolean enablePushDownNoGroupAgg() {
         ConnectContext connectContext = ConnectContext.get();
         return connectContext == null || connectContext.getSessionVariable().enablePushDownNoGroupAgg();

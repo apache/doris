@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDist
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -37,6 +37,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -83,18 +84,23 @@ public class AggregateUtils {
     }
 
     /**hasUnknownStatistics*/
-    public static boolean hasUnknownStatistics(Aggregate<? extends Plan> aggregate,
+    public static boolean hasUnknownStatistics(Collection<Expression> expressions,
             Statistics inputStatistics) {
-        for (Expression gbyExpr : aggregate.getGroupByExpressions()) {
+        for (Expression gbyExpr : expressions) {
             ColumnStatistic colStats = inputStatistics.findColumnStatistics(gbyExpr);
             if (colStats == null) {
                 colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
             }
-            if (colStats.isUnKnown()) {
+            if (colStats == null || colStats.isUnKnown()) {
                 return true;
             }
         }
         return false;
+    }
+
+    public static boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
+        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr ->
+                expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 
     /**

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -92,11 +94,31 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         // 带group by的场景, group by key ndv低, distinct key ndv高, 则转为multi_distinct
         //      其他情况都拆分
         // 不带group by的场景, distinct key的ndv低,使用multi_distinct, ndv高,使用cte拆分
-        if (aggregate.mustUseMultiDistinctAgg()) {
-            return true;
-        } else {
+        if (AggregateUtils.containsCountDistinctMultiExpr(aggregate)) {
             return false;
         }
+        if (aggregate.mustUseMultiDistinctAgg()) {
+            return true;
+        }
+        if (aggregate.getStats() == null) {
+            StatsDerive derive = new StatsDerive(true);
+            aggregate.accept(derive, new DeriveContext());
+        }
+        Statistics aggStats = aggregate.getStats();
+        Statistics aggChildStats = aggregate.child().getStats();
+        // 拿到group by key的ndv
+        double gbyNdv = aggStats.getRowCount();
+        // 拿到distinct key的ndv
+        Expression dstKey = aggregate.getDistinctArguments().iterator().next();
+        double dstNdv = aggChildStats.findColumnStatistics(dstKey).ndv;
+        double inputRows = aggChildStats.getRowCount();
+        // 有未知的统计信息的时候，使用多阶段
+        if (AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), aggChildStats)
+                || AggregateUtils.hasUnknownStatistics(aggregate.getDistinctArguments(), aggChildStats)) {
+            return false;
+        }
+        // group by key ndv低, distinct key ndv高, 则转为multi_distinct
+        return gbyNdv * 1000 < inputRows && dstNdv * 10 > inputRows;
     }
 
     private Plan rewrite(LogicalAggregate<? extends Plan> aggregate) {
