@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewr
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForNonfoldable;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
@@ -550,6 +551,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 topic("adjust topN project",
                         topDown(new PullUpProjectBetweenTopNAndAgg())),
+                topic("add projection for non-foldable",
+                        topDown(new AddProjectForNonfoldable())
+                ),
                 topic("remove const hash join condition",
                         topDown(new EliminateConstHashJoinCondition())),
 
