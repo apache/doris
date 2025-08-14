@@ -17,7 +17,6 @@
 
 package org.apache.doris.job.manager;
 
-import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -475,64 +474,6 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 return jobState == JobState.FINISHED;
             default:
                 return false;
-        }
-    }
-
-    //todo it's not belong to JobManager
-    public void cancelLoadJob(CancelLoadStmt cs)
-            throws JobException, AnalysisException, DdlException {
-        String dbName = cs.getDbName();
-        String label = cs.getLabel();
-        String state = cs.getState();
-        CompoundPredicate.Operator operator = cs.getOperator();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        // List of load jobs waiting to be cancelled
-        List<InsertJob> unfinishedLoadJob;
-        readLock();
-        try {
-            List<InsertJob> loadJobs = Env.getCurrentEnv().getLabelProcessor().getJobs(db);
-            List<InsertJob> matchLoadJobs = Lists.newArrayList();
-            addNeedCancelLoadJob(label, state, operator, loadJobs, matchLoadJobs);
-            if (matchLoadJobs.isEmpty()) {
-                throw new JobException("Load job does not exist");
-            }
-            // check state here
-            unfinishedLoadJob =
-                    matchLoadJobs.stream().filter(InsertJob::isRunning)
-                            .collect(Collectors.toList());
-            if (unfinishedLoadJob.isEmpty()) {
-                throw new JobException("There is no uncompleted job");
-            }
-        } finally {
-            readUnlock();
-        }
-        // check auth
-        if (unfinishedLoadJob.size() > 1 || unfinishedLoadJob.get(0).getTableNames().isEmpty()) {
-            if (Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                            PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(), dbName);
-            }
-        } else {
-            for (String tableName : unfinishedLoadJob.get(0).getTableNames()) {
-                if (Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                                tableName,
-                                PrivPredicate.LOAD)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), dbName + ":" + tableName);
-                }
-            }
-        }
-        for (InsertJob loadJob : unfinishedLoadJob) {
-            try {
-                alterJobStatus(loadJob.getJobId(), JobStatus.STOPPED);
-            } catch (JobException e) {
-                log.warn("Fail to cancel job, its label: {}", loadJob.getLabelName());
-            }
         }
     }
 
