@@ -96,18 +96,28 @@ public:
 
     /**
      * Prepares a restore job for a tablet to meta-service
+     * Change the state to PREPARED
+     * PREPARED state means the meta of tablet has been uploaded but not finalized.
      */
     Status prepare_restore_job(const TabletMetaPB& tablet_meta);
 
     /**
      * Commits a restore job for a tablet to meta-service
+     * Change the state from PREPARED to COMMITTED
+     * COMMITTED state means the meta of tablet has been finalized.
      */
     Status commit_restore_job(const int64_t tablet_id);
 
     /**
-     * Remove a restore job for a tablet from meta-service
+     * Finish a restore job for a tablet from meta-service
+     * Change the state to final state.
+     * If is_completed = true, change the state from COMMITTED to COMPLETED
+     * If is_completed = false, change the state to from PREPARED/COMMITTED to DROPPED
+     * COMPLETED state means the job is finished, the restored data should be visible.
+     * DROPPED state means the job is aborted.
+     * COMPLETED/DROPPED are the final states, jobs with final states will be recycled.
      */
-    Status finish_restore_job(const int64_t tablet_id);
+    Status finish_restore_job(const int64_t tablet_id, bool is_completed);
 
     /**
      * Gets storage vault (storage backends) from meta-service
