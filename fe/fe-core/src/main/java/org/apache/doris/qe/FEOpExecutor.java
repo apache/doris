@@ -172,7 +172,7 @@ public class FEOpExecutor {
         params.setUserIp(ctx.getRemoteIP());
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        // params.setSessionId(ctx.getSessionId());
+        params.setSessionId(ctx.getSessionId());
 
         if (Config.isCloudMode()) {
             String cluster = "";
