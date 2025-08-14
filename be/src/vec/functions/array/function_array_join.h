@@ -79,9 +79,8 @@ public:
         auto dest_column_ptr = ColumnString::create();
         DCHECK(dest_column_ptr);
 
-        auto res_val =
-                _execute_by_type(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data,
-                                 sep_str, null_replace_str, nested_type, dest_column_ptr.get());
+        auto res_val = _execute_string(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data,
+                                       sep_str, null_replace_str, dest_column_ptr.get());
         if (!res_val) {
             return Status::RuntimeError(fmt::format(
                     "execute failed or unsupported types for function {}({},{},{})", "array_join",
@@ -118,40 +117,6 @@ private:
         return;
     }
 
-    template <typename ColumnType>
-    static bool _execute_number(const IColumn& src_column,
-                                const ColumnArray::Offsets64& src_offsets,
-                                const UInt8* src_null_map, const std::string& sep_str,
-                                const std::string& null_replace_str, DataTypePtr& nested_type,
-                                ColumnString* dest_column_ptr) {
-        const ColumnType* src_data_concrete = assert_cast<const ColumnType*>(&src_column);
-        if (!src_data_concrete) {
-            return false;
-        }
-
-        size_t prev_src_offset = 0;
-        for (auto curr_src_offset : src_offsets) {
-            std::string result_str;
-            bool is_first_elem = true;
-            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                if (src_null_map && src_null_map[j]) {
-                    if (null_replace_str.size() == 0) {
-                        continue;
-                    } else {
-                        _fill_result_string(null_replace_str, sep_str, result_str, is_first_elem);
-                        continue;
-                    }
-                }
-
-                std::string elem_str = remove_nullable(nested_type)->to_string(src_column, j);
-                _fill_result_string(elem_str, sep_str, result_str, is_first_elem);
-            }
-
-            dest_column_ptr->insert_data(result_str.c_str(), result_str.size());
-            prev_src_offset = curr_src_offset;
-        }
-        return true;
-    }
 
     static bool _execute_string(const IColumn& src_column,
                                 const ColumnArray::Offsets64& src_offsets,
@@ -186,95 +151,6 @@ private:
             prev_src_offset = curr_src_offset;
         }
         return true;
-    }
-
-    static bool _execute_by_type(const IColumn& src_column,
-                                 const ColumnArray::Offsets64& src_offsets,
-                                 const UInt8* src_null_map, const std::string& sep_str,
-                                 const std::string& null_replace_str, DataTypePtr& nested_type,
-                                 ColumnString* dest_column_ptr) {
-        bool res = false;
-        switch (nested_type->get_primitive_type()) {
-        case TYPE_BOOLEAN:
-            res = _execute_number<ColumnUInt8>(src_column, src_offsets, src_null_map, sep_str,
-                                               null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_TINYINT:
-            res = _execute_number<ColumnInt8>(src_column, src_offsets, src_null_map, sep_str,
-                                              null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_SMALLINT:
-            res = _execute_number<ColumnInt16>(src_column, src_offsets, src_null_map, sep_str,
-                                               null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_INT:
-            res = _execute_number<ColumnInt32>(src_column, src_offsets, src_null_map, sep_str,
-                                               null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_BIGINT:
-            res = _execute_number<ColumnInt64>(src_column, src_offsets, src_null_map, sep_str,
-                                               null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_LARGEINT:
-            res = _execute_number<ColumnInt128>(src_column, src_offsets, src_null_map, sep_str,
-                                                null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_FLOAT:
-            res = _execute_number<ColumnFloat32>(src_column, src_offsets, src_null_map, sep_str,
-                                                 null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DOUBLE:
-            res = _execute_number<ColumnFloat64>(src_column, src_offsets, src_null_map, sep_str,
-                                                 null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DATE:
-            res = _execute_number<ColumnDate>(src_column, src_offsets, src_null_map, sep_str,
-                                              null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DATETIME:
-            res = _execute_number<ColumnDateTime>(src_column, src_offsets, src_null_map, sep_str,
-                                                  null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DATEV2:
-            res = _execute_number<ColumnDateV2>(src_column, src_offsets, src_null_map, sep_str,
-                                                null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DATETIMEV2:
-            res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, src_null_map, sep_str,
-                                                    null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DECIMAL32:
-            res = _execute_number<ColumnDecimal32>(src_column, src_offsets, src_null_map, sep_str,
-                                                   null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DECIMAL64:
-            res = _execute_number<ColumnDecimal64>(src_column, src_offsets, src_null_map, sep_str,
-                                                   null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DECIMAL128I:
-            res = _execute_number<ColumnDecimal128V3>(src_column, src_offsets, src_null_map,
-                                                      sep_str, null_replace_str, nested_type,
-                                                      dest_column_ptr);
-            break;
-        case TYPE_DECIMAL256:
-            res = _execute_number<ColumnDecimal256>(src_column, src_offsets, src_null_map, sep_str,
-                                                    null_replace_str, nested_type, dest_column_ptr);
-            break;
-        case TYPE_DECIMALV2:
-            res = _execute_number<ColumnDecimal128V2>(src_column, src_offsets, src_null_map,
-                                                      sep_str, null_replace_str, nested_type,
-                                                      dest_column_ptr);
-            break;
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-            res = _execute_string(src_column, src_offsets, src_null_map, sep_str, null_replace_str,
-                                  dest_column_ptr);
-            break;
-        default:
-            break;
-        }
-        return res;
     }
 };
 
