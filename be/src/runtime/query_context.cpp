@@ -110,10 +110,6 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     _timeout_second = query_options.execution_timeout;
 
-    // Log before initializing file cache context holders
-    LOG(INFO) << "Starting file cache context initialization for query: " << print_id(_query_id)
-              << ", enable_file_cache config: " << config::enable_file_cache;
-
     // Initialize file cache context holders
     if (config::enable_file_cache && query_options.__isset.enable_file_cache &&
         query_options.enable_file_cache && query_options.__isset.enable_file_cache_query_limit &&
@@ -121,9 +117,6 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
         _query_file_cache_context_holders =
                 io::FileCacheFactory::instance()->get_query_context_holders(_query_id);
     }
-
-    // Log after initializing file cache context holders
-    LOG(INFO) << "Completed file cache context initialization for query: " << print_id(_query_id);
 
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
                                query_options.query_type == TQueryType::LOAD ||
