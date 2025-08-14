@@ -33,7 +33,6 @@ import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
-import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -77,8 +76,6 @@ public class DdlExecutor {
             env.recoverPartition((RecoverPartitionStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
-        } else if (ddlStmt instanceof UninstallPluginStmt) {
-            env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {

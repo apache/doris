@@ -1234,13 +1234,6 @@ refresh_stmt ::=
     :}
     ;
 
-uninstall_plugin_stmt ::=
-    KW_UNINSTALL KW_PLUGIN ident_or_text:name
-    {:
-        RESULT = new UninstallPluginStmt(name);
-    :}
-    ;
-
 // Alter Statement
 alter_stmt ::=
     KW_ALTER KW_TABLE table_name:tbl
