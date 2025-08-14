@@ -131,8 +131,15 @@ Status InvertedIndexReader::handle_searcher_cache(
         OlapReaderStatistics* stats) {
     auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
-    if (InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
-                                                       inverted_index_cache_handle)) {
+
+    bool cache_hit = false;
+    {
+        SCOPED_RAW_TIMER(&stats->inverted_index_lookup_timer);
+        cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                                   inverted_index_cache_handle);
+    }
+
+    if (cache_hit) {
         stats->inverted_index_searcher_cache_hit++;
         return Status::OK();
     } else {
@@ -265,8 +272,9 @@ Status FullTextIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatist
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
             query_info.term_infos.emplace_back(search_str, 0);
         } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-            PhraseQuery::parser_info(search_str, _index_meta.properties(), query_info);
+            PhraseQuery::parser_info(stats, search_str, _index_meta.properties(), query_info);
         } else {
+            SCOPED_RAW_TIMER(&stats->inverted_index_analyzer_timer);
             query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                     search_str, _index_meta.properties());
         }
