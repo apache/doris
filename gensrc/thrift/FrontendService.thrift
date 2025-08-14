@@ -1648,6 +1648,13 @@ struct TGetEncryptionKeysResult {
     2: optional list<TEncryptionKey> master_keys
 }
 
+struct TFetchFeMetricsRequest {
+}
+
+struct TFetchFeMetricsResult {
+    1: optional list<list<string>> metrics_list
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1752,4 +1759,6 @@ service FrontendService {
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
 
     TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
+
+    TFetchFeMetricsResult fetchFrontendMetrics(1: TFetchFeMetricsRequest request)
 }

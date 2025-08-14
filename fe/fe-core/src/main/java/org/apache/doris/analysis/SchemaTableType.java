@@ -99,7 +99,9 @@ public enum SchemaTableType {
     SCH_VIEW_DEPENDENCY("VIEW_DEPENDENCY", "VIEW_DEPENDENCY",
                     TSchemaTableType.SCH_VIEW_DEPENDENCY),
     SCH_ENCRYPTION_KEYS("ENCRYPTION_KEYS", "ENCRYPTION_KEYS",
-                          TSchemaTableType.SCH_ENCRYPTION_KEYS);
+                          TSchemaTableType.SCH_ENCRYPTION_KEYS),
+    SCH_BACKEND_METRICS("BACKEND_METRICS", "BACKEND_METRICS", TSchemaTableType.SCH_BE_METRICS),
+    SCH_FRONTEND_METRICS("FRONTEND_METRICS", "FRONTEND_METRICS", TSchemaTableType.SCH_FE_METRICS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
 
