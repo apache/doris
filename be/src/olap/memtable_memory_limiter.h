@@ -44,7 +44,7 @@ public:
     // If yes, it will flush memtable to try to reduce memory consumption.
     // Every write operation will call this API to check if need flush memtable OR hang
     // when memory is not available.
-    void handle_memtable_flush();
+    void handle_memtable_flush(std::function<bool()> cancel_check);
 
     void register_writer(std::weak_ptr<MemTableWriter> writer);
 
