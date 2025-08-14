@@ -294,7 +294,8 @@ void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::str
 
 static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instance_id,
                              int64_t table_id, int64_t index_id,
-                             const std::vector<std::array<int64_t, 2>>& tablet_idxes) {
+                             const std::vector<std::array<int64_t, 2>>& tablet_idxes,
+                             bool skip_tablet_meta = false) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
 
@@ -309,6 +310,9 @@ static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instanc
         stats.set_cumulative_point(30);
         txn->put(stats_key, stats.SerializeAsString());
 
+        if (skip_tablet_meta) {
+            continue;
+        }
         doris::TabletMetaCloudPB tablet_pb;
         tablet_pb.set_table_id(table_id);
         tablet_pb.set_index_id(index_id);
@@ -5224,6 +5228,38 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         for (const auto& cumulative_point : res.cumulative_points()) {
             ASSERT_EQ(cumulative_point, 30);
         }
+    }
+
+    for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
+        config::enable_batch_get_mow_tablet_stats_and_meta = val;
+        // 2.5 abnormal path, meeting error when reading tablets' meta
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal5";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+
+        sp->enable_processing();
+
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes {
+                {70001, 12345}, {80001, 3456}, {90001, 6789}};
+
+        add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes, true);
+
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::TABLET_NOT_FOUND);
     }
 }
 
