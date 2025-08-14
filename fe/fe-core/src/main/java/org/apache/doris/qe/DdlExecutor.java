@@ -29,7 +29,6 @@ import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
@@ -85,9 +84,6 @@ public class DdlExecutor {
             RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
             env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
                     refreshTableStmt.getTblName(), false);
-        } else if (ddlStmt instanceof RefreshDbStmt) {
-            RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
-            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
         } else if (ddlStmt instanceof DropIndexPolicyStmt) {
             env.getIndexPolicyMgr().dropIndexPolicy((DropIndexPolicyStmt) ddlStmt);
         } else {
