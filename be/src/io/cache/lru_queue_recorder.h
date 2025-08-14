@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <concurrentqueue.h>
+
+#include <boost/lockfree/spsc_queue.hpp>
+
 #include "io/cache/file_cache_common.h"
 
 namespace doris::io {
@@ -40,7 +44,7 @@ struct CacheLRULog {
             : type(t), hash(h), offset(o), size(s) {}
 };
 
-using CacheLRULogQueue = std::list<std::unique_ptr<CacheLRULog>>;
+using CacheLRULogQueue = moodycamel::ConcurrentQueue<std::unique_ptr<CacheLRULog>>;
 
 class LRUQueueRecorder {
 public:

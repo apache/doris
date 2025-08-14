@@ -41,6 +41,11 @@ public class JsonArrayIgnoreNull extends ScalarFunction implements CustomSignatu
         super("json_array_ignore_null", ExpressionUtils.mergeArguments(varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonArrayIgnoreNull(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         List<DataType> arguments = new ArrayList<>();
@@ -56,7 +61,7 @@ public class JsonArrayIgnoreNull extends ScalarFunction implements CustomSignatu
      */
     @Override
     public JsonArrayIgnoreNull withChildren(List<Expression> children) {
-        return new JsonArrayIgnoreNull(children.toArray(new Expression[0]));
+        return new JsonArrayIgnoreNull(getFunctionParams(children));
     }
 
     @Override

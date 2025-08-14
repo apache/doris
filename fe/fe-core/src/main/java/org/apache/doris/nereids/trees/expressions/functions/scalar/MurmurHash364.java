@@ -50,14 +50,18 @@ public class MurmurHash364 extends ScalarFunction
         super("murmur_hash3_64", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MurmurHash364(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MurmurHash364 withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new MurmurHash364(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new MurmurHash364(getFunctionParams(children));
     }
 
     @Override

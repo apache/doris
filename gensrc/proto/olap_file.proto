@@ -316,6 +316,11 @@ message AlterTabletPB {
     optional AlterTabletType alter_type = 4;
 }
 
+enum PatternTypePB {
+    MATCH_NAME = 1;
+    MATCH_NAME_GLOB = 2;
+}
+
 message ColumnPB {
     required int32 unique_id = 1; // ColumnMessage.unique_id
     optional string name = 2; // ColumnMessage.name
@@ -344,6 +349,11 @@ message ColumnPB {
     // only reference by variant sparse columns
     optional int32 parent_unique_id = 23;
     optional int32 be_exec_version = 24;
+    optional int32 variant_max_subcolumns_count = 25 [default = 0];
+    optional PatternTypePB pattern_type = 26;
+    optional bool variant_enable_typed_paths_to_sparse = 27 [default = false];
+    // this field is only used during flexible partial update load
+    optional bool is_on_update_current_timestamp = 28 [default = false];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

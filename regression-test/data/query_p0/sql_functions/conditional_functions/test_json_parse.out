@@ -17,7 +17,7 @@ null
 -- !null_input --
 \N
 
--- !parse_from_table --
+-- !parse_from_table_null --
 1	{"name":"Alice","age":30}
 2	{"name":"Bob","age":25}
 3	\N
@@ -25,6 +25,31 @@ null
 5	{"list":[1,2,3],"valid":true}
 6	\N
 7	null
+8	\N
+8	123
+9	[1,2,3]
+
+-- !parse_from_table_value1 --
+1	{"name":"Alice","age":30}
+2	{"name":"Bob","age":25}
+3	{}
+4	\N
+5	{"list":[1,2,3],"valid":true}
+6	{}
+7	null
+8	{}
+8	123
+9	[1,2,3]
+
+-- !parse_from_table_value2 --
+1	{"name":"Alice","age":30}
+2	{"name":"Bob","age":25}
+3	{"name":"Jack","age":28}
+4	\N
+5	{"list":[1,2,3],"valid":true}
+6	\N
+7	null
+8	{"key":"value"}
 8	123
 9	[1,2,3]
 

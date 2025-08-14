@@ -40,7 +40,6 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -55,7 +54,9 @@ template <PrimitiveType T, typename TResult, typename Data>
 class AggregateFunctionApproxTopSum final
         : public IAggregateFunctionDataHelper<Data,
                                               AggregateFunctionApproxTopSum<T, TResult, Data>>,
-          AggregateFunctionApproxTop {
+          AggregateFunctionApproxTop,
+          VarargsExpression,
+          NullableAggregateFunction {
 private:
     using State = AggregateFunctionTopKGenericData;
 

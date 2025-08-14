@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <functional>
+
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/workload_group/workload_group.h"
@@ -38,7 +40,8 @@ public:
 
     Status init(int64_t process_mem_limit);
 
-    void handle_workload_group_memtable_flush(WorkloadGroupPtr wg);
+    void handle_workload_group_memtable_flush(WorkloadGroupPtr wg,
+                                              std::function<bool()> cancel_check);
 
     int64_t flush_workload_group_memtables(uint64_t wg_id, int64_t need_flush_bytes);
 
@@ -58,7 +61,7 @@ private:
     // If yes, it will flush memtable to try to reduce memory consumption.
     // Every write operation will call this API to check if need flush memtable OR hang
     // when memory is not available.
-    void _handle_memtable_flush(WorkloadGroupPtr wg);
+    void _handle_memtable_flush(WorkloadGroupPtr wg, std::function<bool()> cancel_check);
 
     static inline int64_t _sys_avail_mem_less_than_warning_water_mark();
     static inline int64_t _process_used_mem_more_than_soft_mem_limit();

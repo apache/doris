@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.ConnectContext;
 
@@ -86,11 +85,6 @@ public class Multiply extends BinaryArithmetic implements PropagateNullable {
                 "scale " + retScale + " larger than precision " + retPrecision
                         + " in Multiply return type");
         return DecimalV3Type.createDecimalV3Type(retPrecision, retScale);
-    }
-
-    @Override
-    public DataType getDataTypeForOthers(DataType t1, DataType t2) {
-        return super.getDataTypeForOthers(t1, t2).promotion();
     }
 
     @Override

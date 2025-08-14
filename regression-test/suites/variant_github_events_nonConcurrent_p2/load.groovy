@@ -23,7 +23,6 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
@@ -39,85 +38,6 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
-    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
-            def expected_finished_num = alter_res.size();
-            def finished_num = 0;
-            for (int i = 0; i < expected_finished_num; i++) {
-                logger.info(table_name + " build index job state: " + alter_res[i][7] + i)
-                if (alter_res[i][7] == "FINISHED") {
-                    ++finished_num;
-                }
-            }
-            if (finished_num == expected_finished_num) {
-                sleep(10000) // wait change table state to normal
-                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
-    }
-
-    def wait_for_last_build_index_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
-
-            if (alter_res.size() == 0) {
-                logger.info(table_name + " last index job finished")
-                return "SKIPPED"
-            }
-            if (alter_res.size() > 0) {
-                def last_job_state = alter_res[alter_res.size()-1][7];
-                if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
-                    sleep(10000) // wait change table state to normal
-                    logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
-                    return last_job_state;
-                }
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        logger.info("wait_for_last_build_index_on_table_finish debug: " + alter_res)
-        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
-        return "wait_timeout"
-    }
-
-    def wait_for_last_build_index_on_table_running = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
-
-            if (alter_res.size() == 0) {
-                logger.info(table_name + " last index job finished")
-                return "SKIPPED"
-            }
-            if (alter_res.size() > 0) {
-                def last_job_state = alter_res[alter_res.size()-1][7];
-                if (last_job_state == "RUNNING") {
-                    logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
-                    return last_job_state;
-                }
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        logger.info("wait_for_last_build_index_on_table_running debug: " + alter_res)
-        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_running timeout")
-        return "wait_timeout"
-    }
-
-
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -150,15 +70,17 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
+    int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 511
+    sql "set enable_variant_flatten_nested = true"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant
+            v variant<properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")>
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2");
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true", "inverted_index_storage_format"= "v2");
     """
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
@@ -174,6 +96,11 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     // 2022
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-16.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-10.json'}""")
+
+    sql """ ALTER TABLE github_events ADD INDEX idx_var2 (`v`) USING INVERTED """
+    wait_for_latest_op_on_table_finish("github_events", timeout)
+
+    // 2022
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 
@@ -195,16 +122,25 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     sql """ set enable_common_expr_pushdown = true """
     // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
+
+    sql """ALTER TABLE github_events SET("bloom_filter_columns" = "v")"""
+
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='github_events' ORDER BY createtime DESC LIMIT 1"""
+        time 600
+    }
+
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
     sql """select * from github_events order by k limit 10"""
+    sql "DROP TABLE IF EXISTS github_events2"
     sql """
      CREATE TABLE IF NOT EXISTS github_events2 (
             k bigint,
-            v variant not null
+            v variant<properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")> not null
         )
         UNIQUE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""
@@ -213,4 +149,11 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     // query with inverted index
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where v["repo"]["name"] match 'xpressengine' order by 1;"""
     qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache' order by 1;"""
+
+    // specify schema
+    // sql "alter table github_events2 modify column v variant<`payload.comment.id`:int,`payload.commits.url`:text,`payload.forkee.has_pages`:tinyint>"
+    // load_json_data.call("github_events2", """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
+    // qt_sql "select * from github_events2 WHERE 1=1  ORDER BY k DESC LIMIT 10"
+    // qt_sql "select v['payload']['commits'] from github_events2 WHERE 1=1  ORDER BY k DESC LIMIT 10"
+    // qt_sql "select v['payload']['commits']['url'] from github_events2 WHERE 1=1  ORDER BY k DESC LIMIT 10"
 }

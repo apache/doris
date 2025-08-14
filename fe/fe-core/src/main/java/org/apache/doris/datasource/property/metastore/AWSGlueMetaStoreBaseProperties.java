@@ -21,7 +21,10 @@ import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AWSGlueMetaStoreBaseProperties {
@@ -70,6 +73,7 @@ public class AWSGlueMetaStoreBaseProperties {
     public static AWSGlueMetaStoreBaseProperties of(Map<String, String> properties) {
         AWSGlueMetaStoreBaseProperties propertiesObj = new AWSGlueMetaStoreBaseProperties();
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.checkAndInit();
         return propertiesObj;
     }
 
@@ -86,7 +90,7 @@ public class AWSGlueMetaStoreBaseProperties {
      * glue.us-east-1.api.aws
      */
     private static final Pattern ENDPOINT_PATTERN = Pattern.compile(
-            "^(https?://)?(glue|glue-fips)\\.[a-z0-9-]+\\.(api\\.aws|amazonaws\\.com)$"
+            "^(?:https?://)?(?:glue|glue-fips)\\.([a-z0-9-]+)\\.(?:api\\.aws|amazonaws\\.com)$"
     );
 
     private ParamRules buildRules() {
@@ -99,18 +103,28 @@ public class AWSGlueMetaStoreBaseProperties {
                 .require(glueEndpoint, "glue.endpoint or aws.endpoint or aws.glue.endpoint is required");
     }
 
-    public void check() {
+    private void checkAndInit() {
         buildRules().validate();
-        if (!ENDPOINT_PATTERN.matcher(glueEndpoint).matches()) {
-            throw new IllegalArgumentException("AWS Glue properties (glue.endpoint) are not set correctly: "
-                    + glueEndpoint);
+
+        Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Invalid AWS Glue endpoint: " + glueEndpoint);
+        }
+
+        if (StringUtils.isBlank(glueRegion)) {
+            this.glueRegion = extractRegionFromEndpoint(matcher);
         }
     }
 
-    protected String getRegionFromGlueEndpoint() {
-        // https://glue.ap-northeast-1.amazonaws.com
-        // -> ap-northeast-1
-        return glueEndpoint.split("\\.")[1];
+    private String extractRegionFromEndpoint(Matcher matcher) {
+        for (int i = 1; i <= matcher.groupCount(); i++) {
+            String group = matcher.group(i);
+            if (StringUtils.isNotBlank(group)) {
+                return group;
+            }
+        }
+        throw new IllegalArgumentException("Could not extract region from endpoint: " + glueEndpoint);
     }
-
 }
+
+

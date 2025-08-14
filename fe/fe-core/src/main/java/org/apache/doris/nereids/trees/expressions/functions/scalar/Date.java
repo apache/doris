@@ -53,13 +53,18 @@ public class Date extends ScalarFunction
         super("date", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Date(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Date withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Date(children.get(0));
+        return new Date(getFunctionParams(children));
     }
 
     @Override

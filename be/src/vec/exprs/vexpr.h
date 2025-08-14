@@ -41,8 +41,8 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -154,7 +154,7 @@ public:
 
     virtual bool is_literal() const { return false; }
 
-    TExprNodeType::type node_type() const { return _node_type; }
+    MOCK_FUNCTION TExprNodeType::type node_type() const { return _node_type; }
 
     TExprOpcode::type op() const { return _opcode; }
 
@@ -512,6 +512,9 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
 
 TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision = 0,
                                  int scale = 0);
+
+TExprNode create_texpr_node_from(const vectorized::Field& field, const PrimitiveType& type,
+                                 int precision, int scale);
 
 #include "common/compile_check_end.h"
 } // namespace doris

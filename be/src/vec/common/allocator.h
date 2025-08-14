@@ -47,11 +47,6 @@
 #define ALLOCATOR_ASLR 1
 #endif
 
-#if !defined(__APPLE__) && !defined(__FreeBSD__)
-#else
-#define _DARWIN_C_SOURCE
-#endif
-
 #include <sys/mman.h>
 
 #include <algorithm>
@@ -112,13 +107,6 @@ public:
                   nullptr, 0);
 #endif // defined(USE_JEMALLOC)
     }
-
-    static constexpr bool need_check_and_tracking_memory() { return true; }
-};
-
-class NoTrackingDefaultMemoryAllocator : public DefaultMemoryAllocator {
-public:
-    static constexpr bool need_check_and_tracking_memory() { return false; }
 };
 
 /** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
@@ -146,8 +134,6 @@ public:
     static void free(void* p) __THROW { std::free(p); }
 
     static void release_unused() {}
-
-    static constexpr bool need_check_and_tracking_memory() { return true; }
 };
 
 class RecordSizeMemoryAllocator {
@@ -217,8 +203,6 @@ public:
 
     static void release_unused() {}
 
-    static constexpr bool need_check_and_tracking_memory() { return true; }
-
 private:
     static std::unordered_map<void*, size_t> _allocated_sizes;
     static std::mutex _mutex;
@@ -234,7 +218,8 @@ private:
   * - random hint address for mmap
   * - mmap_threshold for using mmap less or more
   */
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
 class Allocator {
 public:
     // Allocate memory range.
@@ -255,9 +240,7 @@ public:
 
     bool memory_tracker_exceed(size_t size, std::string* err_msg) const;
 
-    static constexpr bool need_check_and_tracking_memory() {
-        return MemoryAllocator::need_check_and_tracking_memory();
-    }
+    static constexpr bool need_check_and_tracking_memory() { return check_and_tracking_memory; }
 
 protected:
     static constexpr size_t get_stack_threshold() { return 0; }

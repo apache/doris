@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
@@ -25,6 +26,7 @@
 #include "util/slice.h"                          // for OwnedSlice
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 enum { RLE_PAGE_HEADER_SIZE = 4 };
@@ -100,7 +102,7 @@ public:
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
-        encode_fixed32_le(&_buf[0], _count);
+        encode_fixed32_le(&_buf[0], cast_set<uint32_t>(_count));
         *slice = _buf.build();
         return Status::OK();
     }
@@ -190,8 +192,9 @@ public:
         }
         }
 
-        _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                                           _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
+        _rle_decoder =
+                RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
+                                    cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE), _bit_width);
 
         RETURN_IF_ERROR(seek_to_position_in_page(0));
         return Status::OK();
@@ -215,11 +218,12 @@ public:
             // No need to seek.
             return Status::OK();
         } else if (_cur_index < pos) {
-            uint nskip = pos - _cur_index;
+            size_t nskip = pos - _cur_index;
             _rle_decoder.Skip(nskip);
         } else {
             _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
-                                               _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
+                                               cast_set<int>(_data.size - RLE_PAGE_HEADER_SIZE),
+                                               _bit_width);
             _rle_decoder.Skip(pos);
         }
         _cur_index = pos;
@@ -299,4 +303,5 @@ private:
 };
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

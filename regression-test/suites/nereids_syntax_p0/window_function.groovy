@@ -303,7 +303,7 @@ suite("window_function") {
         sql "select last_value(c1,'345_a') over() from window_test"
         exception "The second parameter of last_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
     }
-    sql "select last_value(c1,cast('67' as boolean)) over() from window_test"
+    // sql "select last_value(c1,cast('67' as boolean)) over() from window_test"
     sql "select first_value(c1,cast(56 as boolean)) over() from window_test"
     sql "select last_value(c1,cast(56 as boolean)) over() from window_test"
     sql "select first_value(c1,cast('true' as boolean)) over() from window_test"

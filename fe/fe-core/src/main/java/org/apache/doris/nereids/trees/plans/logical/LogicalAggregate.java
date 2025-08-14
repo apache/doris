@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -146,7 +147,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = ImmutableList.copyOf(groupByExpressions);
-        this.outputExpressions = ImmutableList.copyOf(outputExpressions);
+        boolean noGroupby = groupByExpressions.isEmpty();
+        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+        outputExpressions.forEach(output -> builder.add(
+                (NamedExpression) AdjustAggregateNullableForEmptySet.replaceExpression(output, noGroupby)));
+        this.outputExpressions = builder.build();
         this.normalized = normalized;
         this.ordinalIsResolved = ordinalIsResolved;
         this.generated = generated;

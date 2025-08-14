@@ -226,5 +226,4 @@ TEST_F(StringUtilsTest, replace_pattern_by_escape) {
     EXPECT_EQ(replace_pattern_by_escape(StringRef {"abc^^^_^ef"}, '^'), "abc^\\_^ef");
     EXPECT_EQ(replace_pattern_by_escape(StringRef {"\\abc^^^_^ef"}, '^'), "\\\\abc^\\_^ef");
 }
-
 } // namespace doris::vectorized

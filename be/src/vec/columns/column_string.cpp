@@ -438,33 +438,13 @@ MutableColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t 
 template <typename T>
 StringRef ColumnStr<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
-    auto string_size(size_at(n));
-    auto offset(offset_at(n));
-
-    StringRef res;
-    res.size = sizeof(string_size) + string_size;
-    char* pos = arena.alloc_continue(res.size, begin);
-    memcpy(pos, &string_size, sizeof(string_size));
-    memcpy(pos + sizeof(string_size), &chars[offset], string_size);
-    res.data = pos;
-
-    return res;
+    char* pos = arena.alloc_continue(serialize_size_at(n), begin);
+    return {pos, serialize_impl(pos, n)};
 }
 
 template <typename T>
 const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
-    const auto string_size = unaligned_load<uint32_t>(pos);
-    pos += sizeof(string_size);
-
-    const size_t old_size = chars.size();
-    const size_t new_size = old_size + string_size;
-    check_chars_length(new_size, offsets.size() + 1, size());
-    chars.resize(new_size);
-    memcpy(chars.data() + old_size, pos, string_size);
-
-    offsets.push_back(new_size);
-    sanity_check_simple();
-    return pos + string_size;
+    return pos + deserialize_impl(pos);
 }
 
 template <typename T>
@@ -479,80 +459,45 @@ size_t ColumnStr<T>::get_max_row_byte_size() const {
 }
 
 template <typename T>
-void ColumnStr<T>::serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
+void ColumnStr<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        auto offset(offset_at(i));
-        auto string_size(size_at(i));
-
-        auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-        memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
-        memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
-        keys[i].size += sizeof(string_size) + string_size;
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 template <typename T>
-void ColumnStr<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                               const UInt8* null_map) const {
-    DCHECK(null_map != nullptr);
+size_t ColumnStr<T>::serialize_impl(char* pos, const size_t row) const {
+    auto offset(offset_at(row));
+    auto string_size(size_at(row));
 
-    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
-
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
-            // serialize null first
-            memcpy(dest, null_map + i, sizeof(uint8_t));
-
-            if (null_map[i] == 0) {
-                auto offset(offset_at(i));
-                auto string_size(size_at(i));
-
-                memcpy_fixed<uint32_t>(dest + 1, (char*)&string_size);
-                memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
-                keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
-            } else {
-                keys[i].size += sizeof(UInt8);
-            }
-        }
-    } else {
-        // All rows are not null, serialize null & value
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
-            // serialize null first
-            memcpy(dest, null_map + i, sizeof(uint8_t));
-
-            auto offset(offset_at(i));
-            auto string_size(size_at(i));
-
-            memcpy_fixed<uint32_t>(dest + 1, (char*)&string_size);
-            memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
-            keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
-        }
-    }
+    memcpy_fixed<uint32_t>(pos, (char*)&string_size);
+    memcpy(pos + sizeof(string_size), &chars[offset], string_size);
+    return sizeof(string_size) + string_size;
 }
 
 template <typename T>
 void ColumnStr<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        const auto* original_ptr = keys[i].data;
-        keys[i].data = deserialize_and_insert_from_arena(original_ptr);
-        keys[i].size -= keys[i].data - original_ptr;
+        auto sz = deserialize_impl(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
     }
 }
 
 template <typename T>
-void ColumnStr<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                                 const uint8_t* null_map) {
-    for (size_t i = 0; i != num_rows; ++i) {
-        if (null_map[i] == 0) {
-            const auto* original_ptr = keys[i].data;
-            keys[i].data = deserialize_and_insert_from_arena(original_ptr);
-            keys[i].size -= keys[i].data - original_ptr;
-        } else {
-            insert_default();
-        }
-    }
+size_t ColumnStr<T>::deserialize_impl(const char* pos) {
+    const auto string_size = unaligned_load<uint32_t>(pos);
+    pos += sizeof(string_size);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + string_size;
+    check_chars_length(new_size, offsets.size() + 1, size());
+    chars.resize(new_size);
+    memcpy(chars.data() + old_size, pos, string_size);
+
+    offsets.push_back(new_size);
+    sanity_check_simple();
+    return string_size + sizeof(string_size);
 }
 
 template <typename T>
@@ -583,44 +528,6 @@ void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_directi
     } else {
         pdqsort(res.begin(), res.end(), less<true>(*this));
     }
-}
-
-template <typename T>
-ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) const {
-    size_t col_size = size();
-    column_match_offsets_size(col_size, replicate_offsets.size());
-
-    auto res = ColumnStr<T>::create();
-
-    if (0 == col_size) {
-        return res;
-    }
-
-    Chars& res_chars = res->chars;
-    auto& res_offsets = res->offsets;
-    res_chars.reserve(chars.size() / col_size * replicate_offsets.back());
-    res_offsets.reserve(replicate_offsets.back());
-
-    T current_new_offset = 0;
-    for (size_t i = 0; i < col_size; ++i) {
-        size_t size_to_replicate = replicate_offsets[i] - replicate_offsets[i - 1];
-        T string_size = offsets[i] - offsets[i - 1];
-
-        check_chars_length(res_chars.size() + size_to_replicate * string_size,
-                           res_offsets.size() + size_to_replicate, col_size);
-
-        res_chars.resize(res_chars.size() + size_to_replicate * string_size);
-        for (size_t j = 0; j < size_to_replicate; ++j) {
-            memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
-                                                     &chars[offsets[i - 1]], string_size);
-            current_new_offset += string_size;
-            res_offsets.push_back(current_new_offset);
-        }
-    }
-
-    check_chars_length(res_chars.size(), res_offsets.size(), col_size);
-    sanity_check_simple();
-    return res;
 }
 
 template <typename T>

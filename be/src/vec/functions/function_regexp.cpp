@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -210,7 +211,8 @@ public:
                 std::string error_str;
                 std::unique_ptr<re2::RE2> scoped_re;
                 StringRef options_value;
-                if (context->get_num_args() == 4) {
+                if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
+                    DCHECK_EQ(context->get_num_args(), 4);
                     DCHECK(context->is_col_constant(3));
                     const auto options_col = context->get_constant_col(3)->column_ptr;
                     options_value = options_col->get_data_at(0);

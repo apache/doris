@@ -35,7 +35,7 @@ suite ("test_tbl_name") {
 
     sql """insert into functionality_olap values(141,'mv',18);"""
 
-    createMV ("""CREATE MATERIALIZED VIEW MV_OLAP_SUM as select functionality_olap.id as id, sum(functionality_olap.score) as score_max from functionality_olap group by functionality_olap.id;""")
+    createMV ("""CREATE MATERIALIZED VIEW MV_OLAP_SUM as select functionality_olap.id as MV_OLAP_SUM_id, sum(functionality_olap.score) as score_max from functionality_olap group by functionality_olap.id;""")
 
     sql """insert into functionality_olap values(143,'mv',18);"""
 

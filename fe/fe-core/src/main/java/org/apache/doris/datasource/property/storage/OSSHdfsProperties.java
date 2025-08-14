@@ -50,18 +50,19 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     @Setter
     @ConnectorProperty(names = {"oss.hdfs.endpoint",
-            "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint"},
+            "dlf.endpoint", "dlf.catalog.endpoint", "oss.endpoint"},
             description = "The endpoint of OSS.")
     protected String endpoint = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key", "dlf.access_key", "dlf.catalog.accessKeyId"},
+    @ConnectorProperty(names = {"oss.hdfs.access_key", "dlf.access_key", "dlf.catalog.accessKeyId", "oss.access_key"},
             description = "The access key of OSS.")
     protected String accessKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key"}, description = "The secret key of OSS.")
+    @ConnectorProperty(names = {"oss.hdfs.secret_key", "dlf.secret_key", "dlf.catalog.secret_key", "oss.secret_key"},
+            description = "The secret key of OSS.")
     protected String secretKey = "";
 
-    @ConnectorProperty(names = {"oss.hdfs.region", "oss.region", "dlf.region"},
+    @ConnectorProperty(names = {"oss.hdfs.region", "dlf.region", "oss.region"},
             required = false,
             description = "The region of OSS.")
     protected String region;
@@ -84,7 +85,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     protected String securityToken = "";
 
     private static final Set<String> OSS_ENDPOINT_KEY_NAME = ImmutableSet.of("oss.hdfs.endpoint",
-            "oss.endpoint", "dlf.endpoint", "dlf.catalog.endpoint");
+            "dlf.endpoint", "dlf.catalog.endpoint", "oss.endpoint");
 
     private Map<String, String> backendConfigProperties;
 
@@ -95,7 +96,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     private static final Set<String> supportSchema = ImmutableSet.of("oss", "hdfs");
 
     protected OSSHdfsProperties(Map<String, String> origProps) {
-        super(Type.OSS, origProps);
+        super(Type.OSS_HDFS, origProps);
     }
 
     private static final String OSS_HDFS_PREFIX_KEY = "oss.hdfs.";
@@ -122,6 +123,13 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         super.checkRequiredProperties();
         if (!isValidEndpoint(endpoint)) {
             throw new IllegalArgumentException("Property oss.endpoint is required and must be a valid OSS endpoint.");
+        }
+    }
+
+    private void convertDlfToOssEndpointIfNeeded() {
+        if (this.endpoint.contains("dlf")) {
+            // If the endpoint already contains "oss-dls.aliyuncs.com", return it as is.
+            this.endpoint = this.region + ".oss-dls.aliyuncs.com";
         }
     }
 
@@ -160,6 +168,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
             }
             this.region = regionOptional.get();
         }
+        convertDlfToOssEndpointIfNeeded();
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
         }
@@ -170,19 +179,12 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     private static final String DLF_ENDPOINT_KEY_WORDS = "dlf";
 
-    private boolean endpointIsValid(String endpoint) {
-        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
-        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
-        return StringUtils.isNotBlank(endpoint) && endpoint.endsWith(OSS_HDFS_ENDPOINT_SUFFIX);
-    }
-
     @Override
     public Map<String, String> getBackendConfigProperties() {
         return backendConfigProperties;
     }
 
     private void initConfigurationParams() {
-        Configuration conf = new Configuration();
         // TODO: Currently we load all config parameters and pass them to the BE directly.
         // In the future, we should pass the path to the configuration directory instead,
         // and let the BE load the config file on its own.
@@ -196,9 +198,9 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isNotBlank(fsDefaultFS)) {
             config.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
         }
-        config.forEach(conf::set);
         this.backendConfigProperties = config;
-        this.configuration = conf;
+        this.hadoopStorageConfig = new Configuration();
+        this.backendConfigProperties.forEach(hadoopStorageConfig::set);
     }
 
     @Override
@@ -230,4 +232,5 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     public String getStorageName() {
         return "OSSHDFS";
     }
+
 }

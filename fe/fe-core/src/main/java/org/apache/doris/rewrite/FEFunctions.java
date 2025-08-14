@@ -62,8 +62,7 @@ public class FEFunctions {
     public static FloatLiteral timeDiff(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long firstTimestamp = ((DateLiteral) first).unixTimestamp(TimeUtils.getTimeZone());
         long secondTimestamp = ((DateLiteral) second).unixTimestamp(TimeUtils.getTimeZone());
-        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) * 1000,
-                FloatLiteral.getDefaultTimeType(Type.TIMEV2));
+        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) * 1000, Type.TIMEV2);
     }
 
     @FEFunction(name = "datediff", argTypes = { "DATETIME", "DATETIME" }, returnType = "INT")
@@ -460,14 +459,13 @@ public class FEFunctions {
         return curDate();
     }
 
-    @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")
+    @FEFunction(name = "curtime", argTypes = {}, returnType = "TIMEV2")
     public static FloatLiteral curTime() throws AnalysisException {
         DateLiteral now = now();
-        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()),
-            FloatLiteral.getDefaultTimeType(Type.TIME));
+        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()), Type.TIMEV2);
     }
 
-    @FEFunction(name = "current_time", argTypes = {}, returnType = "TIME")
+    @FEFunction(name = "current_time", argTypes = {}, returnType = "TIMEV2")
     public static FloatLiteral currentTime() throws AnalysisException {
         return curTime();
     }

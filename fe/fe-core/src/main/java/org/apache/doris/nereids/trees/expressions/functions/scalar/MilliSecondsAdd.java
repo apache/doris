@@ -47,10 +47,15 @@ public class MilliSecondsAdd extends ScalarFunction
         super("milliseconds_add", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MilliSecondsAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MilliSecondsAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MilliSecondsAdd(children.get(0), children.get(1));
+        return new MilliSecondsAdd(getFunctionParams(children));
     }
 
     @Override

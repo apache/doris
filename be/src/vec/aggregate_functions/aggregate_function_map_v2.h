@@ -28,7 +28,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_map.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -176,7 +175,9 @@ private:
 
 template <typename Data>
 class AggregateFunctionMapAggV2 final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAggV2<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAggV2<Data>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionMapAggV2() = default;
     AggregateFunctionMapAggV2(const DataTypes& argument_types_)

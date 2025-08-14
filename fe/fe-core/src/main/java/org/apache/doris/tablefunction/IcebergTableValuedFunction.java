@@ -24,7 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
@@ -65,7 +65,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     private final Table sysTable;
     private final List<Column> schema;
     private final Map<String, String> hadoopProps;
-    private final PreExecutionAuthenticator preExecutionAuthenticator;
+    private final ExecutionAuthenticator preExecutionAuthenticator;
 
     public static IcebergTableValuedFunction create(Map<String, String> params)
             throws AnalysisException {
@@ -109,8 +109,8 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Catalog " + icebergTableName.getCtl() + " is not an external catalog");
         }
         ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
-        hadoopProps = externalCatalog.getCatalogProperty().getHadoopProperties();
-        preExecutionAuthenticator = externalCatalog.getPreExecutionAuthenticator();
+        hadoopProps = externalCatalog.getCatalogProperty().getBackendStorageProperties();
+        preExecutionAuthenticator = externalCatalog.getExecutionAuthenticator();
 
         TableIf dorisTable = externalCatalog.getDbOrAnalysisException(icebergTableName.getDb())
                 .getTableOrAnalysisException(icebergTableName.getTbl());

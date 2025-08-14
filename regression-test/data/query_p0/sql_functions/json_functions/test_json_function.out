@@ -164,7 +164,7 @@ true	\N
 2
 
 -- !sql --
-doris
+"doris"
 
 -- !sql --
 \N
@@ -182,14 +182,44 @@ doris
 123
 
 -- !sql --
-\N
+123
 
 -- !sql --
-\N
+123
 
 -- !test --
 \N	{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	\N	\N
 {"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 4}}	\N	\N
 {"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	\N
 {"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 6}}	\N	\N
+
+-- !json_contains1 --
+false
+
+-- !json_contains2 --
+true
+
+-- !json_contains3 --
+false
+
+-- !json_contains4 --
+true
+
+-- !json_contains5 --
+false
+
+-- !json_contains6 --
+\N
+
+-- !json_keys --
+["name", "age", "city"]
+
+-- !json_keys2 --
+\N
+
+-- !json_keys3 --
+\N
+["d"]
+["d"]
+["d"]
 

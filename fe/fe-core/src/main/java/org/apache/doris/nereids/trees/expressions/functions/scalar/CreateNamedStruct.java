@@ -50,6 +50,11 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
         super("named_struct", varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CreateNamedStruct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (arity() % 2 != 0) {
@@ -77,7 +82,7 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
      */
     @Override
     public CreateNamedStruct withChildren(List<Expression> children) {
-        return new CreateNamedStruct(children.toArray(new Expression[0]));
+        return new CreateNamedStruct(getFunctionParams(children));
     }
 
     @Override

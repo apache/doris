@@ -141,11 +141,6 @@ public:
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override;
 
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override;
-
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
                     GetTabletResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -187,6 +182,18 @@ public:
     void drop_partition(::google::protobuf::RpcController* controller,
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override;
+
+    void prepare_restore_job(::google::protobuf::RpcController* controller,
+                             const RestoreJobRequest* request, RestoreJobResponse* response,
+                             ::google::protobuf::Closure* done) override;
+
+    void commit_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override;
+
+    void finish_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override;
 
     void get_tablet_stats(::google::protobuf::RpcController* controller,
                           const GetTabletStatsRequest* request, GetTabletStatsResponse* response,
@@ -395,6 +402,43 @@ private:
                                              std::string& msg, std::stringstream& ss,
                                              KVStats& stats);
 
+    void update_table_version(Transaction* txn, std::string_view instance_id, int64_t db_id,
+                              int64_t table_id);
+
+    bool is_version_read_enabled(std::string_view instance_id) const;
+    bool is_version_write_enabled(std::string_view instance_id) const;
+
+    void commit_txn_immediately(
+            const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+            std::string& msg, const std::string& instance_id, int64_t db_id,
+            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+            TxnErrorCode& err, KVStats& stats);
+
+    void commit_txn_eventually(
+            const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
+            std::string& msg, const std::string& instance_id, int64_t db_id,
+            const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+            KVStats& stats);
+
+    void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse* response,
+                                 MetaServiceCode& code, std::string& msg,
+                                 const std::string& instance_id, KVStats& stats);
+
+    // Get the first pending transaction ID for a partition. If there no any pending transaction,
+    // `first_txn_id` will be set to -1.
+    void get_partition_pending_txn_id(std::string_view instance_id, int64_t db_id, int64_t table_id,
+                                      int64_t partition_id, int64_t tablet_id,
+                                      std::stringstream& ss, MetaServiceCode& code,
+                                      std::string& msg, int64_t& first_txn_id, Transaction* txn);
+
+    // Get versions in batch, Only for versioned read.
+    std::pair<MetaServiceCode, std::string> batch_get_table_versions(
+            const GetVersionRequest* request, GetVersionResponse* response,
+            std::string_view instance_id, KVStats& stats);
+    std::pair<MetaServiceCode, std::string> batch_get_partition_versions(
+            const GetVersionRequest* request, GetVersionResponse* response,
+            std::string_view instance_id, KVStats& stats);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
@@ -501,13 +545,6 @@ public:
         call_impl(&cloud::MetaService::update_tablet, controller, request, response, done);
     }
 
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::update_tablet_schema, controller, request, response, done);
-    }
-
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
                     GetTabletResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_tablet, controller, request, response, done);
@@ -572,6 +609,24 @@ public:
                         const PartitionRequest* request, PartitionResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::drop_partition, controller, request, response, done);
+    }
+
+    void prepare_restore_job(::google::protobuf::RpcController* controller,
+                             const RestoreJobRequest* request, RestoreJobResponse* response,
+                             ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::prepare_restore_job, controller, request, response, done);
+    }
+
+    void commit_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_restore_job, controller, request, response, done);
+    }
+
+    void finish_restore_job(::google::protobuf::RpcController* controller,
+                            const RestoreJobRequest* request, RestoreJobResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::finish_restore_job, controller, request, response, done);
     }
 
     void get_tablet_stats(::google::protobuf::RpcController* controller,

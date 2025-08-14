@@ -48,13 +48,18 @@ public class ExplodeJsonArrayDoubleOuter extends TableGeneratingFunction impleme
         super("explode_json_array_double_outer", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayDoubleOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayDoubleOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayDoubleOuter(children.get(0));
+        return new ExplodeJsonArrayDoubleOuter(getFunctionParams(children));
     }
 
     @Override

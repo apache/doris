@@ -33,11 +33,6 @@ namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
 
-template <>
-Decimal128V3 DecimalField<Decimal128V3>::get_scale_multiplier() const {
-    return DataTypeDecimal<TYPE_DECIMAL128I>::get_scale_multiplier(scale);
-}
-
 template <PrimitiveType T>
 bool dec_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
                typename PrimitiveTypeTraits<T>::ColumnItemType y, UInt32 x_scale, UInt32 y_scale) {
@@ -72,10 +67,6 @@ bool dec_less_or_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
     template <>                                                        \
     bool decimal_less_or_equal(TYPE x, TYPE y, UInt32 xs, UInt32 ys) { \
         return dec_less_or_equal<PTYPE>(x, y, xs, ys);                 \
-    }                                                                  \
-    template <>                                                        \
-    TYPE DecimalField<TYPE>::get_scale_multiplier() const {            \
-        return DataTypeDecimal<PTYPE>::get_scale_multiplier(scale);    \
     }
 
 DECLARE_DECIMAL_COMPARISON(Decimal32, TYPE_DECIMAL32)
@@ -442,6 +433,65 @@ void Field::assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFie
 std::string Field::get_type_name() const {
     return type_to_string(type);
 }
+
+#define MATCH_PRIMITIVE_TYPE(primite_type)                                                   \
+    if (type == primite_type) {                                                              \
+        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::NearestFieldType>(); \
+        return std::string_view(reinterpret_cast<const char*>(&v), sizeof(v));               \
+    }
+
+std::string_view Field::as_string_view() const {
+    if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::TYPE_VARCHAR ||
+        type == PrimitiveType::TYPE_CHAR) {
+        const auto& s = get<String>();
+        return {s.data(), s.size()};
+    }
+    // MATCH_PRIMITIVE_TYPE(INVALID_TYPE);
+    // MATCH_PRIMITIVE_TYPE(TYPE_NULL);
+    MATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN);
+    MATCH_PRIMITIVE_TYPE(TYPE_TINYINT);
+    MATCH_PRIMITIVE_TYPE(TYPE_SMALLINT);
+    MATCH_PRIMITIVE_TYPE(TYPE_INT);
+    MATCH_PRIMITIVE_TYPE(TYPE_BIGINT);
+    MATCH_PRIMITIVE_TYPE(TYPE_LARGEINT);
+    MATCH_PRIMITIVE_TYPE(TYPE_FLOAT)
+    MATCH_PRIMITIVE_TYPE(TYPE_DOUBLE);
+    // MATCH_PRIMITIVE_TYPE(TYPE_VARCHAR);
+    MATCH_PRIMITIVE_TYPE(TYPE_DATE);
+    MATCH_PRIMITIVE_TYPE(TYPE_DATETIME);
+    // MATCH_PRIMITIVE_TYPE(TYPE_BINARY);
+    // MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL);
+    // MATCH_PRIMITIVE_TYPE(TYPE_CHAR);
+    // MATCH_PRIMITIVE_TYPE(TYPE_STRUCT);
+    // MATCH_PRIMITIVE_TYPE(TYPE_ARRAY);
+    // MATCH_PRIMITIVE_TYPE(TYPE_MAP);
+    // MATCH_PRIMITIVE_TYPE(TYPE_HLL);
+    MATCH_PRIMITIVE_TYPE(TYPE_DECIMALV2);
+    MATCH_PRIMITIVE_TYPE(TYPE_TIME);
+    // MATCH_PRIMITIVE_TYPE(TYPE_BITMAP);
+    // MATCH_PRIMITIVE_TYPE(TYPE_STRING);
+    // MATCH_PRIMITIVE_TYPE(TYPE_QUANTILE_STATE);
+    MATCH_PRIMITIVE_TYPE(TYPE_DATEV2);
+    MATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2);
+    MATCH_PRIMITIVE_TYPE(TYPE_TIMEV2);
+    MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL32);
+    MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL64);
+    MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL128I);
+    // MATCH_PRIMITIVE_TYPE(TYPE_JSONB);
+    // MATCH_PRIMITIVE_TYPE(TYPE_VARIANT);
+    // MATCH_PRIMITIVE_TYPE(TYPE_LAMBDA_FUNCTION);
+    // MATCH_PRIMITIVE_TYPE(TYPE_AGG_STATE);
+    MATCH_PRIMITIVE_TYPE(TYPE_DECIMAL256);
+    MATCH_PRIMITIVE_TYPE(TYPE_IPV4);
+    MATCH_PRIMITIVE_TYPE(TYPE_IPV6);
+    MATCH_PRIMITIVE_TYPE(TYPE_UINT32);
+    MATCH_PRIMITIVE_TYPE(TYPE_UINT64);
+    // MATCH_PRIMITIVE_TYPE(TYPE_FIXED_LENGTH_OBJECT);
+    throw Exception(
+            Status::FatalError("type not supported for as_string_view, type={}", get_type_name()));
+}
+
+#undef MATCH_PRIMITIVE_TYPE
 
 #define DECLARE_FUNCTION(FUNC_NAME)                                                          \
     template void Field::FUNC_NAME<TYPE_NULL>(                                               \

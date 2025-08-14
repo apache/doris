@@ -61,7 +61,7 @@ public enum SchemaTypeMapper {
     JFS("jfs", StorageProperties.Type.BROKER, FileSystemType.JFS, TFileType.FILE_BROKER),
     VIEWFS("viewfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     FILE("file", StorageProperties.Type.LOCAL, FileSystemType.FILE, TFileType.FILE_LOCAL),
-
+    OSS_HDFS("oss", StorageProperties.Type.OSS_HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     OSS("oss", StorageProperties.Type.OSS, FileSystemType.S3, TFileType.FILE_S3),
     OBS("obs", StorageProperties.Type.OBS, FileSystemType.S3, TFileType.FILE_S3),
     COS("cos", StorageProperties.Type.COS, FileSystemType.S3, TFileType.FILE_S3),

@@ -36,7 +36,6 @@
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "json2pb/json_to_pb.h"

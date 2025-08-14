@@ -55,13 +55,18 @@ public class Quarter extends ScalarFunction
         super("quarter", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Quarter(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Quarter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Quarter(children.get(0));
+        return new Quarter(getFunctionParams(children));
     }
 
     @Override

@@ -63,7 +63,6 @@ class RowGroup;
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
-static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
 class RowGroupReader : public ProfileCollector {
 public:

@@ -441,7 +441,7 @@ public class FunctionCallExpr extends Expr {
             }
         } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
             return 3;
-        } else if (type.isTime()) {
+        } else if (type.isTimeV2()) {
             return 4;
         } else if (type.isComplexType() || type.isJsonbType()) {
             return 7;
@@ -541,12 +541,6 @@ public class FunctionCallExpr extends Expr {
         }
         // used by nereids END
 
-        if (fnName.getFunction().equalsIgnoreCase("json_insert")
-                || fnName.getFunction().equalsIgnoreCase("json_replace")
-                || fnName.getFunction().equalsIgnoreCase("json_set")) {
-            len = len - 1;
-        }
-
         for (int i = 0; i < len; ++i) {
             if (i != 0) {
                 if (fnName.getFunction().equalsIgnoreCase("group_concat")
@@ -622,13 +616,6 @@ public class FunctionCallExpr extends Expr {
             sb.append(children.get(0).toSql(disableTableName, needExternalSql, tableType, table)).append(", ");
             sb.append(children.get(1).toSql(disableTableName, needExternalSql, tableType, table)).append(")");
             return sb.toString();
-        }
-        // used by nereids END
-
-        if (fnName.getFunction().equalsIgnoreCase("json_insert")
-                || fnName.getFunction().equalsIgnoreCase("json_replace")
-                || fnName.getFunction().equalsIgnoreCase("json_set")) {
-            len = len - 1;
         }
 
         for (int i = 0; i < len; ++i) {
@@ -766,11 +753,6 @@ public class FunctionCallExpr extends Expr {
         }
         int len = children.size();
         List<String> result = Lists.newArrayList();
-        if (fnName.getFunction().equalsIgnoreCase("json_insert")
-                || fnName.getFunction().equalsIgnoreCase("json_replace")
-                || fnName.getFunction().equalsIgnoreCase("json_set")) {
-            len = len - 1;
-        }
         if (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
                 || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
                 || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")

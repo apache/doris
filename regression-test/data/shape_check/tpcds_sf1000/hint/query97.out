@@ -35,6 +35,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(store_sales date_dim ) leading(ssci csci )
-UnUsed: 
+UnUsed:
 SyntaxError: leading(cs_item_sk date_dim) Msg:can not find table: cs_item_sk
 

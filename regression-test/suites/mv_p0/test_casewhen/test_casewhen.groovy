@@ -27,7 +27,7 @@ suite ("test_casewhen") {
 
     sql """insert into sales_records values(1,1,1,"2020-02-02",11),(1,1,1,"2020-02-02",1);"""
 
-    createMV ("create materialized view store_amt as select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id;")
+    createMV ("create materialized view store_amt as select store_id as a1, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id;")
 
     sql """insert into sales_records values(1,1,1,"2020-02-02",1),(1,2,2,"2020-02-02",1);"""
 

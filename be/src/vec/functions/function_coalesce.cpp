@@ -128,8 +128,6 @@ public:
         bool is_string_result = result_column->is_column_string();
         if (is_string_result) {
             result_column->reserve(input_rows_count);
-        } else {
-            result_column->insert_many_defaults(input_rows_count);
         }
 
         auto return_type = std::make_shared<DataTypeUInt8>();
@@ -230,17 +228,26 @@ public:
     Status insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
                               const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
                               const size_t input_rows_count) const {
+        if (result_column->size() == 0 && input_rows_count) {
+            result_column->resize(input_rows_count);
+            auto* __restrict result_raw_data =
+                    assert_cast<ColumnType*>(result_column.get())->get_data().data();
+            for (int i = 0; i < input_rows_count; i++) {
+                result_raw_data[i] = {};
+            }
+        }
         auto* __restrict result_raw_data =
-                reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
+                assert_cast<ColumnType*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =
-                reinterpret_cast<const ColumnType*>(argument_column.get())->get_data().data();
+                assert_cast<const ColumnType*>(argument_column.get())->get_data().data();
 
         // Here it's SIMD thought the compiler automatically also
         // true: null_map_data[row]==0 && filled_idx[row]==0
         // if true, could filled current row data into result column
         for (size_t row = 0; row < input_rows_count; ++row) {
             result_raw_data[row] +=
-                    (!(null_map_data[row] | filled_flag[row])) * column_raw_data[row];
+                    column_raw_data[row] *
+                    typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
             filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
         }
         return Status::OK();
@@ -250,6 +257,10 @@ public:
                                      const UInt8* __restrict null_map_data,
                                      UInt8* __restrict filled_flag,
                                      const size_t input_rows_count) const {
+        if (result_column->size() == 0 && input_rows_count) {
+            result_column->resize(input_rows_count);
+        }
+
         auto* __restrict result_raw_data =
                 reinterpret_cast<ColumnBitmap*>(result_column.get())->get_data().data();
         auto* __restrict column_raw_data =

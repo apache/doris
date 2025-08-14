@@ -53,6 +53,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
@@ -62,6 +63,7 @@ import org.apache.paimon.types.DataField;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,14 +108,16 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         List<Column> schema = getFullSchema();
         if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType())
                 || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(getPaimonCatalogType())
-                || PaimonExternalCatalog.PAIMON_DLF.equals(getPaimonCatalogType())) {
+                || PaimonExternalCatalog.PAIMON_DLF.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_REST.equals(getPaimonCatalogType())) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
             tTableDescriptor.setHiveTable(tHiveTable);
             return tTableDescriptor;
         } else {
-            throw new IllegalArgumentException("Currently only supports hms/filesystem catalog,not support :"
+            throw new IllegalArgumentException(
+                    "Currently only supports hms/dlf/rest/filesystem catalog, do not support :"
                     + getPaimonCatalogType());
         }
     }
@@ -169,7 +173,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return getPaimonSchemaCacheValue(snapshot).getPartitionColumns();
     }
 
-    private boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
+    public boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
         PaimonSnapshotCacheValue paimonSnapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
         return paimonSnapshotCacheValue.getPartitionInfo().isPartitionInvalid();
     }
@@ -190,6 +194,13 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         return getTableSnapshot(snapshot);
+    }
+
+    public Map<String, Partition> getPartitionSnapshot(
+            Optional<MvccSnapshot> snapshot) {
+
+        return getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo()
+                .getNameToPartition();
     }
 
     @Override
@@ -282,5 +293,26 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     public List<SysTable> getSupportedSysTables() {
         makeSureInitialized();
         return SupportedSysTables.PAIMON_SUPPORTED_SYS_TABLES;
+    }
+
+    @Override
+    public String getComment() {
+        return paimonTable.comment().isPresent() ? paimonTable.comment().get() : "";
+    }
+
+    public Map<String, String> getTableProperties() {
+
+        if (paimonTable instanceof DataTable) {
+            DataTable dataTable = (DataTable) paimonTable;
+            Map<String, String> properties = new LinkedHashMap<>(dataTable.coreOptions().toMap());
+
+            if (!dataTable.primaryKeys().isEmpty()) {
+                properties.put(CoreOptions.PRIMARY_KEY.key(), String.join(",", dataTable.primaryKeys()));
+            }
+
+            return properties;
+        } else {
+            return Collections.emptyMap();
+        }
     }
 }
