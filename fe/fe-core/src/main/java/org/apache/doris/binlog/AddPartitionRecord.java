@@ -95,10 +95,10 @@ public class AddPartitionRecord {
             if (!partitionSql.isEmpty()) {
                 sb.append("VALUES IN ");
                 sb.append(partitionSql);
+                sb.append(" (\"version_info\" = \"");
+                sb.append(partition.getVisibleVersion());
+                sb.append("\");");
             }
-            sb.append(" (\"version_info\" = \"");
-            sb.append(partition.getVisibleVersion());
-            sb.append("\");");
         } else {
             // unpartitioned.
         }

@@ -21,7 +21,7 @@ import org.apache.http.util.EntityUtils
 
 import java.text.SimpleDateFormat
 
-suite("test_stream_load_with_filtered_rows", "p2") {
+suite("test_stream_load_with_filtered_rows", "p0") {
     sql "show tables"
 
     // test length of input is too long than schema.
