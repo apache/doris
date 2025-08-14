@@ -2439,12 +2439,7 @@ ident_or_star ::=
 
 // Drop statement
 drop_stmt ::=
-    /* User */
-    KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
-    {:
-        RESULT = new DropUserStmt(ifExists, userId);
-    :}
-    | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
+    KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
     :}
