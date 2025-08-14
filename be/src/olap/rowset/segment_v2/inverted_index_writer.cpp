@@ -243,7 +243,10 @@ public:
         RETURN_IF_ERROR(open_index_directory());
         _char_string_reader =
                 DORIS_TRY(create_char_string_reader(_inverted_index_ctx->char_filter_map));
-        _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+        if (parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+            parser_type != InvertedIndexParserType::PARSER_NONE) {
+            _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+        }
         _index_writer = create_index_writer();
         _doc = std::make_unique<lucene::document::Document>();
         if (_single_field) {
