@@ -162,8 +162,8 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
             // When the query is cancelled, _writer_status may be set to error status in force_close method.
             // When the BE process is exit gracefully, the fragment mgr's thread pool will be shutdown,
             // and the async thread will be exit.
-            while (!_eos && _data_queue.empty() && _writer_status.ok() &&
-                   !ExecEnv::GetInstance()->fragment_mgr()->shutting_down()) {
+            if (!_eos && _data_queue.empty() && _writer_status.ok() &&
+                !ExecEnv::GetInstance()->fragment_mgr()->shutting_down()) {
                 // No block available.
                 return Status::OK();
             }
@@ -219,6 +219,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
 
     Status close_st = Status::OK();
     if (!_closed) {
+        _start_close = true;
         close_st = close(st);
         _closed = true;
     }
@@ -257,8 +258,9 @@ void AsyncResultWriter::force_close(Status s) {
     // TODO(gabriel): This is a light blocking operation. However, this should be removed in future.
     _future->wait();
     if (!_closed) {
-        _closed = true;
+        _start_close = true;
         WARN_IF_ERROR(close(s), "");
+        _closed = true;
     }
     std::lock_guard l(_m);
     _writer_status.update(s);

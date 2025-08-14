@@ -738,6 +738,16 @@ Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Bl
 
 template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+std::string AsyncWriterSink<Writer, Parent>::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", start close: {}, closed: {}, thread_done: {}",
+                   _writer->start_close(), _writer->closed(), _writer->thread_done());
+    return fmt::to_string(debug_string_buffer);
+}
+
+template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();

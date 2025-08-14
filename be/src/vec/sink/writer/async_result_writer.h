@@ -74,6 +74,11 @@ public:
     Status get_writer_status() { return _writer_status.status(); }
 
     void set_low_memory_mode();
+    bool start_close() const { return _start_close; }
+    bool closed() const { return _closed; }
+    bool thread_done() const {
+        return !_future || _future->wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+    }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -98,6 +103,7 @@ private:
     std::shared_ptr<std::promise<Status>> _promise = nullptr;
     std::future<Status>* _future;
     std::future<Status> _placeholder;
+    std::atomic_bool _start_close = false;
     std::atomic_bool _closed = false;
     // Default value is ok
     AtomicStatus _writer_status;
