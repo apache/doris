@@ -4711,6 +4711,191 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
     ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
 
+TEST(CheckerTest, tablet_stats_key_check_leak) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t table_id = 1001;
+    int64_t index_id = 2001;
+    int64_t partition_id = 3001;
+    int64_t tablet_id = 4001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    // normal tablet stats
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    table_id = 1002;
+    index_id = 2002;
+    partition_id = 3002;
+    tablet_id = 4002;
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(1000);
+    stats.set_num_rows(100);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_loss) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    doris::TabletMetaCloudPB tablet_meta;
+    tablet_meta.set_tablet_id(tablet_id);
+    auto val = tablet_meta.SerializeAsString();
+    auto key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    txn->put(key, val);
+
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_inconsistent_data) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    create_committed_rowset(txn_kv.get(), accessor.get(), "resource_id", tablet_id, 1, index_id, 2);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(1000);
+    stats.set_num_rows(50);
+    stats.set_num_rowsets(5);
+    stats.set_num_segments(10);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+
+    std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string tablet_idx_val;
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_partition_id(partition_id);
+    tablet_idx_pb.SerializeToString(&tablet_idx_val);
+    txn->put(tablet_idx_key, tablet_idx_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    create_committed_rowset(txn_kv.get(), accessor.get(), "resource_id", tablet_id, 1, index_id, 2);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(0);
+    stats.set_num_rows(0);
+    stats.set_num_rowsets(1);
+    stats.set_num_segments(2);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+
+    std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string tablet_idx_val;
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_partition_id(partition_id);
+    tablet_idx_pb.SerializeToString(&tablet_idx_val);
+    txn->put(tablet_idx_key, tablet_idx_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 0);
+}
+
 TEST(RecyclerTest, delete_rowset_data) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
