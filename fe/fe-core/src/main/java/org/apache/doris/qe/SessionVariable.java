@@ -681,9 +681,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
-    // disable variant flatten nested as session variable, default is true,
+    // enable variant flatten nested as session variable, default is false,
     // which means disable variant flatten nested when create table
-    public static final String DISABLE_VARIANT_FLATTEN_NESTED = "disable_variant_flatten_nested";
+    public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -1284,8 +1284,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
 
-    @VariableMgr.VarAttr(name = DISABLE_VARIANT_FLATTEN_NESTED, needForward = true)
-    private boolean disableVariantFlattenNested = true;
+    @VariableMgr.VarAttr(name = ENABLE_VARIANT_FLATTEN_NESTED, needForward = true)
+    private boolean enableVariantFlattenNested = false;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -4794,12 +4794,12 @@ public class SessionVariable implements Serializable, Writable {
         return disableInvertedIndexV1ForVaraint;
     }
 
-    public void setDisableVariantFlattenNested(boolean disableVariantFlattenNested) {
-        this.disableVariantFlattenNested = disableVariantFlattenNested;
+    public void setEnableVariantFlattenNested(boolean enableVariantFlattenNested) {
+        this.enableVariantFlattenNested = enableVariantFlattenNested;
     }
 
-    public boolean getDisableVariantFlattenNested() {
-        return disableVariantFlattenNested;
+    public boolean getEnableVariantFlattenNested() {
+        return enableVariantFlattenNested;
     }
 
     public void checkSqlConvertorFeatures(String features) {
