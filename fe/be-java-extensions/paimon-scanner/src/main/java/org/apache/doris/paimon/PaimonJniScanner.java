@@ -40,6 +40,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
@@ -74,6 +75,7 @@ public class PaimonJniScanner extends JniScanner {
     private long tblId;
     @Deprecated
     private long lastUpdateTime;
+    private final String timeZone;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
@@ -98,6 +100,8 @@ public class PaimonJniScanner extends JniScanner {
         dbId = Long.parseLong(params.get("db_id"));
         tblId = Long.parseLong(params.get("tbl_id"));
         lastUpdateTime = Long.parseLong(params.get("last_update_time"));
+        this.timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
+        columnValue.setTimeZone(timeZone);
         initTableInfo(columnTypes, requiredFields, batchSize);
         paimonOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
