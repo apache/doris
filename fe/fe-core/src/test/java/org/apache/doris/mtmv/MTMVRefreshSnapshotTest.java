@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -84,7 +85,7 @@ public class MTMVRefreshSnapshotTest {
         partitionSnapshots.put(mvExistPartitionName, mvp1PartitionSnapshot);
         mvp1PartitionSnapshot.getPartitions().put(relatedExistPartitionName, p1Snapshot);
         mvp1PartitionSnapshot.addTableSnapshot(existTable, t1Snapshot);
-        refreshSnapshot.updateSnapshots(partitionSnapshots);
+        refreshSnapshot.updateSnapshots(partitionSnapshots, Sets.newHashSet(mvExistPartitionName));
     }
 
     @Test
