@@ -14,7 +14,7 @@
 // optimize the code here by writing a program that systematically explores
 // more of the space of possible hash functions, or by using SIMD instructions.
 
-#include "gutil/hash/city.h"
+#include "util/hash/city.h"
 
 #include <algorithm>
 #include <utility>
