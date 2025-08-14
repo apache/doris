@@ -132,7 +132,7 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
         metaScanRange.setHudiParams(hudiMetadataParams);
         return metaScanRange;
     }
-    
+
     @Override
     public String getTableName() {
         return "HudiMetadataTableValuedFunction";
