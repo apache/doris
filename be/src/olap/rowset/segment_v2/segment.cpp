@@ -728,9 +728,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         return Status::OK();
     }
     // init iterator by unique id
-    ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column, opt));
-    iter->reset(it);
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(iter, &tablet_column, opt));
 
     if (config::enable_column_type_check && !tablet_column.has_path_info() &&
         !tablet_column.is_agg_state_type() &&
@@ -759,10 +757,8 @@ Status Segment::get_column_reader(int32_t col_unique_id, ColumnReader** reader) 
 Status Segment::new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
                                     std::unique_ptr<ColumnIterator>* iter) {
     RETURN_IF_ERROR(_create_column_readers_once(opt->stats));
-    ColumnIterator* it;
     TabletColumn tablet_column = _tablet_schema->column_by_uid(unique_id);
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column));
-    iter->reset(it);
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(iter, &tablet_column));
     return Status::OK();
 }
 
