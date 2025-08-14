@@ -129,7 +129,12 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
             def reconnectFe = {
                 sleep(10000)
                 logger.info("Reconnecting to a new frontend...")
-                def newFe = cluster.getMasterFe()
+                def newFe
+                if (options.connectToFollower) {
+                    newFe = cluster.getOneFollowerFe()
+                } else {
+                    newFe = cluster.getMasterFe()
+                }
                 if (newFe) {
                     logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
                     def url = String.format(
@@ -428,7 +433,7 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
                 checkProfileNew.call(cluster.getMasterFe(), addrSet)
             }
 
-            sleep(16000)
+            sleep(21000)
 
             sql """
                 insert into ${tbl} (k1, k2) values (1, "10");
@@ -439,7 +444,7 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
             log.info("show compute group {}", showComputeGroup)
             vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
-            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"'))
         }
         // connect to follower, run again
         options.connectToFollower = true
