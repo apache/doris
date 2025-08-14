@@ -340,9 +340,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(new EliminateNotNull()),
                         topDown(new ConvertInnerOrCrossJoin())
                 ),
-                topic("set initial join order",
-                        bottomUp(ImmutableList.of(new InitJoinOrder())),
-                        topDown(new SkewJoin())),
                 topic("Set operation optimization",
                         topic("",
                                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
@@ -508,6 +505,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownProjectThroughLimit(),
                                 new MergeProjectable())
                 ),
+                topic("set initial join order",
+                        bottomUp(ImmutableList.of(new InitJoinOrder())),
+                        topDown(new SkewJoin())),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail
                     topDown(new SumLiteralRewrite(),

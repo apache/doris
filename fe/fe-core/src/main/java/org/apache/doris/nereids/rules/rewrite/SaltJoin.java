@@ -146,6 +146,10 @@ public class SaltJoin extends OneRewriteRuleFactory {
      * add salt
      */
     public static Plan transform(LogicalJoin<Plan, Plan> join) {
+        if (ConnectContext.get() == null) {
+            return null;
+        }
+
         DistributeHint hint = join.getDistributeHint();
         if (hint.distributeType != DistributeType.SHUFFLE_RIGHT) {
             return null;

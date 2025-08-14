@@ -55,6 +55,9 @@ public class SkewJoin extends OneRewriteRuleFactory {
     }
 
     private static Plan transform(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
+        if (ConnectContext.get() == null) {
+            return null;
+        }
         StatsDerive derive = new StatsDerive(false);
 
         LogicalJoin<Plan, Plan> join = ctx.root;
@@ -70,10 +73,6 @@ public class SkewJoin extends OneRewriteRuleFactory {
         AbstractPlan right = (AbstractPlan) join.right();
         if (right.getStats() == null) {
             right.accept(derive, new DeriveContext());
-        }
-
-        if (ConnectContext.get() == null) {
-            return null;
         }
 
         EqualPredicate equal = (EqualPredicate) join.getHashJoinConjuncts().get(0);
