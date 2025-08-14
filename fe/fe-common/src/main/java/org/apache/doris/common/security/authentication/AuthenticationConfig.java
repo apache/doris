@@ -30,8 +30,7 @@ public abstract class AuthenticationConfig {
     public static String HADOOP_USER_NAME = "hadoop.username";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-    public static String HIVE_KERBEROS_PRINCIPAL = "hive.metastore.kerberos.principal";
-    public static String HIVE_KERBEROS_KEYTAB = "hive.metastore.kerberos.keytab.file";
+    public static String HADOOP_SECURITY_AUTH_TO_LOCAL = "hadoop.security.auth_to_local";
     public static String DORIS_KRB5_DEBUG = "doris.krb5.debug";
     private static final String DEFAULT_HADOOP_USERNAME = "hadoop";
 
