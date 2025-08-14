@@ -346,35 +346,12 @@ public class CreateTableInfo {
         Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), "catalog name is null or empty");
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName), "database name is null or empty");
 
-        //check datatype: datev1, decimalv2, variant
-        boolean allZero = false;
-        boolean allPositive = false;
+        //check datatype: datev1, decimalv2
         for (ColumnDefinition columnDef : columns) {
             String columnNameUpperCase = columnDef.getName().toUpperCase();
             if (columnNameUpperCase.startsWith("__DORIS_")) {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
-            }
-            if (columnDef.getType().isVariantType()) {
-                if (columnNameUpperCase.indexOf('.') != -1) {
-                    throw new AnalysisException(
-                        "Disable to create table of `VARIANT` type column named with a `.` character: "
-                                + columnNameUpperCase);
-                }
-                VariantType variantType = (VariantType) columnDef.getType();
-                if (variantType.getVariantMaxSubcolumnsCount() == 0) {
-                    allZero = true;
-                    if (allPositive) {
-                        throw new AnalysisException("The variant_max_subcolumns_count must either be 0"
-                            + " in all columns, or greater than 0 in all columns");
-                    }
-                } else {
-                    allPositive = true;
-                    if (allZero) {
-                        throw new AnalysisException("The variant_max_subcolumns_count must either be 0"
-                            + " in all columns, or greater than 0 in all columns");
-                    }
-                }
             }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(

@@ -7,5 +7,5 @@ var	variant<PROPERTIES ("variant_max_subcolumns_count" = "10")>	Yes	false	\N	NON
 id	bigint	Yes	true	\N	
 var	variant<PROPERTIES ("variant_max_subcolumns_count" = "10")>	Yes	false	\N	NONE
 var2	variant<PROPERTIES ("variant_max_subcolumns_count" = "15")>	Yes	false	\N	NONE
-var3	variant<PROPERTIES ("variant_max_subcolumns_count" = "10")>	Yes	false	\N	NONE
+var3	variant	Yes	false	\N	NONE
 

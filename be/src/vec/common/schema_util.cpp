@@ -775,6 +775,14 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     if (output->tablet_schema()->num_variant_columns() == 0) {
         return Status::OK();
     }
+    // check no extended schema in input rowsets
+    for (const auto& rowset : intputs) {
+        for (const auto& column : rowset->tablet_schema()->columns()) {
+            if (column->is_extracted_column()) {
+                return Status::OK();
+            }
+        }
+    }
     // check no extended schema in output rowset
     for (const auto& column : output->tablet_schema()->columns()) {
         if (column->is_extracted_column()) {
@@ -829,6 +837,12 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
         // in this case, input stats is accurate, so we check the stats size and stats value
         else {
             for (const auto& [path, size] : stats) {
+                if (original_uid_to_path_stats.at(uid).find(path) ==
+                    original_uid_to_path_stats.at(uid).end()) {
+                    return Status::InternalError(
+                            "Path stats not found for uid {}, path {}, tablet_id {}", uid, path,
+                            tablet->tablet_id());
+                }
                 if (original_uid_to_path_stats.at(uid).at(path) != size) {
                     return Status::InternalError(
                             "Path stats not match for uid {} with path `{}`, input size {}, output "
@@ -900,7 +914,7 @@ Status VariantCompactionUtil::get_compaction_nested_columns(
     return Status::OK();
 }
 
-void VariantCompactionUtil::get_compaction_subcolumns(
+void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
         TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
         const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
         const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema) {
@@ -966,6 +980,34 @@ void VariantCompactionUtil::get_compaction_subcolumns(
     }
 }
 
+void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
+        TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+        const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
+        TabletSchemaSPtr& output_schema) {
+    const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
+    for (const auto& [path, data_types] : path_to_data_types) {
+        if (data_types.empty() || path.empty()) {
+            continue;
+        }
+        DataTypePtr data_type;
+        get_least_supertype_jsonb(data_types, &data_type);
+        auto column_name = parent_column->name_lower_case() + "." + path.get_path();
+        auto column_path = PathInData(column_name);
+        TabletColumn sub_column = get_column_by_type(
+                data_type, column_name,
+                vectorized::schema_util::ExtraInfo {.unique_id = -1,
+                                                    .parent_unique_id = parent_column->unique_id(),
+                                                    .path_info = column_path});
+        vectorized::schema_util::inherit_column_attributes(*parent_column, sub_column);
+        TabletIndexes sub_column_indexes;
+        vectorized::schema_util::inherit_index(parent_indexes, sub_column_indexes, sub_column);
+        paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
+        output_schema->append_column(sub_column);
+        VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
+                   << data_type->get_name();
+    }
+}
+
 // Build the temporary schema for compaction
 // 1. aggregate path stats and data types from all rowsets
 // 2. append typed columns and nested columns to the output schema
@@ -986,7 +1028,9 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
     output_schema->shawdow_copy_without_columns(*target);
     std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
     for (const TabletColumnPtr& column : target->columns()) {
-        output_schema->append_column(*column);
+        if (!column->is_extracted_column()) {
+            output_schema->append_column(*column);
+        }
         if (!column->is_variant_type()) {
             continue;
         }
@@ -1008,10 +1052,20 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                      uid_to_paths_set_info[column->unique_id()]);
 
         // 4. append subcolumns
-        get_compaction_subcolumns(
-                uid_to_paths_set_info[column->unique_id()], column, target,
-                uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
-                uid_to_variant_extended_info[column->unique_id()].sparse_paths, output_schema);
+        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
+            get_compaction_subcolumns_from_subpaths(
+                    uid_to_paths_set_info[column->unique_id()], column, target,
+                    uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
+                    uid_to_variant_extended_info[column->unique_id()].sparse_paths, output_schema);
+        }
+        // variant_max_subcolumns_count == 0 and no typed paths materialized
+        // it means that all subcolumns are materialized, may be from old data
+        else {
+            get_compaction_subcolumns_from_data_types(
+                    uid_to_paths_set_info[column->unique_id()], column, target,
+                    uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
+                    output_schema);
+        }
 
         // append sparse column
         TabletColumn sparse_column = create_sparse_column(*column);
