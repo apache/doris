@@ -42,7 +42,6 @@ import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SlotRef;
@@ -3411,10 +3410,6 @@ public class Env {
 
     public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
         getInternalCatalog().recoverDatabase(dbName, dbId, newDbName);
-    }
-
-    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverTable(recoverStmt);
     }
 
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
