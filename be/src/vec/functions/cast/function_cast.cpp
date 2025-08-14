@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <fmt/core.h>
+
 #include <utility>
 
 #include "cast_to_array.h"
@@ -29,6 +31,7 @@
 #include "cast_to_string.h"
 #include "cast_to_struct.h"
 #include "cast_to_variant.h"
+#include "common/logging.h"
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -208,6 +211,12 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
 WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
                          const DataTypePtr& origin_to_type) {
+    if (context == nullptr) {
+        LOG_WARNING("yxc test cast function context is null")
+                .tag("from_type", origin_from_type->get_name())
+                .tag("to_type", origin_to_type->get_name());
+    }
+
     auto to_type = get_serialized_type(origin_to_type);
     auto from_type = get_serialized_type(origin_from_type);
     if (from_type->equals(*to_type)) {
