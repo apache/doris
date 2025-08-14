@@ -73,34 +73,34 @@ PhysicalResultSink
 -- !merge_union_1 --
 PhysicalResultSink
 --PhysicalProject[a AS `b`, a AS `c`]
-----PhysicalUnion
+----PhysicalUnion(constantExprsList=[[100 AS `100`]])
 ------PhysicalProject[(cast(id as BIGINT) + 100) AS `a`]
 --------PhysicalOlapScan[t1]
 
 -- !merge_union_2 --
 PhysicalResultSink
 --PhysicalProject[a AS `b`, a AS `c`]
-----PhysicalUnion
+----PhysicalUnion(constantExprsList=[[random(1, 10) AS `random(1, 10)`]])
 ------PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
 --------PhysicalOlapScan[t1]
 
 -- !merge_union_3 --
 PhysicalResultSink
---PhysicalUnion
+--PhysicalUnion(constantExprsList=[[random(1, 10) AS `b`]])
 ----PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `b`]
 ------PhysicalOlapScan[t1]
 
 -- !merge_union_4 --
 PhysicalResultSink
 --PhysicalProject[((a + a) + 10) AS `b`]
-----PhysicalUnion
+----PhysicalUnion(constantExprsList=[[random(1, 10) AS `random(1, 10)`]])
 ------PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
 --------PhysicalOlapScan[t1]
 
 -- !merge_union_5 --
 PhysicalResultSink
 --PhysicalProject[(a + 10) AS `c`, a AS `b`]
-----PhysicalUnion
+----PhysicalUnion(constantExprsList=[[random(1, 10) AS `random(1, 10)`]])
 ------PhysicalProject[(cast(id as BIGINT) + random(1, 10)) AS `a`]
 --------PhysicalOlapScan[t1]
 

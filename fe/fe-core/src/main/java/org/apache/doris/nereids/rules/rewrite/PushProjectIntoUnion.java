@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -32,9 +33,11 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Project(Union) -> Union, if union with all qualifier and without children.
@@ -42,10 +45,9 @@ import java.util.Map;
 public class PushProjectIntoUnion extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalProject(logicalUnion()
-                .when(u -> u.getQualifier() == Qualifier.ALL)
-                .when(u -> u.arity() == 0)
-        ).thenApply(ctx -> {
+        return logicalProject(logicalUnion())
+                .when(this::canPushProjectIntoUnion)
+                .thenApply(ctx -> {
             LogicalProject<LogicalUnion> p = ctx.root;
             ExpressionRewriteContext expressionRewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
             LogicalUnion union = p.child();
@@ -77,5 +79,37 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
             return p.child().withNewOutputsChildrenAndConstExprsList(ImmutableList.copyOf(p.getOutput()),
                     ImmutableList.of(), ImmutableList.of(), newConstExprs.build());
         }).toRule(RuleType.PUSH_PROJECT_INTO_UNION);
+    }
+
+    private boolean canPushProjectIntoUnion(LogicalProject<LogicalUnion> project) {
+        LogicalUnion union = project.child();
+        if (union.getQualifier() != Qualifier.ALL || union.arity() != 0) {
+            return false;
+        }
+        for (List<NamedExpression> constExprs : union.getConstantExprsList()) {
+            Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
+            for (int i = 0; i < constExprs.size(); i++) {
+                NamedExpression ne = constExprs.get(i);
+                if (ne.containsUniqueFunction()) {
+                    uniqueFunctionSlots.add(union.getOutput().get(i));
+                }
+            }
+            if (uniqueFunctionSlots.isEmpty()) {
+                continue;
+            }
+            Set<Slot> counterSet = Sets.newHashSet();
+            // for a union slot which contains unique function, if it exists in project multiple times,
+            // then don't push project into union,  otherwise the unique function will be copy multiple times.
+            // e.g. `select a as b, a as c from (select random() as a union all select 2 as a)`
+            // if push down the project, then random() will be evaluated twice:  `random() as b, random() as c`
+            for (NamedExpression ne : project.getProjects()) {
+                if (ne.anyMatch(expr -> expr instanceof Slot
+                        && uniqueFunctionSlots.contains(expr) && !counterSet.add((Slot) expr))) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 }
