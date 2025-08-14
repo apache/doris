@@ -311,18 +311,6 @@ suite("test_predefine_ddl", "p0") {
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
-
-    test {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
-            `id` bigint NULL,
-            `var1` variant <properties("variant_max_subcolumns_count" = "10")> NULL,
-            `var2` variant <properties("variant_max_subcolumns_count" = "0")> NULL
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
-        exception("The variant_max_subcolumns_count must either be 0 in all columns, or greater than 0 in all columns")
-    }
-
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "set default_variant_max_subcolumns_count = 10"
     sql "set default_variant_enable_typed_paths_to_sparse = false"
@@ -348,12 +336,7 @@ suite("test_predefine_ddl", "p0") {
     sql """alter table ${tableName} add column var2 variant<properties("variant_max_subcolumns_count" = "15")> NULL"""
     wait_for_latest_op_on_table_finish("${tableName}", timeout)
 
-    test {
-        sql """alter table ${tableName} add column var3 variant<properties("variant_max_subcolumns_count" = "0")> NULL"""
-        exception("The variant_max_subcolumns_count must either be 0 in all columns or greater than 0 in all columns")
-    }
-
-    sql "alter table ${tableName} add column var3 variant NULL"
+    sql """alter table ${tableName} add column var3 variant<properties("variant_max_subcolumns_count" = "0")> NULL"""
     wait_for_latest_op_on_table_finish("${tableName}", timeout)
 
     qt_sql "desc ${tableName}"

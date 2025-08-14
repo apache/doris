@@ -199,7 +199,7 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIteratorUPtr* i
     const auto* node =
             target_col.has_path_info() ? _subcolumn_readers->find_leaf(relative_path) : nullptr;
     if (!node) {
-        if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
+        if (relative_path.get_path() == SPARSE_COLUMN_PATH && _sparse_column_reader != nullptr) {
             // read sparse column and filter extracted columns in subcolumn_path_map
             std::unique_ptr<ColumnIterator> inner_iter;
             RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
