@@ -2440,20 +2440,10 @@ ident_or_star ::=
 
 // Drop statement
 drop_stmt ::=
-    /* Table */
-    KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
-    {:
-        RESULT = new DropTableStmt(ifExists, name, force);
-    :}
     /* User */
-    | KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
+    KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
     {:
         RESULT = new DropUserStmt(ifExists, userId);
-    :}
-    /* View */
-    | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
-    {:
-        RESULT = new DropTableStmt(ifExists, name, true, false);
     :}
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
