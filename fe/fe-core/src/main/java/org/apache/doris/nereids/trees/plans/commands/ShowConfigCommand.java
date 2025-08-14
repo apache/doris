@@ -138,6 +138,7 @@ public class ShowConfigCommand extends Command implements NoForward {
                     // line's format like [["k1","v1"], ["k2","v2"]]
                     JSONArray outer = new JSONArray(line);
                     for (int i = 0; i < outer.length(); ++i) {
+                        // [key, type, value, isMutable]
                         JSONArray inner = outer.getJSONArray(i);
                         if (matcher == null || matcher.match(inner.getString(0))) {
                             List<String> rows = Lists.newArrayList();
