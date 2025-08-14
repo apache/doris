@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_write_timestamp_ntz", "p0,external,iceberg,external_docker,external_docker_iceberg") { 
+suite("test_show_catalogs_error_msg", "p0,external,iceberg,external_docker,external_docker_iceberg") { 
     
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -23,13 +23,12 @@ suite("test_iceberg_write_timestamp_ntz", "p0,external,iceberg,external_docker,e
         return
     }
 
-  
     try {
 
-        String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
+        String rest_port = 181812; // use a wrong port
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String catalog_name = "iceberg_timestamp_ntz_test"
+        String catalog_name = "test_show_catalogs_error_msg"
 
         sql """drop catalog if exists ${catalog_name}"""
         sql """
@@ -43,26 +42,25 @@ suite("test_iceberg_write_timestamp_ntz", "p0,external,iceberg,external_docker,e
                "s3.region" = "us-east-1"
          );"""
 
-        logger.info("catalog " + catalog_name + " created")
-        sql """switch ${catalog_name};"""
-        logger.info("switched to catalog " + catalog_name)
-        sql """ use test_db;""" 
+        test {
+            sql """show databases from ${catalog_name}"""
+            exception "errCode = 2, detailMessage"
+        }
 
-        sql """INSERT INTO t_ntz_doris VALUES ('2025-02-07 20:12:00');"""
-        sql """INSERT INTO t_tz_doris VALUES ('2025-02-07 20:12:01');"""
+        boolean found = false;
+        List<List<Object>> res = sql """show catalogs"""
+        for (List<Object> line : res) {
+            logger.info("get show catalogs line: " + line + ", name: " + line[1] + ", msg: " + line[7]);
+            if (line[1].equals("test_show_catalogs_error_msg")) {
+                if (line[7].contains("181812 is out of range")) {
+                    found = true;
+                    break;
+                }
+            }
+        }
 
-     
-        sql "set time_zone = 'Asia/Shanghai'"
-        qt_timestamp_ntz """select * from t_ntz_doris;"""
-        qt_timestamp_tz  """select * from t_tz_doris;"""
-        // test Extra column in desc result
-        qt_desc01 """desc t_ntz_doris"""
-        qt_desc02 """desc t_tz_doris"""
+        assertTrue(found, "failed to find invalid catalog") 
 
-        sql "set time_zone = 'Europe/Tirane'"
-        qt_timestamp_ntz2 """select * from t_ntz_doris;"""
-        qt_timestamp_tz2  """select * from t_tz_doris;"""
-      
         // sql """drop catalog if exists ${catalog_name}"""
 
     } finally {
