@@ -39,7 +39,7 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
         buildCatalogOptions(storagePropertiesList);
-        Configuration conf = new Configuration(false);
+        Configuration conf = new Configuration();
         storagePropertiesList.forEach(storageProperties -> {
             for (Map.Entry<String, String> entry : storageProperties.getHadoopStorageConfig()) {
                 catalogOptions.set(entry.getKey(), entry.getValue());

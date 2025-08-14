@@ -258,9 +258,6 @@ public:
 
     const auto& rowset_map() const { return _rs_version_map; }
 
-    // Merge all rowset schemas within a CloudTablet
-    Status merge_rowsets_schema();
-
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -271,9 +268,6 @@ public:
     std::atomic<int64_t> local_read_time_us = 0;
     std::atomic<int64_t> remote_read_time_us = 0;
     std::atomic<int64_t> exec_compaction_time_us = 0;
-
-    // Return merged extended schema
-    TabletSchemaSPtr merged_tablet_schema() const override;
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
@@ -351,9 +345,6 @@ private:
     // To avoid multiple calc delete bitmap tasks on same (txn_id, tablet_id) with different
     // signatures being executed concurrently, we use _rowset_update_lock to serialize them
     mutable std::mutex _rowset_update_lock;
-
-    // Schema will be merged from all rowsets when sync_rowsets
-    TabletSchemaSPtr _merged_tablet_schema;
 
     // unused_rowsets, [start_version, end_version]
     std::mutex _gc_mutex;

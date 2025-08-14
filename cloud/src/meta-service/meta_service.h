@@ -141,11 +141,6 @@ public:
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override;
 
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override;
-
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
                     GetTabletResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -548,13 +543,6 @@ public:
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tablet, controller, request, response, done);
-    }
-
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::update_tablet_schema, controller, request, response, done);
     }
 
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,

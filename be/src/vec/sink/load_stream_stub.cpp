@@ -234,8 +234,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 
 // ADD_SEGMENT
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int32_t segment_id, const SegmentStatistics& segment_stat,
-                                   TabletSchemaSPtr flush_schema) {
+                                   int32_t segment_id, const SegmentStatistics& segment_stat) {
     if (!_is_open.load()) {
         add_failed_tablet(tablet_id, _status);
         return _status;
@@ -250,9 +249,6 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
     header.set_segment_id(segment_id);
     header.set_opcode(doris::PStreamHeader::ADD_SEGMENT);
     segment_stat.to_pb(header.mutable_segment_statistics());
-    if (flush_schema != nullptr) {
-        flush_schema->to_schema_pb(header.mutable_flush_schema());
-    }
     return _encode_and_send(header);
 }
 

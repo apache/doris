@@ -132,6 +132,11 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         fe_addr.port = tnode.schema_scan_node.port;
         _common_scanner_param->fe_addr_list.insert(fe_addr);
     }
+
+    if (tnode.schema_scan_node.__isset.frontend_conjuncts) {
+        _common_scanner_param->frontend_conjuncts =
+                state->obj_pool()->add(new std::string(tnode.schema_scan_node.frontend_conjuncts));
+    }
     return Status::OK();
 }
 

@@ -1907,9 +1907,8 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
     }
 }
 
-static void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id,
-                                     int64_t index_id, int64_t partition_id, int64_t tablet_id,
-                                     int64_t txn_id) {
+void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                              int64_t partition_id, int64_t tablet_id, int64_t txn_id) {
     create_tablet(meta_service, table_id, index_id, partition_id, tablet_id);
     auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
     CreateRowsetResponse res;
@@ -4512,8 +4511,8 @@ TEST(MetaServiceTest, DecodeTest) {
     std::cout << "rowset2=" << proto_to_json(rowset2) << std::endl;
 }
 
-static void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
-                             int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res) {
+void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                      int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res) {
     brpc::Controller cntl;
     GetTabletStatsRequest req;
     auto idx = req.add_tablet_idx();

@@ -221,11 +221,6 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     SCOPED_TIMER(_add_segment_timer);
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
-    TabletSchemaSPtr flush_schema;
-    if (header.has_flush_schema()) {
-        flush_schema = std::make_shared<TabletSchema>();
-        flush_schema->init_from_pb(header.flush_schema());
-    }
 
     int64_t src_id = header.src_id();
     uint32_t segid = header.segment_id();
@@ -252,9 +247,9 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    auto add_segment_func = [this, new_segid, stat, flush_schema]() {
+    auto add_segment_func = [this, new_segid, stat]() {
         signal::set_signal_task_id(_load_id);
-        auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
+        auto st = _load_stream_writer->add_segment(new_segid, stat);
         DBUG_EXECUTE_IF("TabletStream.add_segment.add_segment_failed",
                         { st = Status::InternalError("fault injection"); });
         if (!st.ok()) {

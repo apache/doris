@@ -1302,14 +1302,6 @@ Status CompactionMixin::modify_rowsets() {
                     missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
-            if (missed_rows) {
-                DCHECK_EQ(missed_rows->size(), missed_rows_size);
-                if (missed_rows->size() != missed_rows_size) {
-                    LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
-                                 << " after: " << missed_rows->size();
-                }
-            }
-
             if (location_map) {
                 RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, *location_map));
             }

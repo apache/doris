@@ -131,7 +131,7 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
     return _cached_src_physical_column;
 }
 
-static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_logical_type,
+static void get_decimal_converter(const FieldSchema* field_schema, DataTypePtr src_logical_type,
                                   const DataTypePtr& dst_logical_type,
                                   ConvertParams* convert_params,
                                   std::unique_ptr<PhysicalToLogicalConverter>& physical_converter) {
@@ -195,8 +195,8 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
 }
 
 std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_converter(
-        FieldSchema* field_schema, DataTypePtr src_logical_type,
-        const DataTypePtr& dst_logical_type, cctz::time_zone* ctz, bool is_dict_filter) {
+        const FieldSchema* field_schema, DataTypePtr src_logical_type,
+        const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz, bool is_dict_filter) {
     std::unique_ptr<ConvertParams> convert_params = std::make_unique<ConvertParams>();
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
     convert_params->init(field_schema, ctz);
