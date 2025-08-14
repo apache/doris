@@ -537,24 +537,23 @@ struct TDataGenScanRange {
 }
 
 
+// deprecated
 struct TIcebergMetadataParams {
-  1: optional string serialized_task // deprecated
+  1: optional string serialized_task
   2: optional map<string, string> hadoop_props
-  3: optional string serialized_table
 }
 
-
+// deprecated
 struct TPaimonMetadataParams {
-  1: optional string db_name // deprecated
-  2: optional string tbl_name // deprecated
-  3: optional string query_type // deprecated
-  4: optional i64 ctl_id // deprecated
-  5: optional i64 db_id // deprecated
-  6: optional i64 tbl_id // deprecated
-  7: optional string serialized_split // deprecated
+  1: optional string db_name
+  2: optional string tbl_name
+  3: optional string query_type
+  4: optional i64 ctl_id
+  5: optional i64 db_id
+  6: optional i64 tbl_id
+  7: optional string serialized_split
   8: optional map<string, string> hadoop_props
-  9: optional map<string, string> paimon_props // deprecated
-  10: optional string serialized_table
+  9: optional map<string, string> paimon_props
 }
 
 struct THudiMetadataParams {
@@ -614,7 +613,7 @@ struct TMetaCacheStatsParams {
 
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
-  2: optional TIcebergMetadataParams iceberg_params
+  2: optional TIcebergMetadataParams iceberg_params // deprecated
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
   5: optional TQueriesMetadataParams queries_params
@@ -625,10 +624,12 @@ struct TMetaScanRange {
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
   12: optional THudiMetadataParams hudi_params
-  13: optional TPaimonMetadataParams paimon_params
+  13: optional TPaimonMetadataParams paimon_params // deprecated
 
-  // ... more params
-  999: optional list<string> splits
+  // for quering sys tables for Paimon/Iceberg
+  14: optional map<string, string> hadoop_props
+  15: optional string serialized_table;
+  16: optional list<string> serialized_splits;
 }
 
 // Specification of an individual data range which is held in its entirety
