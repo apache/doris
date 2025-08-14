@@ -3915,6 +3915,7 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     std::stringstream ss;
     bool is_versioned_read = is_version_read_enabled(instance_id);
     if (!config::enable_batch_get_mow_tablet_stats_and_meta) {
+        MetaReader reader(instance_id, txn_kv_.get());
         for (const auto& tablet_idx : request->tablet_indexes()) {
             // 1. get compaction cnts
             TabletStatsPB tablet_stat;
@@ -3949,7 +3950,27 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
                     return false;
                 }
             } else {
-                CHECK(false) << "versioned read is not supported yet";
+                err = reader.get_tablet_compact_stats(txn.get(), tablet_idx.tablet_id(),
+                                                      &tablet_stat, nullptr);
+                if (err == TxnErrorCode::TXN_TOO_OLD) {
+                    code = MetaServiceCode::OK;
+                    err = txn_kv_->create_txn(&txn);
+                    if (err != TxnErrorCode::TXN_OK) {
+                        code = cast_as<ErrCategory::CREATE>(err);
+                        ss << "failed to init txn when get tablet stats";
+                        msg = ss.str();
+                        return false;
+                    }
+                    err = reader.get_tablet_compact_stats(txn.get(), tablet_idx.tablet_id(),
+                                                          &tablet_stat, nullptr);
+                }
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format("failed to get tablet compact stats, err={}, tablet_id={}",
+                                      err, tablet_idx.tablet_id());
+                    LOG(WARNING) << msg;
+                    return false;
+                }
             }
             response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
             response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
@@ -3980,7 +4001,19 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
                     return false;
                 }
             } else {
-                CHECK(false) << "versioned read is not supported yet";
+                err = reader.get_tablet_meta(txn.get(), tablet_idx.tablet_id(), &tablet_meta,
+                                             nullptr);
+                if (err != TxnErrorCode::TXN_OK) {
+                    ss << "failed to get versioned tablet meta"
+                       << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
+                       << " instance_id=" << instance_id << " tablet_id=" << tablet_idx.tablet_id()
+                       << " err=" << err;
+                    msg = ss.str();
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::TABLET_NOT_FOUND
+                                   : cast_as<ErrCategory::READ>(err);
+                    return false;
+                }
             }
             response->add_tablet_states(
                     static_cast<std::underlying_type_t<TabletStatePB>>(tablet_meta.tablet_state()));
@@ -4054,8 +4087,8 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
         }
         for (size_t i = 0; i < tablet_meta_keys.size(); i++) {
             if (!tablet_meta_values[i].has_value()) {
-                code = cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get tablet meta, err={} tablet_id={}", err,
+                code = MetaServiceCode::TABLET_NOT_FOUND;
+                msg = fmt::format("failed to get tablet meta (not found), tablet_id={}",
                                   request->tablet_indexes(i).tablet_id());
                 return false;
             }
