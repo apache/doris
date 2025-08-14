@@ -101,7 +101,6 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
     List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
         // 这里还要再加上限制不能有其他的不带distinct的聚合函数,
         if (canUseFinalMultiDistinct(aggregate)) {
-            // 为啥我这里twoPhaseAggregateWithFinalMultiDistinct和splitToThreePhase都要实现一下？我有点忘了
             return ImmutableList.of(
                     twoPhaseAggregateWithFinalMultiDistinct(aggregate),
                     // splitToThreePhase(aggregate),
@@ -118,7 +117,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
     Plan splitToFourPhase(LogicalAggregate<? extends Plan> aggregate) {
         Map<AggregateFunction, Alias> localAggFuncToAlias = new LinkedHashMap<>();
         Plan secondAgg = splitDeduplicateTwoPhase(aggregate, localAggFuncToAlias,
-                Utils.fastToImmutableList(aggregate.getDistinctArguments()), (Set) aggregate.getDistinctArguments());
+                Utils.fastToImmutableList(aggregate.getDistinctArguments()), getAllKeySet(aggregate));
         return splitDistinctTwoPhase(aggregate, localAggFuncToAlias, secondAgg);
     }
 

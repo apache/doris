@@ -24,11 +24,13 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -65,6 +67,13 @@ public abstract class SplitAggBaseRule {
                 .addAll(localAggFunctionToAlias.values())
                 .build();
         List<Expression> localAggGroupBy = Utils.fastToImmutableList(localAggGroupBySet);
+        boolean isGroupByEmptySelectEmpty = localAggGroupBy.isEmpty() && localAggOutput.isEmpty();
+        // be not recommend generate an aggregate node with empty group by and empty output,
+        // so add a null int slot to group by slot and output
+        if (isGroupByEmptySelectEmpty) {
+            localAggGroupBy = ImmutableList.of(new NullLiteral(TinyIntType.INSTANCE));
+            localAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
+        }
         return new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput, Optional.ofNullable(partitionExpressions),
                 inputToBufferParam, AggregateUtils.maybeUsingStreamAgg(localAggGroupBy, inputToBufferParam),
                 null, null, child);
@@ -95,6 +104,9 @@ public abstract class SplitAggBaseRule {
                 .addAll(localAggGroupBySet)
                 .addAll(middleAggFunctionToAlias.values())
                 .build();
+        if (middleAggOutput.isEmpty()) {
+            middleAggOutput = ImmutableList.of(new Alias(new NullLiteral(TinyIntType.INSTANCE)));
+        }
         return new PhysicalHashAggregate<>(localAgg.getGroupByExpressions(), middleAggOutput,
                 Optional.ofNullable(partitionExpressions), bufferToBufferParam,
                 AggregateUtils.maybeUsingStreamAgg(localAgg.getGroupByExpressions(), bufferToBufferParam),
@@ -102,9 +114,16 @@ public abstract class SplitAggBaseRule {
     }
 
     protected Set<NamedExpression> getAllKeySet(LogicalAggregate<? extends Plan> aggregate) {
-        Set<Expression> distinctArguments = aggregate.getDistinctArguments();
+        Set<NamedExpression> distinctArguments = aggregate.getDistinctArguments().stream()
+                .filter(NamedExpression.class::isInstance)
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableSet.toImmutableSet());
+        Set<NamedExpression> groupBySet = aggregate.getGroupByExpressions().stream()
+                .filter(NamedExpression.class::isInstance)
+                .map(NamedExpression.class::cast)
+                .collect(ImmutableSet.toImmutableSet());
         return ImmutableSet.<NamedExpression>builder()
-                .addAll((List) aggregate.getGroupByExpressions())
+                .addAll(groupBySet)
                 .addAll(distinctArguments)
                 .build();
     }
