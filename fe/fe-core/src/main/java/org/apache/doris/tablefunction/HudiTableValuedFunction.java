@@ -120,7 +120,7 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.HUDI);
         // set hudi metadata params
@@ -130,9 +130,9 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
         hudiMetadataParams.setDatabase(hudiTableName.getDb());
         hudiMetadataParams.setTable(hudiTableName.getTbl());
         metaScanRange.setHudiParams(hudiMetadataParams);
-        return Lists.newArrayList(metaScanRange);
+        return metaScanRange;
     }
-
+    
     @Override
     public String getTableName() {
         return "HudiMetadataTableValuedFunction";

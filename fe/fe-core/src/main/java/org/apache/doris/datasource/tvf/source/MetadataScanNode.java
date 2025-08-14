@@ -73,21 +73,20 @@ public class MetadataScanNode extends ExternalScanNode {
                 .filter(slot -> slot.isMaterialized())
                 .map(slot -> slot.getColumn().getName())
                 .collect(java.util.stream.Collectors.toList());
-        for (TMetaScanRange metaScanRange : tvf.getMetaScanRanges(requiredFileds)) {
-            TScanRange scanRange = new TScanRange();
-            scanRange.setMetaScanRange(metaScanRange);
+        TScanRange scanRange = new TScanRange();
+        scanRange.setMetaScanRange(tvf.getMetaScanRange(requiredFileds));
 
-            TScanRangeLocation location = new TScanRangeLocation();
-            Backend backend = backendPolicy.getNextBe();
-            location.setBackendId(backend.getId());
-            location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+        // TODO: split ranges to be
+        TScanRangeLocation location = new TScanRangeLocation();
+        Backend backend = backendPolicy.getNextBe();
+        location.setBackendId(backend.getId());
+        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
 
-            TScanRangeLocations locations = new TScanRangeLocations();
-            locations.addToLocations(location);
-            locations.setScanRange(scanRange);
+        TScanRangeLocations locations = new TScanRangeLocations();
+        locations.addToLocations(location);
+        locations.setScanRange(scanRange);
 
-            scanRangeLocations.add(locations);
-        }
+        scanRangeLocations.add(locations);
     }
 
     @Override

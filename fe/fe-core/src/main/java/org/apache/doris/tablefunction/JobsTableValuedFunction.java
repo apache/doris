@@ -99,14 +99,14 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.JOBS);
         TJobsMetadataParams jobParam = new TJobsMetadataParams();
         jobParam.setType(jobType.name());
         jobParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setJobsParams(jobParam);
-        return Lists.newArrayList(metaScanRange);
+        return metaScanRange;
     }
 
     @Override
