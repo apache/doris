@@ -1713,7 +1713,6 @@ service MetaService {
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
-    rpc update_tablet_schema(UpdateTabletSchemaRequest) returns (UpdateTabletSchemaResponse);
 
     rpc prepare_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
     rpc commit_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
