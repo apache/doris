@@ -604,36 +604,6 @@ TEST(RpcKvBvarTest, UpdateTablet) {
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tablet_put_counter.get({mock_instance}));
 }
 
-// update_tablet_schema
-// should not call update_tablet_schema
-// TEST(RpcKvBvarTest, UpdateTabletSchema) {
-//     auto meta_service = get_meta_service();
-//     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
-//     constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
-//     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
-
-//     brpc::Controller cntl;
-//     UpdateTabletSchemaRequest req;
-//     UpdateTabletSchemaResponse resp;
-//     req.set_tablet_id(tablet_id);
-//     req.set_cloud_unique_id("test_cloud_unique_id");
-
-//     mem_kv->get_count_ = 0;
-//     mem_kv->put_count_ = 0;
-//     mem_kv->del_count_ = 0;
-
-//     meta_service->update_tablet_schema(&cntl, &req, &resp, nullptr);
-
-//     LOG(INFO) << "UpdateTabletSchema: " << mem_kv->get_count_ << ", "
-//               << mem_kv->put_count_ << ", " << mem_kv->del_count_;
-//     ASSERT_EQ(mem_kv->get_count_,
-//               g_bvar_rpc_kv_update_tablet_schema_get_counter.get({mock_instance}));
-//     ASSERT_EQ(mem_kv->put_count_,
-//               g_bvar_rpc_kv_update_tablet_schema_put_counter.get({mock_instance}));
-//     ASSERT_EQ(mem_kv->del_count_,
-//               g_bvar_rpc_kv_update_tablet_schema_del_counter.get({mock_instance}));
-// }
-
 // begin_txn
 TEST(RpcKvBvarTest, BeginTxn) {
     auto meta_service = get_meta_service();

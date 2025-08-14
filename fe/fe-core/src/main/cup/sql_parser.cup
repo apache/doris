@@ -2440,20 +2440,10 @@ ident_or_star ::=
 
 // Drop statement
 drop_stmt ::=
-    /* Table */
-    KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
-    {:
-        RESULT = new DropTableStmt(ifExists, name, force);
-    :}
     /* User */
-    | KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
+    KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
     {:
         RESULT = new DropUserStmt(ifExists, userId);
-    :}
-    /* View */
-    | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
-    {:
-        RESULT = new DropTableStmt(ifExists, name, true, false);
     :}
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
@@ -2482,10 +2472,6 @@ recover_stmt ::=
     KW_RECOVER KW_DATABASE ident:dbName opt_id:dbId opt_alias:alias
     {:
         RESULT = new RecoverDbStmt(dbName, dbId, alias);
-    :}
-    | KW_RECOVER KW_TABLE table_name:dbTblName opt_id:tableId opt_alias:alias
-    {:
-        RESULT = new RecoverTableStmt(dbTblName, tableId, alias);
     :}
     ;
 
@@ -3577,13 +3563,6 @@ job_id_list ::=
     | LPAREN integer_list:list RPAREN
     {:
         RESULT = list;
-    :}
-    ;
-
-cancel_param ::=
-    KW_LOAD opt_db:db opt_wild_where
-    {:
-        RESULT = new CancelLoadStmt(db, parser.where);
     :}
     ;
 

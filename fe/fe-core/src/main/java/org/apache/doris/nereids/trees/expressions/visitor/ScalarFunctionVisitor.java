@@ -212,6 +212,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Format;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatNumber;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatRound;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
@@ -352,6 +354,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseDataSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
@@ -1271,6 +1274,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(fmod, context);
     }
 
+    default R visitFormat(Format format, C context) {
+        return visitScalarFunction(format, context);
+    }
+
+    default R visitFormatNumber(FormatNumber formatNumber, C context) {
+        return visitScalarFunction(formatNumber, context);
+    }
+
     default R visitFpow(Fpow fpow, C context) {
         return visitScalarFunction(fpow, context);
     }
@@ -1777,6 +1788,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRandomBytes(RandomBytes randomBytes, C context) {
         return visitScalarFunction(randomBytes, context);
+    }
+
+    default R visitParseDataSize(ParseDataSize parseDataSize, C context) {
+        return visitScalarFunction(parseDataSize, context);
     }
 
     default R visitPassword(Password password, C context) {

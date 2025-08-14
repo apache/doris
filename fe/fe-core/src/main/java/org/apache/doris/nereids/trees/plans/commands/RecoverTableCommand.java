@@ -70,4 +70,20 @@ public class RecoverTableCommand extends RecoverCommand {
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitRecoverTableCommand(this, context);
     }
+
+    public String getDbName() {
+        return dbTblName.getDb();
+    }
+
+    public String getTblName() {
+        return dbTblName.getTbl();
+    }
+
+    public long getTableId() {
+        return tableId;
+    }
+
+    public String getNewTableName() {
+        return newTableName;
+    }
 }
