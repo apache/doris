@@ -194,7 +194,7 @@ private:
     mutable std::mutex _latest_fs_mtx;
     io::RemoteFileSystemSPtr _latest_fs;
 
-    std::vector<scoped_refptr<Thread>> _bg_threads;
+    std::vector<std::shared_ptr<Thread>> _bg_threads;
 
     // ATTN: Compactions in maps depend on `CloudTabletMgr` and `CloudMetaMgr`
     mutable std::mutex _compaction_mtx;

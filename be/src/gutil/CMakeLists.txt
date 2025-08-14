@@ -24,13 +24,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/gutil")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/gutil")
 
 SET(SOURCE_FILES
-        hash/city.cc
-        ref_counted.cc
-        threading/thread_collision_warner.cc)
-
-if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
-    set(SOURCE_FILES ${SOURCE_FILES} atomicops-internals-x86.cc)
-endif()
+        hash/city.cc)
 
 add_library(Gutil STATIC ${SOURCE_FILES})
 
