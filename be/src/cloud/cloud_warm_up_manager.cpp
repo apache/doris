@@ -537,7 +537,6 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
                                               std::vector<TReplicaInfo>& replicas,
                                               int64_t sync_wait_timeout_ms,
                                               bool skip_existence_check) {
-    auto tablet_id = rs_meta.tablet_id();
     int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
