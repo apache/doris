@@ -97,6 +97,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // table name lower case -> table name
     private final ConcurrentMap<String, String> lowerCaseToTableName;
 
+    private final Map<Long, Table> idToTableCreating = Maps.newConcurrentMap();
+    private ConcurrentMap<String, Table> nameToTableCreating = Maps.newConcurrentMap();
+    private final ConcurrentMap<String, String> lowerCaseToTableNameCreating = Maps.newConcurrentMap();
+
     // user define function
     @SerializedName(value = "name2Function")
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
@@ -385,12 +389,17 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public boolean isTableExist(String tableName) {
         if (Env.isTableNamesCaseInsensitive()) {
-            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
-            if (tableName == null) {
-                return false;
+            String lowerCaseName = tableName.toLowerCase();
+            String actualTableName = lowerCaseToTableName.get(lowerCaseName);
+            if (actualTableName == null) {
+                actualTableName = lowerCaseToTableNameCreating.get(lowerCaseName);
+                if (actualTableName == null) {
+                    return false;
+                }
             }
+            tableName = actualTableName;
         }
-        return nameToTable.containsKey(tableName);
+        return nameToTable.containsKey(tableName) || nameToTableCreating.containsKey(tableName);
     }
 
     // return pair <success?, table exist?>
@@ -422,6 +431,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
                     Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                    moveTableToFinalMap(table);
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
@@ -445,15 +455,24 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         if (isTableExist(tableName)) {
             result = false;
         } else {
-            idToTable.put(olapTable.getId(), olapTable);
-            nameToTable.put(olapTable.getName(), olapTable);
-            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            idToTableCreating.put(olapTable.getId(), olapTable);
+            nameToTableCreating.put(olapTable.getName(), olapTable);
+            lowerCaseToTableNameCreating.put(tableName.toLowerCase(), tableName);
             if (olapTable instanceof MTMV) {
                 Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) olapTable, id);
             }
         }
         olapTable.unmarkDropped();
         return result;
+    }
+
+    private void moveTableToFinalMap(Table table) {
+        idToTable.put(table.getId(), table);
+        nameToTable.put(table.getName(), table);
+        lowerCaseToTableName.put(table.getName().toLowerCase(), table.getName());
+        idToTableCreating.remove(table.getId());
+        nameToTableCreating.remove(table.getName());
+        lowerCaseToTableNameCreating.remove(table.getName().toLowerCase());
     }
 
     @Override
@@ -618,34 +637,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @Override
     public Table getTableNullable(long tableId) {
         return idToTable.get(tableId);
-    }
-
-    public int getMaxReplicationNum() {
-        int ret = 0;
-        readLock();
-        try {
-            for (Table table : idToTable.values()) {
-                if (!table.isManagedTable()) {
-                    continue;
-                }
-                OlapTable olapTable = (OlapTable) table;
-                table.readLock();
-                try {
-                    for (Partition partition : olapTable.getAllPartitions()) {
-                        short replicationNum = olapTable.getPartitionInfo()
-                                .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
-                        if (ret < replicationNum) {
-                            ret = replicationNum;
-                        }
-                    }
-                } finally {
-                    table.readUnlock();
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-        return ret;
     }
 
     public static Database read(DataInput in) throws IOException {
