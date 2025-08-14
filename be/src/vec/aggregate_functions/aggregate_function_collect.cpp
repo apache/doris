@@ -147,5 +147,9 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
     factory.register_function_both("collect_set", create_aggregate_function_collect);
     factory.register_alias("collect_list", "group_array");
     factory.register_alias("collect_set", "group_uniq_array");
+
+    // Register multi-distinct versions using the same implementation
+    factory.register_function_both("multi_distinct_collect_list", create_aggregate_function_collect);
+    factory.register_function_both("multi_distinct_array_agg", create_aggregate_function_collect);
 }
 } // namespace doris::vectorized
