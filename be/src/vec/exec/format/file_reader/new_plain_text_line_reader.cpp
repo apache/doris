@@ -45,6 +45,12 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
+    // Avoid part bytes of the multi-char column separator have already been parsed,
+    // causing parse column separator error.
+    if (_state.curr_state == ReaderState::NORMAL ||
+        _state.curr_state == ReaderState::MATCH_ENCLOSE) {
+        _idx -= std::min(_column_sep_len - 1, _idx);
+    }
     _total_len = length;
     size_t bound = update_reading_bound(start);
 
@@ -136,7 +142,6 @@ void EncloseCsvLineReaderCtx::_on_normal(const uint8_t* start, size_t& len) {
         _state.forward_to(ReaderState::START);
         return;
     }
-    // TODO(tsy): maybe potential bug when a multi-char is not read completely
     _idx = len;
 }
 

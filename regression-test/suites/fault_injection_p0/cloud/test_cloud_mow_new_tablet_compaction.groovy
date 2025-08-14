@@ -119,8 +119,14 @@ suite("test_cloud_mow_new_tablet_compaction", "nonConcurrent") {
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 assert code == 0
                 def compactJson = parseJson(out.trim())
-                assert "success" != compactJson.status.toLowerCase()
+                assert "success" == compactJson.status.toLowerCase()
             }
+
+            Thread.sleep(1000)
+
+            def (code, out, err) = be_show_tablet_status(tabletBackend.Host, tabletBackend.HttpPort, newTabletId)
+            assert code == 0
+            assert !out.contains("\"last cumulative failure time\": \"1970-01-01")
 
             GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_process_delete_bitmap.after.capture_without_lock")
             // wait for sc to finish
