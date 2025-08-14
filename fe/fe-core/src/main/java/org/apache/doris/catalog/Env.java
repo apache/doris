@@ -44,7 +44,6 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -6849,14 +6848,6 @@ public class Env {
         } catch (Exception e) {
             throw new MetaNotFoundException(e);
         }
-    }
-
-    public void uninstallPlugin(UninstallPluginStmt stmt) throws IOException, UserException {
-        PluginInfo info = pluginMgr.uninstallPlugin(stmt.getPluginName());
-        if (null != info) {
-            editLog.logUninstallPlugin(info);
-        }
-        LOG.info("uninstall plugin = " + stmt.getPluginName());
     }
 
     public void uninstallPlugin(UninstallPluginCommand cmd) throws IOException, UserException {
