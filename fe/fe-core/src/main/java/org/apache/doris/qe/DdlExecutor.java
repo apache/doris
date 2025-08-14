@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
@@ -66,8 +65,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropUserStmt) {
             DropUserStmt stmt = (DropUserStmt) ddlStmt;
             env.getAuth().dropUser(stmt);
-        } else if (ddlStmt instanceof AlterRoleStmt) {
-            env.getAuth().alterRole((AlterRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
 
