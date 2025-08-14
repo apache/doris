@@ -66,7 +66,6 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
-        hmsBaseProperties.initAndCheckParams();
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
 

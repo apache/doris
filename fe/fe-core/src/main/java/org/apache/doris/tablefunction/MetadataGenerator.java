@@ -73,6 +73,8 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
@@ -122,6 +124,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -619,22 +622,38 @@ public class MetadataGenerator {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> viewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_SCHEMA");
+        List<Expression> viewTypeConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_TYPE");
+        List<Expression> viewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_NAME");
         Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         for (DatabaseIf<? extends TableIf> db : allDbs) {
-            List<? extends TableIf> tables = db.getTables();
             String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
             for (TableIf table : tables) {
+                if (FrontendConjunctsUtils.isFiltered(viewTypeConjuncts, "VIEW_TYPE", table.getType().name())) {
+                    continue;
+                }
                 if (table instanceof MTMV) {
                     String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                        continue;
+                    }
                     MTMVRelation relation = ((MTMV) table).getRelation();
                     Set<BaseTableInfo> tablesOneLevel = relation.getBaseTablesOneLevel();
                     for (BaseTableInfo info : tablesOneLevel) {
                         TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal("internal"));
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
                         trow.addToColumnValue(new TCell().setStringVal(dbName));
                         trow.addToColumnValue(new TCell().setStringVal(tableName));
                         trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
@@ -646,6 +665,9 @@ public class MetadataGenerator {
                     }
                 } else if (table instanceof View) {
                     String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                        continue;
+                    }
                     String inlineViewDef = ((View) table).getInlineViewDef();
                     Map<List<String>, TableIf> tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
                     for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
