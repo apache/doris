@@ -117,7 +117,6 @@ private:
         return;
     }
 
-
     static bool _execute_string(const IColumn& src_column,
                                 const ColumnArray::Offsets64& src_offsets,
                                 const UInt8* src_null_map, const std::string& sep_str,
