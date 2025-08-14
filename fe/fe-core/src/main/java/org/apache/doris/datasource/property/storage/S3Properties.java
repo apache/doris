@@ -129,6 +129,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.initNormalizeAndCheckProps();
         return propertiesObj;
     }
 
