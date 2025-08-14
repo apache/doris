@@ -49,13 +49,18 @@ public class ArrayRangeWeekUnit extends ScalarFunction
         super("array_range_week_unit", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayRangeWeekUnit(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayRangeWeekUnit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new ArrayRangeWeekUnit(children.get(0), children.get(1), children.get(2));
+        return new ArrayRangeWeekUnit(getFunctionParams(children));
     }
 
     @Override

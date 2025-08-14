@@ -56,18 +56,16 @@ class MockPartitionedAggSinkLocalState : public PartitionedAggSinkLocalState {
 public:
     MockPartitionedAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PartitionedAggSinkLocalState(parent, state) {
-        _runtime_profile = std::make_unique<RuntimeProfile>("test");
-        _profile = _runtime_profile.get();
+        _operator_profile = state->obj_pool()->add(new RuntimeProfile("test"));
+        _custom_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
+        _common_profile = state->obj_pool()->add(new RuntimeProfile("CommonCounters"));
         _memory_used_counter =
-                _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+                _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
     Status close(RuntimeState* state, Status status) override { return Status::OK(); }
-
-private:
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
 };
 
 class MockPartitionedAggSinkOperatorX : public PartitionedAggSinkOperatorX {
@@ -96,7 +94,11 @@ class MockPartitionedAggLocalState : public PartitionedAggLocalState {
 public:
     MockPartitionedAggLocalState(RuntimeState* state, OperatorXBase* parent)
             : PartitionedAggLocalState(state, parent) {
-        _runtime_profile = std::make_unique<RuntimeProfile>("test");
+        _operator_profile = std::make_unique<RuntimeProfile>("test");
+        _common_profile = std::make_unique<RuntimeProfile>("CommonCounters");
+        _custom_profile = std::make_unique<RuntimeProfile>("CustomCounters");
+        _operator_profile->add_child(_common_profile.get(), true);
+        _operator_profile->add_child(_custom_profile.get(), true);
     }
 
     Status open(RuntimeState* state) override { return Status::OK(); }

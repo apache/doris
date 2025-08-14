@@ -107,9 +107,9 @@ log() {
     cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
     if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
         echo "StdoutLogger ${cur_date} $1"
-    else
-        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
     fi
+    # always output start time info into be.out file
+    echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
 }
 
 jdk_version() {
@@ -341,11 +341,12 @@ export AWS_MAX_ATTEMPTS=2
 # filter known leak
 export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
 export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+export UBSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/ubsan_suppr.conf
 
 ## set asan and ubsan env to generate core file
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
-export UBSAN_OPTIONS=print_stacktrace=1
+export UBSAN_OPTIONS=print_stacktrace=1:${UBSAN_OPTIONS}
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {
@@ -458,8 +459,10 @@ elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
         nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     fi
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+    # stdout outputs console
+    # stderr outputs be.out
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>>"${LOG_DIR}/be.out" </dev/null
 else
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null
 fi

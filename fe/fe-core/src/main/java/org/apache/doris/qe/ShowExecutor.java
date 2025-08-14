@@ -17,78 +17,30 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminCopyTabletStmt;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.HelpStmt;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
-import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
-import org.apache.doris.analysis.ShowCloudWarmUpStmt;
-import org.apache.doris.analysis.ShowColumnStatsStmt;
-import org.apache.doris.analysis.ShowCreateLoadStmt;
-import org.apache.doris.analysis.ShowCreateMTMVStmt;
-import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MarkedCountDownLatch;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.PartitionColumnStatistic;
-import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
-import org.apache.doris.statistics.ResultRow;
-import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.SnapshotTask;
-import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -109,26 +61,12 @@ public class ShowExecutor {
         checkStmtSupported();
         if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowCreateMTMVStmt) {
-            handleShowCreateMTMV();
-        } else if (stmt instanceof ShowEnginesStmt) {
-            handleShowEngines();
-        } else if (stmt instanceof ShowCreateLoadStmt) {
-            handleShowCreateLoad();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
-        } else if (stmt instanceof ShowColumnStatsStmt) {
-            handleShowColumnStats();
         } else if (stmt instanceof DiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
-        } else if (stmt instanceof ShowAnalyzeStmt) {
-            handleShowAnalyze();
-        } else if (stmt instanceof AdminCopyTabletStmt) {
-            handleCopyTablet();
-        } else if (stmt instanceof ShowAnalyzeTaskStatus) {
-            handleShowAnalyzeTaskStatus();
-        } else if (stmt instanceof ShowCloudWarmUpStmt) {
-            handleShowCloudWarmUpJob();
+        } else if (stmt instanceof ShowIndexPolicyStmt) {
+            handleShowIndexPolicy();
         } else {
             handleEmtpy();
         }
@@ -140,23 +78,6 @@ public class ShowExecutor {
     private void handleEmtpy() {
         // Only success
         resultSet = new ShowResultSet(stmt.getMetaData(), EMPTY_SET);
-    }
-
-    // Handle show engines
-    private void handleShowEngines() {
-        ShowEnginesStmt showStmt = (ShowEnginesStmt) stmt;
-        List<List<String>> rowSet = Lists.newArrayList();
-        rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of Doris", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("MySQL", "YES", "MySQL server which data is in it", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("ELASTICSEARCH", "YES", "ELASTICSEARCH cluster which data is in it",
-                "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("HIVE", "YES", "HIVE database which data is in it", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("ICEBERG", "YES", "ICEBERG data lake which data is in it", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("ODBC", "YES", "ODBC driver which data we can connect", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("HUDI", "YES", "HUDI data lake which data is in it", "NO", "NO", "NO"));
-
-        // Only success
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
 
     /***
@@ -181,17 +102,6 @@ public class ShowExecutor {
             return CaseSensibility.TABLE.getCaseSensibility();
         }
         return false;
-    }
-
-    private void handleShowCreateMTMV() throws AnalysisException {
-        ShowCreateMTMVStmt showStmt = (ShowCreateMTMVStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(showStmt.getCtl())
-                .getDbOrAnalysisException(showStmt.getDb());
-        MTMV mtmv = (MTMV) db.getTableOrAnalysisException(showStmt.getTable());
-        List<List<String>> rows = Lists.newArrayList();
-        String mtmvDdl = Env.getMTMVDdl(mtmv);
-        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Handle help statement.
@@ -271,166 +181,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleShowCloudWarmUpJob() throws AnalysisException {
-        ShowCloudWarmUpStmt showStmt = (ShowCloudWarmUpStmt) stmt;
-        if (showStmt.showAllJobs()) {
-            int limit = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().MAX_SHOW_ENTRIES;
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().getAllJobInfos(limit));
-        } else {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                            ((CloudEnv) Env.getCurrentEnv())
-                                    .getCacheHotspotMgr()
-                                    .getSingleJobInfo(showStmt.getJobId()));
-        }
-    }
-
-    private void handleShowCreateLoad() throws AnalysisException {
-        ShowCreateLoadStmt showCreateLoadStmt = (ShowCreateLoadStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        String labelName = showCreateLoadStmt.getLabel();
-
-        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
-        Env env = ctx.getEnv();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showCreateLoadStmt.getDb());
-        long dbId = db.getId();
-        try {
-            List<Pair<Long, String>> result = env.getLoadManager().getCreateLoadStmt(dbId, labelName);
-            rows.addAll(result.stream().map(pair -> Lists.newArrayList(String.valueOf(pair.first), pair.second))
-                    .collect(Collectors.toList()));
-        } catch (DdlException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-        resultSet = new ShowResultSet(showCreateLoadStmt.getMetaData(), rows);
-    }
-
-    private void handleShowColumnStats() throws AnalysisException {
-        ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
-        TableIf tableIf = showColumnStatsStmt.getTable();
-        List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics = new ArrayList<>();
-        Set<String> columnNames = showColumnStatsStmt.getColumnNames();
-        PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
-        boolean showCache = showColumnStatsStmt.isCached();
-        boolean isAllColumns = showColumnStatsStmt.isAllColumns();
-        if (partitionNames != null) {
-            List<String> partNames = partitionNames.getPartitionNames() == null
-                    ? new ArrayList<>(tableIf.getPartitionNames())
-                    : partitionNames.getPartitionNames();
-            if (showCache) {
-                resultSet = showColumnStatsStmt.constructPartitionCachedColumnStats(
-                    getCachedPartitionColumnStats(columnNames, partNames, tableIf), tableIf);
-            } else {
-                List<ResultRow> partitionColumnStats =
-                        StatisticsRepository.queryColumnStatisticsByPartitions(tableIf, columnNames, partNames);
-                resultSet = showColumnStatsStmt.constructPartitionResultSet(partitionColumnStats, tableIf);
-            }
-        } else {
-            if (isAllColumns && !showCache) {
-                getStatsForAllColumns(columnStatistics, tableIf);
-            } else {
-                getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache);
-            }
-            resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
-        }
-    }
-
-    private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            TableIf tableIf) {
-        List<ResultRow> resultRows = StatisticsRepository.queryColumnStatisticsForTable(
-                tableIf.getDatabase().getCatalog().getId(), tableIf.getDatabase().getId(), tableIf.getId());
-        // row[4] is index id, row[5] is column name.
-        for (ResultRow row : resultRows) {
-            String indexName = tableIf.getName();
-            long indexId = Long.parseLong(row.get(4));
-            if (tableIf instanceof OlapTable) {
-                OlapTable olapTable = (OlapTable) tableIf;
-                indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
-            }
-            if (indexName == null) {
-                continue;
-            }
-            try {
-                columnStatistics.add(Pair.of(Pair.of(indexName, row.get(5)), ColumnStatistic.fromResultRow(row)));
-            } catch (Exception e) {
-                LOG.warn("Failed to deserialize column statistics. reason: [{}]. Row [{}]", e.getMessage(), row);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(e);
-                }
-            }
-        }
-    }
-
-    private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            Set<String> columnNames, TableIf tableIf, boolean showCache)
-            throws AnalysisException {
-        for (String colName : columnNames) {
-            // Olap base index use -1 as index id.
-            List<Long> indexIds = Lists.newArrayList();
-            if (tableIf instanceof OlapTable) {
-                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
-            } else {
-                indexIds.add(-1L);
-            }
-            for (long indexId : indexIds) {
-                String indexName = tableIf.getName();
-                if (tableIf instanceof OlapTable) {
-                    OlapTable olapTable = (OlapTable) tableIf;
-                    indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
-                }
-                if (indexName == null) {
-                    continue;
-                }
-                // Show column statistics in columnStatisticsCache.
-                ColumnStatistic columnStatistic;
-                if (showCache) {
-                    columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                } else {
-                    columnStatistic = StatisticsRepository.queryColumnStatisticsByName(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                }
-                columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
-            }
-        }
-    }
-
-    private Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> getCachedPartitionColumnStats(
-            Set<String> columnNames, List<String> partitionNames, TableIf tableIf) {
-        Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> ret = new HashMap<>();
-        long catalogId = tableIf.getDatabase().getCatalog().getId();
-        long dbId = tableIf.getDatabase().getId();
-        long tableId = tableIf.getId();
-        for (String colName : columnNames) {
-            // Olap base index use -1 as index id.
-            List<Long> indexIds = Lists.newArrayList();
-            if (tableIf instanceof OlapTable) {
-                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
-            } else {
-                indexIds.add(-1L);
-            }
-            for (long indexId : indexIds) {
-                String indexName = tableIf.getName();
-                if (tableIf instanceof OlapTable) {
-                    OlapTable olapTable = (OlapTable) tableIf;
-                    indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
-                }
-                if (indexName == null) {
-                    continue;
-                }
-                for (String partName : partitionNames) {
-                    PartitionColumnStatistic partitionStatistics = Env.getCurrentEnv().getStatisticsCache()
-                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName);
-                    ret.put(new PartitionColumnStatisticCacheKey(catalogId, dbId, tableId, indexId, partName, colName),
-                            partitionStatistics);
-                }
-            }
-        }
-        return ret;
-    }
-
     private void handleAdminDiagnoseTablet() {
         DiagnoseTabletStmt showStmt = (DiagnoseTabletStmt) stmt;
         List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
@@ -438,192 +188,10 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
-    private void handleShowAnalyze() {
-        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().findAnalysisJobs(showStmt);
-        List<List<String>> resultRows = Lists.newArrayList();
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        for (AnalysisInfo analysisInfo : results) {
-            try {
-                List<String> row = new ArrayList<>();
-                row.add(String.valueOf(analysisInfo.jobId));
-                CatalogIf<? extends DatabaseIf<? extends TableIf>> c
-                        = StatisticsUtil.findCatalog(analysisInfo.catalogId);
-                row.add(c.getName());
-                Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
-                row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
-                if (databaseIf.isPresent()) {
-                    Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                    row.add(table.isPresent() ? Util.getTempTableDisplayName(table.get().getName())
-                            : "Table may get deleted");
-                } else {
-                    row.add("DB may get deleted");
-                }
-                StringBuffer sb = new StringBuffer();
-                String colNames = analysisInfo.colName;
-                if (colNames != null) {
-                    for (String columnName : colNames.split(",")) {
-                        String[] kv = columnName.split(":");
-                        sb.append(Util.getTempTableDisplayName(kv[0]))
-                            .append(":").append(kv[1]).append(",");
-                    }
-                }
-                String newColNames = sb.toString();
-                newColNames = StringUtils.isEmpty(newColNames) ? ""
-                        : newColNames.substring(0, newColNames.length() - 1);
-                row.add(newColNames);
-                row.add(analysisInfo.jobType.toString());
-                row.add(analysisInfo.analysisType.toString());
-                row.add(analysisInfo.message);
-                row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
-                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
-                                ZoneId.systemDefault())));
-                row.add(analysisInfo.state.toString());
-                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
-                row.add(analysisInfo.scheduleType.toString());
-                LocalDateTime startTime =
-                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
-                                java.time.ZoneId.systemDefault());
-                LocalDateTime endTime =
-                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
-                                java.time.ZoneId.systemDefault());
-                row.add(startTime.format(formatter));
-                row.add(endTime.format(formatter));
-                row.add(analysisInfo.priority.name());
-                row.add(String.valueOf(analysisInfo.enablePartition));
-                resultRows.add(row);
-            } catch (Exception e) {
-                LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
-                        analysisInfo.catalogId, analysisInfo.dbId, analysisInfo.tblId, e.getMessage());
-                continue;
-            }
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
-    }
 
-    private void handleCopyTablet() throws AnalysisException {
-        AdminCopyTabletStmt copyStmt = (AdminCopyTabletStmt) stmt;
-        long tabletId = copyStmt.getTabletId();
-        long version = copyStmt.getVersion();
-        long backendId = copyStmt.getBackendId();
-
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-        if (tabletMeta == null) {
-            throw new AnalysisException("Unknown tablet: " + tabletId);
-        }
-
-        // 1. find replica
-        Replica replica = null;
-        if (backendId != -1) {
-            replica = invertedIndex.getReplica(tabletId, backendId);
-        } else {
-            List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
-            if (!replicas.isEmpty()) {
-                replica = replicas.get(0);
-            }
-        }
-        if (replica == null) {
-            throw new AnalysisException("Replica not found on backend: " + backendId);
-        }
-        backendId = replica.getBackendIdWithoutException();
-        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
-        if (be == null || !be.isAlive()) {
-            throw new AnalysisException("Unavailable backend: " + backendId);
-        }
-
-        // 2. find version
-        if (version != -1 && replica.getVersion() < version) {
-            throw new AnalysisException("Version is larger than replica max version: " + replica.getVersion());
-        }
-        version = version == -1 ? replica.getVersion() : version;
-
-        // 3. get create table stmt
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tabletMeta.getDbId());
-        OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
-        if (tbl == null) {
-            throw new AnalysisException("Failed to find table: " + tabletMeta.getTableId());
-        }
-
-        List<String> createTableStmt = Lists.newArrayList();
-        tbl.readLock();
-        try {
-            Env.getDdlStmt(tbl, createTableStmt, null, null, false, true /* hide password */, version);
-        } finally {
-            tbl.readUnlock();
-        }
-
-        // 4. create snapshot task
-        SnapshotTask task = new SnapshotTask(null, backendId, tabletId, -1, tabletMeta.getDbId(),
-                tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, version, 0,
-                copyStmt.getExpirationMinutes() * 60 * 1000, false);
-        task.setIsCopyTabletTask(true);
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(1);
-        countDownLatch.addMark(backendId, tabletId);
-        task.setCountDownLatch(countDownLatch);
-
-        // 5. send task and wait
-        AgentBatchTask batchTask = new AgentBatchTask();
-        batchTask.addTask(task);
-        try {
-            AgentTaskQueue.addBatchTask(batchTask);
-            AgentTaskExecutor.submit(batchTask);
-
-            boolean ok = false;
-            try {
-                ok = countDownLatch.await(10, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                LOG.warn("InterruptedException: ", e);
-                ok = false;
-            }
-
-            if (!ok) {
-                throw new AnalysisException(
-                        "Failed to make snapshot for tablet " + tabletId + " on backend: " + backendId);
-            }
-
-            // send result
-            List<List<String>> resultRowSet = Lists.newArrayList();
-            List<String> row = Lists.newArrayList();
-            row.add(String.valueOf(tabletId));
-            row.add(String.valueOf(backendId));
-            row.add(be.getHost());
-            row.add(task.getResultSnapshotPath());
-            row.add(String.valueOf(copyStmt.getExpirationMinutes()));
-            row.add(createTableStmt.get(0));
-            resultRowSet.add(row);
-
-            ShowResultSetMetaData showMetaData = copyStmt.getMetaData();
-            resultSet = new ShowResultSet(showMetaData, resultRowSet);
-        } finally {
-            AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
-        }
-    }
-
-    private void handleShowAnalyzeTaskStatus() {
-        ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
-        AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(showStmt.getJobId());
-        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
-        List<List<String>> rows = new ArrayList<>();
-        for (AnalysisInfo analysisInfo : analysisInfos) {
-            List<String> row = new ArrayList<>();
-            row.add(String.valueOf(analysisInfo.taskId));
-            row.add(analysisInfo.colName);
-            if (table instanceof OlapTable && analysisInfo.indexId != -1) {
-                row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
-            } else {
-                row.add(table.getName());
-            }
-            row.add(analysisInfo.message);
-            row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
-                            ZoneId.systemDefault())));
-            row.add(String.valueOf(analysisInfo.timeCostInMs));
-            row.add(analysisInfo.state.toString());
-            rows.add(row);
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    public void handleShowIndexPolicy() throws AnalysisException {
+        ShowIndexPolicyStmt showStmt = (ShowIndexPolicyStmt) stmt;
+        resultSet = Env.getCurrentEnv().getIndexPolicyMgr().showIndexPolicy(showStmt);
     }
 
     private void checkStmtSupported() throws AnalysisException {
@@ -632,8 +200,7 @@ public class ShowExecutor {
             return;
         }
 
-        if (stmt instanceof DiagnoseTabletStmt
-                || stmt instanceof AdminCopyTabletStmt) {
+        if (stmt instanceof DiagnoseTabletStmt) {
             LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
             throw new AnalysisException("Unsupported operation");
         }

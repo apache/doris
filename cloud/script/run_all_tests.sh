@@ -36,6 +36,7 @@ test=""
 fdb_conf=""
 filter=""
 ENABLE_CLANG_COVERAGE="OFF"
+COVERAGE_FORMAT=${COVERAGE_FORMAT:-html}
 if [[ $# != 1 ]]; then
     while true; do
         case "$1" in
@@ -121,13 +122,13 @@ function report_coverage() {
         binary_objects_options[${#binary_objects_options[*]}]="-object ${object}"
     done
     ${LLVM_PROFDATA:-llvm-profdata} merge -o ${profdata} ${profraw}
-    ${LLVM_COV:-llvm-cov} show -output-dir=report -format=html \
+    ${LLVM_COV:-llvm-cov} show -output-dir=report -format=${COVERAGE_FORMAT} \
         -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)' \
         -instr-profile=${profdata} \
         ${binary_objects_options[*]}
 }
 
-export LSAN_OPTIONS=suppressions=./lsan_suppression.conf
+export LSAN_OPTIONS=suppressions=./lsan_suppr.conf
 unittest_files=()
 for i in *_test; do
     [[ -e "${i}" ]] || break

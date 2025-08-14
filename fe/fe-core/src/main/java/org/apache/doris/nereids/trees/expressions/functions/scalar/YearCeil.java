@@ -80,6 +80,11 @@ public class YearCeil extends ScalarFunction
         super("year_ceil", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private YearCeil(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -88,13 +93,7 @@ public class YearCeil extends ScalarFunction
         Preconditions.checkArgument(children.size() == 1
                 || children.size() == 2
                 || children.size() == 3);
-        if (children.size() == 1) {
-            return new YearCeil(children.get(0));
-        } else if (children.size() == 2) {
-            return new YearCeil(children.get(0), children.get(1));
-        } else {
-            return new YearCeil(children.get(0), children.get(1), children.get(2));
-        }
+        return new YearCeil(getFunctionParams(children));
     }
 
     @Override

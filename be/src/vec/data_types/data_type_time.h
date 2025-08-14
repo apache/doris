@@ -64,8 +64,9 @@ public:
     MutableColumnPtr create_column() const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+    using SerDeType = DataTypeTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeTimeV2SerDe>(_scale, nesting_level);
+        return std::make_shared<SerDeType>(_scale, nesting_level);
     };
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMEV2; }
     const std::string get_family_name() const override { return "timev2"; }

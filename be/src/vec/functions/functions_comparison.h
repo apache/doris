@@ -24,6 +24,7 @@
 #include <type_traits>
 
 #include "common/logging.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -38,7 +39,6 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/functions_logical.h"
 #include "vec/runtime/vdatetime_value.h"
-//#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -568,7 +568,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -578,9 +578,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
-            //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             return Status::OK();
         }
         segment_v2::InvertedIndexQueryType query_type;
@@ -600,30 +598,34 @@ public:
         }
 
         if (segment_v2::is_range_query(query_type) &&
-            iter->get_inverted_index_reader_type() ==
-                    segment_v2::InvertedIndexReaderType::STRING_TYPE) {
+            iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE)) {
             // untokenized strings exceed ignore_above, they are written as null, causing range query errors
             return Status::OK();
         }
-        std::string column_name = data_type_with_name.first;
         Field param_value;
         arguments[0].column->get(0, param_value);
         auto param_type = arguments[0].type->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
-        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, query_param->get_value(),
-                                                       query_type, num_rows, roaring));
+
+        segment_v2::InvertedIndexParam param;
+        param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
+        param.query_value = query_param->get_value();
+        param.query_type = query_type;
+        param.num_rows = num_rows;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iter->read_from_index(&param));
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
 

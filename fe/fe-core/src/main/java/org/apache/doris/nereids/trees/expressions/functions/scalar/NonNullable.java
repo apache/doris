@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
@@ -37,6 +38,16 @@ public class NonNullable extends ScalarFunction implements UnaryExpression, Cust
         super("non_nullable", expr);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private NonNullable(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitNonNullable(this, context);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
@@ -47,6 +58,6 @@ public class NonNullable extends ScalarFunction implements UnaryExpression, Cust
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "the child expression of NonNullable should be only one");
-        return new NonNullable(children.get(0));
+        return new NonNullable(getFunctionParams(children));
     }
 }

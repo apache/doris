@@ -108,7 +108,7 @@ public class Dictionary extends Table {
     // if srcVersion same with this, we could skip automatically update.
     private long latestInvalidVersion = 0;
 
-    private List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
+    private volatile List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
     private String lastUpdateResult;
 
     // we need this to call Table's constructor with no args which construct new rwLock and more.
@@ -277,7 +277,7 @@ public class Dictionary extends Table {
             long tableVersionNow = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Dictionary " + getName() + " src's now version is " + tableVersionNow + ", old is "
-                        + srcVersion);
+                        + srcVersion + ", status is " + status.get().name());
             }
             if (tableVersionNow < srcVersion) {
                 // maybe drop and recreate. but if so, this dictionary should be dropped as well.
@@ -297,6 +297,9 @@ public class Dictionary extends Table {
 
     // when refresh success, update srcVersion.
     public void updateSrcVersion(long value) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Dictionary " + getName() + ": update srcVersion from " + srcVersion + " to " + value);
+        }
         srcVersion = value;
     }
 
@@ -387,6 +390,10 @@ public class Dictionary extends Table {
         return "{" + StringUtils.join(dataDistributions, ", ") + "}";
     }
 
+    public void setDataDistributions(List<DictionaryDistribution> dataDistributions) {
+        this.dataDistributions = dataDistributions;
+    }
+
     public List<DictionaryDistribution> getDataDistributions() {
         return dataDistributions;
     }
@@ -423,7 +430,8 @@ public class Dictionary extends Table {
         if (dataDistributions == null || dataDistributions.isEmpty()) {
             // only called when do partial load. it bases on collection of data distributions.
             // so dataDistributions should not be null.
-            LOG.warn("dataDistributions of " + getName() + " is null or empty. should not happen");
+            LOG.warn("dataDistributions of " + getName() + " is " + (dataDistributions == null ? "null" : "empty")
+                    + ". should not happen");
             return backends;
         }
         Set<Long> validBEs = Sets.newHashSet();

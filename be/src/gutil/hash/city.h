@@ -20,23 +20,22 @@
 
 #pragma once
 
-#include <stddef.h> // for size_t.
-
-#include "gutil/integral_types.h"
+#include <cstddef>
+#include <cstdint>
 
 // WARNING
-// The implementation of cityhash in this file is somewhat different from Google's original version. 
+// The implementation of cityhash in this file is somewhat different from Google's original version.
 // For the same input, there will be different output results.
 // Therefore, we should do not to use this special cityhash as possible as we can.
-namespace util_hash {
+namespace doris::util_hash {
 
-uint64 HashLen16(uint64 u, uint64 v);
+uint64_t HashLen16(uint64_t u, uint64_t v);
 
 // Hash function for a byte array.
 // The mapping may change from time to time.
-uint64 CityHash64(const char* buf, size_t len);
+uint64_t CityHash64(const char* buf, size_t len);
 
 // Hash function for a byte array.  For convenience, a 64-bit seed is also
 // hashed into the result.  The mapping may change from time to time.
-uint64 CityHash64WithSeed(const char* buf, size_t len, uint64 seed);
-} // namespace util_hash
+uint64_t CityHash64WithSeed(const char* buf, size_t len, uint64_t seed);
+} // namespace doris::util_hash

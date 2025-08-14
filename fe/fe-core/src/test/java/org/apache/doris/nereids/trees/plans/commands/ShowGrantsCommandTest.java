@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -27,14 +25,13 @@ import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -43,8 +40,6 @@ import java.util.Optional;
 
 public class ShowGrantsCommandTest extends TestWithFeService {
     private Auth auth;
-    @Mocked
-    private Analyzer analyzer;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -52,25 +47,17 @@ public class ShowGrantsCommandTest extends TestWithFeService {
         connectContext.setDatabase("test");
     }
 
-    public void createUser(String user, String host) {
+    public void createUser(String user, String host) throws Exception {
         auth = Env.getCurrentEnv().getAuth();
         TablePattern tablePattern1 = new TablePattern("test", "*");
         List<AccessPrivilegeWithCols> privileges1 = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
         UserIdentity user1 = new UserIdentity(user, host);
         UserDesc userDesc = new UserDesc(user1, "12345", true);
-        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
-        try {
-            createUserStmt.analyze(analyzer);
-        } catch (UserException e) {
-            e.printStackTrace();
-        }
 
-        try {
-            auth.createUser(createUserStmt);
-        } catch (DdlException e) {
-            e.printStackTrace();
-        }
+        CreateUserCommand createUserCommand = new CreateUserCommand(new CreateUserInfo(userDesc));
+        createUserCommand.getInfo().validate();
+        auth.createUser(createUserCommand.getInfo());
 
         GrantTablePrivilegeCommand grantTablePrivilegeCommand = new GrantTablePrivilegeCommand(privileges1, tablePattern1, Optional.of(user1), Optional.empty());
         try {
@@ -98,5 +85,22 @@ public class ShowGrantsCommandTest extends TestWithFeService {
         Assertions.assertEquals("'aaa'@'192.168.%'", results.get(1).get(0));
         int size = results.size();
         Assertions.assertEquals("'zzz'@'%'", results.get(size - 1).get(0));
+    }
+
+    @Test
+    void testNonExistUser() {
+        ConnectContext ctx = ConnectContext.get();
+        UserIdentity nonExistUser = UserIdentity.createAnalyzedUserIdentWithIp("non_exist_user", "%");
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            ShowGrantsCommand sg = new ShowGrantsCommand(nonExistUser, false);
+            sg.doRun(ctx, null);
+        });
+
+        ctx.setIsTempUser(true);
+        ctx.setCurrentUserIdentity(nonExistUser);
+        Assertions.assertDoesNotThrow(() -> {
+            ShowGrantsCommand sg = new ShowGrantsCommand(null, false);
+            sg.doRun(ctx, null);
+        });
     }
 }

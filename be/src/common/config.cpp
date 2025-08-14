@@ -246,7 +246,7 @@ DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for agent report disk state to FE
-DEFINE_mInt32(report_disk_state_interval_seconds, "60");
+DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
 // the max download speed(KB/s)
@@ -261,6 +261,8 @@ DEFINE_mBool(enable_batch_download, "true");
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
 DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
+// the interval time(seconds) for agent report index policy to FE
+DEFINE_mInt32(report_index_policy_interval_seconds, "10");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -291,6 +293,31 @@ DEFINE_Int32(be_service_threads, "64");
 // The pipeline task has a high concurrency, therefore reducing its report frequency
 DEFINE_mInt32(pipeline_status_report_interval, "10");
 DEFINE_mInt32(pipeline_task_exec_time_slice, "100");
+
+// task executor min concurrency per task
+DEFINE_Int32(task_executor_min_concurrency_per_task, "1");
+// task executor max concurrency per task
+DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
+DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) -> bool {
+    if (config == -1) {
+        task_executor_max_concurrency_per_task = std::numeric_limits<int>::max();
+    }
+    return true;
+});
+// task task executor inital split max concurrency per task, later concurrency may be adjusted dynamically
+DEFINE_Int32(task_executor_initial_max_concurrency_per_task, "-1");
+DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        task_executor_initial_max_concurrency_per_task = std::max(48, CpuInfo::num_cores() * 2);
+    }
+    return true;
+});
+// Enable task executor in internal table scan.
+DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+// Enable task executor in external table scan.
+DEFINE_Bool(enable_task_executor_in_external_table, "true");
+
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
@@ -308,7 +335,6 @@ DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
-DEFINE_mInt32(fetch_rpc_timeout_seconds, "30");
 
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
@@ -427,6 +453,7 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
 DEFINE_mInt64(base_compaction_max_compaction_score, "20");
+DEFINE_mInt64(mow_base_compaction_max_compaction_score, "200");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
@@ -615,7 +642,7 @@ DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_min, "16");
-DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "512");
+DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "2048");
 DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
@@ -659,6 +686,8 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
+
+DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
 
@@ -992,7 +1021,6 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
@@ -1044,11 +1072,10 @@ DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
 // Global segcompaction thread pool size.
 DEFINE_mInt32(segcompaction_num_threads, "5");
 
+DEFINE_mInt32(segcompaction_wait_for_dbm_task_timeout_s, "3600"); // 1h
+
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
-
-// enable prefetch tablets before opening
-DEFINE_mBool(enable_prefetch_tablet, "true");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
@@ -1061,9 +1088,9 @@ DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Whether use schema dict in backend side instead of MetaService side(cloud mode)
 DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
-DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
+DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -1104,13 +1131,28 @@ DEFINE_mBool(enbale_dump_error_file, "false");
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
 DEFINE_mInt64(cache_lock_wait_long_tail_threshold_us, "30000000");
 DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
+
+// enable_file_cache_keep_base_compaction_output true means force base compaction output rowsets
+// write to file cache, enable_file_cache_adaptive_write true means when file cache is enough, it
+// will write to file cache; satisfying any of the two conditions will write to file cache.
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
+DEFINE_mBool(enable_file_cache_adaptive_write, "true");
+
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
+DEFINE_mInt64(file_cache_background_lru_dump_interval_ms, "60000");
+// dump queue only if the queue update specific times through several dump intervals
+DEFINE_mInt64(file_cache_background_lru_dump_update_cnt_threshold, "1000");
+DEFINE_mInt64(file_cache_background_lru_dump_tail_record_num, "5000000");
+DEFINE_mInt64(file_cache_background_lru_log_replay_interval_ms, "1000");
+DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
+
+DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
+DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1173,6 +1215,7 @@ DEFINE_Int32(segment_cache_capacity, "-1");
 DEFINE_Int32(segment_cache_fd_percentage, "20");
 DEFINE_mInt32(estimated_mem_per_column_reader, "512");
 DEFINE_Int32(segment_cache_memory_percentage, "5");
+DEFINE_Bool(enable_segment_cache_prune, "true");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1196,6 +1239,9 @@ DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 // Deprecated
 DEFINE_mInt32(kerberos_refresh_interval_second, "43200");
+
+// JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
+DEFINE_mBool(jdk_process_reaper_use_default_stack_size, "true");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1285,8 +1331,6 @@ DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
 
-DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
-
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
@@ -1304,6 +1348,8 @@ DEFINE_mInt32(buffered_reader_read_timeout_ms, "600000");
 DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
+
+DEFINE_mInt32(variant_max_sparse_column_statistics_size, "10000");
 
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
@@ -1458,7 +1504,7 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // If set to false, the parquet reader will not use page index to filter data.
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
-DEFINE_mBool(enable_parquet_page_index, "false");
+DEFINE_mBool(enable_parquet_page_index, "true");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
@@ -1488,7 +1534,12 @@ DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "4");
+// The number of compaction tasks generated each time.
+// -1 means automatic number, other values mean fixed number.
+DEFINE_mInt32(compaction_num_per_round, "-1");
+// Max automatic compaction task generated num per round.
+// Only valid if "compaction_num_per_round = 0"
+DEFINE_mInt32(max_automatic_compaction_num_per_round, "64");
 
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
@@ -1506,6 +1557,11 @@ DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
 DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
+DEFINE_mBool(enable_quorum_success_write, "true");
+DEFINE_mDouble(quorum_success_max_wait_multiplier, "0.2");
+DEFINE_mInt64(quorum_success_min_wait_seconds, "60");
+DEFINE_mInt32(quorum_success_remaining_timeout_seconds, "30");
+
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
@@ -1515,6 +1571,15 @@ DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+// p0, daily, rqg, external
+DEFINE_String(fuzzy_test_type, "");
+
+DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
+
+DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
+
+// The maximum number of threads supported when executing LLMFunction
+DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1955,6 +2020,8 @@ Status set_fuzzy_configs() {
     // if have set enable_fuzzy_mode=true in be.conf, will fuzzy those field and values
     fuzzy_field_and_value["disable_storage_page_cache"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["disable_segment_cache"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_system_metrics"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_set_in_bitmap_value"] =
@@ -1967,6 +2034,39 @@ Status set_fuzzy_configs() {
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
             std::to_string(distribution2(*generator));
+
+    // external
+    if (config::fuzzy_test_type == "external") {
+        std::uniform_int_distribution<int64_t> distribution3(0, 2);
+
+        int64_t idx = distribution3(*generator);
+        fuzzy_field_and_value["max_hdfs_file_handle_cache_num"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "20000");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_hdfs_file_handle_cache_time_sec"] =
+                (idx == 0) ? "1" : ((idx == 1) ? "10" : "28800");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_external_file_meta_cache_num"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "1000");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["common_obj_lru_cache_stale_sweep_time_sec"] =
+                (idx == 0) ? "0" : ((idx == 1) ? "10" : "900");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["max_amplified_read_ratio"] =
+                (idx == 0) ? "0.1" : ((idx == 1) ? "0.8" : "1");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["merged_oss_min_io_size"] =
+                (idx == 0) ? "4096" : ((idx == 1) ? "8192" : "1048576");
+
+        idx = distribution3(*generator);
+        fuzzy_field_and_value["merged_hdfs_min_io_size"] =
+                (idx == 0) ? "4096" : ((idx == 1) ? "8192" : "1048576");
+    }
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {

@@ -20,6 +20,8 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <stdint.h>
 
+#include <cstddef>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -34,6 +36,8 @@
 #include "olap/tablet.h"
 #include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exec/scan/scanner.h"
 
 namespace doris {
@@ -77,13 +81,13 @@ public:
 
     doris::TabletStorageType get_storage_type() override;
 
+    void update_realtime_counters() override;
+
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     void _collect_profile_before_close() override;
 
 private:
-    void _update_realtime_counters();
-
     Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
                                       const std::vector<FilterOlapParam<TCondition>>& filters,
                                       const pipeline::FilterPredicates& filter_predicates,
@@ -97,8 +101,23 @@ private:
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
 
-    std::vector<uint32_t> _return_columns;
+public:
+    std::vector<ColumnId> _return_columns;
+
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
+
+    // This three fields are copied from OlapScanLocalState.
+    std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
+    std::map<SlotId, size_t> _slot_id_to_index_in_block;
+    std::map<SlotId, vectorized::DataTypePtr> _slot_id_to_col_type;
+
+    // ColumnId of virtual column to its expr context
+    std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
+    // ColumnId of virtual column to its index in block
+    std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
+    // The idx of vir_col in block to its data type.
+    std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
+    std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
 };
 } // namespace vectorized
 } // namespace doris

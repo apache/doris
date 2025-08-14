@@ -98,6 +98,43 @@ void RuntimeProfileCounterTreeNode::to_thrift(
     }
 }
 
+void RuntimeProfileCounterTreeNode::to_proto(
+        google::protobuf::RepeatedPtrField<PProfileCounter>* proto_counters,
+        google::protobuf::Map<std::string, PProfileChildCounterSet>* child_counter_map) const {
+    if (name != RuntimeProfile::ROOT_COUNTER && counter != nullptr) {
+        if (auto* highWaterMarkCounter =
+                    dynamic_cast<RuntimeProfile::HighWaterMarkCounter*>(counter)) {
+            // Convert both current and peak values
+            *proto_counters->Add() = highWaterMarkCounter->to_proto(name);
+            *proto_counters->Add() = highWaterMarkCounter->to_proto_peak(name + "Peak");
+
+            (*(*child_counter_map)[highWaterMarkCounter->parent_name()].mutable_child_counters())
+                    .Add(name + "Peak");
+
+        } else if (auto* nonZeroCounter = dynamic_cast<RuntimeProfile::NonZeroCounter*>(counter)) {
+            if (nonZeroCounter->value() > 0) {
+                *proto_counters->Add() = to_proto();
+            } else {
+                // Skip zero-valued counter and remove from parent's child map
+                auto it = child_counter_map->find(nonZeroCounter->parent_name());
+                if (it != child_counter_map->end()) {
+                    auto* set = it->second.mutable_child_counters();
+                    auto remove_it = std::find(set->begin(), set->end(), name);
+                    if (remove_it != set->end()) set->erase(remove_it);
+                }
+                return;
+            }
+        } else {
+            *proto_counters->Add() = to_proto();
+        }
+    }
+
+    for (const auto& child : children) {
+        (*child_counter_map)[name].add_child_counters(child.name);
+        child.to_proto(proto_counters, child_counter_map);
+    }
+}
+
 TCounter RuntimeProfileCounterTreeNode::to_thrift() const {
     TCounter tcounter;
     if (counter != nullptr) {
@@ -107,4 +144,17 @@ TCounter RuntimeProfileCounterTreeNode::to_thrift() const {
     }
     return tcounter;
 }
+
+PProfileCounter RuntimeProfileCounterTreeNode::to_proto() const {
+    PProfileCounter pcounter;
+
+    if (counter != nullptr) {
+        pcounter = counter->to_proto(name);
+    } else {
+        pcounter.set_name(name);
+    }
+
+    return pcounter;
+}
+
 } // namespace doris

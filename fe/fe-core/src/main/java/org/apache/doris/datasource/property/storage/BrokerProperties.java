@@ -62,7 +62,7 @@ public class BrokerProperties extends StorageProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         this.brokerParams = new HashMap<>(origProps);
         //why need this convert
@@ -87,5 +87,10 @@ public class BrokerProperties extends StorageProperties {
     @Override
     public String getStorageName() {
         return "BROKER";
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        // do nothing
     }
 }

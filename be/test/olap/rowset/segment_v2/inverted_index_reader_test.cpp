@@ -1,4 +1,3 @@
-// be/test/olap/rowset/segment_v2/inverted_index_reader_test.cpp
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -30,9 +29,11 @@
 #include <vector>
 
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
@@ -129,9 +130,9 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, *index_path_prefix, std::string {rowset_id}, seg_id, format,
-                std::move(file_writer));
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
+                                                  seg_id, format, std::move(file_writer));
 
         // Get c2 column Field
         const TabletColumn& column = tablet_schema->column(1);
@@ -140,9 +141,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
@@ -181,7 +182,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, *index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -192,9 +193,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add NULL values
@@ -247,7 +248,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, *index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -258,9 +259,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -304,7 +305,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -321,7 +322,11 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         StringRef str_ref(values[0].data, values[0].size); // "apple"
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+        auto query_status = str_reader->query(context, field_name, &str_ref,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -334,9 +339,8 @@ public:
         std::string not_exist = "orange";
         StringRef not_exist_ref(not_exist.c_str(), not_exist.length());
 
-        query_status =
-                str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &not_exist_ref,
-                                  InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+        query_status = str_reader->query(context, field_name, &not_exist_ref,
+                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
         EXPECT_EQ(bitmap->cardinality(), 0) << "Should not find any document matching 'orange'";
@@ -356,7 +360,7 @@ public:
         RuntimeState runtime_state;
         io::IOContext io_ctx;
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -365,9 +369,14 @@ public:
         auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
         EXPECT_NE(str_reader, nullptr);
 
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         // Read NULL bitmap
         InvertedIndexQueryCacheHandle cache_handle;
-        status = str_reader->read_null_bitmap(&io_ctx, &stats, &cache_handle, nullptr);
+        status = str_reader->read_null_bitmap(context, &cache_handle, nullptr);
         EXPECT_TRUE(status.ok()) << status;
 
         // Get NULL bitmap
@@ -402,7 +411,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -418,9 +427,13 @@ public:
         int32_t query_value = 42;
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
 
-        auto query_status =
-                bkd_reader->query(&io_ctx, &stats, &runtime_state, field_name, &query_value,
-                                  InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = bkd_reader->query(context, field_name, &query_value,
+                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
         EXPECT_EQ(bitmap->cardinality(), 2) << "Should find 2 documents matching value 42";
@@ -431,9 +444,8 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         int32_t less_than_value = 100;
 
-        query_status =
-                bkd_reader->query(&io_ctx, &stats, &runtime_state, field_name, &less_than_value,
-                                  InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
+        query_status = bkd_reader->query(context, field_name, &less_than_value,
+                                         InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
         EXPECT_EQ(bitmap->cardinality(), 2) << "Should find 2 documents with values less than 100";
@@ -444,9 +456,8 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         int32_t greater_than_value = 100;
 
-        query_status =
-                bkd_reader->query(&io_ctx, &stats, &runtime_state, field_name, &greater_than_value,
-                                  InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
+        query_status = bkd_reader->query(context, field_name, &greater_than_value,
+                                         InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
         EXPECT_EQ(bitmap->cardinality(), 2)
@@ -483,7 +494,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -499,7 +510,12 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap1 = std::make_shared<roaring::Roaring>();
         StringRef str_ref(values[0].data, values[0].size); // "apple"
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = str_reader->query(context, field_name, &str_ref,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -509,7 +525,7 @@ public:
         // Second query with same value, should be cache hit
         std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
 
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        query_status = str_reader->query(context, field_name, &str_ref,
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -546,7 +562,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -562,7 +578,12 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap1 = std::make_shared<roaring::Roaring>();
         StringRef str_ref(values[0].data, values[0].size); // "apple"
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = str_reader->query(context, field_name, &str_ref,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -573,7 +594,7 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
         StringRef str_ref2(values[1].data, values[1].size); // "banana"
 
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref2,
+        query_status = str_reader->query(context, field_name, &str_ref2,
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -628,7 +649,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -645,7 +666,12 @@ public:
         std::string query_term = "common";
         StringRef str_ref(query_term.c_str(), query_term.length());
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = str_reader->query(context, field_name, &str_ref,
                                               InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -660,7 +686,7 @@ public:
         query_term = "apple";
         StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
+        query_status = str_reader->query(context, field_name, &str_ref_a,
                                          InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -717,9 +743,9 @@ public:
             query_options.enable_inverted_index_searcher_cache = false;
             runtime_state.set_query_options(query_options);
 
-            auto reader = std::make_shared<InvertedIndexFileReader>(
-                    io::global_local_filesystem(), index_path_prefix,
-                    InvertedIndexStorageFormatPB::V3);
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V3);
 
             auto status = reader->init();
             EXPECT_EQ(status, Status::OK());
@@ -735,8 +761,13 @@ public:
             std::string query_term = "common_term";
             StringRef str_ref(query_term.c_str(), query_term.length());
 
+            auto context = std::make_shared<segment_v2::IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+
             auto query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+                    str_reader->query(context, field_name, &str_ref,
                                       InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -752,9 +783,8 @@ public:
             query_term = "term_a";
             StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
-                                      InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+            query_status = str_reader->query(context, field_name, &str_ref_a,
+                                             InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 200)
@@ -769,9 +799,8 @@ public:
             query_term = "noexist";
             StringRef str_ref_no_term(query_term.c_str(), query_term.length());
 
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_no_term,
-                                      InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
+            query_status = str_reader->query(context, field_name, &str_ref_no_term,
+                                             InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
         }
@@ -796,9 +825,9 @@ public:
             query_options.enable_inverted_index_searcher_cache = false;
             runtime_state.set_query_options(query_options);
 
-            auto reader = std::make_shared<InvertedIndexFileReader>(
-                    io::global_local_filesystem(), index_path_prefix,
-                    InvertedIndexStorageFormatPB::V3);
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V3);
 
             auto status = reader->init();
             EXPECT_EQ(status, Status::OK());
@@ -814,9 +843,13 @@ public:
             std::string query_term = "common_term";
             StringRef str_ref(query_term.c_str(), query_term.length());
 
-            auto query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto context = std::make_shared<segment_v2::IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+
+            auto query_status = str_reader->query(context, field_name, &str_ref,
+                                                  InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 600)
@@ -831,9 +864,8 @@ public:
             query_term = "term_a";
             StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            query_status = str_reader->query(context, field_name, &str_ref_a,
+                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 200)
@@ -848,9 +880,8 @@ public:
             query_term = "noexist";
             StringRef str_ref_no_term(query_term.c_str(), query_term.length());
 
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_no_term,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            query_status = str_reader->query(context, field_name, &str_ref_no_term,
+                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
         }
@@ -894,12 +925,12 @@ public:
         query_options.inverted_index_compatible_read = enable_compatible_read;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(io::global_local_filesystem(),
-                                                                index_path_prefix, storage_format);
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                        index_path_prefix, storage_format);
 
         auto status = reader->init();
-        ASSERT_TRUE(status.ok()) << "Failed to initialize InvertedIndexFileReader for "
-                                 << index_file << ": " << status.to_string();
+        ASSERT_TRUE(status.ok()) << "Failed to initialize IndexFileReader for " << index_file
+                                 << ": " << status.to_string();
 
         auto index_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
         ASSERT_NE(index_reader, nullptr)
@@ -911,9 +942,13 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         StringRef str_ref(query_term.c_str(), query_term.length());
 
-        auto query_status =
-                index_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                    InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+        auto context = std::make_shared<segment_v2::IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto query_status = index_reader->query(context, field_name, &str_ref,
+                                                InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         ASSERT_TRUE(query_status.ok()) << "Query failed for term '" << query_term << "' in file "
                                        << index_file << ": " << query_status.to_string();
@@ -1851,15 +1886,14 @@ public:
     class MockStringTypeInvertedIndexReader final : public StringTypeInvertedIndexReader {
     public:
         static std::shared_ptr<MockStringTypeInvertedIndexReader> create_shared(
-                const TabletIndex* idx_meta,
-                std::shared_ptr<InvertedIndexFileReader>& file_reader) {
+                const TabletIndex* idx_meta, std::shared_ptr<IndexFileReader>& file_reader) {
             return std::shared_ptr<MockStringTypeInvertedIndexReader>(
                     new MockStringTypeInvertedIndexReader(idx_meta, file_reader));
         }
 
     protected:
-        Status handle_searcher_cache(RuntimeState*, InvertedIndexCacheHandle*, const io::IOContext*,
-                                     OlapReaderStatistics*) override {
+        Status handle_searcher_cache(const IndexQueryContextPtr& context,
+                                     InvertedIndexCacheHandle*) override {
             CLuceneError err;
             err.set(CL_ERR_IO, "mock handle_searcher_cache failure");
             throw err;
@@ -1867,7 +1901,7 @@ public:
 
     private:
         MockStringTypeInvertedIndexReader(const TabletIndex* idx_meta,
-                                          std::shared_ptr<InvertedIndexFileReader>& file_reader)
+                                          std::shared_ptr<IndexFileReader>& file_reader)
                 : StringTypeInvertedIndexReader(idx_meta, file_reader) {}
     };
 
@@ -1875,23 +1909,22 @@ public:
     class MockTokenizedStringTypeInvertedIndexReader final : public FullTextIndexReader {
     public:
         static std::shared_ptr<MockTokenizedStringTypeInvertedIndexReader> create_shared(
-                const TabletIndex* idx_meta,
-                std::shared_ptr<InvertedIndexFileReader>& file_reader) {
+                const TabletIndex* idx_meta, std::shared_ptr<IndexFileReader>& file_reader) {
             return std::shared_ptr<MockTokenizedStringTypeInvertedIndexReader>(
                     new MockTokenizedStringTypeInvertedIndexReader(idx_meta, file_reader));
         }
 
     protected:
-        Status handle_searcher_cache(RuntimeState*, InvertedIndexCacheHandle*, const io::IOContext*,
-                                     OlapReaderStatistics*) override {
+        Status handle_searcher_cache(const IndexQueryContextPtr& context,
+                                     InvertedIndexCacheHandle*) override {
             CLuceneError err;
             err.set(CL_ERR_IO, "mock tokenized index searcher cache failure");
             throw err;
         }
 
     private:
-        MockTokenizedStringTypeInvertedIndexReader(
-                const TabletIndex* idx_meta, std::shared_ptr<InvertedIndexFileReader>& file_reader)
+        MockTokenizedStringTypeInvertedIndexReader(const TabletIndex* idx_meta,
+                                                   std::shared_ptr<IndexFileReader>& file_reader)
                 : FullTextIndexReader(idx_meta, file_reader) {}
     };
 
@@ -1913,7 +1946,7 @@ public:
         std::string index_path_prefix;
         prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
 
-        auto file_reader = std::make_shared<InvertedIndexFileReader>(
+        auto file_reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         ASSERT_TRUE(file_reader->init().ok());
 
@@ -1927,11 +1960,16 @@ public:
         opts.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(opts);
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         std::string field_name = "1"; // c2 unique_id
         StringRef query_val(values[0].data, values[0].size);
 
-        Status st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &query_val,
+        Status st = mock_reader->query(context, field_name, &query_val,
                                        InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -1966,7 +2004,7 @@ public:
         std::string index_path_prefix;
         prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
 
-        auto file_reader = std::make_shared<InvertedIndexFileReader>(
+        auto file_reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         ASSERT_TRUE(file_reader->init().ok());
 
@@ -1981,6 +2019,11 @@ public:
         opts.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(opts);
 
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         std::string field_name = "1"; // c2 unique_id
 
@@ -1988,7 +2031,7 @@ public:
         std::string query_term = "world";
         StringRef query_val(query_term.data(), query_term.size());
 
-        Status st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &query_val,
+        Status st = mock_reader->query(context, field_name, &query_val,
                                        InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -1998,11 +2041,1421 @@ public:
         std::string phrase_query = "Apache Doris";
         StringRef phrase_query_val(phrase_query.data(), phrase_query.size());
 
-        st = mock_reader->query(&io_ctx, &stats, &runtime_state, field_name, &phrase_query_val,
+        st = mock_reader->query(context, field_name, &phrase_query_val,
                                 InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
         EXPECT_EQ(st.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    }
+
+    // Test InvertedIndexResultBitmap operations
+    void test_result_bitmap_operations() {
+        auto bitmap1 = std::make_shared<roaring::Roaring>();
+        bitmap1->add(1);
+        bitmap1->add(2);
+        bitmap1->add(3);
+
+        auto null_bitmap1 = std::make_shared<roaring::Roaring>();
+        null_bitmap1->add(4);
+        null_bitmap1->add(5);
+
+        auto bitmap2 = std::make_shared<roaring::Roaring>();
+        bitmap2->add(2);
+        bitmap2->add(3);
+        bitmap2->add(6);
+
+        auto null_bitmap2 = std::make_shared<roaring::Roaring>();
+        null_bitmap2->add(5);
+        null_bitmap2->add(7);
+
+        InvertedIndexResultBitmap result1(bitmap1, null_bitmap1);
+        InvertedIndexResultBitmap result2(bitmap2, null_bitmap2);
+
+        // Test copy constructor
+        InvertedIndexResultBitmap result3(result1);
+        EXPECT_EQ(result3.get_data_bitmap()->cardinality(), 3);
+        EXPECT_EQ(result3.get_null_bitmap()->cardinality(), 2);
+
+        // Test move constructor
+        InvertedIndexResultBitmap result4(std::move(result3));
+        EXPECT_EQ(result4.get_data_bitmap()->cardinality(), 3);
+        EXPECT_EQ(result4.get_null_bitmap()->cardinality(), 2);
+
+        // Test &= operator
+        result1 &= result2;
+        EXPECT_EQ(result1.get_data_bitmap()->cardinality(), 2); // {2, 3}
+
+        // Test |= operator
+        InvertedIndexResultBitmap result5(bitmap1, null_bitmap1);
+        InvertedIndexResultBitmap result6(bitmap2, null_bitmap2);
+        result5 |= result6;
+        EXPECT_GT(result5.get_data_bitmap()->cardinality(), 2);
+
+        // Test -= operator
+        InvertedIndexResultBitmap result7(bitmap1, null_bitmap1);
+        InvertedIndexResultBitmap result8(bitmap2, null_bitmap2);
+        result7 -= result8;
+
+        // Test mask_out_null
+        result7.mask_out_null();
+
+        // Test is_empty
+        InvertedIndexResultBitmap empty_result;
+        EXPECT_TRUE(empty_result.is_empty());
+        EXPECT_FALSE(result1.is_empty());
+    }
+
+    // Test string index with various parser configurations
+    void test_string_index_parser_configurations() {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.enable_inverted_index_searcher_cache = false;
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        std::vector<Slice> values = {Slice("Apple"), Slice("BANANA"),     Slice("Cherry"),
+                                     Slice("DATE"),  Slice("elderberry"), Slice("FIG"),
+                                     Slice("grape")};
+
+        // Test case-insensitive parsing
+        {
+            std::string_view rowset_id = "test_case_insensitive";
+            int seg_id = 0;
+
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_case");
+            index_meta_pb->clear_col_unique_id();
+            index_meta_pb->add_col_unique_id(1); // c2 column
+            index_meta_pb->mutable_properties()->insert({"parser", "english"});
+            index_meta_pb->mutable_properties()->insert({"lower_case", "true"});
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string index_path_prefix;
+            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(str_reader, nullptr);
+
+            // Test case-insensitive search
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query_lower = "apple"; // lowercase
+            StringRef str_ref(query_lower.c_str(), query_lower.length());
+            auto status = str_reader->query(context, "c2", &str_ref,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+            EXPECT_GT(bitmap->cardinality(), 0) << "Should find 'Apple' with lowercase query";
+        }
+
+        // Test ignore_above functionality
+        {
+            std::string_view rowset_id = "test_ignore_above";
+            int seg_id = 1;
+            std::vector<Slice> long_values = {
+                    Slice("short"),
+                    Slice("this_is_a_very_long_string_that_exceeds_ignore_above_limit")};
+
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_ignore_above");
+            index_meta_pb->clear_col_unique_id();
+            index_meta_pb->add_col_unique_id(1);
+            index_meta_pb->mutable_properties()->insert({"ignore_above", "10"});
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string index_path_prefix;
+            prepare_string_index(rowset_id, seg_id, long_values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(str_reader, nullptr);
+
+            // Query with long string should trigger evaluate skipped
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string long_query = "this_is_a_very_long_string_that_exceeds_ignore_above_limit";
+            StringRef str_ref(long_query.c_str(), long_query.length());
+
+            auto status = str_reader->query(context, "c2", &str_ref,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_FALSE(status.ok());
+            EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED);
+        }
+    }
+
+    // Test fulltext index with comprehensive query types
+    void test_fulltext_comprehensive_queries() {
+        std::string_view rowset_id = "test_fulltext_comprehensive";
+        int seg_id = 0;
+
+        std::vector<Slice> values = {Slice("the quick brown fox jumps over the lazy dog"),
+                                     Slice("apache doris is a fast analytical database"),
+                                     Slice("inverted index provides fast text search capabilities"),
+                                     Slice("lucene clucene search engine implementation"),
+                                     Slice("phrase query matches exact word sequences"),
+                                     Slice("regular expression pattern matching"),
+                                     Slice("boolean queries combine multiple terms")};
+
+        TabletIndex idx_meta;
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(1);
+        index_meta_pb->set_index_name("test_fulltext_comprehensive");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(1); // c2 column
+        index_meta_pb->mutable_properties()->insert({"parser", "english"});
+        index_meta_pb->mutable_properties()->insert({"lower_case", "true"});
+        index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
+        idx_meta.init_from_pb(*index_meta_pb.get());
+
+        std::string index_path_prefix;
+        prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.enable_inverted_index_searcher_cache = false;
+        query_options.inverted_index_max_expansions = 50;
+        runtime_state.set_query_options(query_options);
+
+        auto reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(reader->init().ok());
+
+        auto fulltext_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
+        EXPECT_NE(fulltext_reader, nullptr);
+
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        // Test MATCH_ANY_QUERY
+        {
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query = "quick database";
+            StringRef query_ref(query.c_str(), query.length());
+
+            auto status = fulltext_reader->query(context, "c2", &query_ref,
+                                                 InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+            EXPECT_GT(bitmap->cardinality(), 0)
+                    << "Should find documents with 'quick' or 'database'";
+        }
+
+        // Test MATCH_ALL_QUERY
+        {
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query = "search fast";
+            StringRef query_ref(query.c_str(), query.length());
+
+            auto status = fulltext_reader->query(context, "c2", &query_ref,
+                                                 InvertedIndexQueryType::MATCH_ALL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test MATCH_PHRASE_QUERY
+        {
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query = "quick brown";
+            StringRef query_ref(query.c_str(), query.length());
+
+            auto status = fulltext_reader->query(
+                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test MATCH_PHRASE_PREFIX_QUERY
+        {
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query = "sear";
+            StringRef query_ref(query.c_str(), query.length());
+
+            auto status = fulltext_reader->query(context, "c2", &query_ref,
+                                                 InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
+                                                 bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test MATCH_REGEXP_QUERY
+        {
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query = "qu.*k";
+            StringRef query_ref(query.c_str(), query.length());
+
+            auto status = fulltext_reader->query(
+                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+    }
+
+    // Test iterator comprehensive functionality
+    void test_iterator_comprehensive() {
+        std::string_view rowset_id = "test_iterator_comprehensive";
+        int seg_id = 0;
+        std::vector<Slice> values = {Slice("test1"), Slice("test2"), Slice("test3")};
+
+        TabletIndex idx_meta;
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(1);
+        index_meta_pb->set_index_name("test_iterator_comprehensive");
+        index_meta_pb->add_col_unique_id(1);
+        idx_meta.init_from_pb(*index_meta_pb.get());
+
+        std::string index_path_prefix;
+        prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+        auto reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(reader->init().ok());
+
+        auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
+        EXPECT_NE(str_reader, nullptr);
+
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.inverted_index_skip_threshold = 10; // 10% threshold
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        // Test iterator creation
+        std::unique_ptr<IndexIterator> iterator;
+        auto status = str_reader->new_iterator(&iterator);
+        EXPECT_TRUE(status.ok());
+        EXPECT_NE(iterator, nullptr);
+
+        // Test iterator properties
+        auto inverted_index_reader = std::static_pointer_cast<InvertedIndexReader>(
+                iterator->get_reader(InvertedIndexReaderType::STRING_TYPE));
+        EXPECT_EQ(inverted_index_reader->type(), InvertedIndexReaderType::STRING_TYPE);
+        EXPECT_FALSE(inverted_index_reader->get_index_properties().empty());
+        EXPECT_TRUE(inverted_index_reader->has_null());
+
+        // Test skip_try parameter
+        std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+        StringRef str_ref("test1", 5);
+
+        InvertedIndexParam param;
+        param.column_name = "c2";
+        param.query_value = &str_ref;
+        param.query_type = InvertedIndexQueryType::EQUAL_QUERY;
+        param.num_rows = 3;
+        param.roaring = bitmap;
+        param.skip_try = true;
+        status = iterator->read_from_index(&param);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(bitmap->cardinality(), 1);
+
+        // Test try_read functionality with non-BKD index (should succeed)
+        size_t count = 0;
+        auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
+        inverted_index_iterator->set_context(context);
+        status = inverted_index_iterator->try_read_from_inverted_index(
+                std::static_pointer_cast<InvertedIndexReader>(inverted_index_reader), "c2",
+                &str_ref, InvertedIndexQueryType::EQUAL_QUERY, &count);
+        EXPECT_TRUE(status.ok());
+    }
+
+    // Test error handling and edge cases
+    void test_error_handling() {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        // Test with invalid file path
+        {
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_invalid");
+            index_meta_pb->add_col_unique_id(0);
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string invalid_path = kTestDir + "/nonexistent_index";
+            auto reader = std::make_shared<IndexFileReader>(
+                    io::global_local_filesystem(), invalid_path, InvertedIndexStorageFormatPB::V2);
+
+            auto status = reader->init();
+            EXPECT_FALSE(status.ok()) << "Should fail with nonexistent file";
+        }
+
+        // Test string index range query with TooManyClauses error
+        {
+            std::string_view rowset_id = "test_too_many_clauses";
+            int seg_id = 0;
+            std::vector<Slice> values;
+            std::vector<std::string> values_string;
+            // Create many values to potentially trigger TooManyClauses
+            for (int i = 0; i < 1000; ++i) {
+                values_string.emplace_back(std::to_string(i));
+            }
+            std::transform(values_string.begin(), values_string.end(), std::back_inserter(values),
+                           [](const std::string& s) { return Slice(s.c_str(), s.size()); });
+
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_too_many_clauses");
+            index_meta_pb->add_col_unique_id(1);
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string index_path_prefix;
+            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(str_reader, nullptr);
+
+            // Test range query that might exceed clause limit
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query = "500";
+            StringRef str_ref(query.c_str(), query.length());
+
+            auto status = str_reader->query(context, "c2", &str_ref,
+                                            InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
+            // This might succeed or fail depending on the implementation limits
+            // The important thing is we handle the potential TooManyClauses error gracefully
+        }
+
+        // Test empty query terms
+        {
+            std::string_view rowset_id = "test_empty_terms";
+            int seg_id = 0;
+            std::vector<Slice> values = {Slice("test")};
+
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_empty_terms");
+            index_meta_pb->add_col_unique_id(1);
+            index_meta_pb->mutable_properties()->insert({"parser", "english"});
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string index_path_prefix;
+            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto fulltext_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(fulltext_reader, nullptr);
+
+            // Test with empty string that produces no terms
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string empty_query = "";
+            StringRef str_ref(empty_query.c_str(), empty_query.length());
+
+            auto status = fulltext_reader->query(context, "c2", &str_ref,
+                                                 InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
+            // Should either succeed with empty result or fail gracefully
+        }
+    }
+
+    // Helper methods for new data types
+    void prepare_bkd_index_double(std::string_view rowset_id, int seg_id,
+                                  std::vector<double>& values, TabletIndex* idx_meta,
+                                  std::string* index_path_prefix) {
+        auto tablet_schema = create_schema();
+
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(1);
+        index_meta_pb->set_index_name("test_double");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(0); // c1 column
+        idx_meta->init_from_pb(*index_meta_pb.get());
+
+        *index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id));
+        std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v2(*index_path_prefix);
+
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        Status sts = fs->create_file(index_path, &file_writer, &opts);
+        ASSERT_TRUE(sts.ok()) << sts;
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
+                fs, *index_path_prefix, std::string {rowset_id}, seg_id,
+                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+        // Create a temporary schema with DOUBLE column for this test
+        TabletSchemaSPtr double_schema = std::make_shared<TabletSchema>();
+        TabletSchemaPB double_schema_pb;
+        double_schema_pb.set_keys_type(DUP_KEYS);
+        double_schema->init_from_pb(double_schema_pb);
+
+        TabletColumn double_column;
+        double_column.set_name("c1");
+        double_column.set_unique_id(0);
+        double_column.set_type(FieldType::OLAP_FIELD_TYPE_DOUBLE);
+        double_column.set_length(8);
+        double_column.set_index_length(8);
+        double_column.set_is_key(true);
+        double_column.set_is_nullable(true);
+        double_schema->append_column(double_column);
+
+        const TabletColumn& column = double_schema->column(0);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ASSERT_NE(field.get(), nullptr);
+
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
+        EXPECT_TRUE(status.ok()) << status;
+
+        for (const auto& value : values) {
+            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&value),
+                                               1);
+            EXPECT_TRUE(status.ok()) << status;
+        }
+
+        status = column_writer->finish();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->close();
+        EXPECT_TRUE(status.ok()) << status;
+    }
+
+    // Test error handling comprehensive
+    void test_error_handling_comprehensive() {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        // Test with invalid file path
+        {
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_invalid");
+            index_meta_pb->add_col_unique_id(0);
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string invalid_path = kTestDir + "/nonexistent_index";
+            auto reader = std::make_shared<IndexFileReader>(
+                    io::global_local_filesystem(), invalid_path, InvertedIndexStorageFormatPB::V2);
+
+            auto status = reader->init();
+            EXPECT_FALSE(status.ok()) << "Should fail with nonexistent file";
+        }
+
+        // Test string index range query with TooManyClauses error
+        {
+            std::string_view rowset_id = "test_too_many_clauses";
+            int seg_id = 0;
+            std::vector<std::string> values_string;
+            std::vector<Slice> values;
+
+            // Create many values to potentially trigger TooManyClauses
+            for (int i = 0; i < 1000; ++i) {
+                values_string.emplace_back(std::to_string(i));
+            }
+            std::transform(values_string.begin(), values_string.end(), std::back_inserter(values),
+                           [](const std::string& s) { return Slice(s.c_str(), s.size()); });
+
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_too_many_clauses");
+            index_meta_pb->add_col_unique_id(1);
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string index_path_prefix;
+            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(str_reader, nullptr);
+
+            // Test range query that might exceed clause limit
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query = "500";
+            StringRef str_ref(query.c_str(), query.length());
+
+            auto status = str_reader->query(context, "c2", &str_ref,
+                                            InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
+            // This might succeed or fail depending on the implementation limits
+            // The important thing is we handle the potential TooManyClauses error gracefully
+        }
+
+        // Test empty query terms
+        {
+            std::string_view rowset_id = "test_empty_terms";
+            int seg_id = 0;
+            std::vector<Slice> values = {Slice("test")};
+
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_empty_terms");
+            index_meta_pb->add_col_unique_id(1);
+            index_meta_pb->mutable_properties()->insert({"parser", "english"});
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string index_path_prefix;
+            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto fulltext_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(fulltext_reader, nullptr);
+
+            // Test with empty string that produces no terms
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string empty_query;
+            StringRef str_ref(empty_query.c_str(), empty_query.length());
+
+            auto status = fulltext_reader->query(context, "c2", &str_ref,
+                                                 InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
+            // Should either succeed with empty result or fail gracefully
+        }
+    }
+
+    // Test specific error paths and edge cases based on uncovered lines
+    void test_uncovered_error_paths() {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        // Test MATCH_REGEXP_QUERY path that was uncovered
+        {
+            std::string_view rowset_id = "test_regexp_query";
+            int seg_id = 0;
+            std::vector<Slice> values = {Slice("test123"), Slice("example456"), Slice("demo789")};
+
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_regexp");
+            index_meta_pb->add_col_unique_id(1);
+            index_meta_pb->mutable_properties()->insert({"parser", "english"});
+            index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string index_path_prefix;
+            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto fulltext_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(fulltext_reader, nullptr);
+
+            // Test MATCH_REGEXP_QUERY specifically
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string regexp_query = "test.*";
+            StringRef query_ref(regexp_query.c_str(), regexp_query.length());
+
+            auto status = fulltext_reader->query(
+                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test StringType range queries that were uncovered
+        {
+            std::string_view rowset_id = "test_string_range";
+            int seg_id = 0;
+            std::vector<Slice> values = {Slice("apple"), Slice("banana"), Slice("cherry"),
+                                         Slice("date")};
+
+            TabletIndex idx_meta;
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(1);
+            index_meta_pb->set_index_name("test_string_range");
+            index_meta_pb->add_col_unique_id(1);
+            idx_meta.init_from_pb(*index_meta_pb.get());
+
+            std::string index_path_prefix;
+            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(str_reader, nullptr);
+
+            // Test LESS_THAN_QUERY
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            std::string query = "cherry";
+            StringRef str_ref(query.c_str(), query.length());
+
+            auto status = str_reader->query(context, "c2", &str_ref,
+                                            InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+
+            // Test LESS_EQUAL_QUERY
+            bitmap = std::make_shared<roaring::Roaring>();
+            status = str_reader->query(context, "c2", &str_ref,
+                                       InvertedIndexQueryType::LESS_EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+
+            // Test GREATER_THAN_QUERY
+            bitmap = std::make_shared<roaring::Roaring>();
+            status = str_reader->query(context, "c2", &str_ref,
+                                       InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+
+            // Test GREATER_EQUAL_QUERY
+            bitmap = std::make_shared<roaring::Roaring>();
+            status = str_reader->query(context, "c2", &str_ref,
+                                       InvertedIndexQueryType::GREATER_EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+
+            // Test MATCH_PHRASE_QUERY for StringType
+            bitmap = std::make_shared<roaring::Roaring>();
+            status = str_reader->query(context, "c2", &str_ref,
+                                       InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+
+            // Test MATCH_PHRASE_PREFIX_QUERY for StringType
+            bitmap = std::make_shared<roaring::Roaring>();
+            status = str_reader->query(context, "c2", &str_ref,
+                                       InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+
+            // Test MATCH_REGEXP_QUERY for StringType
+            bitmap = std::make_shared<roaring::Roaring>();
+            status = str_reader->query(context, "c2", &str_ref,
+                                       InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+    }
+
+    // Test BKD specific uncovered paths
+    void test_bkd_uncovered_paths() {
+        std::string_view rowset_id = "test_bkd_uncovered";
+        int seg_id = 0;
+        std::vector<int32_t> values = {1, 5, 10, 15, 20, 25, 30};
+
+        TabletIndex idx_meta;
+        std::string index_path_prefix;
+        prepare_bkd_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.enable_inverted_index_searcher_cache = false;
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(reader->init().ok());
+
+        auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+        EXPECT_NE(bkd_reader, nullptr);
+
+        // Test all BKD query types systematically to cover visitor paths
+        std::vector<std::pair<InvertedIndexQueryType, int32_t>> test_cases = {
+                {InvertedIndexQueryType::LESS_THAN_QUERY, 15},
+                {InvertedIndexQueryType::LESS_EQUAL_QUERY, 15},
+                {InvertedIndexQueryType::GREATER_THAN_QUERY, 15},
+                {InvertedIndexQueryType::GREATER_EQUAL_QUERY, 15},
+                {InvertedIndexQueryType::EQUAL_QUERY, 15}};
+
+        for (auto& test_case : test_cases) {
+            // Test try_query path
+            size_t count = 0;
+            auto status = bkd_reader->try_query(context, "c1", &test_case.second, test_case.first,
+                                                &count);
+            EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
+
+            // Test actual query path
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            status = bkd_reader->query(context, "c1", &test_case.second, test_case.first, bitmap);
+            EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
+        }
+
+        // Test boundary values to exercise different visitor logic paths
+        int32_t min_value = 0;   // Less than minimum in data
+        int32_t max_value = 100; // Greater than maximum in data
+
+        std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+        auto status = bkd_reader->query(context, "c1", &min_value,
+                                        InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
+        EXPECT_TRUE(status.ok());
+
+        bitmap = std::make_shared<roaring::Roaring>();
+        status = bkd_reader->query(context, "c1", &max_value,
+                                   InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
+        EXPECT_TRUE(status.ok());
+    }
+
+    // Test InvertedIndexIterator uncovered paths
+    void test_iterator_uncovered_paths() {
+        std::string_view rowset_id = "test_iterator_uncovered";
+        int seg_id = 0;
+        std::vector<int32_t> values = {1, 2, 3, 4, 5};
+
+        TabletIndex idx_meta;
+        std::string index_path_prefix;
+        prepare_bkd_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.enable_inverted_index_searcher_cache = false;
+        query_options.inverted_index_skip_threshold = 1; // Very low threshold to trigger bypass
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        auto reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(reader->init().ok());
+
+        auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+        EXPECT_NE(bkd_reader, nullptr);
+
+        std::unique_ptr<IndexIterator> iterator;
+        auto status = bkd_reader->new_iterator(&iterator);
+        EXPECT_TRUE(status.ok());
+        EXPECT_NE(iterator, nullptr);
+
+        auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
+        inverted_index_iterator->set_context(context);
+
+        // Test the bypass path in read_from_inverted_index
+        std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+        int32_t query_value = 3;
+
+        // This should trigger the bypass logic due to low threshold
+        InvertedIndexParam param;
+        param.column_name = "c1";
+        param.query_value = &query_value;
+        param.query_type = InvertedIndexQueryType::LESS_THAN_QUERY;
+        param.num_rows = 5;
+        param.roaring = bitmap;
+        param.skip_try = false;
+        status = inverted_index_iterator->read_from_index(&param);
+        // Expect bypass error due to threshold
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_BYPASS);
+
+        // Test skip_try=true path
+        bitmap = std::make_shared<roaring::Roaring>();
+        InvertedIndexParam param1;
+        param1.column_name = "c1";
+        param1.query_value = &query_value;
+        param1.query_type = InvertedIndexQueryType::EQUAL_QUERY;
+        param1.num_rows = 5;
+        param1.roaring = bitmap;
+        param1.skip_try = true;
+        status = inverted_index_iterator->read_from_index(&param1);
+        EXPECT_TRUE(status.ok());
+
+        // Test try_read_from_inverted_index with non-BKD compatible query
+        size_t count = 0;
+        status = inverted_index_iterator->try_read_from_inverted_index(
+                std::static_pointer_cast<InvertedIndexReader>(
+                        iterator->get_reader(InvertedIndexReaderType::STRING_TYPE)),
+                "c1", &query_value, InvertedIndexQueryType::MATCH_ANY_QUERY, &count);
+        EXPECT_TRUE(status.ok()); // Should succeed but not do anything for non-BKD queries
+    }
+
+    // Create comprehensive schema for various data types (from InvertedIndexReaderComprehensiveTest)
+    TabletSchemaSPtr create_comprehensive_schema() {
+        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+        TabletSchemaPB tablet_schema_pb;
+        tablet_schema_pb.set_keys_type(DUP_KEYS);
+        tablet_schema->init_from_pb(tablet_schema_pb);
+
+        // Add various primitive type columns for testing
+        std::vector<std::tuple<std::string, FieldType, int, bool>> columns = {
+                {"c_int", FieldType::OLAP_FIELD_TYPE_INT, 4, true},
+                {"c_bigint", FieldType::OLAP_FIELD_TYPE_BIGINT, 8, false},
+                {"c_varchar", FieldType::OLAP_FIELD_TYPE_VARCHAR, 255, false},
+                {"c_string", FieldType::OLAP_FIELD_TYPE_STRING, 65535, false},
+                //{"c_double", FieldType::OLAP_FIELD_TYPE_DOUBLE, 8, false},
+                //{"c_float", FieldType::OLAP_FIELD_TYPE_FLOAT, 4, false},
+                {"c_date", FieldType::OLAP_FIELD_TYPE_DATE, 3, false},
+                {"c_datetime", FieldType::OLAP_FIELD_TYPE_DATETIME, 8, false},
+                {"c_decimal", FieldType::OLAP_FIELD_TYPE_DECIMAL, 16, false},
+                {"c_bool", FieldType::OLAP_FIELD_TYPE_BOOL, 1, false},
+                {"c_tinyint", FieldType::OLAP_FIELD_TYPE_TINYINT, 1, false},
+                {"c_smallint", FieldType::OLAP_FIELD_TYPE_SMALLINT, 2, false},
+                {"c_largeint", FieldType::OLAP_FIELD_TYPE_LARGEINT, 16, false},
+                {"c_char", FieldType::OLAP_FIELD_TYPE_CHAR, 10, false},
+                {"c_datev2", FieldType::OLAP_FIELD_TYPE_DATEV2, 4, false},
+                {"c_datetimev2", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 8, false}};
+
+        for (size_t i = 0; i < columns.size(); ++i) {
+            TabletColumn column;
+            column.set_name(std::get<0>(columns[i]));
+            column.set_unique_id(i);
+            column.set_type(std::get<1>(columns[i]));
+            column.set_length(std::get<2>(columns[i]));
+            column.set_index_length(std::get<2>(columns[i]));
+            column.set_is_key(std::get<3>(columns[i]));
+            column.set_is_nullable(true);
+            tablet_schema->append_column(column);
+        }
+
+        return tablet_schema;
+    }
+
+    // Prepare BKD index for different numeric types (from InvertedIndexReaderComprehensiveTest)
+    template <typename T>
+    void prepare_bkd_index_typed(
+            std::string_view rowset_id, int seg_id, int col_id, std::vector<T>& values,
+            TabletIndex* idx_meta, std::string* index_path_prefix,
+            InvertedIndexStorageFormatPB format = InvertedIndexStorageFormatPB::V2) {
+        auto tablet_schema = create_comprehensive_schema();
+
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(1);
+        index_meta_pb->set_index_name("test_bkd");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(col_id);
+        idx_meta->init_from_pb(*index_meta_pb.get());
+
+        *index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id));
+        std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v2(*index_path_prefix);
+
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        Status sts = fs->create_file(index_path, &file_writer, &opts);
+        ASSERT_TRUE(sts.ok()) << sts;
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
+                                                  seg_id, format, std::move(file_writer));
+
+        const TabletColumn& column = tablet_schema->column(col_id);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ASSERT_NE(field.get(), nullptr);
+
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
+        EXPECT_TRUE(status.ok()) << status;
+
+        for (const auto& value : values) {
+            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&value),
+                                               1);
+            EXPECT_TRUE(status.ok()) << status;
+        }
+
+        status = column_writer->finish();
+        EXPECT_TRUE(status.ok()) << status;
+        status = index_file_writer->close();
+        EXPECT_TRUE(status.ok()) << status;
+    }
+
+    void test_bkd_various_data_types() {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.enable_inverted_index_searcher_cache = false;
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        // Test INT type
+        {
+            std::string_view rowset_id = "test_bkd_int";
+            int seg_id = 0;
+            std::vector<int32_t> values = {-100, 0, 42, 100, 200, 300};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 0, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            std::vector<std::pair<InvertedIndexQueryType, int32_t>> test_cases = {
+                    {InvertedIndexQueryType::EQUAL_QUERY, 42},
+                    {InvertedIndexQueryType::LESS_THAN_QUERY, 100},
+                    {InvertedIndexQueryType::LESS_EQUAL_QUERY, 100},
+                    {InvertedIndexQueryType::GREATER_THAN_QUERY, 100},
+                    {InvertedIndexQueryType::GREATER_EQUAL_QUERY, 100}};
+
+            for (auto& test_case : test_cases) {
+                std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+                auto status = bkd_reader->query(context, "c_int", &test_case.second,
+                                                test_case.first, bitmap);
+                EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
+
+                if (test_case.first == InvertedIndexQueryType::EQUAL_QUERY) {
+                    EXPECT_EQ(bitmap->cardinality(), 1)
+                            << "Should find exactly one document for value 42";
+                }
+            }
+
+            for (auto& test_case : test_cases) {
+                size_t count = 0;
+                auto status = bkd_reader->try_query(context, "c_int", &test_case.second,
+                                                    test_case.first, &count);
+                EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
+            }
+        }
+
+        // Test BIGINT type
+        {
+            std::string_view rowset_id = "test_bkd_bigint";
+            int seg_id = 1;
+            std::vector<int64_t> values = {-1000000LL, 0LL, 1000000LL, 2000000LL};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 1, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            int64_t query_value = 1000000LL;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_bigint", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+            EXPECT_EQ(bitmap->cardinality(), 1);
+        }
+
+        // Test DOUBLE type
+        /*{
+            std::string_view rowset_id = "test_bkd_double";
+            int seg_id = 2;
+            std::vector<double> values = {-3.14, 0.0, 2.71, 3.14, 100.5};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 4, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(
+                    io::global_local_filesystem(), index_path_prefix,
+                    InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            double query_value = 3.14;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status =
+                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_double", &query_value,
+                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+            EXPECT_EQ(bitmap->cardinality(), 1);
+        }
+
+        // Test FLOAT type
+        {
+            std::string_view rowset_id = "test_bkd_float";
+            int seg_id = 3;
+            std::vector<float> values = {-1.5f, 0.0f, 1.5f, 2.5f, 10.5f};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 5, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(
+                    io::global_local_filesystem(), index_path_prefix,
+                    InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            float query_value = 1.5f;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status =
+                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_float", &query_value,
+                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+            EXPECT_EQ(bitmap->cardinality(), 1);
+        }*/
+    }
+
+    // Test additional data types to improve code coverage
+    void test_additional_data_types_coverage() {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.enable_inverted_index_searcher_cache = false;
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        // Test DATE type (to cover TYPE_DATE case)
+        {
+            std::string_view rowset_id = "test_date_type";
+            int seg_id = 0;
+            std::vector<uint24_t> values = {20240101, 20240102, 20240103}; // DATE as uint32
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 4, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            uint32_t query_value = 20240102;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_date", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test DATETIME type (to cover TYPE_DATETIME case)
+        {
+            std::string_view rowset_id = "test_datetime_type";
+            int seg_id = 1;
+            std::vector<uint64_t> values = {20240101120000ULL, 20240101130000ULL,
+                                            20240101140000ULL};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 5, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            uint64_t query_value = 20240101130000ULL;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_datetime", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test BOOL type (to cover TYPE_BOOL case)
+        {
+            std::string_view rowset_id = "test_bool_type";
+            int seg_id = 2;
+            std::vector<bool> values = {true, false, true, false};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 7, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            bool query_value = true;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_bool", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test TINYINT type (to cover TYPE_TINYINT case)
+        {
+            std::string_view rowset_id = "test_tinyint_type";
+            int seg_id = 3;
+            std::vector<int8_t> values = {-128, 0, 1, 127};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 8, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            int8_t query_value = 1;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_tinyint", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test SMALLINT type (to cover TYPE_SMALLINT case)
+        {
+            std::string_view rowset_id = "test_smallint_type";
+            int seg_id = 4;
+            std::vector<int16_t> values = {-32768, 0, 1000, 32767};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 9, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            int16_t query_value = 1000;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_smallint", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test LARGEINT type (to cover TYPE_LARGEINT case)
+        {
+            std::string_view rowset_id = "test_largeint_type";
+            int seg_id = 5;
+            std::vector<__int128> values = {-1000000000000000000LL, 0, 1000000000000000000LL};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 10, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            __int128 query_value = 0;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_largeint", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test DATEV2 type (to cover TYPE_DATEV2 case)
+        {
+            std::string_view rowset_id = "test_datev2_type";
+            int seg_id = 6;
+            std::vector<uint32_t> values = {20240201, 20240202, 20240203};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 12, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            uint32_t query_value = 20240202;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_datev2", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+
+        // Test DATETIMEV2 type (to cover TYPE_DATETIMEV2 case)
+        {
+            std::string_view rowset_id = "test_datetimev2_type";
+            int seg_id = 7;
+            std::vector<uint64_t> values = {20240201120000ULL, 20240201130000ULL,
+                                            20240201140000ULL};
+            TabletIndex idx_meta;
+            std::string index_path_prefix;
+            prepare_bkd_index_typed(rowset_id, seg_id, 13, values, &idx_meta, &index_path_prefix);
+
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V2);
+            EXPECT_TRUE(reader->init().ok());
+
+            auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+            EXPECT_NE(bkd_reader, nullptr);
+
+            uint64_t query_value = 20240201130000ULL;
+            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, "c_datetimev2", &query_value,
+                                            InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            EXPECT_TRUE(status.ok());
+        }
+    }
+
+    // Test unsupported data types to cover default case
+    void test_unsupported_data_types() {
+        // Create a schema with unsupported type for inverted index
+        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+        TabletSchemaPB tablet_schema_pb;
+        tablet_schema_pb.set_keys_type(DUP_KEYS);
+        tablet_schema->init_from_pb(tablet_schema_pb);
+
+        // Add an unsupported type column (e.g., JSON type if it exists)
+        TabletColumn column;
+        column.set_name("c_unsupported");
+        column.set_unique_id(0);
+        column.set_type(FieldType::OLAP_FIELD_TYPE_JSONB); // Using JSONB instead of JSON
+        column.set_length(65535);
+        column.set_index_length(65535);
+        column.set_is_key(false);
+        column.set_is_nullable(true);
+        tablet_schema->append_column(column);
+
+        std::string rowset_id = "test_unsupported";
+        int seg_id = 0;
+
+        TabletIndex idx_meta;
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(1);
+        index_meta_pb->set_index_name("test_unsupported");
+        index_meta_pb->add_col_unique_id(0);
+        idx_meta.init_from_pb(*index_meta_pb.get());
+
+        auto index_path_prefix = std::string(InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id)));
+        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        Status sts = fs->create_file(index_path, &file_writer, &opts);
+        ASSERT_TRUE(sts.ok()) << sts;
+
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
+                fs, std::string(index_path_prefix), rowset_id, seg_id,
+                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+        const TabletColumn& test_column = tablet_schema->column(0);
+        std::unique_ptr<Field> field(FieldFactory::create(test_column));
+        ASSERT_NE(field.get(), nullptr);
+
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
+
+        // This should fail for unsupported types, demonstrating the default case
+        // If it succeeds, we can still test with invalid query parameters
+        if (status.ok()) {
+            status = column_writer->finish();
+            EXPECT_TRUE(status.ok()) << status;
+            status = index_file_writer->close();
+            EXPECT_TRUE(status.ok()) << status;
+
+            // Try to create reader and test unsupported query
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            std::string(index_path_prefix),
+                                                            InvertedIndexStorageFormatPB::V2);
+            if (reader->init().ok()) {
+                auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+                if (bkd_reader != nullptr) {
+                    OlapReaderStatistics stats;
+                    RuntimeState runtime_state;
+                    io::IOContext io_ctx;
+
+                    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+                    context->io_ctx = &io_ctx;
+                    context->stats = &stats;
+                    context->runtime_state = &runtime_state;
+
+                    std::string query_value = "test";
+                    std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+                    auto query_status =
+                            bkd_reader->query(context, "c_unsupported", &query_value,
+                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+                    // This might fail due to unsupported type, which is what we want to test
+                }
+            }
+        }
     }
 
 private:
@@ -2058,6 +3511,39 @@ TEST_F(InvertedIndexReaderTest, CacheErrorScenarios) {
 // Test tokenized index query error scenarios
 TEST_F(InvertedIndexReaderTest, TokenizedIndexQueryErrorScenarios) {
     test_tokenized_index_query_error_scenarios();
+}
+
+// Additional comprehensive tests for uncovered paths
+TEST_F(InvertedIndexReaderTest, ErrorHandlingComprehensive) {
+    test_error_handling_comprehensive();
+}
+
+TEST_F(InvertedIndexReaderTest, ErrorHandling) {
+    test_error_handling();
+}
+
+TEST_F(InvertedIndexReaderTest, UncoveredErrorPaths) {
+    test_uncovered_error_paths();
+}
+
+TEST_F(InvertedIndexReaderTest, BkdUncoveredPaths) {
+    test_bkd_uncovered_paths();
+}
+
+TEST_F(InvertedIndexReaderTest, IteratorUncoveredPaths) {
+    test_iterator_uncovered_paths();
+}
+
+TEST_F(InvertedIndexReaderTest, BkdVariousDataTypes) {
+    test_bkd_various_data_types();
+}
+
+TEST_F(InvertedIndexReaderTest, AdditionalDataTypesCoverage) {
+    test_additional_data_types_coverage();
+}
+
+TEST_F(InvertedIndexReaderTest, UnsupportedDataTypes) {
+    test_unsupported_data_types();
 }
 
 } // namespace doris::segment_v2

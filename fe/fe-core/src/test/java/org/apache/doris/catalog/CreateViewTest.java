@@ -17,13 +17,14 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -50,20 +51,30 @@ public class CreateViewTest {
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+
         // create table
         String createTableStmtStr = "create table test.tbl1(k1 int, k2 int, v1 int, v2 int) duplicate key(k1)"
                 + " distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableStmtStr,
-                connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        LogicalPlan parsed = nereidsParser.parseSingle(createTableStmtStr);
+        stmtExecutor = new StmtExecutor(connectContext, createTableStmtStr);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
         // create table with array type
         String createTableWithArrayStmtStr = "create table test.tbl2(id int, c_array array<int(11)>) duplicate key(id)"
                 + " distributed by hash(id) buckets 1 properties('replication_num' = '1');";
-        CreateTableStmt createTableWithArrayStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                createTableWithArrayStmtStr, connectContext);
-        Env.getCurrentEnv().createTable(createTableWithArrayStmt);
+        nereidsParser = new NereidsParser();
+        parsed = nereidsParser.parseSingle(createTableWithArrayStmtStr);
+        stmtExecutor = new StmtExecutor(connectContext, createTableWithArrayStmtStr);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @AfterClass

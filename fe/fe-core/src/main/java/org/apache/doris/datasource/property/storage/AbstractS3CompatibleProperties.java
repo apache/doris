@@ -24,6 +24,9 @@ import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -31,6 +34,8 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,7 +49,7 @@ import java.util.regex.Pattern;
  * determine if path-style URLs should be used for the storage system.
  */
 public abstract class AbstractS3CompatibleProperties extends StorageProperties implements ObjectStorageProperties {
-
+    private static final Logger LOG = LogManager.getLogger(AbstractS3CompatibleProperties.class);
     /**
      * The maximum number of concurrent connections that can be made to the object storage system.
      * This value is optional and can be configured by the user.
@@ -169,56 +174,109 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         return null;
     }
 
-
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        setEndpointIfNotSet();
+        setEndpointIfPossible();
         if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
+            throw new IllegalArgumentException("Invalid endpoint: " + getEndpoint());
         }
-        checkRequiredProperties();
-        initRegionIfNecessary();
-        if (StringUtils.isBlank(getRegion())) {
-            throw new IllegalArgumentException("region is required");
+        setRegionIfPossible();
+    }
+
+    /**
+     * Checks and validates the configured endpoint.
+     * <p>
+     * All object storage implementations must have an explicitly set endpoint.
+     * However, for compatibility with legacy behavior—especially when using DLF
+     * as the catalog—some logic may derive the endpoint based on the region.
+     * <p>
+     * To support such cases, this method is exposed as {@code protected} to allow
+     * subclasses to override it with custom logic if necessary.
+     * <p>
+     * That said, we strongly recommend users to explicitly configure both
+     * {@code endpoint} and {@code region} to ensure predictable behavior
+     * across all storage backends.
+     *
+     * @throws IllegalArgumentException if the endpoint format is invalid
+     */
+    protected void setEndpointIfPossible() {
+        if (StringUtils.isNotBlank(getEndpoint())) {
+            return;
+        }
+        String endpoint = null;
+        // 1. try getting endpoint from uri
+        try {
+            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
+        } catch (Exception e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Failed to construct endpoint from url: " + origProps, e);
+            }
+        }
+        // 2. try getting endpoint region
+        if (StringUtils.isBlank(endpoint)) {
+            endpoint = getEndpointFromRegion();
+        }
+        if (!StringUtils.isBlank(endpoint)) {
+            setEndpoint(endpoint);
         }
     }
 
-    private void initRegionIfNecessary() {
+    private void setRegionIfPossible() {
         if (StringUtils.isNotBlank(getRegion())) {
             return;
         }
         String endpoint = getEndpoint();
         if (endpoint == null || endpoint.isEmpty()) {
-            throw new IllegalArgumentException("endpoint is required");
-        }
-        Matcher matcher = endpointPattern().matcher(endpoint.toLowerCase());
-        if (matcher.find()) {
-            String region = matcher.group(1);
-            if (StringUtils.isBlank(region)) {
-                throw new IllegalArgumentException("Invalid endpoint format: " + endpoint);
-            }
-            setRegion(region);
             return;
         }
-        throw new IllegalArgumentException("Not a valid region, and cannot be parsed from endpoint: " + endpoint);
+        Optional<String> regionOptional = extractRegion(endpoint);
+        if (regionOptional.isPresent()) {
+            setRegion(regionOptional.get());
+        }
     }
 
-    protected abstract Pattern endpointPattern();
+    private Optional<String> extractRegion(String endpoint) {
+        return extractRegion(endpointPatterns(), endpoint);
+    }
+
+    public static Optional<String> extractRegion(Set<Pattern> endpointPatterns, String endpoint) {
+        for (Pattern pattern : endpointPatterns) {
+            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
+            if (matcher.matches()) {
+                // Check all possible groups for region (group 1, 2, or 3)
+                for (int i = 1; i <= matcher.groupCount(); i++) {
+                    String group = matcher.group(i);
+                    if (StringUtils.isNotBlank(group)) {
+                        return Optional.of(group);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    protected abstract Set<Pattern> endpointPatterns();
 
     private boolean isValidEndpoint(String endpoint) {
-        return endpointPattern().matcher(endpoint).matches();
+        if (StringUtils.isBlank(endpoint)) {
+            // Endpoint is not required, so we consider it valid if empty.
+            return true;
+        }
+        for (Pattern pattern : endpointPatterns()) {
+            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
+            if (matcher.matches()) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private void setEndpointIfNotSet() {
-        if (StringUtils.isNotBlank(getEndpoint())) {
-            return;
-        }
-        String endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
-        if (StringUtils.isBlank(endpoint)) {
-            throw new IllegalArgumentException("endpoint is required");
-        }
-        setEndpoint(endpoint);
+    // This method should be overridden by subclasses to provide a default endpoint based on the region.
+    // Because for aws s3, only region is needed, the endpoint can be constructed from the region.
+    // But for other s3 compatible storage, the endpoint may need to be specified explicitly.
+    protected String getEndpointFromRegion() {
+        return "";
     }
 
     @Override
@@ -230,6 +288,27 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
         return S3PropertyUtils.validateAndGetUri(loadProps);
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        // Compatibility note: Due to historical reasons, even when the underlying
+        // storage is OSS, OBS, etc., users may still configure the schema as "s3://".
+        // To ensure backward compatibility, we append S3-related properties by default.
+        appendS3HdfsProperties(hadoopStorageConfig);
+    }
+
+    private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
+        hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
+        hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
+        hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+        hadoopStorageConfig.set("fs.s3a.connection.maximum", getMaxConnections());
+        hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
+        hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());
+        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
     }
 
     @Override

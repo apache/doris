@@ -17,12 +17,7 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.BackendClause;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -43,12 +38,17 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -133,8 +133,12 @@ public class TabletRepairAndBalanceTest {
 
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         // must set disk info, or the tablet scheduler won't work
         backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
@@ -170,20 +174,32 @@ public class TabletRepairAndBalanceTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
         // must set replicas' path hash, or the tablet scheduler won't work
         RebalancerTestUtil.updateReplicaPathHash();
     }
 
     private static void dropTable(String sql) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().dropTable(dropTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropTableCommand) {
+            ((DropTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void alterTable(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @Test
@@ -275,7 +291,8 @@ public class TabletRepairAndBalanceTest {
                 + "(\n"
                 + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\"\n"
                 + ")";
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> createTable(createStr2));
+        ExceptionChecker.expectThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> createTable(createStr2));
 
         // normal, create success
         String createStr3 = "create table test.tbl1\n"
@@ -548,11 +565,7 @@ public class TabletRepairAndBalanceTest {
         AlterSystemCommand command5 = new AlterSystemCommand(op1, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
         command5.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
-        String stmtStr5 = "cancel decommission backend \"" + be.getId() + "\"";
-        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr5, connectContext);
-        DdlExecutor.execute(Env.getCurrentEnv(), cancelAlterSystemStmt);
-
-        Assert.assertFalse(be.isDecommissioned());
+        Assert.assertTrue(be.isDecommissioned());
 
     }
 

@@ -37,6 +37,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
@@ -170,7 +171,7 @@ TEST_P(DataTypeAggStateTest, FromAndToStringTest) {
         for (int i = 0; i < col_to->size(); ++i) {
             std::string s = col_to->get_data_at(i).to_string();
             std::cout << "s: " << s << std::endl;
-            ReadBuffer rb(s.data(), s.size());
+            StringRef rb(s.data(), s.size());
             ASSERT_EQ(Status::OK(),
                       datatype_agg_state_hll_union->from_string(rb, assert_column.get()));
             ASSERT_EQ(assert_column->operator[](i), agg_state_cols[0]->get_ptr()->operator[](i))
@@ -199,7 +200,7 @@ TEST_P(DataTypeAggStateTest, FromAndToStringTest) {
         auto assert_column_1 = datatype_agg_state_hll_union->create_column();
         for (int i = 0; i < ser_col->size(); ++i) {
             std::string s = ser_col->get_data_at(i).to_string();
-            ReadBuffer rb(s.data(), s.size());
+            StringRef rb(s.data(), s.size());
             ASSERT_EQ(Status::OK(),
                       datatype_agg_state_hll_union->from_string(rb, assert_column_1.get()));
             auto aaa = assert_column_1->operator[](i);

@@ -30,6 +30,7 @@
 #include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/core/field.h"
@@ -63,11 +64,6 @@
 // 6. arrow ser-deserialize which used in spark-flink connector
 //  write_column_to_arrow (const IColumn &column, const NullMap *null_map, arrow::ArrayBuilder *array_builder, int start, int end, const cctz::time_zone &ctz) const =0
 //  read_column_from_arrow (IColumn &column, const arrow::Array *arrow_array, int start, int end, const cctz::time_zone &ctz) const =0
-// 7. rapidjson ser-deserialize
-//  write_one_cell_to_json (const IColumn &column, rapidjson::Value &result, rapidjson::Document::AllocatorType &allocator, Arena &mem_pool, int row_num) const
-//  read_one_cell_from_json (IColumn &column, const rapidjson::Value &result) const
-//  convert_field_to_rapidjson (const vectorized::Field &field, rapidjson::Value &target, rapidjson::Document::AllocatorType &allocator)
-//  convert_array_to_rapidjson (const vectorized::Array &array, rapidjson::Value &target, rapidjson::Document::AllocatorType &allocator)
 
 namespace doris::vectorized {
 
@@ -283,7 +279,7 @@ public:
             // serialize to jsonb
             for (size_t i = 0; i < load_cols.size(); ++i) {
                 auto& col = load_cols[i];
-                serders[i]->write_one_cell_to_jsonb(*col, jw, &pool, i, r);
+                serders[i]->write_one_cell_to_jsonb(*col, jw, pool, i, r);
             }
             jw.writeEndObject();
             jsonb_column->insert_data(jw.getOutput()->getBuffer(), jw.getOutput()->getSize());
@@ -292,7 +288,10 @@ public:
         EXPECT_EQ(jsonb_column->size(), load_cols[0]->size());
         for (size_t r = 0; r < jsonb_column->size(); ++r) {
             StringRef jsonb_data = jsonb_column->get_data_at(r);
-            auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+            JsonbDocument* pdoc = nullptr;
+            auto st =
+                    JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+            ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
             JsonbDocument& doc = *pdoc;
             size_t cIdx = 0;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
@@ -437,10 +436,6 @@ public:
         }
         EXPECT_EQ(frist_block->dump_data(), second_block->dump_data());
     }
-
-    // assert rapidjson format
-    // now rapidjson write_one_cell_to_json and read_one_cell_from_json only used in column_object
-    // can just be replaced by jsonb format
 };
 
 } // namespace doris::vectorized

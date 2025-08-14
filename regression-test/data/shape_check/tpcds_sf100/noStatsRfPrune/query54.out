@@ -33,10 +33,10 @@ PhysicalResultSink
 --------------------------------------------------------PhysicalProject
 ----------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cs_or_ws_sales.item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[cs_item_sk,ws_item_sk]
 ------------------------------------------------------------PhysicalUnion
---------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
---------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 ------------------------------------------------------------PhysicalProject

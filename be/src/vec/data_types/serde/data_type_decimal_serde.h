@@ -19,23 +19,16 @@
 
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
-#include <ostream>
 #include <string>
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 
 namespace doris {
 
@@ -60,6 +53,21 @@ public:
               scale(scale_),
               scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)) {}
 
+    std::string get_name() const override { return type_to_string(T); }
+
+    Status from_string_batch(const ColumnString& str, ColumnNullable& column,
+                             const FormatOptions& options) const override;
+
+    Status from_string_strict_mode_batch(
+            const ColumnString& str, IColumn& column, const FormatOptions& options,
+            const NullMap::value_type* null_map = nullptr) const override;
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
@@ -77,10 +85,19 @@ public:
                               int64_t end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnString& to_column) const override;
+
+    Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
+                                         CastParameters& castParms) const override;
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
@@ -96,14 +113,16 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               std::vector<StringRef>& buffer_list) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
                                               uint64_t* num_deserialized,
                                               const FormatOptions& options) const override;
 
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
+
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
 
 private:
     template <bool is_binary_format>
@@ -154,59 +173,6 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
     return Status::OK();
 }
 
-template <PrimitiveType T>
-void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                      Arena* mem_pool, int32_t col_id,
-                                                      int64_t row_num) const {
-    StringRef data_ref = column.get_data_at(row_num);
-    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-    if constexpr (T == TYPE_DECIMALV2) {
-        Decimal128V2::NativeType val =
-                *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
-        result.writeInt128(val);
-    } else if constexpr (T == TYPE_DECIMAL128I) {
-        Decimal128V3::NativeType val =
-                *reinterpret_cast<const Decimal128V3::NativeType*>(data_ref.data);
-        result.writeInt128(val);
-    } else if constexpr (T == TYPE_DECIMAL32) {
-        Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
-        result.writeInt32(val);
-    } else if constexpr (T == TYPE_DECIMAL64) {
-        Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
-        result.writeInt64(val);
-    } else if constexpr (T == TYPE_DECIMAL256) {
-        // use binary type, since jsonb does not support int256
-        result.writeStartBinary();
-        result.writeBinary(data_ref.data, data_ref.size);
-        result.writeEndBinary();
-    } else {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_one_cell_to_jsonb with type " + column.get_name());
-    }
-}
-
-template <PrimitiveType T>
-void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
-                                                       const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
-    if constexpr (T == TYPE_DECIMALV2) {
-        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
-    } else if constexpr (T == TYPE_DECIMAL128I) {
-        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
-    } else if constexpr (T == TYPE_DECIMAL32) {
-        col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
-    } else if constexpr (T == TYPE_DECIMAL64) {
-        col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
-    } else if constexpr (T == TYPE_DECIMAL256) {
-        // use binary type, since jsonb does not support int256
-        const wide::Int256 val = *reinterpret_cast<const wide::Int256*>(
-                static_cast<const JsonbBlobVal*>(arg)->getBlob());
-        col.insert_value(Decimal256(val));
-    } else {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_one_cell_from_jsonb with type " + column.get_name());
-    }
-}
 #include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

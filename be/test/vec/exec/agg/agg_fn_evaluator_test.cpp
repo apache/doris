@@ -39,7 +39,7 @@ TEST(AggFnEvaluatorTest, test_single) {
     agg_fn->create(place);
 
     // execute agg fn
-    auto st = agg_fn->execute_single_add(&block, place, &arena);
+    auto st = agg_fn->execute_single_add(&block, place, arena);
 
     // get result
     ColumnInt64 result_column;
@@ -73,7 +73,7 @@ TEST(AggFnEvaluatorTest, test_batch) {
     places.push_back(place2);
 
     // execute agg fn
-    auto st = agg_fn->execute_batch_add(&block, 0, places.data(), &arena);
+    auto st = agg_fn->execute_batch_add(&block, 0, places.data(), arena);
 
     // get result
     {
@@ -118,7 +118,7 @@ TEST(AggFnEvaluatorTest, test_clone) {
     places.push_back(place2);
 
     // execute agg fn
-    auto st = agg_fn->execute_batch_add(&block, 0, places.data(), &arena);
+    auto st = agg_fn->execute_batch_add(&block, 0, places.data(), arena);
 
     // get result
     {

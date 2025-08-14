@@ -60,4 +60,9 @@ public class FakeEnv extends MockUp<Env> {
         return systemInfo;
     }
 
+    @Mock
+    public boolean isMaster() {
+        return true;
+    }
+
 }

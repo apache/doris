@@ -201,21 +201,15 @@ public class HMSAnalysisTaskTest {
         new MockUp<HMSAnalysisTask>() {
             @Mock
             public void runQuery(String sql) {
-                Assertions.assertEquals("SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`,"
-                        + "          10001 AS `catalog_id`,"
-                        + "          20001 AS `db_id`,"
-                        + "          30001 AS `tbl_id`,"
-                        + "          -1 AS `idx_id`,"
-                        + "          'hour' AS `col_id`,"
-                        + "          NULL AS `part_id`,"
-                        + "          COUNT(1) AS `row_count`,"
-                        + "          NDV(`hour`) AS `ndv`,"
-                        + "          COUNT(1) - COUNT(`hour`) AS `null_count`,"
-                        + "          SUBSTRING(CAST(MIN(`hour`) AS STRING), 1, 1024) AS `min`,"
-                        + "          SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`,"
-                        + "          COUNT(1) * 4 AS `data_size`,"
-                        + "          NOW() AS `update_time`"
-                        + "  FROM `hms`.`default`.`test` ", sql);
+                Assertions.assertEquals("SELECT CONCAT(30001, '-', -1, '-', 'hour') AS `id`, "
+                        + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
+                        + "-1 AS `idx_id`, 'hour' AS `col_id`, NULL AS `part_id`, "
+                        + "COUNT(1) AS `row_count`, NDV(`hour`) AS `ndv`, "
+                        + "COUNT(1) - COUNT(`hour`) AS `null_count`, "
+                        + "SUBSTRING(CAST(MIN(`hour`) AS STRING), 1, 1024) AS `min`, "
+                        + "SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`, "
+                        + "COUNT(1) * 4 AS `data_size`, NOW() AS `update_time`, "
+                        + "null as `hot_value` FROM `hms`.`default`.`test` ", sql);
             }
         };
 

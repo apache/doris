@@ -26,7 +26,7 @@
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:3.0.0)`-bin-`architecture(amd64/arm64)` mode.
 
 # choose a base image
-FROM apache/doris:base-2.0
+FROM apache/doris:base-3.0
 
 ARG TARGETARCH
 

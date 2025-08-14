@@ -236,10 +236,14 @@ public interface TableIf {
 
     default Set<PrimaryKeyConstraint> getPrimaryKeyConstraints() {
         try {
-            return getConstraintsMapUnsafe().values().stream()
-                    .filter(PrimaryKeyConstraint.class::isInstance)
-                    .map(PrimaryKeyConstraint.class::cast)
-                    .collect(ImmutableSet.toImmutableSet());
+            ImmutableSet.Builder<PrimaryKeyConstraint> constraintBuilder = ImmutableSet.builder();
+            for (Constraint constraint : getConstraintsMapUnsafe().values()) {
+                if (!(constraint instanceof PrimaryKeyConstraint)) {
+                    continue;
+                }
+                constraintBuilder.add((PrimaryKeyConstraint) constraint);
+            }
+            return constraintBuilder.build();
         } catch (Exception ignored) {
             return ImmutableSet.of();
         }
@@ -247,10 +251,14 @@ public interface TableIf {
 
     default Set<UniqueConstraint> getUniqueConstraints() {
         try {
-            return getConstraintsMapUnsafe().values().stream()
-                    .filter(UniqueConstraint.class::isInstance)
-                    .map(UniqueConstraint.class::cast)
-                    .collect(ImmutableSet.toImmutableSet());
+            ImmutableSet.Builder<UniqueConstraint> constraintBuilder = ImmutableSet.builder();
+            for (Constraint constraint : getConstraintsMapUnsafe().values()) {
+                if (!(constraint instanceof UniqueConstraint)) {
+                    continue;
+                }
+                constraintBuilder.add((UniqueConstraint) constraint);
+            }
+            return constraintBuilder.build();
         } catch (Exception ignored) {
             return ImmutableSet.of();
         }
@@ -493,9 +501,15 @@ public interface TableIf {
     }
 
     default String getNameWithFullQualifiers() {
-        return String.format("%s.%s.%s", getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
-                getName());
+        DatabaseIf db = getDatabase();
+        // Some kind of table like FunctionGenTable does not belong to any database
+        if (db == null) {
+            return "null.null." + getName();
+        } else {
+            return db.getCatalog().getName()
+                    + "." + ClusterNamespace.getNameFromFullName(db.getFullName())
+                    + "." + getName();
+        }
     }
 
     default boolean isManagedTable() {
@@ -511,7 +525,7 @@ public interface TableIf {
         return false;
     }
 
-    default boolean isPartitionColumn(String columnName) {
+    default boolean isPartitionColumn(Column column) {
         return false;
     }
 
@@ -573,3 +587,4 @@ public interface TableIf {
         return Optional.empty();
     }
 }
+

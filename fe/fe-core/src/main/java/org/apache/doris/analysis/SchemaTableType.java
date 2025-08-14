@@ -95,15 +95,13 @@ public enum SchemaTableType {
     SCH_BACKEND_KERBEROS_TICKET_CACHE("BACKEND_KERBEROS_TICKET_CACHE", "BACKEND_KERBEROS_TICKET_CACHE",
             TSchemaTableType.SCH_BACKEND_KERBEROS_TICKET_CACHE),
     SCH_ROUTINE_LOAD_JOBS("ROUTINE_LOAD_JOBS", "ROUTINE_LOAD_JOBS",
-            TSchemaTableType.SCH_ROUTINE_LOAD_JOBS);
+            TSchemaTableType.SCH_ROUTINE_LOAD_JOBS),
+    SCH_VIEW_DEPENDENCY("VIEW_DEPENDENCY", "VIEW_DEPENDENCY",
+                    TSchemaTableType.SCH_VIEW_DEPENDENCY),
+    SCH_ENCRYPTION_KEYS("ENCRYPTION_KEYS", "ENCRYPTION_KEYS",
+                          TSchemaTableType.SCH_ENCRYPTION_KEYS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
-    private static SelectList fullSelectLists;
-
-    static {
-        fullSelectLists = new SelectList();
-        fullSelectLists.addItem(SelectListItem.createStarItem(null));
-    }
 
     private final String description;
     private final String tableName;

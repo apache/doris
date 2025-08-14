@@ -43,6 +43,7 @@ public class StatsMockUtil {
                 add("11");
                 add("12");
                 add(String.valueOf(System.currentTimeMillis()));
+                add(null); // hot values
             }};
         return new ResultRow(vals);
     }

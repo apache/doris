@@ -28,6 +28,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "file_scanner.h"
@@ -42,6 +43,7 @@
 #include "util/defer_op.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/olap_scanner.h" // IWYU pragma: keep
 #include "vec/exec/scan/scan_node.h"
@@ -61,18 +63,10 @@ void ScannerScheduler::stop() {
 
     _is_closed = true;
 
-    _limited_scan_thread_pool->shutdown();
-    _limited_scan_thread_pool->wait();
-
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
-    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
-                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                            .build(&_limited_scan_thread_pool));
     _is_init = true;
     return Status::OK();
 }
@@ -88,15 +82,16 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                   << " maybe finished";
         return Status::OK();
     }
+    std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
+    if (scanner_delegate == nullptr) {
+        return Status::OK();
+    }
 
-    if (ctx->thread_token != nullptr) {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return Status::OK();
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
+    scanner_delegate->_scanner->start_wait_worker_timer();
+    TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
+    auto sumbit_task = [&]() {
+        SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
+        auto work_func = [scanner_ref = scan_task, ctx]() {
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                 return Status::OK();
@@ -105,54 +100,25 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             if (!status.ok()) {
                 scanner_ref->set_status(status);
                 ctx->push_back_scan_task(scanner_ref);
+                return true;
             }
-        });
-        if (!s.ok()) {
-            scan_task->set_status(s);
-            return s;
-        }
-    } else {
-        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
-        if (scanner_delegate == nullptr) {
-            return Status::OK();
-        }
-
-        scanner_delegate->_scanner->start_wait_worker_timer();
-        TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
-        auto sumbit_task = [&]() {
-            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
-            auto work_func = [scanner_ref = scan_task, ctx]() {
-                auto status = [&] {
-                    RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                    return Status::OK();
-                }();
-
-                if (!status.ok()) {
-                    scanner_ref->set_status(status);
-                    ctx->push_back_scan_task(scanner_ref);
-                }
-            };
-            SimplifiedScanTask simple_scan_task = {work_func, ctx};
-            return scan_sched->submit_scan_task(simple_scan_task);
+            return scanner_ref->is_eos();
         };
+        SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
+        return scan_sched->submit_scan_task(simple_scan_task);
+    };
 
-        Status submit_status = sumbit_task();
-        if (!submit_status.ok()) {
-            // User will see TooManyTasks error. It looks like a more reasonable error.
-            Status scan_task_status = Status::TooManyTasks(
-                    "Failed to submit scanner to scanner pool reason:" +
-                    std::string(submit_status.msg()) + "|type:" + std::to_string(type));
-            scan_task->set_status(scan_task_status);
-            return scan_task_status;
-        }
+    Status submit_status = sumbit_task();
+    if (!submit_status.ok()) {
+        // User will see TooManyTasks error. It looks like a more reasonable error.
+        Status scan_task_status = Status::TooManyTasks(
+                "Failed to submit scanner to scanner pool reason:" +
+                std::string(submit_status.msg()) + "|type:" + std::to_string(type));
+        scan_task->set_status(scan_task_status);
+        return scan_task_status;
     }
 
     return Status::OK();
-}
-
-std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
-        ThreadPool::ExecutionMode mode, int max_concurrency) {
-    return _limited_scan_thread_pool->new_token(mode, max_concurrency);
 }
 
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
@@ -296,6 +262,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
                     break;
                 }
+                // Check column type only after block is read successfully.
+                // Or it may cause a crash when the block is not normal.
+                _make_sure_virtual_col_is_materialized(scanner, free_block.get());
                 // Projection will truncate useless columns, makes block size change.
                 auto free_block_bytes = free_block->allocated_bytes();
                 raw_bytes_read += free_block_bytes;
@@ -364,6 +333,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scan_task->set_status(status);
         eos = true;
     }
+    // WorkloadGroup Policy will check cputime realtime, so that should update the counter
+    // as soon as possible, could not update it on close.
+    scanner->update_scan_cpu_timer();
+    scanner->update_realtime_counters();
 
     if (eos) {
         scanner->mark_to_need_to_close();
@@ -391,6 +364,67 @@ int ScannerScheduler::get_remote_scan_thread_num() {
 
 int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
+void ScannerScheduler::_make_sure_virtual_col_is_materialized(
+        const std::shared_ptr<Scanner>& scanner, vectorized::Block* free_block) {
+#ifndef NDEBUG
+    // Currently, virtual column can only be used on olap table.
+    std::shared_ptr<OlapScanner> olap_scanner = std::dynamic_pointer_cast<OlapScanner>(scanner);
+    if (olap_scanner == nullptr) {
+        return;
+    }
+
+    size_t idx = 0;
+    for (const auto& entry : *free_block) {
+        // Virtual column must be materialized on the end of SegmentIterator's next batch method.
+        const vectorized::ColumnNothing* column_nothing =
+                vectorized::check_and_get_column<vectorized::ColumnNothing>(entry.column.get());
+        if (column_nothing == nullptr) {
+            idx++;
+            continue;
+        }
+
+        std::vector<std::string> vcid_to_idx;
+
+        for (const auto& pair : olap_scanner->_vir_cid_to_idx_in_block) {
+            vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+        }
+
+        std::string error_msg = fmt::format(
+                "Column in idx {} is nothing, block columns {}, normal_columns "
+                "{}, "
+                "vir_cid_to_idx_in_block_msg {}",
+                idx, free_block->columns(), olap_scanner->_return_columns.size(),
+                fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ",")));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, error_msg);
+    }
+#endif
+}
+
+Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono::nanoseconds) {
+    _started = true;
+    bool is_completed = _scan_func();
+    if (is_completed) {
+        _completion_future.set_value(Void {});
+    }
+    return SharedListenableFuture<Void>::create_ready(Void {});
+}
+
+bool ScannerSplitRunner::is_finished() {
+    return _completion_future.is_done();
+}
+
+Status ScannerSplitRunner::finished_status() {
+    return _completion_future.get_status();
+}
+
+bool ScannerSplitRunner::is_started() const {
+    return _started.load();
+}
+
+bool ScannerSplitRunner::is_auto_reschedule() const {
+    return false;
 }
 
 } // namespace doris::vectorized

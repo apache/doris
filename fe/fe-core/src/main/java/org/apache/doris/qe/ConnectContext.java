@@ -81,7 +81,6 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import io.netty.util.concurrent.FastThreadLocal;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
@@ -111,7 +110,7 @@ import javax.annotation.Nullable;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static FastThreadLocal<ConnectContext> threadLocalInfo = new FastThreadLocal<>();
+    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
 
     private static final String SSL_PROTOCOL = "TLS";
 
@@ -166,8 +165,6 @@ public class ConnectContext {
     protected volatile TransactionEntry txnEntry = null;
     // used for ShowSqlAction which don't allow a user account
     protected volatile boolean noAuth = false;
-    // username@host of current login user
-    protected volatile String qualifiedUser;
     // LDAP authenticated but the Doris account does not exist,
     // set the flag, and the user login Doris as Temporary user.
     protected volatile boolean isTempUser = false;
@@ -428,7 +425,6 @@ public class ConnectContext {
         context.setSessionVariable(VariableMgr.cloneSessionVariable(sessionVariable)); // deep copy
         context.setEnv(env);
         context.setDatabase(currentDb);
-        context.setQualifiedUser(qualifiedUser);
         context.setCurrentUserIdentity(currentUserIdentity);
         context.setProcedureExec(exec);
         return context;
@@ -640,11 +636,7 @@ public class ConnectContext {
     }
 
     public String getQualifiedUser() {
-        return qualifiedUser;
-    }
-
-    public void setQualifiedUser(String qualifiedUser) {
-        this.qualifiedUser = qualifiedUser;
+        return currentUserIdentity == null ? null : currentUserIdentity.getQualifiedUser();
     }
 
     public boolean getIsTempUser() {
@@ -662,7 +654,7 @@ public class ConnectContext {
     // used for select user(), select session_user();
     // return string similar with user@127.0.0.1
     public String getUserWithLoginRemoteIpString() {
-        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP).toString();
+        return UserIdentity.createAnalyzedUserIdentWithIp(getQualifiedUser(), remoteIP).toString();
     }
 
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {
@@ -944,6 +936,13 @@ public class ConnectContext {
         }
     }
 
+    public void resetQueryId() {
+        if (this.queryId != null) {
+            this.lastQueryId = this.queryId.deepCopy();
+        }
+        this.queryId = null;
+    }
+
     public void setNeedRegenerateInstanceId(TUniqueId needRegenerateInstanceId) {
         this.needRegenerateInstanceId = needRegenerateInstanceId;
     }
@@ -1129,8 +1128,6 @@ public class ConnectContext {
         if (executor != null && executor.isSyncLoadKindStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             return Math.max(getInsertTimeoutS(), getQueryTimeoutS());
-        } else if (executor != null && executor.isAnalyzeStmt()) {
-            return sessionVariable.getAnalyzeTimeoutS();
         } else {
             // normal query stmt
             return getQueryTimeoutS();
@@ -1216,7 +1213,7 @@ public class ConnectContext {
                 row.add("No");
             }
             row.add("" + connectionId);
-            row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
+            row.add(ClusterNamespace.getNameFromFullName(getQualifiedUser()));
             row.add(getRemoteHostPortString());
             if (timeZone.isPresent()) {
                 row.add(TimeUtils.longToTimeStringWithTimeZone(loginTime, timeZone.get()));
@@ -1562,7 +1559,7 @@ public class ConnectContext {
 
     @Override
     public String toString() {
-        return getClass().getName() + "@" + Integer.toHexString(hashCode()) + ":" + qualifiedUser;
+        return getClass().getName() + "@" + Integer.toHexString(hashCode()) + ":" + getQualifiedUser();
     }
 
     public Map<String, Set<String>> getDbToTempTableNamesMap() {

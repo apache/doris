@@ -19,15 +19,11 @@ package org.apache.doris.fs;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import org.apache.hadoop.conf.Configuration;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 
@@ -38,7 +34,7 @@ public class FileSystemCache {
     public FileSystemCache() {
         // no need to set refreshAfterWrite, because the FileSystem is created once and never changed
         CacheFactory fsCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                 OptionalLong.empty(),
                 Config.max_remote_file_system_cache_num,
                 false,
@@ -46,8 +42,8 @@ public class FileSystemCache {
         fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
     }
 
-    private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) throws UserException {
-        return FileSystemFactory.get(key.type, key.getFsProperties());
+    private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
+        return FileSystemFactory.get(key.properties);
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {
@@ -55,37 +51,13 @@ public class FileSystemCache {
     }
 
     public static class FileSystemCacheKey {
-        private final FileSystemType type;
         // eg: hdfs://nameservices1
         private final String fsIdent;
-        private final Map<String, String> properties;
-        private final String bindBrokerName;
-        // only for creating new file system
-        private final Configuration conf;
+        private final StorageProperties properties;
 
-        public FileSystemCacheKey(Pair<FileSystemType, String> fs,
-                Map<String, String> properties,
-                String bindBrokerName,
-                Configuration conf) {
-            this.type = fs.first;
-            this.fsIdent = fs.second;
+        public FileSystemCacheKey(String fsIdent, StorageProperties properties) {
+            this.fsIdent = fsIdent;
             this.properties = properties;
-            this.bindBrokerName = bindBrokerName;
-            this.conf = conf;
-        }
-
-        public FileSystemCacheKey(Pair<FileSystemType, String> fs,
-                Map<String, String> properties, String bindBrokerName) {
-            this(fs, properties, bindBrokerName, null);
-        }
-
-        public Map<String, String> getFsProperties() {
-            if (conf == null) {
-                return properties;
-            }
-            Map<String, String> result = new HashMap<>();
-            conf.iterator().forEachRemaining(e -> result.put(e.getKey(), e.getValue()));
-            return result;
         }
 
         @Override
@@ -97,21 +69,13 @@ public class FileSystemCache {
                 return false;
             }
             FileSystemCacheKey o = (FileSystemCacheKey) obj;
-            boolean equalsWithoutBroker = type.equals(o.type)
-                    && fsIdent.equals(o.fsIdent)
-                    && properties.equals(o.properties);
-            if (bindBrokerName == null) {
-                return equalsWithoutBroker && o.bindBrokerName == null;
-            }
-            return equalsWithoutBroker && bindBrokerName.equals(o.bindBrokerName);
+            return fsIdent.equals(o.fsIdent)
+                            && properties.equals(o.properties);
         }
 
         @Override
         public int hashCode() {
-            if (bindBrokerName == null) {
-                return Objects.hash(properties, fsIdent, type);
-            }
-            return Objects.hash(properties, fsIdent, type, bindBrokerName);
+            return Objects.hash(properties, fsIdent);
         }
     }
 }

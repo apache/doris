@@ -157,6 +157,61 @@ public:
         }
         return true;
     }
+
+    // SIMD helper: find the first not null in the null map
+    static size_t find_first_valid_simd(const NullMap& null_map, size_t start_pos, size_t end_pos) {
+#ifdef __AVX2__
+        // search by simd
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i null_vec = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&null_map[pos]));
+            __m256i zero_vec = _mm256_setzero_si256();
+            __m256i cmp_result = _mm256_cmpeq_epi8(null_vec, zero_vec);
+
+            int mask = _mm256_movemask_epi8(cmp_result);
+            if (mask != 0) {
+                // find the first not null
+                return pos + __builtin_ctz(mask);
+            }
+        }
+
+        // handle the rest elements
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#endif
+        return end_pos;
+    }
+
+    // SIMD helper: batch set non-null value with [start, end) to 1
+    static void range_set_nullmap_to_true_simd(NullMap& null_map, size_t start_pos,
+                                               size_t end_pos) {
+#ifdef __AVX2__
+        // batch set null map to 1 using SIMD (32 bytes at a time)
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i ones_vec = _mm256_set1_epi8(1);
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(&null_map[pos]), ones_vec);
+        }
+
+        // handle the rest elements (less than 32 bytes)
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#endif
+    }
 };
 
 inline bool match_suffix(const std::string& name, const std::string& suffix) {

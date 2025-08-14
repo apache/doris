@@ -25,21 +25,19 @@ namespace doris::segment_v2 {
 
 class PrefixQuery : public Query {
 public:
-    PrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                const TQueryOptions& query_options, const io::IOContext* io_ctx);
+    PrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
     ~PrefixQuery() override = default;
 
-    void add(const InvertedIndexQueryInfo& query_info) override {}
-    void add(const std::wstring& field_name, const std::vector<std::wstring>& terms);
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
     void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
-                          const std::string& prefix, std::vector<std::wstring>& prefix_terms,
+                          const std::string& prefix, std::vector<std::string>& prefix_terms,
                           int32_t max_expansions = 50);
 
 private:
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
-    const io::IOContext* _io_ctx = nullptr;
+    SearcherPtr _searcher;
+    IndexQueryContextPtr _context;
 
     UnionTermIterPtr _lead1;
 };

@@ -40,7 +40,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
-#include "segment_v2/inverted_index_file_writer.h"
+#include "segment_v2/index_file_writer.h"
 #include "segment_v2/segment.h"
 
 namespace doris {
@@ -87,7 +87,7 @@ public:
     ~InvertedIndexFileCollection();
 
     // `seg_id` -> inverted index file writer
-    Status add(int seg_id, InvertedIndexFileWriterPtr&& writer);
+    Status add(int seg_id, IndexFileWriterPtr&& writer);
 
     // Close all file writers
     // If the inverted index file writer is not closed, an error will be thrown during destruction
@@ -99,7 +99,7 @@ public:
     Result<std::vector<const InvertedIndexFileInfo*>> inverted_index_file_info(int seg_id_offset);
 
     // return all inverted index file writers
-    std::unordered_map<int, InvertedIndexFileWriterPtr>& get_file_writers() {
+    std::unordered_map<int, IndexFileWriterPtr>& get_file_writers() {
         return _inverted_index_file_writers;
     }
 
@@ -107,7 +107,7 @@ public:
 
 private:
     mutable std::mutex _lock;
-    std::unordered_map<int /* seg_id */, InvertedIndexFileWriterPtr> _inverted_index_file_writers;
+    std::unordered_map<int /* seg_id */, IndexFileWriterPtr> _inverted_index_file_writers;
     int64_t _total_size = 0;
 };
 
@@ -129,11 +129,9 @@ public:
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
                               FileType file_type = FileType::SEGMENT_FILE) override;
 
-    Status create_inverted_index_file_writer(uint32_t segment_id,
-                                             InvertedIndexFileWriterPtr* writer) override;
+    Status create_index_file_writer(uint32_t segment_id, IndexFileWriterPtr* writer) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_schema) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush() override;
 
@@ -191,12 +189,18 @@ public:
         return _seg_files.get_file_writers();
     }
 
-    std::unordered_map<int, InvertedIndexFileWriterPtr>& inverted_index_file_writers() {
+    std::unordered_map<int, IndexFileWriterPtr>& inverted_index_file_writers() {
         return this->_idx_files.get_file_writers();
     }
 
+    CalcDeleteBitmapToken* calc_delete_bitmap_token() { return _calc_delete_bitmap_token.get(); }
+
+    CalcDeleteBitmapTask* calc_delete_bitmap_task(int32_t segment_id) {
+        DCHECK(_context.mow_context != nullptr);
+        return _context.mow_context->get_calc_dbm_task(segment_id);
+    }
+
 private:
-    void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
@@ -255,7 +259,6 @@ protected:
 
     fmt::memory_buffer vlog_buffer;
 
-    std::shared_ptr<MowContext> _mow_context;
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
 
     int64_t _delete_bitmap_ns = 0;
@@ -275,8 +278,7 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_schema) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,

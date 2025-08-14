@@ -94,11 +94,21 @@ suite("test_hive_parquet_skip_page", "p0,external,hive,external_docker,external_
         return;
     }
 
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    def hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+    def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
+    def hdfsUserName = "doris"
+    def uri = "${defaultFS}" + "/user/doris/preinstalled_data/parquet/small_2rowgroup.parquet"
+    qt_small_2rowgroup """ select * from HDFS(
+                "uri" = "${uri}",
+                "hadoop.username" = "${hdfsUserName}",
+                "format" = "parquet") where a = 1024 or a = 4049
+                order by a;"""
+
     for (String hivePrefix : ["hive2", "hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "${hivePrefix}_test_parquet_skip_page"
-            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (

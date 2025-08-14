@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -37,8 +38,10 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -56,8 +59,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -74,11 +80,16 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Function;
@@ -89,6 +100,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -105,6 +117,7 @@ import javax.annotation.Nullable;
     FoldConstantRuleOnFE.class
 })
 public class AggregateStrategies implements ImplementationRuleFactory {
+    private static final String SALT_EXPR = "saltExpr";
 
     @Override
     public List<Rule> buildRules() {
@@ -324,6 +337,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1 && couldConvertToMulti(agg))
                     .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
+                    .whenNot(Aggregate::canSkewRewrite)
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT.build(
@@ -344,6 +358,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .whenNot(agg -> agg.mustUseMultiDistinctAgg())
+                    .whenNot(Aggregate::canSkewRewrite)
                     .when(agg -> agg.supportAggregatePhase(AggregatePhase.THREE))
                     .thenApplyMulti(ctx -> threePhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             ),
@@ -419,6 +434,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     })
                     .when(agg -> agg.supportAggregatePhase(AggregatePhase.FOUR))
                     .whenNot(Aggregate::mustUseMultiDistinctAgg)
+                    .whenNot(Aggregate::canSkewRewrite)
                     .thenApplyMulti(ctx -> {
                         Function<List<Expression>, RequireProperties> secondPhaseRequireGroupByAndDistinctHash =
                                 groupByAndDistinct -> RequireProperties.of(
@@ -436,6 +452,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                 secondPhaseRequireGroupByAndDistinctHash, fourPhaseRequireGroupByHash
                         );
                     })
+            ),
+            RuleType.AGG_SKEW_REWRITE.build(
+                    basePattern
+                            .when(Aggregate::canSkewRewrite)
+                            .thenApply(ctx -> aggSkewRewrite(ctx.root, ctx.cascadesContext))
             )
         );
     }
@@ -538,10 +559,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         OlapTable olapTable = logicalScan.getTable();
         Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
 
-        return indexIdToMeta.values().stream()
-                .anyMatch(indexMeta -> indexMeta.getIndexes().stream()
-                        .anyMatch(index -> index.getIndexType() == IndexType.INVERTED
-                                || index.getIndexType() == IndexType.BITMAP));
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            for (Index index : indexMeta.getIndexes()) {
+                IndexType indexType = index.getIndexType();
+                switch (indexType) {
+                    case INVERTED:
+                    case BITMAP:
+                        return true;
+                    default: {
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -578,7 +608,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         List<Expression> argumentsOfAggregateFunction = normalizeArguments(agg.getAggregateFunctions(), project);
 
-        if (!onlyContainsSlot(argumentsOfAggregateFunction)) {
+        if (!onlyContainsSlotOrLiteral(argumentsOfAggregateFunction)) {
             return agg;
         }
 
@@ -610,9 +640,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return arguments;
     }
 
-    private boolean onlyContainsSlot(List<Expression> arguments) {
+    private boolean onlyContainsSlotOrLiteral(List<Expression> arguments) {
         return arguments.stream().allMatch(argument -> {
-            if (argument instanceof SlotReference) {
+            if (argument instanceof SlotReference || argument instanceof Literal) {
                 return true;
             }
             return false;
@@ -915,7 +945,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<Plan>> onePhaseAggregateWithoutDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
-        AggregateParam inputToResultParam = AggregateParam.LOCAL_RESULT;
+        boolean canBeBanned = true;
+        for (AggregateFunction aggregateFunction : logicalAgg.getAggregateFunctions()) {
+            if (aggregateFunction.forceSkipRegulator(AggregatePhase.ONE)) {
+                canBeBanned = false;
+                break;
+            }
+        }
+        AggregateParam inputToResultParam = new AggregateParam(
+                AggregateParam.LOCAL_RESULT.aggPhase, AggregateParam.LOCAL_RESULT.aggMode, canBeBanned
+        );
         List<NamedExpression> newOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), outputChild -> {
                     if (outputChild instanceof AggregateFunction) {
@@ -931,8 +970,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             // TODO: usually bad, disable it until we could do better cost computation.
-            // return ImmutableList.of(gatherLocalAgg);
-            return ImmutableList.of();
+            if (!canBeBanned) {
+                return ImmutableList.of(gatherLocalAgg);
+            } else {
+                return ImmutableList.of();
+            }
         } else {
             RequireProperties requireHash = RequireProperties.of(
                     PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
@@ -2085,5 +2127,135 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
         }
         return true;
+    }
+
+    /**
+     * LogicalAggregate(groupByExpr=[a], outputExpr=[a,count(distinct b)])
+     * ->
+     * +--PhysicalHashAggregate(groupByExpr=[a], outputExpr=[a, sum0(partial_sum0(m))]
+     *   +--PhysicalDistribute(shuffleColumn=[a])
+     *     +--PhysicalHashAggregate(groupByExpr=[a], outputExpr=[a, partial_sum0(m)]
+     *       +--PhysicalHashAggregate(groupByExpr=[a, saltExpr], outputExpr=[a, multi_distinct_count(b) as m])
+     *         +--PhysicalDistribute(shuffleColumn=[a, saltExpr])
+     *           +--PhysicalProject(projects=[a, b, xxhash_32(b)%512 as saltExpr])
+     *             +--PhysicalHashAggregate(groupByExpr=[a, b], outputExpr=[a, b])
+     * */
+    private PhysicalHashAggregate<Plan> aggSkewRewrite(LogicalAggregate<GroupPlan> logicalAgg,
+            CascadesContext cascadesContext) {
+        // 1.local agg
+        ImmutableList.Builder<Expression> localAggGroupByBuilder = ImmutableList.builderWithExpectedSize(
+                logicalAgg.getGroupByExpressions().size() + 1);
+        localAggGroupByBuilder.addAll(logicalAgg.getGroupByExpressions());
+        AggregateFunction aggFunc = logicalAgg.getAggregateFunctions().iterator().next();
+        localAggGroupByBuilder.add(aggFunc.child(0));
+        List<Expression> localAggGroupBy = localAggGroupByBuilder.build();
+        List<NamedExpression> localAggOutput = Utils.fastToImmutableList((List) localAggGroupBy);
+        RequireProperties requireAny = RequireProperties.of(PhysicalProperties.ANY);
+        boolean maybeUsingStreamAgg = maybeUsingStreamAgg(cascadesContext.getConnectContext(),
+                localAggGroupBy);
+        boolean couldBanned = false;
+        AggregateParam localParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, couldBanned);
+        PhysicalHashAggregate<Plan> localAgg = new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput,
+                Optional.empty(), localParam, maybeUsingStreamAgg, Optional.empty(), null,
+                requireAny, logicalAgg.child());
+        // add shuffle expr in project
+        ImmutableList.Builder<NamedExpression> projections = ImmutableList.builderWithExpectedSize(
+                localAgg.getOutputs().size() + 1);
+        projections.addAll(localAgg.getOutputs());
+        Alias modAlias = getShuffleExpr(aggFunc, cascadesContext);
+        projections.add(modAlias);
+        PhysicalProject<Plan> physicalProject = new PhysicalProject<>(projections.build(), null, localAgg);
+
+        // 2.second phase agg: multi_distinct_count(b) group by a,h
+        ImmutableList.Builder<Expression> secondPhaseAggGroupByBuilder = ImmutableList.builderWithExpectedSize(
+                logicalAgg.getGroupByExpressions().size() + 1);
+        secondPhaseAggGroupByBuilder.addAll(logicalAgg.getGroupByExpressions());
+        secondPhaseAggGroupByBuilder.add(modAlias.toSlot());
+        List<Expression> secondPhaseAggGroupBy = secondPhaseAggGroupByBuilder.build();
+        ImmutableList.Builder<NamedExpression> secondPhaseAggOutput = ImmutableList.builderWithExpectedSize(
+                secondPhaseAggGroupBy.size() + 1);
+        secondPhaseAggOutput.addAll((List) secondPhaseAggGroupBy);
+        Alias aliasTarget = new Alias(new TinyIntLiteral((byte) 0));
+        for (NamedExpression ne : logicalAgg.getOutputExpressions()) {
+            if (ne instanceof Alias) {
+                if (((Alias) ne).child().equals(aggFunc)) {
+                    aliasTarget = (Alias) ne;
+                }
+            }
+        }
+        AggregateParam secondParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, couldBanned);
+        AggregateFunction multiDistinct = ((SupportMultiDistinct) aggFunc).convertToMultiDistinct();
+        Alias multiDistinctAlias = new Alias(new AggregateExpression(multiDistinct, secondParam));
+        secondPhaseAggOutput.add(multiDistinctAlias);
+        List<ExprId> shuffleIds = new ArrayList<>();
+        for (Expression expr : secondPhaseAggGroupBy) {
+            if (expr instanceof Slot) {
+                shuffleIds.add(((Slot) expr).getExprId());
+            }
+        }
+        RequireProperties secondRequireProperties = RequireProperties.of(
+                PhysicalProperties.createHash(shuffleIds, ShuffleType.REQUIRE));
+        PhysicalHashAggregate<Plan> secondPhaseAgg = new PhysicalHashAggregate<>(
+                secondPhaseAggGroupBy, secondPhaseAggOutput.build(),
+                Optional.empty(), secondParam, false, Optional.empty(), null,
+                secondRequireProperties, physicalProject);
+
+        // 3. third phase agg
+        List<Expression> thirdPhaseAggGroupBy = Utils.fastToImmutableList(logicalAgg.getGroupByExpressions());
+        ImmutableList.Builder<NamedExpression> thirdPhaseAggOutput = ImmutableList.builderWithExpectedSize(
+                thirdPhaseAggGroupBy.size() + 1);
+        thirdPhaseAggOutput.addAll((List) thirdPhaseAggGroupBy);
+        AggregateParam thirdParam = new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_BUFFER, couldBanned);
+        AggregateFunction function = getAggregateFunction(aggFunc);
+        AggregateFunction thirdAggFunc = function.withDistinctAndChildren(false,
+                ImmutableList.of(multiDistinctAlias.toSlot()));
+        Alias thirdCountAlias = new Alias(new AggregateExpression(thirdAggFunc, thirdParam));
+        thirdPhaseAggOutput.add(thirdCountAlias);
+        PhysicalHashAggregate<Plan> thirdPhaseAgg = new PhysicalHashAggregate<>(
+                thirdPhaseAggGroupBy, thirdPhaseAggOutput.build(),
+                Optional.empty(), thirdParam, false, Optional.empty(), null,
+                secondRequireProperties, secondPhaseAgg);
+
+        // 4. fourth phase agg
+        ImmutableList.Builder<NamedExpression> fourthPhaseAggOutput = ImmutableList.builderWithExpectedSize(
+                thirdPhaseAggGroupBy.size() + 1);
+        fourthPhaseAggOutput.addAll((List) thirdPhaseAggGroupBy);
+        AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT,
+                couldBanned);
+        Alias sumAliasFour = new Alias(aliasTarget.getExprId(),
+                new AggregateExpression(thirdAggFunc, fourthParam, thirdCountAlias.toSlot()),
+                aliasTarget.getName());
+        fourthPhaseAggOutput.add(sumAliasFour);
+        List<ExprId> shuffleIdsFour = new ArrayList<>();
+        for (Expression expr : logicalAgg.getExpressions()) {
+            if (expr instanceof Slot) {
+                shuffleIdsFour.add(((Slot) expr).getExprId());
+            }
+        }
+        RequireProperties fourthRequireProperties = RequireProperties.of(
+                PhysicalProperties.createHash(shuffleIdsFour, ShuffleType.REQUIRE));
+        return new PhysicalHashAggregate<>(thirdPhaseAggGroupBy,
+                fourthPhaseAggOutput.build(), Optional.empty(), fourthParam,
+                false, Optional.empty(), logicalAgg.getLogicalProperties(),
+                fourthRequireProperties, thirdPhaseAgg);
+    }
+
+    private AggregateFunction getAggregateFunction(AggregateFunction aggFunc) {
+        if (aggFunc instanceof Count) {
+            return new Sum0(aggFunc.child(0));
+        } else {
+            return aggFunc;
+        }
+    }
+
+    private Alias getShuffleExpr(AggregateFunction aggFunc, CascadesContext cascadesContext) {
+        int bucketNum = cascadesContext.getConnectContext().getSessionVariable().skewRewriteAggBucketNum;
+        // divide bucketNum by 2 is because XxHash32 return negative and positive number
+        int bucket = bucketNum / 2;
+        DataType type = bucket <= 128 ? TinyIntType.INSTANCE : SmallIntType.INSTANCE;
+        Mod mod = new Mod(new XxHash32(TypeCoercionUtils.castIfNotSameType(
+                aggFunc.child(0), StringType.INSTANCE)), new IntegerLiteral((short) bucket));
+        Cast cast = new Cast(mod, type);
+        return new Alias(cast, SALT_EXPR + cascadesContext.getStatementContext().generateColumnName());
     }
 }

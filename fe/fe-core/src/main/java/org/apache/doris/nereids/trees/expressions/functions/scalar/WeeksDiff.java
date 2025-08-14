@@ -43,8 +43,6 @@ public class WeeksDiff extends ScalarFunction implements BinaryExpression, Expli
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
             .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE)
@@ -57,13 +55,18 @@ public class WeeksDiff extends ScalarFunction implements BinaryExpression, Expli
         super("weeks_diff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private WeeksDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public WeeksDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new WeeksDiff(children.get(0), children.get(1));
+        return new WeeksDiff(getFunctionParams(children));
     }
 
     @Override

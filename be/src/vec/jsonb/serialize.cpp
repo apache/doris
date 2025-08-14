@@ -40,7 +40,6 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -49,7 +48,7 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
                                         const DataTypeSerDeSPtrs& serdes,
                                         const std::unordered_set<int32_t>& row_store_cids) {
     auto num_rows = block.rows();
-    Arena pool;
+    Arena arena;
     assert(num_cols <= block.columns());
     for (int i = 0; i < num_rows; ++i) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
@@ -63,7 +62,7 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
             }
             // TODO improve performance for checking column in group
             if (row_store_cids.empty() || row_store_cids.contains(tablet_column.unique_id())) {
-                serdes[j]->write_one_cell_to_jsonb(*column, jsonb_writer, &pool,
+                serdes[j]->write_one_cell_to_jsonb(*column, jsonb_writer, arena,
                                                    tablet_column.unique_id(), i);
             }
         }
@@ -92,7 +91,8 @@ Status JsonbSerializeUtil::jsonb_to_block(
         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, Block& dst,
         const std::vector<std::string>& default_values,
         const std::unordered_set<int>& include_cids) {
-    auto pdoc = JsonbDocument::checkAndCreateDocument(data, size);
+    JsonbDocument* pdoc = nullptr;
+    RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
     JsonbDocument& doc = *pdoc;
     size_t num_rows = dst.rows();
     size_t filled_columns = 0;

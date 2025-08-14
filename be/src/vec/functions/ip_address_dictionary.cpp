@@ -30,11 +30,14 @@
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/functions/dictionary.h"
 #include "vec/runtime/ip_address_cidr.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/utils/template_helpers.hpp"
+
 namespace doris::vectorized {
 
 IPAddressDictionary::~IPAddressDictionary() {

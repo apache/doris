@@ -20,9 +20,8 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.util.LazyCompute;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -31,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Logical properties used for analysis and optimize in Nereids.
@@ -61,12 +61,14 @@ public class LogicalProperties {
      * @param asteriskOutputSupplier provide the output when do select *.
      * @param dataTraitSupplier provide the data trait.
      */
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier, Supplier<List<Slot>> asteriskOutputSupplier,
+    public LogicalProperties(
+            Supplier<List<Slot>> outputSupplier,
+            Supplier<List<Slot>> asteriskOutputSupplier,
             Supplier<DataTrait> dataTraitSupplier) {
-        this.outputSupplier = Suppliers.memoize(
+        this.outputSupplier = LazyCompute.of(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );
-        this.outputExprIdsSupplier = Suppliers.memoize(() -> {
+        this.outputExprIdsSupplier = LazyCompute.of(() -> {
             List<Slot> output = this.outputSupplier.get();
             ImmutableList.Builder<Id<?>> exprIdSet
                     = ImmutableList.builderWithExpectedSize(output.size());
@@ -75,7 +77,7 @@ public class LogicalProperties {
             }
             return exprIdSet.build();
         });
-        this.outputSetSupplier = Suppliers.memoize(() -> {
+        this.outputSetSupplier = LazyCompute.of(() -> {
             List<Slot> output = this.outputSupplier.get();
             ImmutableSet.Builder<Slot> slots = ImmutableSet.builderWithExpectedSize(output.size());
             for (Slot slot : output) {
@@ -83,7 +85,7 @@ public class LogicalProperties {
             }
             return slots.build();
         });
-        this.outputMapSupplier = Suppliers.memoize(() -> {
+        this.outputMapSupplier = LazyCompute.of(() -> {
             Set<Slot> slots = this.outputSetSupplier.get();
             ImmutableMap.Builder<Slot, Slot> map = ImmutableMap.builderWithExpectedSize(slots.size());
             for (Slot slot : slots) {
@@ -91,7 +93,7 @@ public class LogicalProperties {
             }
             return map.build();
         });
-        this.outputExprIdSetSupplier = Suppliers.memoize(() -> {
+        this.outputExprIdSetSupplier = LazyCompute.of(() -> {
             List<Slot> output = this.outputSupplier.get();
             ImmutableSet.Builder<ExprId> exprIdSet
                     = ImmutableSet.builderWithExpectedSize(output.size());
@@ -100,10 +102,10 @@ public class LogicalProperties {
             }
             return exprIdSet.build();
         });
-        this.asteriskOutputSupplier = asteriskOutputSupplier == null ? this.outputSupplier : Suppliers.memoize(
+        this.asteriskOutputSupplier = asteriskOutputSupplier == null ? this.outputSupplier : LazyCompute.of(
                 Objects.requireNonNull(asteriskOutputSupplier, "asteriskOutputSupplier can not be null")
         );
-        this.dataTraitSupplier = Suppliers.memoize(
+        this.dataTraitSupplier = LazyCompute.of(
                 Objects.requireNonNull(dataTraitSupplier, "Data Trait can not be null")
         );
     }

@@ -40,8 +40,6 @@ import java.util.Map;
  * BuildIndexOp
  */
 public class BuildIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private final TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -114,8 +112,9 @@ public class BuildIndexOp extends AlterTableOp {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (!existedIdx.isLightIndexChangeSupported()) {
-            throw new AnalysisException(indexType.toString() + " index is not needed to build.");
+        if (indexType == IndexDef.IndexType.NGRAM_BF
+                || indexType == IndexDef.IndexType.BLOOMFILTER) {
+            throw new AnalysisException(indexType + " index is not needed to build.");
         }
 
         indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);

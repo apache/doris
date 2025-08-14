@@ -130,13 +130,14 @@ public class SlotReference extends Slot {
      * @param column the column which contains type info
      * @param qualifier the qualifier of SlotReference
      */
-    public static SlotReference fromColumn(TableIf table, Column column, List<String> qualifier) {
-        return fromColumn(table, column, column.getName(), qualifier);
+    public static SlotReference fromColumn(ExprId exprId, TableIf table, Column column, List<String> qualifier) {
+        return fromColumn(exprId, table, column, column.getName(), qualifier);
     }
 
-    public static SlotReference fromColumn(TableIf table, Column column, String name, List<String> qualifier) {
+    public static SlotReference fromColumn(
+            ExprId exprId, TableIf table, Column column, String name, List<String> qualifier) {
         DataType dataType = DataType.fromCatalogType(column.getType());
-        return new SlotReference(StatementScopeIdGenerator.newExprId(), name, dataType,
+        return new SlotReference(exprId, name, dataType,
             column.isAllowNull(), qualifier, table, column, table, column, ImmutableList.of());
     }
 
@@ -231,7 +232,7 @@ public class SlotReference extends Slot {
 
     // The contains method needs to use hashCode, so similar to equals, it only compares exprId
     @Override
-    public int computeHashCode() {
+    public int hashCode() {
         // direct return exprId to speed up
         return exprId.asInt();
     }

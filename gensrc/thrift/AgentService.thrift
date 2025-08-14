@@ -48,8 +48,9 @@ struct TTabletSchema {
     // col unique id for row store column
     20: optional list<i32> row_store_col_cids
     21: optional i64 row_store_page_size = 16384
-    22: optional bool variant_enable_flatten_nested = false 
+    22: optional bool variant_enable_flatten_nested = false
     23: optional i64 storage_page_size = 65536
+    24: optional i64 storage_dict_page_size = 262144
 }
 
 // this enum stands for different storage format in src_backends
@@ -126,6 +127,24 @@ struct TPushStoragePolicyReq {
     1: optional list<TStoragePolicy> storage_policy
     2: optional list<TStorageResource> resource
     3: optional list<i64> dropped_storage_policy
+}
+
+enum TIndexPolicyType {
+    ANALYZER,
+    TOKENIZER,
+    TOKEN_FILTER
+}
+
+struct TIndexPolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional TIndexPolicyType type
+    4: optional map<string, string> properties
+}
+
+struct TPushIndexPolicyReq {
+    1: optional list<TIndexPolicy> index_policys
+    2: optional list<i64> dropped_index_policys
 }
 
 struct TCleanTrashReq {}
@@ -384,6 +403,7 @@ struct TDownloadReq {
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
     6: optional string location // root path
     7: optional list<TRemoteTabletSnapshot> remote_tablet_snapshots
+    8: optional string vault_id // for cloud restore
 }
 
 struct TSnapshotRequest {
@@ -407,6 +427,9 @@ struct TSnapshotRequest {
 
 struct TReleaseSnapshotRequest {
     1: required string snapshot_path
+    2: optional Types.TTabletId tablet_id
+    // indicates the job is completed or cancelled
+    3: optional bool is_job_completed
 }
 
 struct TClearRemoteFileReq {
@@ -564,6 +587,7 @@ struct TAgentTaskRequest {
     34: optional TCleanTrashReq clean_trash_req
     35: optional TVisibleVersionReq visible_version_req
     36: optional TCleanUDFCacheReq clean_udf_cache_req
+    37: optional TPushIndexPolicyReq push_index_policy_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

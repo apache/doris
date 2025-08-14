@@ -45,8 +45,6 @@ public class DaysDiff extends ScalarFunction implements BinaryExpression, Explic
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE)
     );
 
@@ -57,13 +55,18 @@ public class DaysDiff extends ScalarFunction implements BinaryExpression, Explic
         super("days_diff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DaysDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DaysDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new DaysDiff(children.get(0), children.get(1));
+        return new DaysDiff(getFunctionParams(children));
     }
 
     @Override

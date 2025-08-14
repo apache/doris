@@ -17,68 +17,44 @@
 
 #include "aggregate_function_corr.h"
 
+#include "runtime/define_primitive_type.h"
+#include "vec/aggregate_functions/aggregate_function_binary.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/factory_helpers.h"
+#include "vec/aggregate_functions/helpers.h"
+
 namespace doris::vectorized {
+
+template <PrimitiveType T>
+using CorrMomentStat = StatFunc<T, CorrMoment>;
 
 AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
-    assert_binary(name, argument_types);
+    assert_arity_range(name, argument_types, 2, 2);
 
     DCHECK(argument_types[0]->get_primitive_type() == argument_types[1]->get_primitive_type());
-
-    switch ((argument_types[0]->get_primitive_type())) {
-    case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<TYPE_TINYINT, TYPE_TINYINT, CorrMoment>>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<TYPE_SMALLINT, TYPE_SMALLINT, CorrMoment>>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<TYPE_INT, TYPE_INT, CorrMoment>>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<TYPE_BIGINT, TYPE_BIGINT, CorrMoment>>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<TYPE_FLOAT, TYPE_FLOAT, CorrMoment>>>(
-                argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<
-                AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, TYPE_DOUBLE, CorrMoment>>>(
-                argument_types, result_is_nullable);
-    default:
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Aggregate function {} only support numeric types", name);
-    }
-    return nullptr;
+    return creator_with_type_list<TYPE_DOUBLE>::create<AggregateFunctionBinary, CorrMomentStat>(
+            argument_types, result_is_nullable, attr);
 }
 
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("corr", create_aggregate_corr_function);
 }
 
+template <PrimitiveType T>
+using CorrWelfordMomentStat = StatFunc<T, CorrMomentWelford>;
+
 AggregateFunctionPtr create_aggregate_corr_welford_function(const std::string& name,
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr) {
-    assert_binary(name, argument_types);
+    assert_arity_range(name, argument_types, 2, 2);
 
-    if (argument_types[0]->get_primitive_type() != TYPE_DOUBLE ||
-        argument_types[1]->get_primitive_type() != TYPE_DOUBLE) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Aggregate function {} only support double", name);
-    }
-
-    return creator_without_type::create<
-            AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, TYPE_DOUBLE, CorrMomentWelford>>>(
-            argument_types, result_is_nullable);
+    return creator_with_type_list<TYPE_DOUBLE>::create<AggregateFunctionBinary,
+                                                       CorrWelfordMomentStat>(
+            argument_types, result_is_nullable, attr);
 }
 
 void register_aggregate_functions_corr_welford(AggregateFunctionSimpleFactory& factory) {

@@ -23,6 +23,10 @@ suite("test_ddl_part_table_auth","p0,auth_call") {
     String dbName = 'test_ddl_part_table_auth_db'
     String tableName = 'test_ddl_part_table_auth_tb'
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -31,9 +35,7 @@ suite("test_ddl_part_table_auth","p0,auth_call") {
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
 

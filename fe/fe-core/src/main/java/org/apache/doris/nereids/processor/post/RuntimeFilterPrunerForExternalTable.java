@@ -43,6 +43,9 @@ public class RuntimeFilterPrunerForExternalTable extends PlanPostProcessor {
      */
     @Override
     public Plan processRoot(Plan plan, CascadesContext ctx) {
+        if (!plan.containsType(Join.class)) {
+            return plan;
+        }
         plan = plan.accept(this, ctx);
         RuntimeFilterContext rfCtx = ctx.getRuntimeFilterContext();
         for (RuntimeFilter rf : rfCtx.getNereidsRuntimeFilter()) {

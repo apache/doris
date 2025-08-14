@@ -59,6 +59,15 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
+
 namespace doris::vectorized {
 struct DayCeil;
 struct DayFloor;
@@ -825,3 +834,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 #undef FLOOR
 #undef CEIL
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif

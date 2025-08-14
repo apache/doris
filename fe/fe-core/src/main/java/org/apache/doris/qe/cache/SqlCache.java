@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
@@ -35,10 +34,6 @@ public class SqlCache extends Cache {
 
     private String originSql;
     private PUniqueId cacheMd5;
-
-    public SqlCache(TUniqueId queryId, SelectStmt selectStmt) {
-        super(queryId, selectStmt);
-    }
 
     // For SetOperationStmt and Nereids
     public SqlCache(TUniqueId queryId, String originSql) {
@@ -64,7 +59,7 @@ public class SqlCache extends Cache {
     }
 
     public String getSqlWithViewStmt() {
-        String originSql = selectStmt != null ? selectStmt.toSql() : this.originSql;
+        String originSql = this.originSql;
         String cacheKey = originSql + "|" + allViewExpandStmtListStr;
         if (LOG.isDebugEnabled()) {
             LOG.debug("Cache key: {}", cacheKey);
@@ -120,10 +115,6 @@ public class SqlCache extends Cache {
             hitRange = HitRange.Full;
         }
         return cacheResult;
-    }
-
-    public SelectStmt getRewriteStmt() {
-        return null;
     }
 
     public void copyRowBatch(RowBatch rowBatch) {

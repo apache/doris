@@ -36,6 +36,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -314,6 +315,11 @@ public class DatabaseTransactionMgr {
             long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
+
+        if (!Env.getCurrentEnv().isMaster() && !FeConstants.runningUnitTest) {
+            throw new BeginTransactionException("FE is not master");
+        }
+
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());

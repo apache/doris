@@ -41,7 +41,6 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -162,7 +161,7 @@ TEST_F(DataTypeStringSerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -170,8 +169,11 @@ TEST_F(DataTypeStringSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            auto* pdoc = JsonbDocument::checkAndCreateDocument(
-                    jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+            JsonbDocument* pdoc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                            jsonb_writer.getOutput()->getSize(),
+                                                            &pdoc);
+            ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
             JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());

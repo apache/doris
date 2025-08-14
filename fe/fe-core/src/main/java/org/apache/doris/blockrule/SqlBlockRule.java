@@ -17,8 +17,6 @@
 
 package org.apache.doris.blockrule;
 
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
@@ -91,16 +89,6 @@ public class SqlBlockRule implements Writable, GsonPostProcessable {
         if (StringUtils.isNotEmpty(sql)) {
             this.sqlPattern = Pattern.compile(sql);
         }
-    }
-
-    public static SqlBlockRule fromCreateStmt(CreateSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(),
-                stmt.getTabletNum(), stmt.getCardinality(), stmt.isGlobal(), stmt.isEnable());
-    }
-
-    public static SqlBlockRule fromAlterStmt(AlterSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(),
-                stmt.getTabletNum(), stmt.getCardinality(), stmt.getGlobal(), stmt.getEnable());
     }
 
     public String getName() {

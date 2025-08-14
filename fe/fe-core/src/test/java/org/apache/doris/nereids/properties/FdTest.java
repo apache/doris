@@ -18,9 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -31,11 +29,6 @@ import org.junit.jupiter.api.Test;
 import java.util.Set;
 
 class FdTest extends TestWithFeService {
-    Slot slot1 = new SlotReference("1", IntegerType.INSTANCE, false);
-    Slot slot2 = new SlotReference("2", IntegerType.INSTANCE, false);
-    Slot slot3 = new SlotReference("1", IntegerType.INSTANCE, false);
-    Slot slot4 = new SlotReference("1", IntegerType.INSTANCE, false);
-
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -122,8 +115,9 @@ class FdTest extends TestWithFeService {
                 .analyze("select id, id2 from agg  group by id, id2 having id = 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
-                .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
+        // constant propagation will rewrite agg
+        // Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+        //        .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(1)), ImmutableSet.of(plan.getOutput().get(0))));
     }

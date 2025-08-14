@@ -19,14 +19,15 @@ package org.apache.doris.service;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.binlog.BinlogLagInfo;
@@ -47,9 +48,13 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
+import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -79,6 +84,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -90,6 +96,11 @@ import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
@@ -99,7 +110,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
@@ -119,7 +129,6 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdatePartitionStatsTarget;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.query.QueryStats;
-import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -149,6 +158,7 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
+import org.apache.doris.thrift.TEncryptionKey;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
@@ -174,6 +184,8 @@ import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetEncryptionKeysRequest;
+import org.apache.doris.thrift.TGetEncryptionKeysResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetMetaDB;
@@ -1410,6 +1422,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive getDataKeys request: {}, backend: {}", request, clientAddr);
+        }
+
+        TGetEncryptionKeysResult result = new TGetEncryptionKeysResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to getDataKeys:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, clientAddr);
+            return result;
+        }
+        try {
+            List<TEncryptionKey> tKeys = new ArrayList<TEncryptionKey>();
+            List<EncryptionKey> keys =  Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
+            for (EncryptionKey key : keys) {
+                tKeys.add(key.toThrift());
+            }
+            result.setMasterKeys(tKeys);
+        } catch (Exception e) {
+            LOG.warn("failed to getDataKeys: {}: {}", request, e.getMessage());
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        return result;
+    }
+
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         if (request.isSetTableId() && request.getTableId() > 0) {
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
@@ -2034,8 +2082,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // mysql load request not carry user info, need fix it later.
             boolean hasUserName = !StringUtils.isEmpty(request.getUser());
             if (Config.enable_workload_group && hasUserName) {
-                tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(ConnectContext.get());
+                tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get())
+                        .stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
@@ -2135,8 +2185,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
 
-            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-            Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
+            Coordinator coord = new Coordinator(ctx, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
             TableIf table = httpStreamParams.getTable();
@@ -2714,6 +2763,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetTabletReplicaInfosResult result = new TGetTabletReplicaInfosResult();
         List<Long> tabletIds = request.getTabletIds();
         Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
+        String clusterId = "";
+        if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
+            CloudWarmUpJob job = ((CloudEnv) Env.getCurrentEnv())
+                    .getCacheHotspotMgr()
+                    .getCloudWarmUpJob(request.getWarmUpJobId());
+            if (job == null) {
+                LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
+                        job.getJobId(), clientAddr);
+                // notify client to cancel this job
+                result.setStatus(new TStatus(TStatusCode.CANCELLED));
+                return result;
+            }
+            clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudClusterIdByName(job.getDstClusterName());
+        }
         for (Long tabletId : tabletIds) {
             if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
                 LOG.info("enable getTabletReplicaInfos.returnEmpty");
@@ -2723,17 +2787,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
             for (Replica replica : replicas) {
-                if (!replica.isNormal()) {
+                if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                Backend backend;
+                if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
+                    CloudReplica cloudReplica = (CloudReplica) replica;
+                    backend = cloudReplica.getPrimaryBackend(clusterId);
+                } else {
+                    backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                }
                 if (backend != null) {
                     TReplicaInfo replicaInfo = new TReplicaInfo();
                     replicaInfo.setHost(backend.getHost());
                     replicaInfo.setBePort(backend.getBePort());
                     replicaInfo.setHttpPort(backend.getHttpPort());
                     replicaInfo.setBrpcPort(backend.getBrpcPort());
+                    replicaInfo.setIsAlive(backend.isAlive());
+                    replicaInfo.setBackendId(backend.getId());
                     replicaInfo.setReplicaId(replica.getId());
                     replicaInfos.add(replicaInfo);
                 }
@@ -2828,7 +2900,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (syncJournal) {
                 ConnectContext ctx = new ConnectContext(null);
                 ctx.setDatabase(request.getDb());
-                ctx.setQualifiedUser(request.getUser());
+                ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
                 ctx.setEnv(Env.getCurrentEnv());
                 MasterOpExecutor executor = new MasterOpExecutor(ctx);
                 executor.syncJournal();
@@ -3090,16 +3162,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // instead of directly putting them in properties to avoid compatibility issues of cross-version
         // synchronization.
         if (request.isCleanPartitions()) {
-            properties.put(RestoreStmt.PROP_CLEAN_PARTITIONS, "true");
+            properties.put(RestoreCommand.PROP_CLEAN_PARTITIONS, "true");
         }
         if (request.isCleanTables()) {
-            properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
+            properties.put(RestoreCommand.PROP_CLEAN_TABLES, "true");
         }
         if (request.isAtomicRestore()) {
-            properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+            properties.put(RestoreCommand.PROP_ATOMIC_RESTORE, "true");
         }
         if (request.isForceReplace()) {
-            properties.put(RestoreStmt.PROP_FORCE_REPLACE, "true");
+            properties.put(RestoreCommand.PROP_FORCE_REPLACE, "true");
         }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
@@ -3134,26 +3206,82 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     + "`enable_restore_snapshot_rpc_compressed` is not enabled.");
         }
 
-        RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, meta, jobInfo);
-        restoreStmt.setIsBeingSynced();
-        LOG.debug("restore snapshot info, restoreStmt: {}", restoreStmt);
+        //instantiate RestoreCommand
+        LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDbName(), label.getLabelName());
+        List<TableRefInfo> tableRefInfos = new ArrayList<>();
+        List<TableRef> tableRefList = restoreTableRefClause == null
+                ? new ArrayList<>() : restoreTableRefClause.getTableRefList();
+        for (TableRef tableRef : tableRefList) {
+            TableName tableName = tableRef.getName();
+            String[] aliases = tableRef.getAliases();
+            PartitionNames partitionNames = tableRef.getPartitionNames();
+            List<Long> sampleTabletIds = tableRef.getSampleTabletIds();
+            TableSample tableSample = tableRef.getTableSample();
+            ArrayList<String> commonHints = tableRef.getCommonHints();
+            TableSnapshot tableSnapshot = tableRef.getTableSnapshot();
+            TableScanParams tableScanParams = tableRef.getScanParams();
+
+            TableNameInfo tableNameInfo = null;
+            if (tableName != null) {
+                tableNameInfo = new TableNameInfo(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
+            }
+
+            String tableAlias = aliases.length >= 1 ? aliases[0] : null;
+
+            PartitionNamesInfo partitionNamesInfo = null;
+            if (partitionNames != null) {
+                partitionNamesInfo = new PartitionNamesInfo(partitionNames.isTemp(),
+                        partitionNames.isStar(),
+                        partitionNames.getPartitionNames(),
+                        0);
+            }
+
+            List<Long> tabletIdList = new ArrayList<>();
+            if (sampleTabletIds != null) {
+                tabletIdList.addAll(sampleTabletIds);
+            }
+
+            ArrayList<String> relationHints = new ArrayList<>();
+            if (commonHints != null) {
+                relationHints.addAll(commonHints);
+            }
+
+            org.apache.doris.nereids.trees.TableSample newTableSample =
+                    new org.apache.doris.nereids.trees.TableSample(tableSample.getSampleValue(),
+                            tableSample.isPercent(),
+                            tableSample.getSeek());
+
+            TableRefInfo tableRefInfo = new TableRefInfo(tableNameInfo,
+                    tableScanParams,
+                    tableSnapshot,
+                    partitionNamesInfo,
+                    tabletIdList,
+                    tableAlias,
+                    newTableSample,
+                    relationHints);
+            tableRefInfos.add(tableRefInfo);
+        }
+
+        RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
+        restoreCommand.setMeta(meta);
+        restoreCommand.setJobInfo(jobInfo);
+        restoreCommand.setIsBeingSynced();
+        LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
         try {
             ConnectContext ctx = new ConnectContext();
-            ctx.setQualifiedUser(request.getUser());
             String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
             ctx.setThreadLocalInfo();
-            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-            restoreStmt.analyze(analyzer);
-            DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
+            restoreCommand.validate(ctx);
+            Env.getCurrentEnv().getBackupHandler().process(restoreCommand);
         } catch (UserException e) {
-            LOG.warn("failed to restore: {}, stmt: {}", e.getMessage(), restoreStmt, e);
+            LOG.warn("failed to restore: {}, command: {}", e.getMessage(), restoreCommand, e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage() + ", stmt: " + restoreStmt.toString());
+            status.addToErrorMsgs(e.getMessage() + ", command: " + restoreCommand);
         } catch (Throwable e) {
-            LOG.warn("catch unknown result. stmt: {}", restoreStmt, e);
+            LOG.warn("catch unknown result. command: {}", restoreCommand, e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()) + ", stmt: " + restoreStmt.toString());
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()) + ", command: " + restoreCommand);
         } finally {
             ConnectContext.remove();
         }
@@ -3539,9 +3667,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
-            TableIf table = StatisticsUtil.findTable(target.catalogId, target.dbId, target.tableId);
-            analysisManager.submitAsyncDropStatsTask(table, target.catalogId, target.dbId,
-                    target.tableId, tableStats, partitionNames, false);
+            analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
+                    target.tableId, partitionNames, false);
         } else {
             analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
                     target.columns, tableStats, partitionNames);
@@ -3620,20 +3747,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        // check partition's number limit.
-        int partitionNum = olapTable.getPartitionNum() + addPartitionClauseMap.size();
-        if (partitionNum > Config.max_auto_partition_num) {
-            String errorMessage = String.format(
-                    "create partition failed. partition numbers %d will exceed limit variable "
-                            + "max_auto_partition_num %d",
-                    partitionNum, Config.max_auto_partition_num);
-            LOG.warn(errorMessage);
-            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
-            result.setStatus(errorStatus);
-            LOG.warn("send create partition error status: {}", result);
-            return result;
-        }
-
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
@@ -3646,6 +3759,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 LOG.warn("send create partition error status: {}", result);
                 return result;
             }
+        }
+
+        // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with existing
+        // partitions, which would lead to false positive. so we should check the partition number AFTER adding new
+        // partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
+        if (olapTable.getPartitionNum() > Config.max_auto_partition_num) {
+            String errorMessage = String.format(
+                    "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
+                    olapTable.getPartitionNum(), Config.max_auto_partition_num);
+            LOG.warn(errorMessage);
+            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
+            result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result);
+            return result;
         }
 
         // build partition & tablets

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
@@ -160,7 +161,7 @@ public class IndexDef {
             sb.append(")");
         }
         if (comment != null) {
-            sb.append(" COMMENT '" + comment + "'");
+            sb.append(" COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
         }
         return sb.toString();
     }
@@ -308,5 +309,12 @@ public class IndexDef {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid value for '" + key + "': " + valueStr, e);
         }
+    }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+            && properties != null
+            && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

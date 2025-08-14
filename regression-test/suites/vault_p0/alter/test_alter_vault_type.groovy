@@ -77,4 +77,46 @@ suite("test_alter_vault_type", "nonConcurrent") {
             );
         """
     }, "is not hdfs storage vault")
+
+    def test_user  = "alter_vault_no_pri";
+    def test_pass = "12345"
+    sql """create user ${test_user} identified by '${test_pass}'"""
+
+    try {
+        def result = connect(test_user, test_pass, context.config.jdbcUrl) {
+            sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="s3",
+                "VAULT_NAME" = "${s3VaultName}_rename"
+            );
+        """
+        }
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Access denied for user"), e.getMessage())
+    }
+
+    sql """
+        ALTER STORAGE VAULT ${s3VaultName}
+        PROPERTIES (
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
+        );
+    """
+
+    sql """
+        ALTER STORAGE VAULT ${hdfsVaultName}
+        PROPERTIES (
+            "hadoop.username" = "${getHmsUser()}"
+        );
+    """
+
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT non_existent_vault_${randomStr}
+            PROPERTIES (
+                "s3.access_key" = "test_ak"
+            );
+        """
+    }, "does not exist")
 }

@@ -14,16 +14,16 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
+----------------------------hashJoin[LEFT_ANTI_JOIN shuffle] hashCondition=((store_returns.sr_ticket_number = store_sales.ss_ticket_number) and (store_sales.ss_item_sk = store_returns.sr_item_sk)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------hashJoin[LEFT_ANTI_JOIN shuffle] hashCondition=((store_returns.sr_ticket_number = store_sales.ss_ticket_number) and (store_sales.ss_item_sk = store_returns.sr_item_sk)) otherCondition=()
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ss_sold_date_sk]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_returns]
+------------------------------------filter((date_dim.d_year = 2001))
+--------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalProject
---------------------------------filter((date_dim.d_year = 2001))
-----------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalOlapScan[store_returns]
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]

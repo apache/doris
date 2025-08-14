@@ -103,9 +103,9 @@ public:
     // NOTE: stale rowsets will be lost after BE restarts, so there may be some stale delete bitmaps
     // which will not be cleared.
     // version = 2 : https://github.com/apache/doris/pull/49822
-    int do_delete_bitmap_storage_optimize_check(int version = 1);
+    int do_delete_bitmap_storage_optimize_check(int version = 2);
 
-    int do_mow_compaction_key_check();
+    int do_mow_job_key_check();
 
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
@@ -115,13 +115,25 @@ public:
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
 private:
+    struct RowsetIndexesFormatV1 {
+        std::string rowset_id;
+        std::unordered_set<int64_t> segment_ids;
+        std::unordered_set<std::string> index_ids;
+    };
+
+    struct RowsetIndexesFormatV2 {
+        std::string rowset_id;
+        std::unordered_set<int64_t> segment_ids;
+    };
+
+private:
     // returns 0 for success otherwise error
     int init_obj_store_accessors(const InstanceInfoPB& instance);
 
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
 
-    int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+    int traverse_mow_tablet(const std::function<int(int64_t, bool)>& check_func);
     int traverse_rowset_delete_bitmaps(
             int64_t tablet_id, std::string rowset_id,
             const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback);
@@ -130,9 +142,16 @@ private:
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
     int get_pending_delete_bitmap_keys(int64_t tablet_id,
                                        std::unordered_set<std::string>& pending_delete_bitmaps);
+    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, bool has_sequence_col,
+                                                int64_t& abnormal_rowsets_num);
 
-    int check_delete_bitmap_storage_optimize(int64_t tablet_id);
-    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, int64_t& abnormal_rowsets_num);
+    int check_inverted_index_file_storage_format_v1(int64_t tablet_id, const std::string& file_path,
+                                                    const std::string& rowset_info,
+                                                    RowsetIndexesFormatV1& rowset_index_cache_v1);
+
+    int check_inverted_index_file_storage_format_v2(int64_t tablet_id, const std::string& file_path,
+                                                    const std::string& rowset_info,
+                                                    RowsetIndexesFormatV2& rowset_index_cache_v2);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;

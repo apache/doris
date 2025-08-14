@@ -31,7 +31,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
@@ -109,6 +108,7 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -210,7 +210,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
-        Index invertedIndex = null;
         // Get the first slot from match's left expr
         SlotReference slot = match.getInputSlots().stream()
                         .findFirst()
@@ -228,18 +227,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
         }
 
-        List<Index> indexes = olapTbl.getIndexes();
-        if (indexes != null) {
-            for (Index index : indexes) {
-                if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
-                    List<String> columns = index.getColumns();
-                    if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
-                        invertedIndex = index;
-                        break;
-                    }
-                }
-            }
-        }
+        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
 
         MatchPredicate.Operator op = match.op();
         MatchPredicate matchPredicate = new MatchPredicate(op, match.left().accept(this, context),
@@ -344,6 +332,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
     }
 
+    private boolean computeCompoundPredicateNullable(CompoundPredicate cp) {
+        Expr left = cp.getChild(0);
+        Expr right = cp.getChild(1);
+        return left.getNullableFromNereids().isPresent() && left.getNullableFromNereids().get()
+                || !left.getNullableFromNereids().isPresent() && left.isNullable()
+                || right.getNullableFromNereids().isPresent() && right.getNullableFromNereids().get()
+                || !right.getNullableFromNereids().isPresent() && right.isNullable();
+    }
+
     private Expr toBalancedTree(int low, int high, List<Expr> children,
             CompoundPredicate.Operator op) {
         Deque<Frame> stack = new ArrayDeque<>();
@@ -366,6 +363,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr left = children.get(l);
                     Expr right = children.get(h);
                     CompoundPredicate cp = new CompoundPredicate(op, left, right);
+                    cp.setNullableFromNereids(computeCompoundPredicateNullable(cp));
                     results.push(cp);
                     stack.pop();
                 } else {
@@ -382,6 +380,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr right = results.pop();
                     Expr left = results.pop();
                     CompoundPredicate cp = new CompoundPredicate(currentFrame.op, left, right);
+                    cp.setNullableFromNereids(computeCompoundPredicateNullable(cp));
                     results.push(cp);
                 }
             }
@@ -649,10 +648,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitAggregateExpression(AggregateExpression aggregateExpression, PlanTranslatorContext context) {
         // aggFnArguments is used to build TAggregateExpr.param_types, so backend can find the aggregate function
-        List<Expr> aggFnArguments = aggregateExpression.getFunction().children()
-                .stream()
-                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
-                .collect(ImmutableList.toImmutableList());
+        List<Expr> aggFnArguments = new ArrayList<>(aggregateExpression.getFunction().arity());
+        for (Expression arg : aggregateExpression.getFunction().children()) {
+            aggFnArguments.add(new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()));
+        }
 
         Expression child = aggregateExpression.child();
         List<Expression> currentPhaseArguments = child instanceof AggregateFunction
@@ -786,13 +785,19 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitAggregateFunction(AggregateFunction function, PlanTranslatorContext context) {
-        List<Expr> arguments = function.children().stream()
-                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
-                .collect(ImmutableList.toImmutableList());
+        List<Expr> arguments = Lists.newArrayListWithCapacity(function.arity());
+        for (Expression arg : function.children()) {
+            arguments.add(new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()));
+        }
+        List<Type> argTypes = Lists.newArrayListWithCapacity(function.arity());
+        for (Expression arg : function.getArguments()) {
+            if (!(arg instanceof OrderExpression)) {
+                argTypes.add(arg.getDataType().toCatalogDataType());
+            }
+        }
         org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
                 new FunctionName(function.getName()),
-                function.getArguments().stream().filter(arg -> !(arg instanceof OrderExpression))
-                        .map(arg -> arg.getDataType().toCatalogDataType()).collect(ImmutableList.toImmutableList()),
+                argTypes,
                 function.getDataType().toCatalogDataType(), function.getIntermediateTypes().toCatalogDataType(),
                 function.hasVarArguments(), null, "", "", null, "", null, "", null, false, false, false,
                 TFunctionBinaryType.BUILTIN, true, true,
@@ -838,18 +843,21 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     private Expr translateAggregateFunction(AggregateFunction function,
             List<Expression> currentPhaseArguments, List<Expr> aggFnArguments,
             AggregateParam aggregateParam, PlanTranslatorContext context) {
-        List<Expr> currentPhaseCatalogArguments = currentPhaseArguments
-                .stream()
-                .map(arg -> arg instanceof OrderExpression
-                        ? translateOrderExpression((OrderExpression) arg, context).getExpr()
-                        : arg.accept(this, context))
-                .collect(ImmutableList.toImmutableList());
+        List<Expr> currentPhaseCatalogArguments = Lists.newArrayListWithCapacity(currentPhaseArguments.size());
+        for (Expression arg : currentPhaseArguments) {
+            if (arg instanceof OrderExpression) {
+                currentPhaseCatalogArguments.add(translateOrderExpression((OrderExpression) arg, context).getExpr());
+            } else {
+                currentPhaseCatalogArguments.add(arg.accept(this, context));
+            }
+        }
 
-        List<OrderByElement> orderByElements = function.getArguments()
-                .stream()
-                .filter(arg -> arg instanceof OrderExpression)
-                .map(arg -> translateOrderExpression((OrderExpression) arg, context))
-                .collect(ImmutableList.toImmutableList());
+        List<OrderByElement> orderByElements = Lists.newArrayListWithCapacity(function.getArguments().size());
+        for (Expression arg : function.getArguments()) {
+            if (arg instanceof OrderExpression) {
+                orderByElements.add(translateOrderExpression((OrderExpression) arg, context));
+            }
+        }
 
         FunctionParams fnParams;
         FunctionParams aggFnParams;

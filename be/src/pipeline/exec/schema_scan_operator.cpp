@@ -41,7 +41,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
     _scanner_param.profile = std::make_unique<RuntimeProfile>("SchemaScanner");
-    profile()->add_child(_scanner_param.profile.get(), true, nullptr);
+    custom_profile()->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // get src tuple desc
     const auto* schema_table =
@@ -131,6 +131,11 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         fe_addr.hostname = tnode.schema_scan_node.ip;
         fe_addr.port = tnode.schema_scan_node.port;
         _common_scanner_param->fe_addr_list.insert(fe_addr);
+    }
+
+    if (tnode.schema_scan_node.__isset.frontend_conjuncts) {
+        _common_scanner_param->frontend_conjuncts =
+                state->obj_pool()->add(new std::string(tnode.schema_scan_node.frontend_conjuncts));
     }
     return Status::OK();
 }

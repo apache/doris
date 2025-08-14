@@ -23,13 +23,14 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
@@ -126,9 +127,9 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, *index_path_prefix, std::string {rowset_id}, seg_id, format,
-                std::move(file_writer));
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
+                                                  seg_id, format, std::move(file_writer));
 
         // Get c2 column Field
         const TabletColumn& column = tablet_schema->column(1);
@@ -137,9 +138,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
@@ -156,7 +157,7 @@ public:
     // Create an IndexSearcher from the created index
     std::shared_ptr<lucene::search::IndexSearcher> create_searcher(
             const std::string& index_path_prefix, const TabletIndex& idx_meta) {
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         auto status = reader->init();
         EXPECT_EQ(status, Status::OK());
@@ -165,7 +166,7 @@ public:
         EXPECT_TRUE(result.has_value()) << "Failed to open compound reader";
 
         auto index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
-        auto searcher_result = index_searcher_builder->get_index_searcher(result.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(result.value().get());
         EXPECT_TRUE(searcher_result.has_value());
 
         auto* fulltext_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_result.value());
@@ -217,15 +218,23 @@ TEST_F(PhraseEdgeQueryTest, test_single_term_edge_query) {
     ASSERT_NE(searcher, nullptr);
 
     // Test PhraseEdgeQuery with single term
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("app"); // Should match words containing "app"
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("app", 0); // Should match words containing "app"
 
     query.add(query_info);
 
@@ -271,21 +280,29 @@ TEST_F(PhraseEdgeQueryTest, test_multi_term_edge_query) {
     ASSERT_NE(searcher, nullptr);
 
     // Test PhraseEdgeQuery with multiple terms
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // First term: suffix match (ends_with), Last term: prefix match (starts_with), Middle: exact
-    query_info.terms.emplace_back(
-            "ple"); // suffix match - should match "apple", "simple", "people", "triple"
-    query_info.terms.emplace_back(
-            "ban"); // middle exact match - should match "banana", "band", "bandage", "bandits"
-    query_info.terms.emplace_back(
-            "che"); // prefix match - should match "cherry", "checker", "achieved", "chest"
+    query_info.term_infos.emplace_back(
+            "ple", 0); // suffix match - should match "apple", "simple", "people", "triple"
+    query_info.term_infos.emplace_back(
+            "ban", 1); // middle exact match - should match "banana", "band", "bandage", "bandits"
+    query_info.term_infos.emplace_back(
+            "che", 2); // prefix match - should match "cherry", "checker", "achieved", "chest"
 
     query.add(query_info);
 
@@ -320,18 +337,25 @@ TEST_F(PhraseEdgeQueryTest, test_empty_terms_exception) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     // Test with empty terms - should throw exception
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // terms is empty
 
-    EXPECT_THROW(query.add(query_info), CLuceneError);
+    EXPECT_THROW(query.add(query_info), Exception);
 }
 
 TEST_F(PhraseEdgeQueryTest, test_max_expansions_limit) {
@@ -366,16 +390,24 @@ TEST_F(PhraseEdgeQueryTest, test_max_expansions_limit) {
     ASSERT_NE(searcher, nullptr);
 
     // Test with limited max_expansions
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 2; // Limit to 2 expansions
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";          // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("app");  // Should match many terms but limited to 2
-    query_info.terms.emplace_back("word"); // Some term
+    query_info.field_name = L"1";                  // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("app", 0);  // Should match many terms but limited to 2
+    query_info.term_infos.emplace_back("word", 1); // Some term
 
     query.add(query_info);
 
@@ -410,15 +442,23 @@ TEST_F(PhraseEdgeQueryTest, test_no_matches) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    PhraseEdgeQuery query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    PhraseEdgeQuery query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("xyz"); // Should not match any term
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("xyz", 0); // Should not match any term
 
     query.add(query_info);
 

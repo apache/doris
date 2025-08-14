@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
@@ -26,6 +27,7 @@
 #include "util/faststring.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
@@ -60,7 +62,7 @@ public:
     }
 
     Status finish(OwnedSlice* slice) override {
-        encode_fixed32_le((uint8_t*)&_buffer[0], _count);
+        encode_fixed32_le((uint8_t*)&_buffer[0], cast_set<uint32_t>(_count));
         RETURN_IF_CATCH_EXCEPTION({
             if (_count > 0) {
                 _first_value.assign_copy(&_buffer[PLAIN_PAGE_HEADER_SIZE], SIZE_OF_TYPE);
@@ -154,7 +156,7 @@ public:
 
         DCHECK_LE(pos, _num_elems);
 
-        _cur_idx = pos;
+        _cur_idx = cast_set<uint32_t>(pos);
         return Status::OK();
     }
 
@@ -165,8 +167,8 @@ public:
             return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
 
-        size_t left = 0;
-        size_t right = _num_elems;
+        uint32_t left = 0;
+        uint32_t right = _num_elems;
 
         const void* mid_value = nullptr;
 
@@ -174,7 +176,7 @@ public:
         // - left == index of first value >= target when found
         // - left == _num_elems when not found (all values < target)
         while (left < right) {
-            size_t mid = left + (right - left) / 2;
+            uint32_t mid = left + (right - left) / 2;
             mid_value = &_data[PLAIN_PAGE_HEADER_SIZE + mid * SIZE_OF_TYPE];
             if (TypeTraits<Type>::cmp(mid_value, value) < 0) {
                 left = mid + 1;
@@ -221,4 +223,5 @@ private:
 };
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

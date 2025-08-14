@@ -49,13 +49,18 @@ public class StContains extends ScalarFunction
         super("st_contains", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StContains(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StContains withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new StContains(children.get(0), children.get(1));
+        return new StContains(getFunctionParams(children));
     }
 
     @Override

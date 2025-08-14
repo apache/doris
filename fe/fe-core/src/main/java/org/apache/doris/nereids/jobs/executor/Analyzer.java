@@ -19,11 +19,13 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSink;
+import org.apache.doris.nereids.rules.analysis.BindSkewExpr;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -41,16 +43,20 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeGenerate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
+import org.apache.doris.nereids.rules.analysis.OneRowRelationToProject;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
+import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -85,6 +91,28 @@ public class Analyzer extends AbstractBatchJobExecutor {
         execute();
     }
 
+    @Override
+    public void execute() {
+        MoreFieldsThread.keepFunctionSignature(false, () -> {
+            super.execute();
+            return null;
+        });
+    }
+
+    /** buildCustomAnalyzer */
+    public static Analyzer buildCustomAnalyzer(CascadesContext cascadesContext, List<RewriteJob> customJobs) {
+        List<RewriteJob> wrappedJobs = notTraverseChildrenOf(
+                ImmutableSet.of(LogicalView.class, LogicalCTEAnchor.class),
+                () -> customJobs
+        );
+        return new Analyzer(cascadesContext) {
+            @Override
+            public List<RewriteJob> getJobs() {
+                return wrappedJobs;
+            }
+        };
+    }
+
     private static List<RewriteJob> buildAnalyzeJobs() {
         return notTraverseChildrenOf(
                 ImmutableSet.of(LogicalView.class, LogicalCTEAnchor.class),
@@ -100,13 +128,14 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new EliminateLogicalPreAggOnHint()),
             bottomUp(
                     new BindRelation(),
-                    new CheckPolicy()
+                    new CheckPolicy(),
+                    new BindExpression()
             ),
-            bottomUp(new BindExpression()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
             topDown(new FillUpQualifyMissingSlot()),
             bottomUp(
+                    new OneRowRelationToProject(),
                     new ProjectToGlobalAggregate(),
                     // this rule check's the logicalProject node's isDistinct property
                     // and replace the logicalProject node with a LogicalAggregate node
@@ -116,7 +145,19 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new EliminateDistinctConstant(),
                     new ProjectWithDistinctToAggregate(),
                     new ReplaceExpressionByChildOutput(),
-                    new OneRowRelationExtractAggregate()
+                    new OneRowRelationExtractAggregate(),
+
+                    // ProjectToGlobalAggregate may generate an aggregate with empty group by expressions.
+                    // for sort / having, need to adjust their agg functions' nullable.
+                    // for example: select sum(a) from t having sum(b) > 10 order by sum(c),
+                    // then will have:
+                    // sort(sum(c))                    sort(sum(c))
+                    //     |                                |
+                    // having(sum(b) > 10)       ==>   having(sum(b) > 10)
+                    //     |                                |
+                    // project(sum(a))                 agg(sum(a))
+                    // then need to adjust SORT and HAVING's sum to nullable.
+                    new AdjustAggregateNullableForEmptySet()
             ),
             topDown(
                     new FillUpMissingSlots(),
@@ -125,7 +166,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                     new NormalizeRepeat()
             ),
-            bottomUp(new AdjustAggregateNullableForEmptySet()),
             // consider sql with user defined var @t_zone
             // set @t_zone='GMT';
             // SELECT
@@ -142,6 +182,17 @@ public class Analyzer extends AbstractBatchJobExecutor {
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
             bottomUp(new CheckAnalysis()),
             topDown(new SimplifyAggGroupBy()),
+            // compressedMaterialize should be applied before NormalizeAggregate, because the plan generated by
+            // compressedMaterialize also needs normalize. for example:
+            //    Agg(groupby=[A]
+            //        -->scan（T)
+            // after applying CompressedMaterialize plan transformed to
+            //   Agg(groupby=[encode(A)]
+            //       -->scan（T)
+            // encode(A) has to be pushed down
+            //    Agg(groupby=[x]
+            //       -->project(encode A as x)
+            //            -->scan（T)
             bottomUp(new CompressedMaterialize()),
             topDown(new NormalizeAggregate()),
             topDown(new HavingToFilter()),
@@ -152,16 +203,24 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new CollectJoinConstraint()
             ),
             topDown(new LeadingJoin()),
+            topDown(new BindSkewExpr()),
             bottomUp(new NormalizeGenerate()),
-            bottomUp(new SubqueryToApply())
-        /*
-         * Notice, MergeProjects rule should NOT be placed after SubqueryToApply in analyze phase.
-         * because in SubqueryToApply, we may add assert_true function with subquery output slot in projects list.
-         * on the other hand, the assert_true function should be not be in final output.
-         * in order to keep the plan unchanged, we add a new project node to prune the extra assert_true slot.
-         * but MergeProjects rule will merge the two projects and keep assert_true anyway.
-         * so we move MergeProjects from analyze to rewrite phase.
-         */
+            /*
+             * Notice, MergeProjects rule should NOT be placed after SubqueryToApply in analyze phase.
+             * because in SubqueryToApply, we may add assert_true function with subquery output slot in projects list.
+             * on the other hand, the assert_true function should be not be in final output.
+             * in order to keep the plan unchanged, we add a new project node to prune the extra assert_true slot.
+             * but MergeProjects rule will merge the two projects and keep assert_true anyway.
+             * so we move MergeProjects from analyze to rewrite phase.
+             */
+            bottomUp(new SubqueryToApply()),
+            topDown(
+                    // merge normal filter and hidden column filter
+                    new MergeFilters()
+            ),
+            // for cte: analyze producer -> analyze consumer -> rewrite consumer -> rewrite producer,
+            // in order to ensure cte consumer had right nullable attribute, need adjust nullable at analyze phase.
+            custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(true))
         );
     }
 }

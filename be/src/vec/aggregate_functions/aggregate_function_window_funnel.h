@@ -31,7 +31,6 @@
 #include <utility>
 
 #include "common/cast_set.h"
-#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "util/binary_cast.hpp"
 #include "util/simd/bits.h"
@@ -40,7 +39,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -104,8 +102,8 @@ struct DataValue {
 
 template <PrimitiveType PrimitiveType, typename NativeType>
 struct WindowFunnelState {
-    using DateValueType = std::conditional_t<PrimitiveType == PrimitiveType::TYPE_DATETIMEV2,
-                                             DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
+    static_assert(PrimitiveType == PrimitiveType::TYPE_DATETIMEV2);
+    using DateValueType = DateV2Value<DateTimeV2ValueType>;
     int event_count = 0;
     int64_t window;
     bool enable_mode;
@@ -348,7 +346,9 @@ template <PrimitiveType PrimitiveType, typename NativeType>
 class AggregateFunctionWindowFunnel
         : public IAggregateFunctionDataHelper<
                   WindowFunnelState<PrimitiveType, NativeType>,
-                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>> {
+                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
@@ -369,7 +369,7 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& window = assert_cast<const ColumnInt64&>(*columns[0]).get_data()[row_num];
         StringRef mode = columns[1]->get_data_at(row_num);
         this->data(place).add(columns, row_num, window,
@@ -377,7 +377,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -386,7 +386,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

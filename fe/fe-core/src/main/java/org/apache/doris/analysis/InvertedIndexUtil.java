@@ -17,13 +17,18 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -62,6 +67,10 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_DICT_COMPRESSION_KEY = "dict_compression";
 
+    public static String INVERTED_INDEX_CUSTOM_ANALYZER_KEY = "analyzer";
+
+    public static String INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
         // default is "none" if not set
@@ -75,6 +84,22 @@ public class InvertedIndexUtil {
         return mode != null ? mode :
             INVERTED_INDEX_PARSER_IK.equals(parser) ? INVERTED_INDEX_PARSER_SMART :
                 INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+    }
+
+    public static String getInvertedIndexFieldPattern(Map<String, String> properties) {
+        String fieldPattern = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY);
+        // default is "none" if not set
+        return fieldPattern != null ? fieldPattern : "";
+    }
+
+    public static boolean getInvertedIndexSupportPhrase(Map<String, String> properties) {
+        String supportPhrase = properties == null ? null : properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
+        return supportPhrase != null ? Boolean.parseBoolean(supportPhrase) : true;
+    }
+
+    public static String getCustomAnalyzer(Map<String, String> properties) {
+        String customAnalyzer = properties == null ? null : properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+        return customAnalyzer != null ? customAnalyzer : "";
     }
 
     public static Map<String, String> getInvertedIndexCharFilter(Map<String, String> properties) {
@@ -122,6 +147,11 @@ public class InvertedIndexUtil {
         String stopwrods = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
         // default is "" if not set
         return stopwrods != null ? stopwrods : "";
+    }
+
+    public static String getInvertedIndexCustomAnalyzer(Map<String, String> properties) {
+        String customAnalyzer = properties == null ? null : properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+        return customAnalyzer != null ? customAnalyzer : "";
     }
 
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
@@ -183,7 +213,9 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY,
                 INVERTED_INDEX_PARSER_LOWERCASE_KEY,
                 INVERTED_INDEX_PARSER_STOPWORDS_KEY,
-                INVERTED_INDEX_DICT_COMPRESSION_KEY
+                INVERTED_INDEX_DICT_COMPRESSION_KEY,
+                INVERTED_INDEX_CUSTOM_ANALYZER_KEY,
+                INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY
         ));
 
         for (String key : properties.keySet()) {
@@ -202,6 +234,19 @@ public class InvertedIndexUtil {
         String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
         String stopWords = properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
         String dictCompression = properties.get(INVERTED_INDEX_DICT_COMPRESSION_KEY);
+        String customAnalyzer = properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+
+        if (customAnalyzer != null && !customAnalyzer.isEmpty() && parser != null && !parser.isEmpty()) {
+            throw new AnalysisException("Cannot specify both 'parser' and 'custom_analyzer' properties");
+        }
+
+        if (customAnalyzer != null && !customAnalyzer.isEmpty()) {
+            try {
+                Env.getCurrentEnv().getIndexPolicyMgr().validateAnalyzerExists(customAnalyzer);
+            } catch (DdlException e) {
+                throw new AnalysisException("Invalid custom analyzer: " + e.getMessage());
+            }
+        }
 
         if (parser != null && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik")) {
             throw new AnalysisException("Invalid inverted index 'parser' value: " + parser
@@ -287,5 +332,30 @@ public class InvertedIndexUtil {
                         "dict_compression can only be set when storage format is V3");
             }
         }
+    }
+
+    public static boolean canHaveMultipleInvertedIndexes(DataType colType, List<IndexDefinition> indexDefs) {
+        if (indexDefs.size() == 0 || indexDefs.size() == 1) {
+            return true;
+        }
+        if (!colType.isStringLikeType() && !colType.isVariantType()) {
+            return false;
+        }
+        if (indexDefs.size() > 2) {
+            return false;
+        }
+        boolean findParsedInvertedIndex = false;
+        boolean findNonParsedInvertedIndex = false;
+        for (IndexDefinition indexDef : indexDefs) {
+            if (indexDef.isAnalyzedInvertedIndex()) {
+                findParsedInvertedIndex = true;
+            } else {
+                findNonParsedInvertedIndex = true;
+            }
+        }
+        if (findParsedInvertedIndex && findNonParsedInvertedIndex) {
+            return true;
+        }
+        return false;
     }
 }

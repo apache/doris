@@ -1477,10 +1477,10 @@ TEST(function_string_test, function_null_or_empty_test) {
 
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
-    DataSet data_set = {{{std::string("")}, uint8(true)},
-                        {{std::string("aa")}, uint8(false)},
-                        {{std::string("我")}, uint8(false)},
-                        {{Null()}, uint8(true)}};
+    DataSet data_set = {{{std::string("")}, uint8_t(true)},
+                        {{std::string("aa")}, uint8_t(false)},
+                        {{std::string("我")}, uint8_t(false)},
+                        {{Null()}, uint8_t(true)}};
 
     check_function_all_arg_comb<DataTypeUInt8, false>(func_name, input_types, data_set);
 }

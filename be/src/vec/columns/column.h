@@ -37,7 +37,9 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
+namespace doris {
 class SipHash;
+}
 
 namespace doris::vectorized {
 
@@ -71,6 +73,11 @@ public:
 
     /// Name of a Column. It is used in info messages.
     virtual std::string get_name() const = 0;
+
+    // used to check the column data is valid or not.
+    virtual void sanity_check() const {
+        // do nothing by default, but some column may need to check
+    }
 
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
@@ -108,7 +115,7 @@ public:
     // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
     virtual void shrink_padding_chars() {}
 
-    // Only used in ColumnObject to handle lifecycle of variant. Other columns would do nothing.
+    // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
     // Only used on ColumnDictionary
@@ -314,24 +321,9 @@ public:
     /// Returns pointer to the position after the read data.
     virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
 
-    /// Return the size of largest row.
-    /// This is for calculating the memory size for vectorized serialization of aggregation keys.
-    virtual size_t get_max_row_byte_size() const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_max_row_byte_size is not supported for " + get_name());
-        return 0;
-    }
-
-    virtual void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
+    virtual void serialize_vec(StringRef* keys, size_t num_rows) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_vec is not supported for " + get_name());
-    }
-
-    virtual void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
-                                             const uint8_t* null_map) const {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method serialize_vec_with_null_map is not supported for " + get_name());
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
@@ -339,13 +331,28 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
     }
+    /// The exact size to serialize the `row`-th row data in this column.
+    virtual size_t serialize_size_at(size_t row) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Column {} should not be serialized.", get_name());
+    }
+    /// `serialize_impl` is the implementation to serialize a column into a continuous memory.
+    virtual size_t serialize_impl(char* pos, const size_t row) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method serialize_impl is not supported for " + get_name());
+    }
+    /// `deserialize_impl` will deserialize data which is serialized by `serialize_impl`.
+    virtual size_t deserialize_impl(const char* pos) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method deserialize_impl is not supported for " + get_name());
+    }
 
-    // Used in ColumnNullable::deserialize_vec
-    virtual void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
-                                               const uint8_t* null_map) {
-        throw doris::Exception(
-                ErrorCode::NOT_IMPLEMENTED_ERROR,
-                "Method deserialize_vec_with_null_map is not supported for " + get_name());
+    /// Return the size of largest row.
+    /// This is for calculating the memory size for vectorized serialization of aggregation keys.
+    virtual size_t get_max_row_byte_size() const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_max_row_byte_size is not supported for " + get_name());
+        return 0;
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
@@ -452,8 +459,8 @@ public:
      * @param filter this stores comparison results for all rows. filter[i] = 1 means row i is less than row rhs_row_id in rhs
      */
     virtual void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                                  int direction, std::vector<uint8>& cmp_res,
-                                  uint8* __restrict filter) const;
+                                  int direction, std::vector<uint8_t>& cmp_res,
+                                  uint8_t* __restrict filter) const;
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
@@ -467,17 +474,11 @@ public:
                                "get_permutation for " + get_name());
     }
 
-    /** Copies each element according offsets parameter.
-      * (i-th element should be copied offsets[i] - offsets[i - 1] times.)
-      * It is necessary in ARRAY JOIN operation.
-      */
-    virtual Ptr replicate(const Offsets& offsets) const = 0;
-
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
       * For default implementation, see column_impl.h
       */
-    using ColumnIndex = UInt64;
+    using ColumnIndex = UInt32;
     using Selector = PaddedPODArray<ColumnIndex>;
 
     // The append_data_by_selector function requires the column to implement the insert_from function.
@@ -668,14 +669,7 @@ protected:
         }
         DCHECK_GE(end, begin);
         DCHECK_LE(end, selector.size());
-        // here wants insert some value from this column, and the nums is (end - begin)
-        // and many be this column num_rows is 4096, but only need insert num is (1 - 0) = 1
-        // so can't call res->reserve(num_rows), it's will be too mush waste memory
-        res->reserve(res->size() + (end - begin));
-
-        for (size_t i = begin; i < end; ++i) {
-            static_cast<Derived&>(*res).insert_from(*this, selector[i]);
-        }
+        static_cast<Derived&>(*res).insert_indices_from(*this, &selector[begin], &selector[end]);
     }
     template <typename Derived>
     void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,

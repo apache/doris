@@ -17,53 +17,29 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.common.CatalogConfigFileUtils;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.paimon.options.Options;
+import org.apache.commons.lang3.BooleanUtils;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
-public class HMSProperties extends MetastoreProperties {
+public class HMSProperties extends AbstractHMSProperties {
 
-    @ConnectorProperty(names = {"hive.metastore.uris"},
-            description = "The uri of the hive metastore.")
-    private String hiveMetastoreUri = "";
+    private HMSBaseProperties hmsBaseProperties;
 
-    @ConnectorProperty(names = {"hive.metastore.authentication.type"},
+    @ConnectorProperty(names = {"hive.enable_hms_events_incremental_sync"},
             required = false,
-            description = "The authentication type of the hive metastore.")
-    private String hiveMetastoreAuthenticationType = "none";
+            description = "Whether to enable incremental sync of hms events.")
+    private boolean hmsEventsIncrementalSyncEnabledInput = Config.enable_hms_events_incremental_sync;
 
-    @ConnectorProperty(names = {"hive.conf.resources"},
+    @ConnectorProperty(names = {"hive.hms_events_batch_size_per_rpc"},
             required = false,
-            description = "The conf resources of the hive metastore.")
-    private String hiveConfResourcesConfig = "";
-
-    @ConnectorProperty(names = {"hive.metastore.service.principal"},
-            required = false,
-            description = "The service principal of the hive metastore.")
-    private String hiveMetastoreServicePrincipal = "";
-
-    @ConnectorProperty(names = {"hive.metastore.client.principal"},
-            required = false,
-            description = "The client principal of the hive metastore.")
-    private String hiveMetastoreClientPrincipal = "";
-
-    @ConnectorProperty(names = {"hive.metastore.client.keytab"},
-            required = false,
-            description = "The client keytab of the hive metastore.")
-    private String hiveMetastoreClientKeytab = "";
-
-    private Map<String, String> hiveConfParams;
-
-    private Map<String, String> hmsConnectionProperties;
+            description = "The batch size of hms events per rpc.")
+    private int hmsEventisBatchSizePerRpcInput = Config.hms_events_batch_size_per_rpc;
 
     public HMSProperties(Map<String, String> origProps) {
         super(Type.HMS, origProps);
@@ -75,65 +51,18 @@ public class HMSProperties extends MetastoreProperties {
     }
 
     @Override
-    protected void checkRequiredProperties() {
-        super.checkRequiredProperties();
-        if (!Strings.isNullOrEmpty(hiveConfResourcesConfig)) {
-            checkHiveConfResourcesConfig();
-        }
-        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
-            if (Strings.isNullOrEmpty(hiveMetastoreServicePrincipal)
-                    || Strings.isNullOrEmpty(hiveMetastoreClientPrincipal)
-                    || Strings.isNullOrEmpty(hiveMetastoreClientKeytab)) {
-                throw new IllegalArgumentException("Hive metastore authentication type is kerberos, "
-                        + "but service principal, client principal or client keytab is not set.");
-            }
-        }
-        if (Strings.isNullOrEmpty(hiveMetastoreUri)) {
-            throw new IllegalArgumentException("Hive metastore uri is required.");
-        }
-    }
-
-    @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        hiveConfParams = loadConfigFromFile(hiveConfResourcesConfig);
-        initHmsConnectionProperties();
+        initRefreshParams();
+        hmsBaseProperties = HMSBaseProperties.of(origProps);
+        this.hiveConf = hmsBaseProperties.getHiveConf();
+        this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
 
-    private void initHmsConnectionProperties() {
-        hmsConnectionProperties = new HashMap<>();
-        hmsConnectionProperties.putAll(hiveConfParams);
-        hmsConnectionProperties.put("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
-        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
-            hmsConnectionProperties.put("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
-            hmsConnectionProperties.put("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
-            hmsConnectionProperties.put("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
-        }
-        hmsConnectionProperties.put("uri", hiveMetastoreUri);
-    }
 
-    private void checkHiveConfResourcesConfig() {
-        loadConfigFromFile(hiveConfResourcesConfig);
-    }
-
-    public void toPaimonOptionsAndConf(Options options) {
-        hmsConnectionProperties.forEach(options::set);
-    }
-
-    public void toIcebergHiveCatalogProperties(Map<String, String> catalogProps) {
-        hmsConnectionProperties.forEach(catalogProps::put);
-    }
-
-    protected Map<String, String> loadConfigFromFile(String resourceConfig) {
-        if (Strings.isNullOrEmpty(resourceConfig)) {
-            return Maps.newHashMap();
-        }
-        HiveConf conf = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(resourceConfig);
-        Map<String, String> confMap = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : conf) {
-            confMap.put(entry.getKey(), entry.getValue());
-        }
-        return confMap;
+    private void initRefreshParams() {
+        this.hmsEventsIncrementalSyncEnabled = BooleanUtils.toBoolean(hmsEventsIncrementalSyncEnabledInput);
+        this.hmsEventsBatchSizePerRpc = hmsEventisBatchSizePerRpcInput;
     }
 
 }

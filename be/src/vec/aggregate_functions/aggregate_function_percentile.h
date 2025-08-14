@@ -21,15 +21,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <vector>
 
-#include "agent/be_exec_version_manager.h"
 #include "util/counts.h"
 #include "util/tdigest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -39,12 +36,10 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -82,31 +77,31 @@ struct PercentileApproxState {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(init_flag, buf);
+        buf.write_binary(init_flag);
         if (!init_flag) {
             return;
         }
 
-        write_binary(target_quantile, buf);
-        write_binary(compressions, buf);
+        buf.write_binary(target_quantile);
+        buf.write_binary(compressions);
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
         DCHECK(digest.get() != nullptr);
         digest->serialize((uint8_t*)result.c_str());
 
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(init_flag, buf);
+        buf.read_binary(init_flag);
         if (!init_flag) {
             return;
         }
 
-        read_binary(target_quantile, buf);
-        read_binary(compressions, buf);
+        buf.read_binary(target_quantile);
+        buf.read_binary(compressions);
         std::string str;
-        read_binary(str, buf);
+        buf.read_binary(str);
         digest = TDigest::create_unique(compressions);
         digest->unserialize((uint8_t*)str.c_str());
     }
@@ -173,7 +168,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         AggregateFunctionPercentileApprox::data(place).merge(
                 AggregateFunctionPercentileApprox::data(rhs));
     }
@@ -183,17 +178,19 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         AggregateFunctionPercentileApprox::data(place).read(buf);
     }
 };
 
-class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxTwoParams final : public AggregateFunctionPercentileApprox,
+                                                         public MultiExpression,
+                                                         public NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& sources =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
@@ -216,12 +213,14 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxThreeParams final : public AggregateFunctionPercentileApprox,
+                                                           public MultiExpression,
+                                                           public NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& sources =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
@@ -247,14 +246,16 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxWeightedThreeParams
-        : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxWeightedThreeParams final
+        : public AggregateFunctionPercentileApprox,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& sources =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& weight =
@@ -281,13 +282,15 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxWeightedFourParams
-        : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxWeightedFourParams final
+        : public AggregateFunctionPercentileApprox,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedFourParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& sources =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& weight =
@@ -323,14 +326,14 @@ struct PercentileState {
     bool inited_flag = false;
 
     void write(BufferWritable& buf) const {
-        write_binary(inited_flag, buf);
+        buf.write_binary(inited_flag);
         if (!inited_flag) {
             return;
         }
         int size_num = vec_quantile.size();
-        write_binary(size_num, buf);
+        buf.write_binary(size_num);
         for (const auto& quantile : vec_quantile) {
-            write_binary(quantile, buf);
+            buf.write_binary(quantile);
         }
         for (auto& counts : vec_counts) {
             counts.serialize(buf);
@@ -338,16 +341,16 @@ struct PercentileState {
     }
 
     void read(BufferReadable& buf) {
-        read_binary(inited_flag, buf);
+        buf.read_binary(inited_flag);
         if (!inited_flag) {
             return;
         }
         int size_num = 0;
-        read_binary(size_num, buf);
+        buf.read_binary(size_num);
         double data = 0.0;
         vec_quantile.clear();
         for (int i = 0; i < size_num; ++i) {
-            read_binary(data, buf);
+            buf.read_binary(data);
             vec_quantile.emplace_back(data);
         }
         vec_counts.clear();
@@ -429,7 +432,9 @@ struct PercentileState {
 
 template <PrimitiveType T>
 class AggregateFunctionPercentile final
-        : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>> {
+        : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Base = IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>>;
@@ -440,7 +445,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& sources =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
@@ -450,7 +455,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena&) const override {
         const auto& sources =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
@@ -465,7 +470,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         AggregateFunctionPercentile::data(place).merge(AggregateFunctionPercentile::data(rhs));
     }
 
@@ -474,7 +479,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         AggregateFunctionPercentile::data(place).read(buf);
     }
 
@@ -487,7 +492,9 @@ public:
 template <PrimitiveType T>
 class AggregateFunctionPercentileArray final
         : public IAggregateFunctionDataHelper<PercentileState<T>,
-                                              AggregateFunctionPercentileArray<T>> {
+                                              AggregateFunctionPercentileArray<T>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Base =
@@ -501,7 +508,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& sources =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile_array =
@@ -526,7 +533,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         AggregateFunctionPercentileArray::data(place).merge(
                 AggregateFunctionPercentileArray::data(rhs));
     }
@@ -536,7 +543,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         AggregateFunctionPercentileArray::data(place).read(buf);
     }
 

@@ -39,6 +39,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
@@ -52,6 +53,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -66,9 +68,14 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.FrontendConjunctsUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
@@ -117,8 +124,10 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class MetadataGenerator {
@@ -141,6 +150,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> META_CACHE_STATS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> PARTITIONS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -203,6 +214,13 @@ public class MetadataGenerator {
             partitionsBuilder.put(partitionsColList.get(i).getName().toLowerCase(), i);
         }
         PARTITIONS_COLUMN_TO_INDEX = partitionsBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> viewDependencyBuilder = new ImmutableMap.Builder();
+        List<Column> viewDependencyBuilderColList = SchemaTable.TABLE_MAP.get("view_dependency").getFullSchema();
+        for (int i = 0; i < viewDependencyBuilderColList.size(); i++) {
+            viewDependencyBuilder.put(viewDependencyBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        VIEW_DEPENDENCY_COLUMN_TO_INDEX = viewDependencyBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -309,6 +327,10 @@ public class MetadataGenerator {
                 result = partitionsMetadataResult(schemaTableParams);
                 columnIndex = PARTITIONS_COLUMN_TO_INDEX;
                 break;
+            case VIEW_DEPENDENCY:
+                result = viewDependencyMetadataResult(schemaTableParams);
+                columnIndex = VIEW_DEPENDENCY_COLUMN_TO_INDEX;
+                break;
             default:
                 return errorResult("invalid schema table name.");
         }
@@ -337,10 +359,27 @@ public class MetadataGenerator {
         if (catalog == null) {
             return errorResult("The specified catalog does not exist:" + hudiMetadataParams.getCatalog());
         }
+        if (!(catalog instanceof ExternalCatalog)) {
+            return errorResult("The specified catalog is not an external catalog: "
+                    + hudiMetadataParams.getCatalog());
+        }
+
+        ExternalTable dorisTable;
+        try {
+            dorisTable = (ExternalTable) catalog.getDbOrAnalysisException(hudiMetadataParams.getDatabase())
+                    .getTableOrAnalysisException(hudiMetadataParams.getTable());
+        } catch (AnalysisException e) {
+            return errorResult("The specified db or table does not exist");
+        }
+
+        if (!(dorisTable instanceof HMSExternalTable)) {
+            return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
+        }
+
         HudiCachedMetaClientProcessor hudiMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getHudiMetadataCacheMgr().getHudiMetaClientProcessor(catalog);
         String hudiBasePathString = ((HMSExternalCatalog) catalog).getClient()
-                .getTable(hudiMetadataParams.getDatabase(), hudiMetadataParams.getTable()).getSd().getLocation();
+                .getTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()).getSd().getLocation();
         Configuration conf = ((HMSExternalCatalog) catalog).getConfiguration();
 
         List<TRow> dataBatch = Lists.newArrayList();
@@ -348,15 +387,14 @@ public class MetadataGenerator {
 
         switch (hudiQueryType) {
             case TIMELINE:
-                HoodieTimeline timeline = hudiMetadataCache.getHoodieTableMetaClient(hudiMetadataParams.getDatabase(),
-                        hudiMetadataParams.getTable(), hudiBasePathString, conf).getActiveTimeline();
+                HoodieTimeline timeline = hudiMetadataCache.getHoodieTableMetaClient(dorisTable.getOrBuildNameMapping(),
+                        hudiBasePathString, conf).getActiveTimeline();
                 for (HoodieInstant instant : timeline.getInstants()) {
                     TRow trow = new TRow();
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getTimestamp()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.requestedTime()));
                     trow.addToColumnValue(new TCell().setStringVal(instant.getAction()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getFileName()));
                     trow.addToColumnValue(new TCell().setStringVal(instant.getState().name()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getStateTransitionTime()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getCompletionTime()));
                     dataBatch.add(trow);
                 }
                 break;
@@ -554,31 +592,101 @@ public class MetadataGenerator {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(0)))); // id
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1))); // name
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(2)))); // cpu_share
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3))); // mem_limit
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4))); // mem overcommit
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(5)))); // write_buffer_ratio
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(6))); // slot_memory_policy
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // max concurrent
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(8)))); // max queue size
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // queue timeout
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(10))); // cpu hard limit
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(11)))); // scan thread num
+            trow.addToColumnValue(new TCell().setStringVal((rGroupsInfo.get(2)))); // min_cpu_percent
+            trow.addToColumnValue(new TCell().setStringVal((rGroupsInfo.get(3)))); // max_cpu_percent
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4))); // min_memory_percent
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(5))); // max_memory_percent
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(6)))); // max concurrent
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // max queue size
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(8)))); // queue timeout
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // scan thread num
             // max remote scan thread num
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(12))));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(10))));
             // min remote scan thread num
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(13))));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // spill low watermark
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(15))); // spill high watermark
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // compute group
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(17)))); // read bytes per second
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(11))));
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(12))); // spill low watermark
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(13))); // spill high watermark
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // compute group
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(15)))); // read bytes per second
             trow.addToColumnValue(
-                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(18)))); // remote read bytes per second
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(19))); // running query num
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(20))); // waiting query num
+                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(16)))); // remote read bytes per second
             dataBatch.add(trow);
         }
 
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult viewDependencyMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> viewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_SCHEMA");
+        List<Expression> viewTypeConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_TYPE");
+        List<Expression> viewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_NAME");
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (FrontendConjunctsUtils.isFiltered(viewTypeConjuncts, "VIEW_TYPE", table.getType().name())) {
+                    continue;
+                }
+                if (table instanceof MTMV) {
+                    String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                        continue;
+                    }
+                    MTMVRelation relation = ((MTMV) table).getRelation();
+                    Set<BaseTableInfo> tablesOneLevel = relation.getBaseTablesOneLevel();
+                    for (BaseTableInfo info : tablesOneLevel) {
+                        TRow trow = new TRow();
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
+                        trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
+                        trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
+                        trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
+                        trow.addToColumnValue(new TCell().setStringVal(info.getType()));
+                        dataBatch.add(trow);
+                    }
+                } else if (table instanceof View) {
+                    String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                        continue;
+                    }
+                    String inlineViewDef = ((View) table).getInlineViewDef();
+                    Map<List<String>, TableIf> tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
+                    for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
+                        List<String> fullName = info.getKey();
+                        TableIf tbl = info.getValue();
+                        TRow trow = new TRow();
+                        trow.addToColumnValue(new TCell().setStringVal("internal"));
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
+                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(0)));
+                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(1)));
+                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(2)));
+                        trow.addToColumnValue(new TCell().setStringVal(tbl.getType().name()));
+                        dataBatch.add(trow);
+                    }
+                }
+            }
+        }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
@@ -922,9 +1030,9 @@ public class MetadataGenerator {
         if (catalog instanceof InternalCatalog) {
             return dealInternalCatalog((Database) db, table);
         } else if (catalog instanceof MaxComputeExternalCatalog) {
-            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, dbName, tableName);
+            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, (ExternalTable) table);
         } else if (catalog instanceof HMSExternalCatalog) {
-            return dealHMSCatalog((HMSExternalCatalog) catalog, dbName, tableName);
+            return dealHMSCatalog((HMSExternalCatalog) catalog, (ExternalTable) table);
         }
 
         if (LOG.isDebugEnabled()) {
@@ -933,10 +1041,10 @@ public class MetadataGenerator {
         return errorResult("not support catalog: " + catalogName);
     }
 
-    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, String dbName,
-            String tableName) {
+    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, ExternalTable table) {
         List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.getClient().listPartitionNames(dbName, tableName);
+        List<String> partitionNames = catalog.getClient()
+                .listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
         for (String partition : partitionNames) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(partition));
@@ -948,10 +1056,10 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog, String dbName,
-            String tableName) {
+    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog,
+            ExternalTable table) {
         List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.listPartitionNames(dbName, tableName);
+        List<String> partitionNames = catalog.listPartitionNames(table.getRemoteDbName(), table.getRemoteName());
         for (String partition : partitionNames) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(partition));
@@ -1616,7 +1724,7 @@ public class MetadataGenerator {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) tbl.getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                tbl.getDbName(), tbl.getName(), tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
+                tbl, tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
         Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {

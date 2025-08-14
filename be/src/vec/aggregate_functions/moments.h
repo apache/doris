@@ -53,9 +53,9 @@ struct VarMoments {
         if constexpr (_level >= 4) m[4] += rhs.m[4];
     }
 
-    void write(BufferWritable& buf) const { write_binary(*this, buf); }
+    void write(BufferWritable& buf) const { buf.write_binary(*this); }
 
-    void read(BufferReadable& buf) { read_binary(*this, buf); }
+    void read(BufferReadable& buf) { buf.read_binary(*this); }
 
     T get() const {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,

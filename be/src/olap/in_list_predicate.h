@@ -53,7 +53,7 @@ struct std::equal_to<doris::uint24_t> {
 };
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
  * @tparam Type
@@ -66,8 +66,8 @@ public:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     template <typename ConditionType, typename ConvertFunc>
     InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
-                        const ConvertFunc& convert, bool is_opposite = false,
-                        const TabletColumn* col = nullptr, vectorized::Arena* arena = nullptr)
+                        const ConvertFunc& convert, bool is_opposite, const TabletColumn* col,
+                        vectorized::Arena& arena)
             : ColumnPredicate(column_id, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
@@ -181,12 +181,21 @@ public:
     }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "in_list");
         }
-        std::string column_name = name_with_type.first;
+        // only string type and bkd inverted index reader can be used for in
+        if (iterator->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iterator->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+            //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "in_list");
+        }
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
@@ -194,13 +203,18 @@ public:
             //            auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
             //                    *reinterpret_cast<const T*>(ptr));
             std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-            RETURN_IF_ERROR(
-                    InvertedIndexQueryParamFactory::create_query_value<Type>(ptr, query_param));
+            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>((const T*)ptr,
+                                                                                     query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                    column_name, query_param->get_value(), query_type, num_rows, index));
-            indices |= *index;
+            InvertedIndexParam param;
+            param.column_name = name_with_type.first;
+            param.column_type = name_with_type.second;
+            param.query_value = query_param->get_value();
+            param.query_type = query_type;
+            param.num_rows = num_rows;
+            param.roaring = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(iterator->read_from_index(&param));
+            indices |= *param.roaring;
             iter->next();
         }
 
@@ -322,7 +336,7 @@ public:
                     }
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
                     const T* value = (const T*)(iter->get_value());
-                    uint24_t date_value(value->to_olap_date());
+                    uint24_t date_value(uint32_t(value->to_olap_date()));
                     if (bf->test_bytes(
                                 const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
                                 sizeof(uint24_t))) {
@@ -363,7 +377,7 @@ public:
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
-        int64_t new_size = 0;
+        int16_t new_size = 0;
 
         if (column.is_nullable()) {
             const auto* nullable_col =
@@ -572,9 +586,8 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc,
           size_t N = 0>
 ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
-                                           const ConvertFunc& convert, bool is_opposite = false,
-                                           const TabletColumn* col = nullptr,
-                                           vectorized::Arena* arena = nullptr) {
+                                           const ConvertFunc& convert, bool is_opposite,
+                                           const TabletColumn* col, vectorized::Arena& arena) {
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
         using Set = std::conditional_t<
@@ -595,9 +608,8 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionTy
 
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc>
 ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
-                                          const ConvertFunc& convert, bool is_opposite = false,
-                                          const TabletColumn* col = nullptr,
-                                          vectorized::Arena* arena = nullptr) {
+                                          const ConvertFunc& convert, bool is_opposite,
+                                          const TabletColumn* col, vectorized::Arena& arena) {
     if (conditions.size() == 1) {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 1>(
                 column_id, conditions, convert, is_opposite, col, arena);
@@ -674,5 +686,5 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id,
         return _create_in_list_predicate<Type, PT>(column_id, hybrid_set, char_length);
     }
 }
-
+#include "common/compile_check_end.h"
 } //namespace doris

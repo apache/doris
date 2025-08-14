@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.HelpStmt;
-import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowProcedureStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
@@ -44,6 +43,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -243,7 +243,6 @@ public class ShowExecutorTest {
         ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         ctx.setConnectScheduler(scheduler);
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
-        ctx.setQualifiedUser("testUser");
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
 
         new Expectations(ctx) {
@@ -298,7 +297,6 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPriv() throws Exception {
-        AccessTestUtil.fetchAdminAnalyzer(false);
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
         ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
         command.doRun(ctx, new StmtExecutor(ctx, ""));
@@ -399,7 +397,7 @@ public class ShowExecutorTest {
     @Test
     public void testShowView() throws UserException {
         ctx.setEnv(env);
-        ctx.setQualifiedUser("testUser");
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
         TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "testDb", "testTbl");
         ShowViewCommand command = new ShowViewCommand("testDb", tableNameInfo);
         ShowResultSet resultSet = null;
@@ -413,10 +411,9 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testShowEngine() throws AnalysisException {
-        ShowEnginesStmt stmt = new ShowEnginesStmt();
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+    public void testShowEngine() throws Exception {
+        ShowStorageEnginesCommand command = new ShowStorageEnginesCommand();
+        ShowResultSet resultSet = command.doRun(ctx, null);
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("Olap engine", resultSet.getString(0));

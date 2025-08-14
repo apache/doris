@@ -46,3 +46,7 @@ networks:
       driver: default
       config:
         - subnet: 168.40.0.0/24
+
+# login in container
+# sqlplus system/oracle@127.0.0.1:1521
+# sqlplus DORIS_TEST/123456@127.0.0.1:1521

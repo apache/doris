@@ -373,9 +373,14 @@ public class SystemInfoService {
 
     public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
         try {
-            return getBackendsByCurrentCluster()
-                .values().stream().filter(be -> !needAlive || be.isAlive())
-                .map(Backend::getId).collect(Collectors.toList());
+            ImmutableMap<Long, Backend> bes = getBackendsByCurrentCluster();
+            List<Long> beIds = new ArrayList<>(bes.size());
+            for (Backend be : bes.values()) {
+                if (!needAlive || be.isAlive()) {
+                    beIds.add(be.getId());
+                }
+            }
+            return beIds;
         } catch (AnalysisException e) {
             LOG.warn("failed to get backends by Current Cluster", e);
             return Lists.newArrayList();
@@ -477,7 +482,7 @@ public class SystemInfoService {
         long minBeTabletsNum = Long.MAX_VALUE;
         int minIndex = -1;
         for (int i = 0; i < beIds.size(); ++i) {
-            long tabletsNum = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(beIds.get(i)).size();
+            long tabletsNum = Env.getCurrentInvertedIndex().getTabletSizeByBackendId(beIds.get(i));
             if (tabletsNum < minBeTabletsNum) {
                 minBeTabletsNum = tabletsNum;
                 minIndex = i;

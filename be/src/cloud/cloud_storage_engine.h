@@ -18,13 +18,14 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 
 //#include "cloud/cloud_cumulative_compaction.h"
 //#include "cloud/cloud_base_compaction.h"
 //#include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
-#include "cloud/schema_cloud_dictionary_cache.h"
+#include "cloud/config.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/compaction.h"
@@ -47,10 +48,11 @@ class CloudFullCompaction;
 class TabletHotspot;
 class CloudWarmUpManager;
 class CloudCompactionStopToken;
+class CloudSnapshotMgr;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
-    CloudStorageEngine(const UniqueId& backend_uid);
+    CloudStorageEngine(const EngineOptions& options);
 
     ~CloudStorageEngine() override;
 
@@ -63,19 +65,16 @@ public:
 
     Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
-    Status set_cluster_id(int32_t cluster_id) override {
-        _effective_cluster_id = cluster_id;
-        return Status::OK();
-    }
+    Status set_cluster_id(int32_t cluster_id) override;
 
     cloud::CloudMetaMgr& meta_mgr() const { return *_meta_mgr; }
 
     CloudTabletMgr& tablet_mgr() const { return *_tablet_mgr; }
 
+    CloudSnapshotMgr& cloud_snapshot_mgr() { return *_cloud_snapshot_mgr; }
+
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
-    SchemaCloudDictionaryCache& get_schema_cloud_dictionary_cache() {
-        return *_schema_cloud_dictionary_cache;
-    }
+
     ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
         return *_calc_tablet_delete_bitmap_task_thread_pool;
     }
@@ -168,6 +167,7 @@ private:
     Status _request_tablet_global_compaction_lock(ReaderType compaction_type,
                                                   const CloudTabletSPtr& tablet,
                                                   std::shared_ptr<CloudCompactionMixin> compaction);
+    Status _check_all_root_path_cluster_id();
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
 
@@ -177,7 +177,6 @@ private:
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
     std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
-    std::unique_ptr<SchemaCloudDictionaryCache> _schema_cloud_dictionary_cache;
 
     // Components for cache warmup
     std::unique_ptr<io::FileCacheBlockDownloader> _file_cache_block_downloader;
@@ -185,6 +184,7 @@ private:
     std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
     std::unique_ptr<TabletHotspot> _tablet_hotspot;
     std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+    std::unique_ptr<CloudSnapshotMgr> _cloud_snapshot_mgr;
 
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;
@@ -218,6 +218,11 @@ private:
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
     CumuPolices _cumulative_compaction_policies;
+
+    std::atomic_bool first_sync_storage_vault {true};
+
+    EngineOptions _options;
+    std::mutex _store_lock;
 };
 
 } // namespace doris

@@ -43,7 +43,7 @@ suite ("sql_default_limit") {
     sql """insert into sql_default_limit_table values(1,1,1,'2020-02-02',1);"""
 
     create_sync_mv(db, "sql_default_limit_table", "test_mv",
-            """select id1, sum(sale_amt) from sql_default_limit_table group by id1""")
+            """select id1 as a1, sum(sale_amt) from sql_default_limit_table group by id1""")
 
     sql """analyze table sql_default_limit_table with sync;"""
     sql """alter table sql_default_limit_table modify column sale_amt set stats ('row_count'='6');"""

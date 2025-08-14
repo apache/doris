@@ -460,11 +460,11 @@ start_iceberg() {
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
             cd "${ICEBERG_DIR}" \
-            && rm -f iceberg_data.zip \
-            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip \
-            && sudo unzip iceberg_data.zip \
+            && rm -f iceberg_data*.zip \
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data_paimon_101.zip \
+            && sudo unzip iceberg_data_paimon_101.zip \
             && sudo mv iceberg_data data \
-            && sudo rm -rf iceberg_data.zip
+            && sudo rm -rf iceberg_data_paimon_101.zip
             cd -
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
@@ -623,6 +623,8 @@ start_kerberos() {
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
     envsubst <"${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl >"${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
+    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/kerberos/entrypoint-hive-master.sh
     for i in {1..2}; do
         . "${ROOT}"/docker-compose/kerberos/kerberos${i}_settings.env
         envsubst <"${ROOT}"/docker-compose/kerberos/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/kerberos/hadoop-hive-${i}.env
@@ -739,7 +741,7 @@ if [[ "${RUN_SPARK}" -eq 1 ]]; then
 fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
-    start_iceberg > start_icerberg.log 2>&1 &
+    start_iceberg > start_iceberg.log 2>&1 &
     pids["iceberg"]=$!
 fi
 
@@ -791,12 +793,12 @@ for compose in "${!pids[@]}"; do
 
         echo ""
         echo "print last 100 logs of the latest unhealthy container"
-        docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
+        sudo docker ps -a --latest --filter 'health=unhealthy' --format '{{.ID}}' | xargs -I '{}' sh -c 'echo "=== Logs of {} ===" && docker logs -t --tail 100 "{}"'
 
         exit 1
     fi
 done
 
 echo "docker started"
-docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
+sudo docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"
 echo "all dockers started successfully"

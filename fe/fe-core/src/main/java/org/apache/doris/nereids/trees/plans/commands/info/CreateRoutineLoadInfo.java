@@ -17,14 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportDeleteOnStmt;
 import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Database;
@@ -57,7 +55,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -94,6 +92,9 @@ public class CreateRoutineLoadInfo {
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+
+    public static final String STRICT_MODE = "strict_mode";
+    public static final String TIMEZONE = "timezone";
     public static final java.util.function.Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final java.util.function.Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final java.util.function.Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
@@ -113,8 +114,10 @@ public class CreateRoutineLoadInfo {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
-            .add(LoadStmt.STRICT_MODE)
-            .add(LoadStmt.TIMEZONE)
+            .add(STRICT_MODE)
+            .add(TIMEZONE)
+            .add(STRICT_MODE)
+            .add(TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
@@ -196,6 +199,106 @@ public class CreateRoutineLoadInfo {
         }
     }
 
+    public String getName() {
+        return name;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String getDBName() {
+        return dbName;
+    }
+
+    public LabelNameInfo getLabelNameInfo() {
+        return labelNameInfo;
+    }
+
+    public Map<String, LoadProperty> getLoadPropertyMap() {
+        return loadPropertyMap;
+    }
+
+    public Map<String, String> getJobProperties() {
+        return jobProperties;
+    }
+
+    public String getTypeName() {
+        return typeName;
+    }
+
+    public int getDesiredConcurrentNum() {
+        return desiredConcurrentNum;
+    }
+
+    public long getMaxErrorNum() {
+        return maxErrorNum;
+    }
+
+    public double getMaxFilterRatio() {
+        return maxFilterRatio;
+    }
+
+    public long getMaxBatchIntervalS() {
+        return maxBatchIntervalS;
+    }
+
+    public long getMaxBatchRows() {
+        return maxBatchRows;
+    }
+
+    public long getMaxBatchSizeBytes() {
+        return maxBatchSizeBytes;
+    }
+
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
+    public long getExecMemLimit() {
+        return execMemLimit;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
+    }
+
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
+    }
+
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
+    public boolean isMultiTable() {
+        return isMultiTable;
+    }
+
+    public AbstractDataSourceProperties getDataSourceProperties() {
+        return dataSourceProperties;
+    }
+
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
+    }
+
+    public String getWorkloadGroupName() {
+        return workloadGroupName;
+    }
+
     /**
      * analyze create table info
      */
@@ -212,7 +315,7 @@ public class CreateRoutineLoadInfo {
                 + " Maybe routine load job name is longer than 64 or contains illegal characters");
         }
         // check load properties include column separator etc.
-        checkLoadProperties(ctx);
+        routineLoadDesc = checkLoadProperties(ctx, loadPropertyMap, dbName, tableName, isMultiTable, mergeType);
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
@@ -260,7 +363,20 @@ public class CreateRoutineLoadInfo {
         }
     }
 
-    private void checkLoadProperties(ConnectContext ctx) throws UserException {
+    /**
+     * check load properties
+     * @param ctx connect context
+     * @param loadPropertyMap load property map
+     * @param dbName database name
+     * @param tableName table name
+     * @param isMultiTable whether is multi table
+     * @param mergeType merge type
+     * @return routine load desc
+     * @throws UserException user exception
+     */
+    public static RoutineLoadDesc checkLoadProperties(ConnectContext ctx, Map<String, LoadProperty> loadPropertyMap,
+                        String dbName, String tableName, boolean isMultiTable, LoadTask.MergeType mergeType)
+                        throws UserException {
         Separator columnSeparator = null;
         // TODO(yangzhengguo01): add line delimiter to properties
         Separator lineDelimiter = null;
@@ -322,7 +438,7 @@ public class CreateRoutineLoadInfo {
                 }
             }
         }
-        routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
+        return new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
             precedingImportWhereStmt, importWhereStmt,
             partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
@@ -360,9 +476,9 @@ public class CreateRoutineLoadInfo {
             RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
             MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 10GB");
 
-        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
+        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(STRICT_MODE),
             RoutineLoadJob.DEFAULT_STRICT_MODE,
-            LoadStmt.STRICT_MODE + " should be a boolean");
+            STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
             RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED,
             EXEC_MEM_LIMIT_PROPERTY + " must be greater than 0");
@@ -370,20 +486,19 @@ public class CreateRoutineLoadInfo {
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
             ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
             SEND_BATCH_PARALLELISM + " must be greater than 0")).intValue();
-        loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
+        loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LOAD_TO_SINGLE_TABLET),
             RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
-            LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
+            LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             ConnectContext tmpCtx = new ConnectContext();
             tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
             tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
             if (Config.isCloudMode()) {
                 tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
             }
-            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+            List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(tmpCtx);
             if (wgList.size() == 0) {
                 throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
@@ -394,7 +509,7 @@ public class CreateRoutineLoadInfo {
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
-        timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
+        timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(TIMEZONE, timezone));
 
         String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
@@ -413,19 +528,5 @@ public class CreateRoutineLoadInfo {
      */
     public RoutineLoadDesc getRoutineLoadDesc() {
         return routineLoadDesc;
-    }
-
-    /**
-     * make legacy create routine load statement after validate by nereids
-     * @return legacy create routine load statement
-     */
-    public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
-        return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
-            ctx.getStatementContext().getOriginStatement(), ctx.getCurrentUserIdentity(),
-            jobProperties, typeName, routineLoadDesc,
-            desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
-            execMemLimit, sendBatchParallelism, timezone, workloadGroupName, loadToSingleTablet,
-            strictMode, isPartialUpdate, dataSourceProperties, fileFormatProperties
-        );
     }
 }

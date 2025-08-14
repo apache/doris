@@ -86,35 +86,37 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
     return block;
 }
 
-Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
+Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* operator_profile) {
     // Attention!!!
     // AsyncResultWriter::open is called asynchronously,
-    // so we need to setupt the profile and memory counter here,
+    // so we need to setupt the operator_profile and memory counter here,
     // or else the counter can be nullptr when AsyncResultWriter::sink is called.
-    _profile = profile;
-    _memory_used_counter = _profile->get_counter("MemoryUsage");
-
+    _operator_profile = operator_profile;
+    DCHECK(_operator_profile->get_child("CommonCounters") != nullptr);
+    _memory_used_counter =
+            _operator_profile->get_child("CommonCounters")->get_counter("MemoryUsage");
+    DCHECK(_memory_used_counter != nullptr);
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
-    // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
+    // This is a async thread, should lock the task ctx, to make sure runtimestate and operator_profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, profile, task_ctx]() {
+            [this, state, operator_profile, task_ctx]() {
                 SCOPED_ATTACH_TASK(state);
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
                     return;
                 }
-                this->process_block(state, profile);
+                this->process_block(state, operator_profile);
                 task_lock.reset();
             }));
     return Status::OK();
 }
 
-void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
-    if (auto status = open(state, profile); !status.ok()) {
+void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
+    if (auto status = open(state, operator_profile); !status.ok()) {
         force_close(status);
     }
 

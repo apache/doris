@@ -37,14 +37,17 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
             );"""
 
             def db_name = "info_schema_ext_db"
+            sql """drop database if exists ${db_name} force"""
+            sql """drop database if exists ${db_name}_1 force"""
+            sql """drop database if exists ${db_name}_2 force"""
 
             //schemata
             order_qt_schemata_1 """
                 select * from ${catalog_name}.information_schema.schemata 
                     where  CATALOG_NAME = "${catalog_name}" and  SCHEMA_NAME = "default";
             """
-            sql """ create database if not exists ${db_name}_1; """
-            sql """ create database if not exists ${db_name}_2; """
+            sql """ create database ${db_name}_1; """
+            sql """ create database ${db_name}_2; """
             order_qt_schemata_2 """ 
                 select * from internal.information_schema.schemata 
                     where  CATALOG_NAME = "internal" and  SCHEMA_NAME = "${db_name}_1";
@@ -53,7 +56,7 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
                 select * from internal.information_schema.schemata 
                     where  CATALOG_NAME = "internal" and  SCHEMA_NAME = "${db_name}_2"; 
             """
-            sql """ drop database if exists ${db_name}_1 """
+            sql """ drop database ${db_name}_1 """
             order_qt_schemata_4 """ 
                 select * from internal.information_schema.schemata 
                     where  CATALOG_NAME = "internal" and  SCHEMA_NAME = "${db_name}_1";
@@ -62,7 +65,7 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
                 select * from internal.information_schema.schemata 
                     where  CATALOG_NAME = "internal" and  SCHEMA_NAME = "${db_name}_2"; 
             """
-            sql """ drop database if exists ${db_name}_2 """
+            sql """ drop database ${db_name}_2 """
             order_qt_schemata_6 """ 
                 select * from internal.information_schema.schemata 
                     where  CATALOG_NAME = "internal" and  SCHEMA_NAME = "${db_name}_1";
@@ -80,12 +83,8 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
                     where  CATALOG_NAME = "internal" and  SCHEMA_NAME = "infomation_schema_ext"; 
             """
             
-            sql """ drop database if exists ${db_name}_1 """            
-            sql """ drop database if exists ${db_name}_2 """
-
             //columns
-            sql """ create database if not exists ${db_name}; """
-            sql """ drop table if exists  ${db_name}.abcd """
+            sql """ create database ${db_name}; """
             sql """ 
             CREATE TABLE  ${db_name}.abcd (
                 `id` int(11) not null ,
@@ -99,7 +98,6 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
                 select * from internal.information_schema.columns 
                     where TABLE_CATALOG = "internal" and  TABLE_SCHEMA = "${db_name}";
             """
-            sql """ drop table if exists  ${db_name} """
             order_qt_columns_2 """
                 select * from internal.information_schema.columns 
                     where TABLE_CATALOG = "internal" and  TABLE_SCHEMA = "${db_name}";
@@ -124,8 +122,8 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
                 select * from ${catalog_name}.information_schema.columns 
                     where TABLE_CATALOG = "${catalog_name}" and  TABLE_SCHEMA = "tpch1_parquet" and TABLE_NAME = "partsupp";
             """
-            sql """ drop table if exists  ${db_name}.abcd """
-            sql """ drop database if  exists ${db_name}; """
+            sql """ drop table ${db_name}.abcd """
+            sql """ drop database ${db_name}; """
 
             //metadata_name_ids
             order_qt_ids_1 """
@@ -192,10 +190,9 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
             """
 
             //views
-            sql """ create database if not exists ${db_name}; """
-            sql """ drop table if exists  ${db_name}.ab """
+            sql """ create database ${db_name}; """
             sql """ 
-            CREATE TABLE  ${db_name}.ab (
+            CREATE TABLE ${db_name}.ab (
                 `id` int(11) not null ,
                 `name` string
             )
@@ -203,9 +200,8 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES("replication_num" = "1");            
             """
-            sql """ drop VIEW IF  EXISTS ${db_name}.test_view """
             sql """
-                CREATE VIEW IF NOT EXISTS ${db_name}.test_view (a)
+                CREATE VIEW ${db_name}.test_view (a)
                 AS
                 SELECT id as a FROM ${db_name}.ab
             """
@@ -218,13 +214,6 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
                 select * from internal.information_schema.views 
                     where  TABLE_SCHEMA = "${db_name}" and TABLE_NAME = "test_view";
             """
-            sql """ drop VIEW IF  EXISTS ${db_name}.test_view """
-            sql """ drop table if exists  ${db_name}.ab """
-            sql """ drop database if  exists ${db_name}; """
-
-
-
-            sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
     }

@@ -31,11 +31,11 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
-#include "gutil/strings/numbers.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
+#include "util/to_string.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
@@ -43,7 +43,6 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -63,10 +62,10 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
     } else if constexpr (std::is_same_v<typename PrimitiveTypeTraits<T>::ColumnItemType, float>) {
         // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
         char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                            TypeCheckOnRelease::DISABLE>(*ptr)
-                                        .get_element(row_num),
-                                MAX_FLOAT_STR_LENGTH + 2, buf);
+        int len = to_buffer(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                        TypeCheckOnRelease::DISABLE>(*ptr)
+                                    .get_element(row_num),
+                            MAX_FLOAT_STR_LENGTH + 2, buf);
         ostr.write(buf, len);
     } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value ||
                          std::numeric_limits<
@@ -92,39 +91,6 @@ std::string DataTypeNumberBase<T>::to_string(
         fmt::format_to(buffer, "{}", value);
         return std::string(buffer.data(), buffer.size());
     }
-}
-template <PrimitiveType T>
-Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(column);
-    if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, UInt128>::value) {
-        // TODO: support for Uint128
-        return Status::InvalidArgument("uint128 is not support");
-    } else if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
-        typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!read_float_text_fast_impl(val, rb)) {
-            return Status::InvalidArgument("parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
-        }
-        column_data->insert_value(val);
-    } else if constexpr (T == TYPE_BOOLEAN) {
-        // Note: here we should handle the bool type
-        typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!try_read_bool_text(val, rb)) {
-            return Status::InvalidArgument("parse boolean fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
-        }
-        column_data->insert_value(val);
-    } else if constexpr (is_int_or_bool(T)) {
-        typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
-        if (!read_int_text_impl(val, rb)) {
-            return Status::InvalidArgument("parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
-        }
-        column_data->insert_value(val);
-    } else {
-        DCHECK(false);
-    }
-    return Status::OK();
 }
 
 template <PrimitiveType T>
@@ -241,7 +207,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
             auto encode_size = streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                                   cast_set<UInt32>(upper_int32(mem_size)),
                                                   (uint8_t*)(buf + sizeof(size_t)));
-            *reinterpret_cast<size_t*>(buf) = encode_size;
+            unaligned_store<size_t>(buf, encode_size);
             buf += sizeof(size_t);
             return buf + encode_size;
         }
@@ -265,7 +231,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
         auto encode_size = streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
                                               cast_set<UInt32>(upper_int32(mem_size)),
                                               (uint8_t*)(buf + sizeof(size_t)));
-        *reinterpret_cast<size_t*>(buf) = encode_size;
+        unaligned_store<size_t>(buf, encode_size);
         buf += sizeof(size_t);
         return buf + encode_size;
     }
@@ -289,7 +255,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
             memcpy(container.data(), buf, mem_size);
             buf = buf + mem_size;
         } else {
-            size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+            size_t encode_size = unaligned_load<size_t>(buf);
             buf += sizeof(size_t);
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                                cast_set<UInt32>(upper_int32(mem_size)));
@@ -309,7 +275,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
             return buf + mem_size;
         }
 
-        size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+        size_t encode_size = unaligned_load<size_t>(buf);
         buf += sizeof(size_t);
         streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
                            cast_set<UInt32>(upper_int32(mem_size)));
@@ -320,6 +286,22 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
 template <PrimitiveType T>
 MutableColumnPtr DataTypeNumberBase<T>::create_column() const {
     return PrimitiveTypeTraits<T>::ColumnType::create();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberBase<T>::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<typename PrimitiveTypeTraits<T>::ColumnType>(column);
+}
+
+template <PrimitiveType T>
+FieldWithDataType DataTypeNumberBase<T>::get_field_with_data_type(const IColumn& column,
+                                                                  size_t row_num) const {
+    const auto& column_data =
+            assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column);
+    Field field;
+    column_data.get(row_num, field);
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type()};
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

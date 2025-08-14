@@ -106,14 +106,15 @@ public:
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
 
-    void set_thread_token(int concurrency, bool is_serial) {
-        _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
-                is_serial ? ThreadPool::ExecutionMode::SERIAL
-                          : ThreadPool::ExecutionMode::CONCURRENT,
-                concurrency);
+    int64_t get_remaining_query_time_seconds() const {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (is_timeout(now)) {
+            return -1;
+        }
+        int64_t elapsed_seconds = _query_watcher.elapsed_time_seconds(now);
+        return _timeout_second - elapsed_seconds;
     }
-
-    ThreadPoolToken* get_token() { return _thread_token.get(); }
 
     void set_ready_to_execute(Status reason);
 
@@ -256,6 +257,18 @@ public:
         DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
     }
 
+    void set_llm_resources(std::map<std::string, TLLMResource> llm_resources) {
+        _llm_resources =
+                std::make_unique<std::map<std::string, TLLMResource>>(std::move(llm_resources));
+    }
+
+    const std::map<std::string, TLLMResource>& get_llm_resources() const {
+        if (_llm_resources == nullptr) {
+            throw Status::InternalError("LLM resources not found");
+        }
+        return *_llm_resources;
+    }
+
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
     get_using_brpc_stubs() {
         std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
@@ -287,13 +300,6 @@ private:
     bool _is_nereids = false;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
-
-    // A token used to submit olap scanner to the "_limited_scan_thread_pool",
-    // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
-    // And will be shared by all instances of this query.
-    // So that we can control the max thread that a query can be used to execute.
-    // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_resource_context();
     void _init_query_mem_tracker();
@@ -350,6 +356,8 @@ private:
     // fragment_id -> list<profile>
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
+
+    std::unique_ptr<std::map<std::string, TLLMResource>> _llm_resources;
 
     void _report_query_profile();
 

@@ -43,8 +43,6 @@ public class DateDiff extends ScalarFunction
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE)
     );
 
@@ -55,13 +53,18 @@ public class DateDiff extends ScalarFunction
         super("datediff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DateDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DateDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new DateDiff(children.get(0), children.get(1));
+        return new DateDiff(getFunctionParams(children));
     }
 
     @Override

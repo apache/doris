@@ -27,8 +27,6 @@
 #include "common/status.h"
 #include "data_type_number_serde.h"
 #include "olap/olap_common.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
@@ -60,6 +58,22 @@ public:
                                  const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
+
+    Status from_string_batch(const ColumnString& str, ColumnNullable& column,
+                             const FormatOptions& options) const override;
+
+    Status from_string_strict_mode_batch(
+            const ColumnString& str, IColumn& column, const FormatOptions& options,
+            const NullMap::value_type* null_map = nullptr) const override;
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
+
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
 
 private:
     template <bool is_binary_format>

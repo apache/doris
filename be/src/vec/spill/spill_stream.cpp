@@ -29,6 +29,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/spill/spill_reader.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -38,7 +39,7 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                          std::string spill_dir, size_t batch_rows, size_t batch_bytes,
-                         RuntimeProfile* profile)
+                         RuntimeProfile* operator_profile)
         : state_(state),
           stream_id_(stream_id),
           data_dir_(data_dir),
@@ -46,10 +47,12 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           batch_rows_(batch_rows),
           batch_bytes_(batch_bytes),
           query_id_(state->query_id()),
-          profile_(profile) {
-    _total_file_count = profile_->get_counter("SpillWriteFileTotalCount");
-    _current_file_count = profile_->get_counter("SpillWriteFileCurrentCount");
-    _current_file_size = profile_->get_counter("SpillWriteFileCurrentBytes");
+          profile_(operator_profile) {
+    RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+    DCHECK(custom_profile != nullptr);
+    _total_file_count = custom_profile->get_counter("SpillWriteFileTotalCount");
+    _current_file_count = custom_profile->get_counter("SpillWriteFileCurrentCount");
+    _current_file_size = custom_profile->get_counter("SpillWriteFileCurrentBytes");
 }
 
 void SpillStream::update_shared_profiles(RuntimeProfile* source_op_profile) {

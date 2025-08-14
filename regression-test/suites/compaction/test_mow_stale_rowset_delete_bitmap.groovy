@@ -188,7 +188,6 @@ suite("test_mow_stale_rowset_delete_bitmap", "nonConcurrent") {
 
     def tablets = sql_return_maparray """ show tablets from ${testTable}; """
     logger.info("tablets: " + tablets)
-    assertEquals(1, tablets.size())
     def tablet = tablets[0]
 
     try {

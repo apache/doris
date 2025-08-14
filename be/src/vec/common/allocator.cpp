@@ -45,20 +45,22 @@ namespace doris {
 std::unordered_map<void*, size_t> RecordSizeMemoryAllocator::_allocated_sizes;
 std::mutex RecordSizeMemoryAllocator::_mutex;
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_memory_exceed(
-        size_t size, std::string* err_msg) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::sys_memory_exceed(size_t size,
+                                                             std::string* err_msg) const {
 #ifdef BE_TEST
     if (!doris::pthread_context_ptr_init) {
         return false;
     }
 #endif
-    auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
-    if (thread_mem_ctx->skip_memory_check != 0) {
+    if (UNLIKELY(doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0)) {
         return false;
     }
 
     if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
+        auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
         // Only thread attach task, and has not completely waited for thread_wait_gc_max_milliseconds,
         // will wait for gc. otherwise, if the outside will catch the exception, throwing an exception.
         *err_msg += fmt::format(
@@ -84,16 +86,16 @@ bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
     return false;
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc_fault_probability()
-        const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::alloc_fault_probability() const {
 #ifdef BE_TEST
     if (!doris::pthread_context_ptr_init) {
         return;
     }
 #endif
-    auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
-    if (thread_mem_ctx->skip_memory_check != 0) {
+    if (UNLIKELY(doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0)) {
         return;
     }
 
@@ -105,7 +107,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc_f
             const std::string injection_err_msg = fmt::format(
                     "[MemAllocInjectFault] Task {} alloc memory failed due to fault "
                     "injection.",
-                    thread_mem_ctx->limiter_mem_tracker()->label());
+                    doris::thread_context()
+                            ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                            ->label());
             // Print stack trace for debug.
             [[maybe_unused]] auto stack_trace_st =
                     doris::Status::Error<doris::ErrorCode::MEM_ALLOC_FAILED, true>(
@@ -120,9 +124,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc_f
     }
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_memory_check(
-        size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::sys_memory_check(size_t size) const {
     std::string err_msg;
     if (sys_memory_exceed(size, &err_msg)) {
         auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
@@ -189,31 +194,35 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
     }
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_tracker_exceed(
-        size_t size, std::string* err_msg) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::memory_tracker_exceed(size_t size,
+                                                                 std::string* err_msg) const {
 #ifdef BE_TEST
     if (!doris::pthread_context_ptr_init) {
         return false;
     }
 #endif
-    auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
-    if (thread_mem_ctx->skip_memory_check != 0) {
+    if (UNLIKELY(doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0)) {
         return false;
     }
 
-    auto st = thread_mem_ctx->limiter_mem_tracker()->check_limit(size);
+    auto st = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
+            size);
     if (!st) {
         *err_msg += fmt::format("Allocator mem tracker check failed, {}", st.to_string());
-        thread_mem_ctx->limiter_mem_tracker()->print_log_usage(*err_msg);
+        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->print_log_usage(
+                *err_msg);
         return true;
     }
     return false;
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_tracker_check(
-        size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::memory_tracker_check(size_t size) const {
     std::string err_msg;
     if (memory_tracker_exceed(size, &err_msg)) {
         doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
@@ -228,35 +237,39 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
     }
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_check(
-        size_t size) const {
-    if (MemoryAllocator::need_check_and_tracking_memory()) {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::memory_check(size_t size) const {
+    if (check_and_tracking_memory) {
         alloc_fault_probability();
         sys_memory_check(size);
         memory_tracker_check(size);
     }
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
-        size_t size) const {
-    if (MemoryAllocator::need_check_and_tracking_memory()) {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::consume_memory(size_t size) const {
+    if (check_and_tracking_memory) {
         CONSUME_THREAD_MEM_TRACKER(size);
     }
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
-        size_t size) const {
-    if (MemoryAllocator::need_check_and_tracking_memory()) {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::release_memory(size_t size) const {
+    if (check_and_tracking_memory) {
         RELEASE_THREAD_MEM_TRACKER(size);
     }
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::throw_bad_alloc(
-        const std::string& err) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::throw_bad_alloc(const std::string& err) const {
     LOG(WARNING) << err
                  << fmt::format("{}, Stacktrace: {}",
                                 doris::GlobalMemoryArbitrator::process_mem_log_str(),
@@ -265,9 +278,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::throw_b
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_address_sanitizers(
-        void* buf, size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::add_address_sanitizers(void* buf, size_t size) const {
     if (!doris::config::crash_in_memory_tracker_inaccurate) {
         return;
     }
@@ -275,9 +289,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_add
             buf, size);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_address_sanitizers(
-        void* buf, size_t size) const {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::remove_address_sanitizers(void* buf, size_t size) const {
     if (!doris::config::crash_in_memory_tracker_inaccurate) {
         return;
     }
@@ -286,9 +301,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_
             ->remove_address_sanitizers(buf, size);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc(size_t size,
-                                                                                size_t alignment) {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+                check_and_tracking_memory>::alloc(size_t size, size_t alignment) {
     memory_check(size);
     // consume memory in tracker before alloc, similar to early declaration.
     consume_memory(size);
@@ -354,9 +370,10 @@ void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc(
     return buf;
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::free(void* buf,
-                                                                              size_t size) {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+               check_and_tracking_memory>::free(void* buf, size_t size) {
     if (use_mmap && size >= doris::config::mmap_threshold) {
         if (0 != munmap(buf, size)) {
             throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
@@ -368,9 +385,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::free(vo
     release_memory(size);
 }
 
-template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
-void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::realloc(
-        void* buf, size_t old_size, size_t new_size, size_t alignment) {
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
+          bool check_and_tracking_memory>
+void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
+                check_and_tracking_memory>::realloc(void* buf, size_t old_size, size_t new_size,
+                                                    size_t alignment) {
     if (old_size == new_size) {
         /// nothing to do.
         /// BTW, it's not possible to change alignment while doing realloc.
@@ -441,42 +460,58 @@ void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::reallo
     return buf;
 }
 
-template class Allocator<true, true, true, DefaultMemoryAllocator>;
-template class Allocator<true, true, false, DefaultMemoryAllocator>;
-template class Allocator<true, false, true, DefaultMemoryAllocator>;
-template class Allocator<true, false, false, DefaultMemoryAllocator>;
-template class Allocator<false, true, true, DefaultMemoryAllocator>;
-template class Allocator<false, true, false, DefaultMemoryAllocator>;
-template class Allocator<false, false, true, DefaultMemoryAllocator>;
-template class Allocator<false, false, false, DefaultMemoryAllocator>;
-
-template class Allocator<true, true, true, NoTrackingDefaultMemoryAllocator>;
-template class Allocator<true, true, false, NoTrackingDefaultMemoryAllocator>;
-template class Allocator<true, false, true, NoTrackingDefaultMemoryAllocator>;
-template class Allocator<true, false, false, NoTrackingDefaultMemoryAllocator>;
-template class Allocator<false, true, true, NoTrackingDefaultMemoryAllocator>;
-template class Allocator<false, true, false, NoTrackingDefaultMemoryAllocator>;
-template class Allocator<false, false, true, NoTrackingDefaultMemoryAllocator>;
-template class Allocator<false, false, false, NoTrackingDefaultMemoryAllocator>;
+template class Allocator<true, true, true, DefaultMemoryAllocator, true>;
+template class Allocator<true, true, false, DefaultMemoryAllocator, true>;
+template class Allocator<true, false, true, DefaultMemoryAllocator, true>;
+template class Allocator<true, false, false, DefaultMemoryAllocator, true>;
+template class Allocator<false, true, true, DefaultMemoryAllocator, true>;
+template class Allocator<false, true, false, DefaultMemoryAllocator, true>;
+template class Allocator<false, false, true, DefaultMemoryAllocator, true>;
+template class Allocator<false, false, false, DefaultMemoryAllocator, true>;
+template class Allocator<true, true, true, DefaultMemoryAllocator, false>;
+template class Allocator<true, true, false, DefaultMemoryAllocator, false>;
+template class Allocator<true, false, true, DefaultMemoryAllocator, false>;
+template class Allocator<true, false, false, DefaultMemoryAllocator, false>;
+template class Allocator<false, true, true, DefaultMemoryAllocator, false>;
+template class Allocator<false, true, false, DefaultMemoryAllocator, false>;
+template class Allocator<false, false, true, DefaultMemoryAllocator, false>;
+template class Allocator<false, false, false, DefaultMemoryAllocator, false>;
 
 /** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
   * But currently allocators use templates in .cpp instead of all in .h, so they can only be placed here.
   */
-template class Allocator<true, true, false, ORCMemoryAllocator>;
-template class Allocator<true, false, true, ORCMemoryAllocator>;
-template class Allocator<true, false, false, ORCMemoryAllocator>;
-template class Allocator<false, true, true, ORCMemoryAllocator>;
-template class Allocator<false, true, false, ORCMemoryAllocator>;
-template class Allocator<false, false, true, ORCMemoryAllocator>;
-template class Allocator<false, false, false, ORCMemoryAllocator>;
+template class Allocator<true, true, true, ORCMemoryAllocator, true>;
+template class Allocator<true, true, false, ORCMemoryAllocator, true>;
+template class Allocator<true, false, true, ORCMemoryAllocator, true>;
+template class Allocator<true, false, false, ORCMemoryAllocator, true>;
+template class Allocator<false, true, true, ORCMemoryAllocator, true>;
+template class Allocator<false, true, false, ORCMemoryAllocator, true>;
+template class Allocator<false, false, true, ORCMemoryAllocator, true>;
+template class Allocator<false, false, false, ORCMemoryAllocator, true>;
+template class Allocator<true, true, true, ORCMemoryAllocator, false>;
+template class Allocator<true, true, false, ORCMemoryAllocator, false>;
+template class Allocator<true, false, true, ORCMemoryAllocator, false>;
+template class Allocator<true, false, false, ORCMemoryAllocator, false>;
+template class Allocator<false, true, true, ORCMemoryAllocator, false>;
+template class Allocator<false, true, false, ORCMemoryAllocator, false>;
+template class Allocator<false, false, true, ORCMemoryAllocator, false>;
+template class Allocator<false, false, false, ORCMemoryAllocator, false>;
 
-template class Allocator<true, true, true, RecordSizeMemoryAllocator>;
-template class Allocator<true, true, false, RecordSizeMemoryAllocator>;
-template class Allocator<true, false, true, RecordSizeMemoryAllocator>;
-template class Allocator<true, false, false, RecordSizeMemoryAllocator>;
-template class Allocator<false, true, true, RecordSizeMemoryAllocator>;
-template class Allocator<false, true, false, RecordSizeMemoryAllocator>;
-template class Allocator<false, false, true, RecordSizeMemoryAllocator>;
-template class Allocator<false, false, false, RecordSizeMemoryAllocator>;
+template class Allocator<true, true, true, RecordSizeMemoryAllocator, true>;
+template class Allocator<true, true, false, RecordSizeMemoryAllocator, true>;
+template class Allocator<true, false, true, RecordSizeMemoryAllocator, true>;
+template class Allocator<true, false, false, RecordSizeMemoryAllocator, true>;
+template class Allocator<false, true, true, RecordSizeMemoryAllocator, true>;
+template class Allocator<false, true, false, RecordSizeMemoryAllocator, true>;
+template class Allocator<false, false, true, RecordSizeMemoryAllocator, true>;
+template class Allocator<false, false, false, RecordSizeMemoryAllocator, true>;
+template class Allocator<true, true, true, RecordSizeMemoryAllocator, false>;
+template class Allocator<true, true, false, RecordSizeMemoryAllocator, false>;
+template class Allocator<true, false, true, RecordSizeMemoryAllocator, false>;
+template class Allocator<true, false, false, RecordSizeMemoryAllocator, false>;
+template class Allocator<false, true, true, RecordSizeMemoryAllocator, false>;
+template class Allocator<false, true, false, RecordSizeMemoryAllocator, false>;
+template class Allocator<false, false, true, RecordSizeMemoryAllocator, false>;
+template class Allocator<false, false, false, RecordSizeMemoryAllocator, false>;
 
 } // namespace doris

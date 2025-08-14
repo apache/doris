@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -74,10 +75,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     GroupingScalarFunction.class,
                     TableGeneratingFunction.class,
                     WindowExpression.class))
-            .put(LogicalOneRowRelation.class, ImmutableSet.of(
-                    GroupingScalarFunction.class,
-                    TableGeneratingFunction.class,
-                    WindowExpression.class))
+            .put(LogicalOneRowRelation.class, LogicalOneRowRelation.FORBIDDEN_EXPRESSIONS)
             .put(LogicalProject.class, ImmutableSet.of(
                     TableGeneratingFunction.class))
             .put(LogicalSort.class, ImmutableSet.of(
@@ -139,7 +137,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
 
     private void checkAggregate(LogicalAggregate<? extends Plan> aggregate) {
         for (Expression expr : aggregate.getGroupByExpressions()) {
-            if (expr.anyMatch(AggregateFunction.class::isInstance)) {
+            if (ExpressionUtils.hasNonWindowAggregateFunction(expr)) {
                 throw new AnalysisException(
                         "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
             }

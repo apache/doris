@@ -19,8 +19,9 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 
-import org.apache.paimon.options.Options;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +35,7 @@ public class HMSPropertiesTest {
     public void testHiveConfDirNotExist() {
         Map<String, String> params = new HashMap<>();
         params.put("hive.conf.resources", "/opt/hive-site.xml");
-        params.put("metastore.type", "hms");
+        params.put("hive.metastore.type", "hms");
         Map<String, String> finalParams = params;
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(finalParams));
     }
@@ -45,12 +46,12 @@ public class HMSPropertiesTest {
         Config.hadoop_config_dir = hiveFileUrl.getPath().toString();
         Map<String, String> params = new HashMap<>();
         params.put("hive.conf.resources", "/hive-conf/hive1/hive-site.xml");
-        params.put("metastore.type", "hms");
+        params.put("type", "hms");
         HMSProperties hmsProperties;
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params));
         params.put("hive.metastore.uris", "thrift://default:9083");
         hmsProperties = (HMSProperties) MetastoreProperties.create(params);
-        Map<String, String> hiveConf = hmsProperties.loadConfigFromFile("/hive-conf/hive1/hive-site.xml");
+        HiveConf hiveConf = hmsProperties.getHiveConf();
         Assertions.assertNotNull(hiveConf);
         Assertions.assertEquals("/user/hive/default", hiveConf.get("hive.metastore.warehouse.dir"));
     }
@@ -58,27 +59,39 @@ public class HMSPropertiesTest {
     @Test
     public void testBasicParamsTest() throws UserException {
         Map<String, String> notValidParams = new HashMap<>();
-        notValidParams.put("metastore.type", "hms");
+        notValidParams.put("hive.metastore.type", "hms");
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(notValidParams));
         // Step 1: Set up initial parameters for HMSProperties
         Map<String, String> params = createBaseParams();
 
         // Step 2: Test HMSProperties to PaimonOptions and Conf conversion
         HMSProperties hmsProperties = getHMSProperties(params);
-        testHmsToPaimonOptions(hmsProperties);
-
-        // Step 3: Test HMSProperties to Iceberg Hive Catalog properties conversion
-        testHmsToIcebergHiveCatalog(hmsProperties);
-
-        // Step 4: Test invalid scenario when both SASL and kerberos are enabled
-        params.put("hive.metastore.sasl.enabled", "true");
+        Assertions.assertNotNull(hmsProperties);
+        Assertions.assertEquals("thrift://127.0.0.1:9083", hmsProperties.getHiveConf().get("hive.metastore.uris"));
+        Assertions.assertEquals(HadoopExecutionAuthenticator.class, hmsProperties.getExecutionAuthenticator().getClass());
+        params.put("hadoop.security.authentication", "simple");
+        hmsProperties = getHMSProperties(params);
+        Assertions.assertNotNull(hmsProperties);
+        Assertions.assertEquals(HadoopExecutionAuthenticator.class, hmsProperties.getExecutionAuthenticator().getClass());
         params.put("hive.metastore.authentication.type", "kerberos");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params),
+                "Hive metastore authentication type is kerberos, but service principal, client principal or client keytab is not set.");
+        params.put("hive.metastore.client.principal", "hive/127.0.0.1@EXAMPLE.COM");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params),
+                "Hive metastore authentication type is kerberos, but client keytab is not set.");
+        params.put("hive.metastore.client.keytab", "/path/to/keytab");
+        hmsProperties = getHMSProperties(params);
+        Assertions.assertNotNull(hmsProperties);
+        Assertions.assertEquals(HadoopExecutionAuthenticator.class, hmsProperties.getExecutionAuthenticator().getClass());
+        params.put("hive.metastore.authentication.type", "simple");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params),
+                "Hive metastore authentication type is simple, but service principal, client principal or client keytab is set.");
+
     }
 
     private Map<String, String> createBaseParams() {
         Map<String, String> params = new HashMap<>();
-        params.put("metastore.type", "hms");
+        params.put("type", "hms");
         params.put("hive.metastore.uris", "thrift://127.0.0.1:9083");
         params.put("hive.metastore.authentication.type", "simple");
         return params;
@@ -88,16 +101,22 @@ public class HMSPropertiesTest {
         return (HMSProperties) MetastoreProperties.create(params);
     }
 
-    private void testHmsToPaimonOptions(HMSProperties hmsProperties) {
-        Options paimonOptions = new Options();
-        hmsProperties.toPaimonOptionsAndConf(paimonOptions);
-        Assertions.assertEquals("thrift://127.0.0.1:9083", paimonOptions.get("uri"));
-    }
-
-    private void testHmsToIcebergHiveCatalog(HMSProperties hmsProperties) {
-        Map<String, String> icebergMSParams = new HashMap<>();
-        hmsProperties.toIcebergHiveCatalogProperties(icebergMSParams);
-        Assertions.assertEquals("thrift://127.0.0.1:9083", icebergMSParams.get("uri"));
+    @Test
+    public void testRefreshParams() throws UserException {
+        Map<String, String> params = createBaseParams();
+        HMSProperties hmsProperties = getHMSProperties(params);
+        Assertions.assertFalse(hmsProperties.isHmsEventsIncrementalSyncEnabled());
+        params.put("hive.enable_hms_events_incremental_sync", "true");
+        hmsProperties = getHMSProperties(params);
+        Assertions.assertTrue(hmsProperties.isHmsEventsIncrementalSyncEnabled());
+        params.put("hive.enable_hms_events_incremental_sync", "xxxx");
+        hmsProperties = getHMSProperties(params);
+        Assertions.assertFalse(hmsProperties.isHmsEventsIncrementalSyncEnabled());
+        params.put("hive.hms_events_batch_size_per_rpc", "false");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> getHMSProperties(params));
+        params.put("hive.hms_events_batch_size_per_rpc", "123");
+        hmsProperties = getHMSProperties(params);
+        Assertions.assertEquals(123, hmsProperties.getHmsEventsBatchSizePerRpc());
     }
 
     @Test
@@ -107,16 +126,12 @@ public class HMSPropertiesTest {
         params.put("hive.metastore.sasl.enabled", "true");
         params.put("hive.metastore.authentication.type", "kerberos");
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params));
-        params.put("hive.metastore.client.principal", "hive/127.0.0.1@EXAMPLE.COM");
+        //params.put("hive.metastore.client.principal", "hive/127.0.0.1@EXAMPLE.COM");
         params.put("hive.metastore.client.keytab", "/path/to/keytab");
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params),
                 "Hive metastore authentication type is kerberos, but service principal, client principal or client keytab is not set.");
-        params.put("hive.metastore.service.principal", "hive/127.0.0.1@EXAMPLE.COM");
+        params.put("hive.metastore.client.principal", "hive/127.0.0.1@EXAMPLE.COM");
         HMSProperties hmsProperties = getHMSProperties(params);
-        Map<String, String> icebergMSParams = new HashMap<>();
-        hmsProperties.toIcebergHiveCatalogProperties(icebergMSParams);
-        Assertions.assertEquals("hive/127.0.0.1@EXAMPLE.COM", icebergMSParams.get("hive.metastore.client.principal"));
-        Assertions.assertEquals("/path/to/keytab", icebergMSParams.get("hive.metastore.client.keytab"));
-        Assertions.assertEquals("thrift://127.0.0.1:9083", icebergMSParams.get("uri"));
+        Assertions.assertNotNull(hmsProperties);
     }
 }

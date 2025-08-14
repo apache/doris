@@ -21,8 +21,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -42,8 +46,10 @@ import org.json.JSONObject;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Physical olap scan plan.
@@ -59,6 +65,12 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     private final Optional<TableSample> tableSample;
     private final ImmutableList<Slot> operativeSlots;
 
+    // use for virtual slot
+    private final List<NamedExpression> virtualColumns;
+
+    private final List<OrderKey> scoreOrderKeys;
+    private final Optional<Long> scoreLimit;
+
     /**
      * Constructor for PhysicalOlapScan.
      */
@@ -66,12 +78,13 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             PreAggStatus preAggStatus, List<Slot> baseOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            Optional<TableSample> tableSample, List<Slot> operativeSlots) {
+            Optional<TableSample> tableSample, List<Slot> operativeSlots, List<NamedExpression> virtualColumns,
+            List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit) {
         this(id, olapTable, qualifier,
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, distributionSpec,
                 preAggStatus, baseOutputs,
                 groupExpression, logicalProperties, null,
-                null, tableSample, operativeSlots);
+                null, tableSample, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit);
     }
 
     /**
@@ -83,7 +96,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics,
             Optional<TableSample> tableSample,
-            Collection<Slot> operativeSlots) {
+            Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
+            List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, olapTable, qualifier,
                 groupExpression, logicalProperties, physicalProperties, statistics, operativeSlots);
         this.selectedIndexId = selectedIndexId;
@@ -94,6 +108,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         this.baseOutputs = ImmutableList.copyOf(baseOutputs);
         this.tableSample = tableSample;
         this.operativeSlots = ImmutableList.copyOf(operativeSlots);
+        this.virtualColumns = ImmutableList.copyOf(virtualColumns);
+        this.scoreOrderKeys = ImmutableList.copyOf(scoreOrderKeys);
+        this.scoreLimit = scoreLimit;
     }
 
     @Override
@@ -133,6 +150,22 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return baseOutputs;
     }
 
+    public List<NamedExpression> getVirtualColumns() {
+        return virtualColumns;
+    }
+
+    public Map<ExprId, Expression> getSlotToVirtualColumnMap() {
+        return virtualColumns.stream().collect(Collectors.toMap(e -> e.toSlot().getExprId(), e -> e));
+    }
+
+    public List<OrderKey> getScoreOrderKeys() {
+        return scoreOrderKeys;
+    }
+
+    public Optional<Long> getScoreLimit() {
+        return scoreLimit;
+    }
+
     @Override
     public String getFingerprint() {
         String partitions = "";
@@ -157,9 +190,10 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
+        StringBuilder jrfBuilder = new StringBuilder();
         if (!getAppliedRuntimeFilters().isEmpty()) {
-            getAppliedRuntimeFilters().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
+            getAppliedRuntimeFilters().forEach(
+                    jrf -> jrfBuilder.append(" RF").append(jrf.getId().asInt()));
         }
         String index = "";
         if (selectedIndexId != getTable().getBaseIndexId()) {
@@ -170,14 +204,19 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         if (selectedPartitionIds.size() != partitionCount) {
             partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
         }
+        String rfV2 = "";
+        if (!runtimeFiltersV2.isEmpty()) {
+            rfV2 = runtimeFiltersV2.toString();
+        }
+
         String operativeCol = "";
         if (!operativeSlots.isEmpty()) {
             operativeCol = " operativeSlots(" + operativeSlots + ")";
         }
         return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + operativeCol + "]"
-                        + getGroupIdWithPrefix(),
-                "stats", statistics, "RFs", builder
-        );
+                + getGroupIdWithPrefix(),
+                "stats", statistics, "JRFs", jrfBuilder,
+                "RFV2", rfV2);
     }
 
     @Override
@@ -192,18 +231,22 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             return false;
         }
         PhysicalOlapScan olapScan = (PhysicalOlapScan) o;
-        return selectedIndexId == olapScan.selectedIndexId && Objects.equals(distributionSpec,
-                olapScan.distributionSpec) && Objects.equals(selectedTabletIds, olapScan.selectedTabletIds)
+        return selectedIndexId == olapScan.selectedIndexId
+                && Objects.equals(distributionSpec, olapScan.distributionSpec)
+                && Objects.equals(selectedTabletIds, olapScan.selectedTabletIds)
                 && Objects.equals(selectedPartitionIds, olapScan.selectedPartitionIds)
-                && Objects.equals(preAggStatus, olapScan.preAggStatus) && Objects.equals(baseOutputs,
-                olapScan.baseOutputs);
+                && Objects.equals(preAggStatus, olapScan.preAggStatus)
+                && Objects.equals(baseOutputs, olapScan.baseOutputs)
+                && Objects.equals(tableSample, olapScan.tableSample)
+                && Objects.equals(operativeSlots, olapScan.operativeSlots)
+                && Objects.equals(virtualColumns, olapScan.virtualColumns)
+                && Objects.equals(scoreOrderKeys, olapScan.scoreOrderKeys)
+                && Objects.equals(scoreLimit, olapScan.scoreLimit);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), distributionSpec, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds,
-                preAggStatus, baseOutputs);
+        return relationId.asInt();
     }
 
     @Override
@@ -215,7 +258,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs,
-                groupExpression, getLogicalProperties(), tableSample, operativeSlots);
+                groupExpression, getLogicalProperties(), tableSample, operativeSlots, virtualColumns,
+                scoreOrderKeys, scoreLimit);
     }
 
     @Override
@@ -223,7 +267,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, groupExpression,
-                logicalProperties.get(), tableSample, operativeSlots);
+                logicalProperties.get(), tableSample, operativeSlots, virtualColumns,
+                scoreOrderKeys, scoreLimit);
     }
 
     @Override
@@ -231,7 +276,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, tableSample, operativeSlots);
+                getLogicalProperties(), physicalProperties, statistics, tableSample, operativeSlots,
+                virtualColumns, scoreOrderKeys, scoreLimit);
     }
 
     @Override
@@ -257,7 +303,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return new PhysicalOlapScan(relationId, (OlapTable) table, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs,
                 groupExpression, getLogicalProperties(), getPhysicalProperties(), statistics,
-                tableSample, operativeSlots);
+                tableSample, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit);
     }
 
     @Override

@@ -71,6 +71,11 @@ public:
     virtual ~IOlapColumnDataAccessor() = default;
 };
 
+struct VariantColumnData {
+    const void* column_data;
+    size_t row_pos;
+};
+
 class OlapBlockDataConvertor {
 public:
     OlapBlockDataConvertor() = default;
@@ -83,6 +88,7 @@ public:
                                                    size_t row_pos, size_t num_rows, uint32_t cid);
 
     void clear_source_content();
+    void clear_source_content(size_t cid);
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
 
@@ -131,7 +137,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorObject not support get_data_at");
+        }
 
     protected:
         PaddedPODArray<Slice> _slice;
@@ -225,7 +234,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorAggState not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -349,7 +361,7 @@ private:
             }
 
             assert(column_data);
-            values_ = (const uint32*)(column_data->get_data().data()) + _row_pos;
+            values_ = (const uint32_t*)(column_data->get_data().data()) + _row_pos;
             return Status::OK();
         }
 
@@ -440,7 +452,10 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "OlapColumnDataConvertorStruct not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -461,9 +476,8 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "now not support get_data_at for OlapColumnDataConvertorArray");
-            __builtin_unreachable();
-        };
+                                   "OlapColumnDataConvertorArray not support get_data_at");
+        }
         Status convert_to_olap() override;
 
     private:
@@ -491,8 +505,8 @@ private:
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "now not support get_data_at for OlapColumnDataConvertorMap");
-        };
+                                   "OlapColumnDataConvertorMap not support get_data_at");
+        }
 
     private:
         Status convert_to_olap(const ColumnMap* column_map);
@@ -516,11 +530,9 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
-        // // encodes sparsed columns
-        // const ColumnString* _root_data_column;
-        // // _nullmap contains null info for this variant
+        const void* _value_ptr;
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
-        ColumnVariant* _source_column_ptr;
+        std::unique_ptr<VariantColumnData> _variant_column_data;
     };
 
 private:

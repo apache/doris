@@ -21,41 +21,50 @@
 
 #include <string>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
 
-namespace doris {
-#include "common/compile_check_begin.h"
-
-namespace vectorized {
+namespace doris::vectorized {
 class OlapScanner;
-}
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class OlapScanOperatorX;
 class OlapScanLocalState final : public ScanLocalState<OlapScanLocalState> {
 public:
     using Parent = OlapScanOperatorX;
+    using Base = ScanLocalState<OlapScanLocalState>;
     ENABLE_FACTORY_CREATOR(OlapScanLocalState);
-    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent)
-            : ScanLocalState(state, parent) {}
-
+    OlapScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status prepare(RuntimeState* state) override;
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format(" (id={}. nereids_id={}. table name = {})",
-                           std::to_string(_parent->node_id()),
-                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
+        return fmt::format("(nereids_id={}. table_name={})" + operator_name_suffix,
+                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name,
+                           std::to_string(_parent->node_id()));
     }
-    Status hold_tablets();
+    std::vector<Dependency*> execution_dependencies() override {
+        if (!_cloud_tablet_dependency) {
+            return Base::execution_dependencies();
+        }
+        std::vector<Dependency*> res = Base::execution_dependencies();
+        res.push_back(_cloud_tablet_dependency.get());
+        return res;
+    }
+
+    Status open(RuntimeState* state) override;
 
 private:
     friend class vectorized::OlapScanner;
 
+    Status _sync_cloud_tablets(RuntimeState* state);
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
@@ -90,6 +99,13 @@ private:
     Status _build_key_ranges_and_filters();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    std::vector<SyncRowsetStats> _sync_statistics;
+    MonotonicStopWatch _sync_cloud_tablets_watcher;
+    std::shared_ptr<Dependency> _cloud_tablet_dependency;
+    std::atomic<size_t> _pending_tablets_num = 0;
+    bool _prepared = false;
+    std::future<Status> _cloud_tablet_future;
+    std::atomic_bool _sync_tablet = false;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
     std::vector<FilterOlapParam<TCondition>> _olap_filters;
@@ -185,9 +201,13 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_search_init_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_search_exec_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
@@ -218,13 +238,18 @@ private:
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_inverted_index_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReader::ReadSource> _read_sources;
+
+    std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
+    std::map<SlotId, size_t> _slot_id_to_index_in_block;
+    // this map is needed for scanner opening.
+    std::map<SlotId, vectorized::DataTypePtr> _slot_id_to_col_type;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -232,7 +257,6 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
-    Status hold_tablets(RuntimeState* state) override;
 
 private:
     friend class OlapScanLocalState;

@@ -18,11 +18,13 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 
 #include <cstdint>
 #include <memory>
 
+#include "common/global_types.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_scan_operator.h"
@@ -31,6 +33,7 @@
 #include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "util/runtime_profile.h"
@@ -41,7 +44,9 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vtopn_pred.h"
@@ -73,7 +78,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _scan_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                  _parent->get_name() + "_DEPENDENCY");
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-            _runtime_profile, "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
+            common_profile(), "WaitForDependency[" + _scan_dependency->name() + "]Time", 1);
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
@@ -82,7 +87,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);
 
-    _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
+    _wait_for_rf_timer = ADD_TIMER(common_profile(), "WaitForRuntimeFilter");
     return Status::OK();
 }
 
@@ -269,8 +274,14 @@ Status ScanLocalState<Derived>::_normalize_predicate(
     if (conjunct_expr_root != nullptr) {
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
-            // If impl is not null, which means this a conjuncts from runtime filter.
-            auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            // If impl is not null, which means this is a conjunct from runtime filter.
+            vectorized::VExpr* cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            if (dynamic_cast<vectorized::VirtualSlotRef*>(cur_expr)) {
+                // If the expr has virtual slot ref, we need to keep it in the tree.
+                output_expr = conjunct_expr_root;
+                return Status::OK();
+            }
+
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -469,8 +480,10 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
             // the type of predicate not match the slot's type
             return false;
         }
-    } else if (child_contains_slot->data_type()->get_primitive_type() ==
-                       PrimitiveType::TYPE_DATETIME &&
+    } else if ((child_contains_slot->data_type()->get_primitive_type() ==
+                        PrimitiveType::TYPE_DATETIME ||
+                child_contains_slot->data_type()->get_primitive_type() ==
+                        PrimitiveType::TYPE_DATETIMEV2) &&
                child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
         // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
         // push down.
@@ -585,6 +598,12 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                                                                PushDownType* pdt) {
     auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
             slot->is_nullable(), range.precision(), range.scale());
+
+    if (slot->get_virtual_column_expr() != nullptr) {
+        // virtual column, do not push down
+        return Status::OK();
+    }
+
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         HybridSetBase::IteratorBase* iter = nullptr;
@@ -1069,13 +1088,13 @@ Status ScanLocalState<Derived>::clone_conjunct_ctxs(vectorized::VExprContextSPtr
 template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
-    _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
-    _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
-    //_runtime_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
+    _rows_read_counter = ADD_COUNTER(custom_profile(), "RowsRead", TUnit::UNIT);
+    _num_scanners = ADD_COUNTER(custom_profile(), "NumScanners", TUnit::UNIT);
+    //custom_profile()->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("Scanner"));
-    profile()->add_child(_scanner_profile.get(), true, nullptr);
+    custom_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
@@ -1084,20 +1103,20 @@ Status ScanLocalState<Derived>::_init_profile() {
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
 
     // time of scan thread to wait for worker thread of the thread pool
-    _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
+    _scanner_wait_worker_timer = ADD_TIMER(custom_profile(), "ScannerWorkerWaitTime");
 
-    _max_scan_concurrency = ADD_COUNTER(_runtime_profile, "MaxScanConcurrency", TUnit::UNIT);
-    _min_scan_concurrency = ADD_COUNTER(_runtime_profile, "MinScanConcurrency", TUnit::UNIT);
+    _max_scan_concurrency = ADD_COUNTER(custom_profile(), "MaxScanConcurrency", TUnit::UNIT);
+    _min_scan_concurrency = ADD_COUNTER(custom_profile(), "MinScanConcurrency", TUnit::UNIT);
 
     _peak_running_scanner =
             _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
+    _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanRows", TUnit::UNIT, 1);
     // Size of data that read from storage.
     // Does not include rows that are cached by doris page cache.
-    _scan_bytes = ADD_COUNTER(_runtime_profile, "ScanBytes", TUnit::BYTES);
+    _scan_bytes = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanBytes", TUnit::BYTES, 1);
     return Status::OK();
 }
 
@@ -1107,7 +1126,7 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     std::stringstream result;
     std::copy(p.topn_filter_source_node_ids.begin(), p.topn_filter_source_node_ids.end(),
               std::ostream_iterator<int>(result, ","));
-    _runtime_profile->add_info_string("TopNFilterSourceNodeIds", result.str());
+    custom_profile()->add_info_string("TopNFilterSourceNodeIds", result.str());
 
     for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
@@ -1202,7 +1221,6 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _push_down_agg_type = tnode.push_down_agg_type_opt;
     } else if (tnode.olap_scan_node.__isset.push_down_agg_type_opt) {
         _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
-
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
     }
@@ -1225,7 +1243,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         // is checked in previous branch.
         if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
             DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
+                (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
+                 tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
                 if (tnode.limit > 0 &&
                     tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
                     _should_run_serial = true;
@@ -1284,7 +1304,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-    _helper.collect_realtime_profile(profile());
+    _helper.collect_realtime_profile(custom_profile());
     return PipelineXLocalState<>::close(state);
 }
 

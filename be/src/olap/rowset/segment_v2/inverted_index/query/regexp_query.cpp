@@ -25,20 +25,21 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
-RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                         const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher),
-          _io_ctx(io_ctx),
-          _max_expansions(query_options.inverted_index_max_expansions),
-          _query(searcher, query_options, io_ctx) {}
+RegexpQuery::RegexpQuery(SearcherPtr searcher, IndexQueryContextPtr context)
+        : _searcher(std::move(searcher)),
+          _context(std::move(context)),
+          _query(_searcher, _context) {
+    _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+}
 
 void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.size() != 1) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "RegexpQuery::add: terms size != 1");
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
-    const std::string& pattern = query_info.terms[0];
+    const std::string& pattern = query_info.term_infos[0].get_single_term();
     auto prefix = get_regex_prefix(pattern);
 
     hs_database_t* database = nullptr;
@@ -73,7 +74,7 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
 
     InvertedIndexQueryInfo new_query_info;
     new_query_info.field_name = query_info.field_name;
-    new_query_info.terms.swap(terms);
+    new_query_info.term_infos.emplace_back(std::move(terms), query_info.term_infos[0].position);
     _query.add(new_query_info);
 }
 
@@ -129,10 +130,10 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
     try {
         if (prefix) {
             std::wstring ws_prefix = StringUtil::string_to_wstring(*prefix);
-            Term prefix(field_name.c_str(), ws_prefix.c_str());
-            enumerator = _searcher->getReader()->terms(&prefix, _io_ctx);
+            Term prefix_term(field_name.c_str(), ws_prefix.c_str());
+            enumerator = _searcher->getReader()->terms(&prefix_term, _context->io_ctx);
         } else {
-            enumerator = _searcher->getReader()->terms(nullptr, _io_ctx);
+            enumerator = _searcher->getReader()->terms(nullptr, _context->io_ctx);
             enumerator->next();
         }
         do {
@@ -147,8 +148,8 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
                 }
 
                 bool is_match = false;
-                if (hs_scan(database, input.data(), input.size(), 0, scratch, on_match,
-                            (void*)&is_match) != HS_SUCCESS) {
+                if (hs_scan(database, input.data(), static_cast<uint32_t>(input.size()), 0, scratch,
+                            on_match, (void*)&is_match) != HS_SUCCESS) {
                     LOG(ERROR) << "hyperscan match failed: " << input;
                     break;
                 }
@@ -174,4 +175,5 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
     })
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -47,6 +47,11 @@ public:
         return Status::NotSupported("get_columns is not implemented");
     }
 
+    // This method is responsible for initializing the resource for parsing schema.
+    // It will be called before `get_parsed_schema`.
+    virtual Status init_schema_reader() {
+        return Status::NotSupported("init_schema_reader is not implemented for this reader.");
+    }
     // `col_types` is always nullable to process illegal values.
     virtual Status get_parsed_schema(std::vector<std::string>* col_names,
                                      std::vector<DataTypePtr>* col_types) {
@@ -75,6 +80,11 @@ public:
         _read_lines = read_lines;
         return _set_read_one_line_impl();
     }
+
+    /// The reader is responsible for counting the number of rows read,
+    /// because some readers, such as parquet/orc,
+    /// can skip some pages/rowgroups through indexes.
+    virtual bool count_read_rows() { return false; }
 
 protected:
     virtual Status _set_read_one_line_impl() {

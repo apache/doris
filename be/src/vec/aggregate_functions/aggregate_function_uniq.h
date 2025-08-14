@@ -22,7 +22,6 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <type_traits>
@@ -58,18 +57,23 @@ class ColumnDecimal;
 template <PrimitiveType T>
 struct AggregateFunctionUniqExactData {
     static constexpr bool is_string_key = is_string_type(T);
-    using Key =
-            std::conditional_t<is_string_key, UInt128,
+    using Key = std::conditional_t<
+            is_string_key, UInt128,
+            std::conditional_t<T == TYPE_ARRAY, UInt64,
                                std::conditional_t<T == TYPE_BOOLEAN, UInt8,
-                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>;
+                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>>;
     using Hash = HashCRC32<Key>;
 
     using Set = flat_hash_set<Key, Hash>;
 
-    // TODO: replace SipHash with xxhash to speed up
     static UInt128 ALWAYS_INLINE get_key(const StringRef& value) {
         auto hash_value = XXH_INLINE_XXH128(value.data, value.size, 0);
         return UInt128 {hash_value.high64, hash_value.low64};
+    }
+    static UInt64 ALWAYS_INLINE get_key(const IColumn& column, size_t row_num) {
+        UInt64 hash_value = 0;
+        column.update_xxHash_with_value(row_num, row_num + 1, hash_value, nullptr);
+        return hash_value;
     }
 
     Set set;
@@ -90,6 +94,13 @@ struct OneAdder {
         if constexpr (is_string_type(T)) {
             StringRef value = column.get_data_at(row_num);
             data.set.insert(Data::get_key(value));
+        } else if constexpr (T == TYPE_ARRAY) {
+            data.set.insert(Data::get_key(column, row_num));
+        } else if constexpr (is_decimal(T)) {
+            data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                        TypeCheckOnRelease::DISABLE>(column)
+                                    .get_data()[row_num]
+                                    .value);
         } else {
             data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                         TypeCheckOnRelease::DISABLE>(column)
@@ -103,10 +114,14 @@ struct OneAdder {
 /// Calculates the number of different values approximately or exactly.
 template <PrimitiveType T, typename Data>
 class AggregateFunctionUniq final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
-    using KeyType = std::conditional_t<is_string_type(T), UInt128,
-                                       typename PrimitiveTypeTraits<T>::ColumnItemType>;
+    using KeyType =
+            std::conditional_t<is_string_type(T), UInt128,
+                               std::conditional_t<T == TYPE_ARRAY, UInt64,
+                                                  typename PrimitiveTypeTraits<T>::ColumnItemType>>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
 
@@ -117,7 +132,7 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         detail::OneAdder<T, Data>::add(this->data(place), *columns[0], row_num);
     }
 
@@ -130,6 +145,12 @@ public:
                 keys_container[i] = Data::get_key(value);
             }
             return keys_container.data();
+        } else if constexpr (T == TYPE_ARRAY) {
+            keys_container.resize(batch_size);
+            for (size_t i = 0; i != batch_size; ++i) {
+                keys_container[i] = Data::get_key(column, i);
+            }
+            return keys_container.data();
         } else {
             return assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(column)
                     .get_data()
@@ -138,7 +159,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena*, bool /*agg_many*/) const override {
+                   const IColumn** columns, Arena&, bool /*agg_many*/) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
 
@@ -159,7 +180,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         auto& rhs_set = this->data(rhs).set;
         if (rhs_set.size() == 0) return;
 
@@ -172,7 +193,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena&) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
         auto& set = this->data(place).set;
@@ -187,38 +208,38 @@ public:
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& set = this->data(place).set;
-        write_var_uint(set.size(), buf);
+        buf.write_var_uint(set.size());
         for (const auto& elem : set) {
-            write_pod_binary(elem, buf);
+            buf.write_binary(elem);
         }
     }
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
-                               BufferReadable& buf, Arena*) const override {
+                               BufferReadable& buf, Arena&) const override {
         auto& set = this->data(place).set;
         UInt64 size;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
 
         set.rehash(size + set.size());
 
         for (size_t i = 0; i < size; ++i) {
             KeyType ref;
-            read_pod_binary(ref, buf);
+            buf.read_binary(ref);
             set.insert(ref);
         }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         auto& set = this->data(place).set;
         UInt64 size;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
 
         set.rehash(size + set.size());
 
         for (size_t i = 0; i < size; ++i) {
             KeyType ref;
-            read_pod_binary(ref, buf);
+            buf.read_binary(ref);
             set.insert(ref);
         }
     }

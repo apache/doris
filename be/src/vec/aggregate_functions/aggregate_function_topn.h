@@ -25,10 +25,8 @@
 
 #include <algorithm>
 #include <functional>
-#include <iterator>
 #include <memory>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -50,13 +48,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
-class Arena;
-class BufferReadable;
-class BufferWritable;
-template <PrimitiveType T>
-class ColumnDecimal;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
@@ -146,33 +137,33 @@ struct AggregateFunctionTopNData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(top_num, buf);
-        write_binary(capacity, buf);
+        buf.write_binary(top_num);
+        buf.write_binary(capacity);
 
         uint64_t element_number = std::min(capacity, (uint64_t)counter_map.size());
-        write_binary(element_number, buf);
+        buf.write_binary(element_number);
 
         auto counter_vector = get_remain_vector();
 
         for (auto i = 0; i < element_number; i++) {
             auto element = counter_vector[i];
-            write_binary(element.second, buf);
-            write_binary(element.first, buf);
+            buf.write_binary(element.second);
+            buf.write_binary(element.first);
         }
     }
 
     void read(BufferReadable& buf) {
-        read_binary(top_num, buf);
-        read_binary(capacity, buf);
+        buf.read_binary(top_num);
+        buf.read_binary(capacity);
 
         uint64_t element_number = 0;
-        read_binary(element_number, buf);
+        buf.read_binary(element_number);
 
         counter_map.clear();
         std::pair<DataType, uint64_t> element;
         for (auto i = 0; i < element_number; i++) {
-            read_binary(element.first, buf);
-            read_binary(element.second, buf);
+            buf.read_binary(element.first);
+            buf.read_binary(element.second);
             counter_map.insert(element);
         }
     }
@@ -216,8 +207,8 @@ struct AggregateFunctionTopNData {
 };
 
 struct AggregateFunctionTopNImplInt {
-    static void add(AggregateFunctionTopNData<TYPE_STRING>& __restrict place,
-                    const IColumn** columns, size_t row_num) {
+    using Data = AggregateFunctionTopNData<TYPE_STRING>;
+    static void add(Data& __restrict place, const IColumn** columns, size_t row_num) {
         place.set_paramenters(
                 assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                         ->get_element(row_num));
@@ -227,8 +218,8 @@ struct AggregateFunctionTopNImplInt {
 };
 
 struct AggregateFunctionTopNImplIntInt {
-    static void add(AggregateFunctionTopNData<TYPE_STRING>& __restrict place,
-                    const IColumn** columns, size_t row_num) {
+    using Data = AggregateFunctionTopNData<TYPE_STRING>;
+    static void add(Data& __restrict place, const IColumn** columns, size_t row_num) {
         place.set_paramenters(
                 assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                         ->get_element(row_num),
@@ -241,7 +232,9 @@ struct AggregateFunctionTopNImplIntInt {
 //for topn_array agg
 template <PrimitiveType T, bool has_default_param>
 struct AggregateFunctionTopNImplArray {
+    using Data = AggregateFunctionTopNData<T>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static String get_name() { return "topn_array"; }
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
@@ -271,7 +264,9 @@ struct AggregateFunctionTopNImplArray {
 //for topn_weighted agg
 template <PrimitiveType T, bool has_default_param>
 struct AggregateFunctionTopNImplWeight {
+    using Data = AggregateFunctionTopNData<T>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    static String get_name() { return "topn_weighted"; }
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
@@ -304,24 +299,24 @@ struct AggregateFunctionTopNImplWeight {
 };
 
 //base function
-template <typename Impl, PrimitiveType T>
+template <typename Impl>
 class AggregateFunctionTopNBase
-        : public IAggregateFunctionDataHelper<AggregateFunctionTopNData<T>,
-                                              AggregateFunctionTopNBase<Impl, T>> {
+        : public IAggregateFunctionDataHelper<typename Impl::Data,
+                                              AggregateFunctionTopNBase<Impl>> {
 public:
     AggregateFunctionTopNBase(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionTopNData<T>,
-                                           AggregateFunctionTopNBase<Impl, T>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<typename Impl::Data, AggregateFunctionTopNBase<Impl>>(
+                      argument_types_) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         Impl::add(this->data(place), columns, row_num);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -330,17 +325,19 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 };
 
 //topn function return string
-template <typename Impl, PrimitiveType T = TYPE_STRING>
-class AggregateFunctionTopN final : public AggregateFunctionTopNBase<Impl, T> {
+template <typename Impl>
+class AggregateFunctionTopN final : public AggregateFunctionTopNBase<Impl>,
+                                    MultiExpression,
+                                    NullableAggregateFunction {
 public:
     AggregateFunctionTopN(const DataTypes& argument_types_)
-            : AggregateFunctionTopNBase<Impl, T>(argument_types_) {}
+            : AggregateFunctionTopNBase<Impl>(argument_types_) {}
 
     String get_name() const override { return "topn"; }
 
@@ -353,20 +350,16 @@ public:
 };
 
 //topn function return array
-template <typename Impl, PrimitiveType T, bool is_weighted>
-class AggregateFunctionTopNArray final : public AggregateFunctionTopNBase<Impl, T> {
+template <typename Impl>
+class AggregateFunctionTopNArray final : public AggregateFunctionTopNBase<Impl>,
+                                         MultiExpression,
+                                         NullableAggregateFunction {
 public:
     AggregateFunctionTopNArray(const DataTypes& argument_types_)
-            : AggregateFunctionTopNBase<Impl, T>(argument_types_),
+            : AggregateFunctionTopNBase<Impl>(argument_types_),
               _argument_type(argument_types_[0]) {}
 
-    String get_name() const override {
-        if constexpr (is_weighted) {
-            return "topn_weighted";
-        } else {
-            return "topn_array";
-        }
-    }
+    String get_name() const override { return Impl::get_name(); }
 
     DataTypePtr get_return_type() const override {
         return std::make_shared<DataTypeArray>(make_nullable(_argument_type));
@@ -376,7 +369,7 @@ public:
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
         if (to_nested_col.is_nullable()) {
-            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+            auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
             this->data(place).insert_result_into(col_null->get_nested_column());
             col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
         } else {

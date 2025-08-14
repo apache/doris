@@ -33,7 +33,7 @@ public class MaxComputeMetadataCache {
 
     public MaxComputeMetadataCache() {
         partitionValuesCache = Caffeine.newBuilder().maximumSize(Config.max_hive_partition_cache_num)
-                .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
+                .expireAfterAccess(Config.external_cache_refresh_time_minutes, TimeUnit.MINUTES)
                 .build();
     }
 

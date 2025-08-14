@@ -22,16 +22,16 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_fwd.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
 namespace segment_v2 {
-class InvertedIndexColumnWriter;
-class InvertedIndexFileWriter;
+class IndexColumnWriter;
+class IndexFileWriter;
 } // namespace segment_v2
 namespace vectorized {
 class OlapBlockDataConvertor;
@@ -81,15 +81,13 @@ private:
     std::vector<PendingRowsetGuard> _pending_rs_guards;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
-    // "<segment_id, index_id>" -> InvertedIndexColumnWriter
-    std::unordered_map<std::pair<int64_t, int64_t>,
-                       std::unique_ptr<segment_v2::InvertedIndexColumnWriter>>
+    // "<segment_id, index_id>" -> IndexColumnWriter
+    std::unordered_map<std::pair<int64_t, int64_t>, std::unique_ptr<segment_v2::IndexColumnWriter>>
             _inverted_index_builders;
-    std::unordered_map<int64_t, std::unique_ptr<InvertedIndexFileWriter>>
-            _inverted_index_file_writers;
+    std::unordered_map<int64_t, std::unique_ptr<IndexFileWriter>> _index_file_writers;
     // <rowset_id, segment_id>
-    std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<InvertedIndexFileReader>>
-            _inverted_index_file_readers;
+    std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<IndexFileReader>>
+            _index_file_readers;
 };
 
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;

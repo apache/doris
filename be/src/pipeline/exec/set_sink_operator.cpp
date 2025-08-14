@@ -55,7 +55,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
     }
 
     if (_runtime_filter_producer_helper) {
-        _runtime_filter_producer_helper->collect_realtime_profile(profile());
+        _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     }
 
     return Base::close(state, exec_status);
@@ -183,8 +183,8 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _merge_block_timer = ADD_TIMER(_profile, "MergeBlocksTime");
-    _build_timer = ADD_TIMER(_profile, "BuildTime");
+    _merge_block_timer = ADD_TIMER(custom_profile(), "MergeBlocksTime");
+    _build_timer = ADD_TIMER(custom_profile(), "BuildTime");
     auto& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     DCHECK(parent._cur_child_id == 0);
@@ -202,7 +202,6 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     _shared_state->build_not_ignore_null.resize(_child_exprs.size());
 
     RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
-
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperSet>();
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _child_exprs,
                                                           parent._runtime_filter_descs));

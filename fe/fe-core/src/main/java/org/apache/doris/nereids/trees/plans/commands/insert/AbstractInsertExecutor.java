@@ -74,7 +74,7 @@ public abstract class AbstractInsertExecutor {
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         this.ctx = ctx;
-        this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
+        this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, planner, ctx.getStatsErrorEstimator());
         this.labelName = labelName;
         this.table = table;
         this.database = table.getDatabase();

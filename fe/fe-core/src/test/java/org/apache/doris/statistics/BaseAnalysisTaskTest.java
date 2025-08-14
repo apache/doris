@@ -61,7 +61,7 @@ public class BaseAnalysisTaskTest {
         Assertions.assertEquals("NULL", maxFunction);
 
         String ndvFunction = olapAnalysisTask.getNdvFunction(String.valueOf(100));
-        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(`t1`.`column_key`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`column_key` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`column_key` is not null, 1, 0)) * SUM(`t1`.`count`) / 100)", ndvFunction);
+        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(`t1`.`col_value`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) * SUM(`t1`.`count`) / 100)", ndvFunction);
         System.out.println(ndvFunction);
     }
 
@@ -82,6 +82,7 @@ public class BaseAnalysisTaskTest {
         values.add("max");
         values.add("400");
         values.add("500");
+        values.add(null);
         ResultRow row = new ResultRow(values);
         List<ResultRow> result = Lists.newArrayList();
         result.add(row);
@@ -98,7 +99,7 @@ public class BaseAnalysisTaskTest {
         } catch (Exception e) {
             Assertions.assertEquals(e.getMessage(),
                     "ColStatsData is invalid, skip analyzing. "
-                            + "('id',10000,20000,30000,0,'col',null,100,1100,300,'min','max',400,'500')");
+                            + "('id',10000,20000,30000,0,'col',null,100,1100,300,'min','max',400,'500',NULL)");
             return;
         }
         Assertions.fail();
@@ -121,6 +122,7 @@ public class BaseAnalysisTaskTest {
         values.add("max");
         values.add("400");
         values.add("500");
+        values.add(null);
         ResultRow row = new ResultRow(values);
         List<ResultRow> result = Lists.newArrayList();
         result.add(row);
@@ -137,7 +139,7 @@ public class BaseAnalysisTaskTest {
         } catch (Exception e) {
             Assertions.assertEquals(e.getMessage(),
                     "ColStatsData is invalid, skip analyzing. "
-                            + "('id',10000,20000,30000,0,'col',null,500,0,300,'min','max',400,'500')");
+                            + "('id',10000,20000,30000,0,'col',null,500,0,300,'min','max',400,'500',NULL)");
             return;
         }
         Assertions.fail();

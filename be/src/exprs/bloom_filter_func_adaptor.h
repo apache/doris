@@ -40,7 +40,7 @@ public:
 
     Status merge(BloomFilterAdaptor* other) { return _bloom_filter->merge(*other->_bloom_filter); }
 
-    Status init(int len) {
+    Status init(int64_t len) {
         int log_space = (int)log2(len);
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }
@@ -81,7 +81,7 @@ private:
 template <typename fixed_len_to_uint32_method, class T>
 struct CommonFindOp {
     static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                           const uint8* nullmap, uint16_t* offsets, int number,
+                                           const uint8_t* nullmap, uint16_t* offsets, int number,
                                            const bool is_parse_column) {
         return find_batch_olap<fixed_len_to_uint32_method, T>(bloom_filter, data, nullmap, offsets,
                                                               number, is_parse_column);
@@ -235,7 +235,7 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
 template <typename fixed_len_to_uint32_method>
 struct FixedStringFindOp : public StringFindOp<fixed_len_to_uint32_method> {
     static uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                           const uint8* nullmap, uint16_t* offsets, int number,
+                                           const uint8_t* nullmap, uint16_t* offsets, int number,
                                            const bool is_parse_column) {
         return find_batch_olap<fixed_len_to_uint32_method, StringRef, true>(
                 bloom_filter, data, nullmap, offsets, number, is_parse_column);

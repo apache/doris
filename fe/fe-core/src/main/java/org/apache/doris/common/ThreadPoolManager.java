@@ -18,11 +18,12 @@
 package org.apache.doris.common;
 
 
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -148,7 +149,7 @@ public class ThreadPoolManager {
             int queueSize,
             String poolName,
             boolean needRegisterMetric,
-            PreExecutionAuthenticator preAuth) {
+            ExecutionAuthenticator preAuth) {
         return newDaemonThreadPoolWithPreAuth(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(queueSize), new BlockedPolicy(poolName, 60),
             poolName, needRegisterMetric, preAuth);
@@ -240,9 +241,12 @@ public class ThreadPoolManager {
      * Create a thread factory that names threads with a prefix and also sets the threads to daemon.
      */
     private static ThreadFactory namedThreadFactory(String poolName) {
-        return new ThreadFactoryBuilder().setDaemon(true).setNameFormat(poolName + "-%d").build();
+        return new ThreadFactoryBuilder()
+                .setDaemon(true)
+                .setNameFormat(poolName + "-%d")
+                .setThreadFactory(MoreFieldsThread::new)
+                .build();
     }
-
 
     public static ThreadPoolExecutor newDaemonThreadPoolWithPreAuth(
             int corePoolSize,
@@ -253,7 +257,7 @@ public class ThreadPoolManager {
             RejectedExecutionHandler handler,
             String poolName,
             boolean needRegisterMetric,
-            PreExecutionAuthenticator preAuth) {
+            ExecutionAuthenticator preAuth) {
         ThreadFactory threadFactory = namedThreadFactoryWithPreAuth(poolName, preAuth);
         ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
                 keepAliveTime, unit, workQueue, threadFactory, handler);
@@ -263,11 +267,11 @@ public class ThreadPoolManager {
         return threadPool;
     }
 
-    private static ThreadFactory namedThreadFactoryWithPreAuth(String poolName, PreExecutionAuthenticator preAuth) {
+    private static ThreadFactory namedThreadFactoryWithPreAuth(String poolName, ExecutionAuthenticator preAuth) {
         return new ThreadFactoryBuilder()
             .setDaemon(true)
             .setNameFormat(poolName + "-%d")
-            .setThreadFactory(runnable -> new Thread(() -> {
+            .setThreadFactory(runnable -> new MoreFieldsThread(() -> {
                 try {
                     preAuth.execute(runnable);
                 } catch (Exception e) {

@@ -23,12 +23,10 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_writer.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
 
 namespace vectorized {
 class IColumn;
@@ -37,83 +35,19 @@ class Arena;
 
 class DataTypeStructSerDe : public DataTypeSerDe {
 public:
-    static bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name,
-                                      bool& has_quota) {
-        StringRef element(rb.position(), 0);
-        has_quota = false;
-        is_name = false;
-        if (rb.eof()) {
-            return false;
-        }
-
-        // ltrim
-        while (!rb.eof() && isspace(*rb.position())) {
-            ++rb.position();
-            element.data = rb.position();
-        }
-
-        // parse string
-        if (*rb.position() == '"' || *rb.position() == '\'') {
-            const char str_sep = *rb.position();
-            size_t str_len = 1;
-            // search until next '"' or '\''
-            while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
-                if (*(rb.position() + str_len) == '\\' && str_len + 1 < rb.count()) {
-                    ++str_len;
-                }
-                ++str_len;
-            }
-            // invalid string
-            if (str_len >= rb.count()) {
-                rb.position() = rb.end();
-                return false;
-            }
-            has_quota = true;
-            rb.position() += str_len + 1;
-            element.size += str_len + 1;
-        }
-
-        // parse element until separator ':' or ',' or end '}'
-        while (!rb.eof() && (*rb.position() != ':') && (*rb.position() != ',') &&
-               (rb.count() != 1 || *rb.position() != '}')) {
-            if (has_quota && !isspace(*rb.position())) {
-                return false;
-            }
-            ++rb.position();
-            ++element.size;
-        }
-        // invalid element
-        if (rb.eof()) {
-            return false;
-        }
-
-        if (*rb.position() == ':') {
-            is_name = true;
-        }
-
-        // adjust read buffer position to first char of next element
-        ++rb.position();
-
-        // rtrim
-        while (element.size > 0 && isspace(element.data[element.size - 1])) {
-            --element.size;
-        }
-
-        // trim '"' and '\'' for string
-        if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-            element.data[0] == element.data[element.size - 1]) {
-            ++element.data;
-            element.size -= 2;
-        }
-        output = element;
-        return true;
-    }
-
     DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elem_serdes_ptrs, const Strings names,
                         int nesting_level = 1)
             : DataTypeSerDe(nesting_level),
               elem_serdes_ptrs(_elem_serdes_ptrs),
               elem_names(names) {}
+
+    std::string get_name() const override;
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -142,7 +76,7 @@ public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
-    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
@@ -162,8 +96,13 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               std::vector<StringRef>& buffer_list) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
+
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
+    Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
+                                         CastParameters& castParms) const override;
 
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);
@@ -172,11 +111,9 @@ public:
         }
     }
 
-    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
+    DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
 
 private:
-    std::optional<size_t> try_get_position_by_name(const String& name) const;
-
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
                                   std::vector<MysqlRowBuffer<is_binary_format>>& result,
@@ -186,6 +123,9 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
+
+    template <bool is_strict_mode>
+    Status _from_string(StringRef& str, IColumn& column, const FormatOptions& options) const;
 
     DataTypeSerDeSPtrs elem_serdes_ptrs;
     Strings elem_names;

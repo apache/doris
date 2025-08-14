@@ -47,13 +47,18 @@ public class BitmapAndNotAlias extends ScalarFunction
         super("bitmap_andnot", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapAndNotAlias(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapAndNotAlias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new BitmapAndNotAlias(children.get(0), children.get(1));
+        return new BitmapAndNotAlias(getFunctionParams(children));
     }
 
     @Override

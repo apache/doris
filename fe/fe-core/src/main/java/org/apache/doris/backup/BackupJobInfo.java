@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.BackupStmt.BackupContent;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
@@ -35,6 +34,9 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -190,6 +192,22 @@ public class BackupJobInfo implements GsonPostProcessable {
         return backupOlapTableObjects.get(tblName);
     }
 
+    public void removeTable(TableRefInfo tableRefInfo, TableType tableType) {
+        switch (tableType) {
+            case OLAP:
+                removeOlapTable(tableRefInfo);
+                break;
+            case VIEW:
+                removeView(tableRefInfo);
+                break;
+            case ODBC:
+                removeOdbcTable(tableRefInfo);
+                break;
+            default:
+                break;
+        }
+    }
+
     public void removeTable(TableRef tableRef, TableType tableType) {
         switch (tableType) {
             case OLAP:
@@ -203,6 +221,58 @@ public class BackupJobInfo implements GsonPostProcessable {
                 break;
             default:
                 break;
+        }
+    }
+
+    public void removeOlapTable(TableRefInfo tableRefInfo) {
+        String tblName = tableRefInfo.getTableNameInfo().getTbl();
+        BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tblName);
+        if (tblInfo == null) {
+            LOG.info("Ignore error: exclude table " + tblName + " does not exist in snapshot " + name);
+            return;
+        }
+        PartitionNamesInfo partitionNamesInfo = tableRefInfo.getPartitionNamesInfo();
+        if (partitionNamesInfo == null) {
+            backupOlapTableObjects.remove(tblInfo);
+            return;
+        }
+        // check the selected partitions
+        for (String partName : partitionNamesInfo.getPartitionNames()) {
+            if (tblInfo.containsPart(partName)) {
+                tblInfo.partitions.remove(partName);
+            } else {
+                LOG.info("Ignore error: exclude partition " + partName + " of table " + tblName
+                        + " does not exist in snapshot");
+            }
+        }
+    }
+
+    public void removeView(TableRefInfo tableRefInfo) {
+        Iterator<BackupViewInfo> iter = newBackupObjects.views.listIterator();
+        while (iter.hasNext()) {
+            if (iter.next().name.equals(tableRefInfo.getTableNameInfo().getTbl())) {
+                iter.remove();
+                return;
+            }
+        }
+    }
+
+    public void removeOdbcTable(TableRefInfo tableRefInfo) {
+        Iterator<BackupOdbcTableInfo> iter = newBackupObjects.odbcTables.listIterator();
+        while (iter.hasNext()) {
+            BackupOdbcTableInfo backupOdbcTableInfo = iter.next();
+            if (backupOdbcTableInfo.dorisTableName.equals(tableRefInfo.getTableNameInfo().getTbl())) {
+                if (backupOdbcTableInfo.resourceName != null) {
+                    Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
+                    while (resourceIter.hasNext()) {
+                        if (resourceIter.next().name.equals(backupOdbcTableInfo.resourceName)) {
+                            resourceIter.remove();
+                        }
+                    }
+                }
+                iter.remove();
+                return;
+            }
         }
     }
 

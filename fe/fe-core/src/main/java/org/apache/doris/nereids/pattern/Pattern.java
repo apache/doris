@@ -239,4 +239,9 @@ public class Pattern<TYPE extends Plan>
     public int hashCode() {
         return Objects.hash(predicates, patternType, planType);
     }
+
+    // for TypePattern
+    public Class<TYPE> getMatchedType() {
+        return null;
+    }
 }

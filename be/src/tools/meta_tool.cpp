@@ -27,7 +27,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
@@ -166,7 +165,7 @@ void batch_delete_meta(const std::string& tablet_file) {
     std::unordered_map<std::string, std::unique_ptr<DataDir>> dir_map;
     while (std::getline(infile, line)) {
         total_num++;
-        std::vector<string> v = absl::StrSplit(line, ",");
+        std::vector<std::string> v = absl::StrSplit(line, ",");
         if (v.size() != 3) {
             std::cout << "invalid line in tablet_file: " << line << std::endl;
             err_num++;
@@ -203,13 +202,13 @@ void batch_delete_meta(const std::string& tablet_file) {
 
         // 2. get tablet id/schema_hash
         int64_t tablet_id;
-        if (!safe_strto64(v[1].c_str(), &tablet_id)) {
+        if (!absl::SimpleAtoi(v[1], &tablet_id)) {
             std::cout << "invalid tablet id: " << line << std::endl;
             err_num++;
             continue;
         }
         int64_t schema_hash;
-        if (!safe_strto64(v[2].c_str(), &schema_hash)) {
+        if (!absl::SimpleAtoi(v[2], &schema_hash)) {
             std::cout << "invalid schema hash: " << line << std::endl;
             err_num++;
             continue;

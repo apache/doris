@@ -189,7 +189,8 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     auto [status, column] = _olap_data_convertor->convert_column_data(0);
     // invalid will make error
     ASSERT_FALSE(status.ok());
-    ASSERT_TRUE(status.to_string().find("invalid json binary value") != std::string::npos);
+    ASSERT_TRUE(status.to_string().find("Invalid JSONB document") != std::string::npos)
+            << status.to_string();
     ASSERT_NE(column, nullptr);
 
     // test with null map
@@ -235,7 +236,8 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     _olap_data_convertor->set_source_content(&block, 0, 5);
     auto [status1, column1] = _olap_data_convertor->convert_column_data(0);
     ASSERT_FALSE(status.ok());
-    ASSERT_TRUE(status.to_string().find("invalid json binary value") != std::string::npos);
+    ASSERT_TRUE(status.to_string().find("Invalid JSONB document") != std::string::npos)
+            << status.to_string();
     ASSERT_NE(column, nullptr);
 }
 

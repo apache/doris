@@ -17,7 +17,7 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -95,22 +95,9 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
     public BackendPartitionedSchemaScanNode(PlanNodeId id, TableIf table, TupleDescriptor desc,
-                                            String schemaCatalog, String schemaDatabase, String schemaTable) {
-        super(id, desc, schemaCatalog, schemaDatabase, schemaTable);
+            String schemaCatalog, String schemaDatabase, String schemaTable, List<Expr> frontendConjuncts) {
+        super(id, desc, schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
         this.tableIf = table;
-    }
-
-    @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        computeColumnsFilter();
-        computePartitionInfo();
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        super.finalize(analyzer);
-        createScanRangeLocations();
     }
 
     @Override
