@@ -133,12 +133,11 @@ public class ShowConfigCommand extends Command implements NoForward {
                 urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
                 InputStream inputStream = urlConnection.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-                while (reader.ready()) {
+                String line;
+                while ((line = reader.readLine()) != null) {
                     // line's format like [["k1","v1"], ["k2","v2"]]
-                    String line = reader.readLine();
                     JSONArray outer = new JSONArray(line);
                     for (int i = 0; i < outer.length(); ++i) {
-                        // [key, type, value, isMutable]
                         JSONArray inner = outer.getJSONArray(i);
                         if (matcher == null || matcher.match(inner.getString(0))) {
                             List<String> rows = Lists.newArrayList();
@@ -154,7 +153,7 @@ public class ShowConfigCommand extends Command implements NoForward {
                 }
             } catch (Exception e) {
                 throw new AnalysisException(
-                        String.format("Can’t get backend config, backendId: %d, host: %s. error: %s",
+                        String.format("Can't get backend config, backendId: %d, host: %s. error: %s",
                                 beId, host, e.getMessage()), e);
             }
         }
