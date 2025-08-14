@@ -920,6 +920,35 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     return Status::OK();
 }
 
+bool VExpr::_could_prune_result_bitmap_for_missing_column(VExprContext* context) {
+    auto index_context = context->get_inverted_index_context();
+
+    if (fn().name.function_name == "is_null_pred") {
+        return false;
+    }
+
+    for (const auto& child : children()) {
+        const VSlotRef* column_slot_ref = nullptr;
+
+        if (child->node_type() == TExprNodeType::CAST_EXPR) {
+            const auto* cast_expr = assert_cast<const VCastExpr*>(child.get());
+            if (cast_expr->get_num_children() != 1 || !cast_expr->get_child(0)->is_slot_ref()) {
+                continue;
+            }
+            column_slot_ref = assert_cast<const VSlotRef*>(cast_expr->get_child(0).get());
+        } else if (child->is_slot_ref()) {
+            column_slot_ref = assert_cast<const VSlotRef*>(child.get());
+        }
+
+        if (column_slot_ref &&
+            !index_context->get_column_exists_by_column_id(column_slot_ref->column_id())) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 size_t VExpr::estimate_memory(const size_t rows) {
     if (is_const_and_have_executed()) {
         return 0;

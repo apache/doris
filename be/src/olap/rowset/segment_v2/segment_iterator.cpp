@@ -324,6 +324,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     _storage_name_and_type.resize(_schema->columns().size());
+    _column_exists_iterators.resize(_schema->columns().size(), true);
     auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
     for (int i = 0; i < _schema->columns().size(); ++i) {
         const Field* col = _schema->column(i);
@@ -333,6 +334,9 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
             }
+
+            bool exist = !dynamic_cast<DefaultValueColumnIterator*>(_column_iterators[i].get());
+
             // Currently, when writing a lucene index, the field of the document is column_name, and the column name is
             // bound to the index field. Since version 1.2, the data file storage has been changed from column_name to
             // column_unique_id, allowing the column name to be changed. Due to current limitations, previous inverted
@@ -353,6 +357,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
                 }
             }
             _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
+            _column_exists_iterators[i] = exist;
         }
     }
 
@@ -524,6 +529,27 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
     }
+
+    if (std::any_of(_column_exists_iterators.begin(), _column_exists_iterators.end(),
+                    [](bool exists) { return !exists; })) {
+        size_t input_rows = _row_bitmap.cardinality();
+
+        for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+            if (expr_ctx->could_prune_result_bitmap_for_missing_column()) {
+                _row_bitmap = roaring::Roaring();
+                break;
+            }
+        }
+
+        _opts.stats->rows_conditions_filtered += (input_rows - _row_bitmap.cardinality());
+    }
+
+    DBUG_EXECUTE_IF("segment_iterator.must_prune_result_for_missing_column", {
+        if (_row_bitmap.cardinality() != 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Not prune result_bitmap for missing column");
+        }
+    })
 
     RETURN_IF_ERROR(_apply_bitmap_index());
     {
@@ -2676,7 +2702,7 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 Status SegmentIterator::_construct_compound_expr_context() {
     auto inverted_index_context = std::make_shared<vectorized::InvertedIndexContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
-            _common_expr_inverted_index_status);
+            _common_expr_inverted_index_status, _column_exists_iterators);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
