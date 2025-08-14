@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -41,6 +42,23 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
         Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan).validate());
+    }
+
+    @Test
+    public void testRedirectStatus() {
+        String sql = "admin set frontend config(\"alter_table_timeout_second\" = \"60\");";
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
+        AdminSetFrontendConfigCommand command = (AdminSetFrontendConfigCommand) plan;
+        Assertions.assertEquals(command.toRedirectStatus(), RedirectStatus.FORWARD_NO_SYNC);
+        Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan).validate());
+
+        sql = "admin set frontend config('workload_runtime_status_thread_interval_ms' = '100');";
+        LogicalPlan plan1 = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan1 instanceof AdminSetFrontendConfigCommand);
+        command = (AdminSetFrontendConfigCommand) plan1;
+        Assertions.assertEquals(command.toRedirectStatus(), RedirectStatus.NO_FORWARD);
+        Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan1).validate());
     }
 
     @Test
