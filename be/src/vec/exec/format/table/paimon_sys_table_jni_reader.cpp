@@ -27,8 +27,8 @@ const std::string PaimonSysTableJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
 
 PaimonSysTableJniReader::PaimonSysTableJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-        RuntimeProfile* profile, const TPaimonMetadataParams& range_params)
-        : JniReader(file_slot_descs, state, profile), _range_params(range_params) {
+        RuntimeProfile* profile, const TMetaScanRange& meta_scan_range)
+        : JniReader(file_slot_descs, state, profile), _meta_scan_range(meta_scan_range) {
     std::vector<std::string> required_fields;
     std::vector<std::string> required_types;
     for (const auto& desc : _file_slot_descs) {
@@ -37,18 +37,13 @@ PaimonSysTableJniReader::PaimonSysTableJniReader(
     }
 
     std::map<std::string, std::string> params;
-    params["db_name"] = _range_params.db_name;
-    params["tbl_name"] = _range_params.tbl_name;
-    params["query_type"] = _range_params.query_type;
-    params["serialized_split"] = _range_params.serialized_split;
+    params["serialized_table"] = _meta_scan_range.serialized_table;
+    // "," is not in base64
+    params["serialized_splits"] = join(_meta_scan_range.serialized_splits, ",");
     params["required_fields"] = join(required_fields, ",");
     params["required_types"] = join(required_types, "#");
-
-    for (const auto& kv : _range_params.paimon_props) {
-        params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
-    }
-
-    for (const auto& kv : _range_params.hadoop_props) {
+    params["time_zone"] = _state->timezone();
+    for (const auto& kv : _meta_scan_range.hadoop_props) {
         params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
     }
 
