@@ -67,6 +67,8 @@ public:
     }
     void _do_tokenize(const ColumnString& src_column_string, InvertedIndexCtx& inverted_index_ctx,
                       const MutableColumnPtr& dest_column_ptr) const;
+    void _do_tokenize_none(const ColumnString& src_column_string,
+                           const MutableColumnPtr& dest_column_ptr) const;
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) const override;
 
@@ -78,8 +80,4 @@ public:
         return Status::OK();
     }
 };
-
-void register_function_tokenize(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionTokenize>();
-}
 } // namespace doris::vectorized
