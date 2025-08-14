@@ -63,6 +63,9 @@ extern void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const s
                           int64_t table_id, int64_t partition_id, int64_t tablet_id);
 extern void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
                        int64_t partition_id, int64_t tablet_id);
+extern void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id,
+                                     int64_t index_id, int64_t partition_id, int64_t tablet_id,
+                                     int64_t txn_id);
 
 void insert_compact_rowset(Transaction* txn, std::string instance_id, int64_t tablet_id,
                            int64_t partition_id, int64_t start_version, int64_t end_version,
@@ -99,6 +102,315 @@ static void create_and_refresh_instance(MetaServiceProxy* service, std::string i
         ret->second = true;                                                        \
     });                                                                            \
     SyncPoint::get_instance()->enable_processing();
+
+TEST(MetaServiceVersionedReadTest, CommitTxn) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "test_cloud_instance_id";
+    std::string cloud_unique_id = "1:test_cloud_unique_id:1";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    int64_t db_id = 666;
+    int64_t table_id = 1234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
+    // case: first version of rowset
+    {
+        int64_t txn_id = -1;
+        // begin txn
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label("test_label");
+            txn_info_pb.add_table_ids(table_id);
+            txn_info_pb.set_timeout_ms(36000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+        }
+
+        // mock rowset and tablet
+        int64_t tablet_id_base = 1103;
+        for (int i = 0; i < 5; ++i) {
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id, -1, 100);
+            CreateRowsetResponse res;
+            commit_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        // precommit txn
+        {
+            brpc::Controller cntl;
+            PrecommitTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            req.set_precommit_timeout_ms(36000);
+            PrecommitTxnResponse res;
+            meta_service->precommit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        // commit txn
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+
+        // doubly commit txn
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            auto found = res.status().msg().find(fmt::format(
+                    "transaction is already visible: db_id={} txn_id={}", db_id, txn_id));
+            ASSERT_TRUE(found != std::string::npos);
+        }
+
+        // doubly commit txn(2pc)
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            req.set_is_2pc(true);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_VISIBLE);
+            auto found = res.status().msg().find(
+                    fmt::format("transaction [{}] is already visible, not pre-committed.", txn_id));
+            ASSERT_TRUE(found != std::string::npos);
+        }
+    }
+
+    {
+        // Get the partition versions
+        brpc::Controller cntl;
+        GetVersionRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.set_partition_id(partition_id);
+        GetVersionResponse res;
+        meta_service->get_version(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.version(), 2);
+    }
+}
+
+TEST(MetaServiceVersionedReadTest, CommitTxnWithSubTxnTest) {
+    auto meta_service = get_meta_service(false);
+    const std::string instance_id = "test_cloud_instance_id";
+    const std::string cloud_unique_id = "1:test_cloud_unique_id:1";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    int64_t db_id = 98131;
+    int64_t txn_id = -1;
+    int64_t t1 = 10;
+    int64_t t1_index = 100;
+    int64_t t1_p1 = 11;
+    int64_t t1_p1_t1 = 12;
+    int64_t t1_p1_t2 = 13;
+    int64_t t1_p2 = 14;
+    int64_t t1_p2_t1 = 15;
+    int64_t t2 = 16;
+    int64_t t2_index = 101;
+    int64_t t2_p3 = 17;
+    int64_t t2_p3_t1 = 18;
+    [[maybe_unused]] int64_t t2_p4 = 19;
+    [[maybe_unused]] int64_t t2_p4_t1 = 20;
+    std::string label = "test_label";
+    std::string label2 = "test_label_0";
+
+    // begin txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(t1);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // mock rowset and tablet: for sub_txn1
+    int64_t sub_txn_id1 = txn_id;
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t1, sub_txn_id1);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t2, sub_txn_id1);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p2, t1_p2_t1, sub_txn_id1);
+
+    // begin_sub_txn2
+    int64_t sub_txn_id2 = -1;
+    {
+        brpc::Controller cntl;
+        BeginSubTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_sub_txn_num(0);
+        req.set_db_id(db_id);
+        req.set_label(label2);
+        req.mutable_table_ids()->Add(t1);
+        req.mutable_table_ids()->Add(t2);
+        BeginSubTxnResponse res;
+        meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+        ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 1);
+        ASSERT_TRUE(res.has_sub_txn_id());
+        sub_txn_id2 = res.sub_txn_id();
+        ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
+    }
+    // mock rowset and tablet: for sub_txn3
+    create_and_commit_rowset(meta_service.get(), t2, t2_index, t2_p3, t2_p3_t1, sub_txn_id2);
+
+    // begin_sub_txn3
+    int64_t sub_txn_id3 = -1;
+    {
+        brpc::Controller cntl;
+        BeginSubTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_sub_txn_num(1);
+        req.set_db_id(db_id);
+        req.set_label("test_label_1");
+        req.mutable_table_ids()->Add(t1);
+        req.mutable_table_ids()->Add(t2);
+        req.mutable_table_ids()->Add(t1);
+        BeginSubTxnResponse res;
+        meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().table_ids().size(), 3);
+        ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 2);
+        ASSERT_TRUE(res.has_sub_txn_id());
+        sub_txn_id3 = res.sub_txn_id();
+        ASSERT_EQ(sub_txn_id3, res.txn_info().sub_txn_ids()[1]);
+    }
+    // mock rowset and tablet: for sub_txn3
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t1, sub_txn_id3);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t2, sub_txn_id3);
+
+    // commit txn
+    CommitTxnRequest req;
+    {
+        brpc::Controller cntl;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(666);
+        req.set_txn_id(txn_id);
+        req.set_is_txn_load(true);
+
+        SubTxnInfo sub_txn_info1;
+        sub_txn_info1.set_sub_txn_id(sub_txn_id1);
+        sub_txn_info1.set_table_id(t1);
+        sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p1_t1);
+        sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p1_t2);
+        sub_txn_info1.mutable_base_tablet_ids()->Add(t1_p2_t1);
+
+        SubTxnInfo sub_txn_info2;
+        sub_txn_info2.set_sub_txn_id(sub_txn_id2);
+        sub_txn_info2.set_table_id(t2);
+        sub_txn_info2.mutable_base_tablet_ids()->Add(t2_p3_t1);
+
+        SubTxnInfo sub_txn_info3;
+        sub_txn_info3.set_sub_txn_id(sub_txn_id3);
+        sub_txn_info3.set_table_id(t1);
+        sub_txn_info3.mutable_base_tablet_ids()->Add(t1_p1_t1);
+        sub_txn_info3.mutable_base_tablet_ids()->Add(t1_p1_t2);
+
+        req.mutable_sub_txn_infos()->Add(std::move(sub_txn_info1));
+        req.mutable_sub_txn_infos()->Add(std::move(sub_txn_info2));
+        req.mutable_sub_txn_infos()->Add(std::move(sub_txn_info3));
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        // std::cout << res.DebugString() << std::endl;
+        ASSERT_EQ(res.table_ids().size(), 3);
+
+        ASSERT_EQ(res.table_ids()[0], t2);
+        ASSERT_EQ(res.partition_ids()[0], t2_p3);
+        ASSERT_EQ(res.versions()[0], 2);
+
+        ASSERT_EQ(res.table_ids()[1], t1);
+        ASSERT_EQ(res.partition_ids()[1], t1_p2);
+        ASSERT_EQ(res.versions()[1], 2);
+
+        ASSERT_EQ(res.table_ids()[2], t1);
+        ASSERT_EQ(res.partition_ids()[2], t1_p1) << res.ShortDebugString();
+        ASSERT_EQ(res.versions()[2], 3) << res.ShortDebugString();
+    }
+
+    // doubly commit txn
+    {
+        brpc::Controller cntl;
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        auto found = res.status().msg().find(
+                fmt::format("transaction is already visible: db_id={} txn_id={}", db_id, txn_id));
+        ASSERT_TRUE(found != std::string::npos);
+    }
+
+    // Verify the partition versions
+    {
+        brpc::Controller ctrl;
+        GetVersionRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_batch_mode(true);
+        req.add_db_ids(db_id);
+        req.add_db_ids(db_id);
+        req.add_db_ids(db_id);
+        req.add_table_ids(t1);
+        req.add_table_ids(t1);
+        req.add_table_ids(t2);
+        req.add_partition_ids(t1_p1);
+        req.add_partition_ids(t1_p2);
+        req.add_partition_ids(t2_p3);
+
+        GetVersionResponse resp;
+        meta_service->get_version(&ctrl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+                << " status is " << resp.status().ShortDebugString();
+        ASSERT_EQ(resp.versions().size(), 3);
+        ASSERT_EQ(resp.versions()[0], 3); // t1_p1
+        ASSERT_EQ(resp.versions()[1], 2); // t1_p2
+        ASSERT_EQ(resp.versions()[2], 2); // t2_p3
+    }
+}
 
 TEST(MetaServiceVersionedReadTest, GetVersion) {
     auto service = get_meta_service(false);

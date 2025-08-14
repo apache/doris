@@ -117,8 +117,6 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
-    TabletSchemaSPtr flush_schema() const { return _flush_schema; };
-
     void clear();
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
@@ -261,9 +259,6 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
-
-    // contains auto generated columns, should be nullptr if no variants's subcolumns
-    TabletSchemaSPtr _flush_schema = nullptr;
 
     BlockAggregator _block_aggregator;
 };

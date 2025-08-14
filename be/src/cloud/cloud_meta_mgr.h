@@ -71,8 +71,6 @@ public:
 
     Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
 
-    Status get_schema_dict(int64_t index_id, std::shared_ptr<SchemaCloudDictionary>* schema_dict);
-
     Status sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options = {},
                                SyncRowsetStats* sync_stats = nullptr);
     Status sync_tablet_rowsets_unlocked(
