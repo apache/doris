@@ -3349,10 +3349,6 @@ show_param ::=
     {:
         RESULT = new ShowProcedureStmt();
     :}
-    | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
-    {:
-        RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
     ;
 
 opt_tmp ::=
@@ -5882,11 +5878,6 @@ admin_stmt ::=
     KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
-    :}
-    // deprecated
-    | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
-    {:
-        RESULT = new DiagnoseTabletStmt(tabletId);
     :}
     ;
 
