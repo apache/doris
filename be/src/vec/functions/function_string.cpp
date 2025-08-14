@@ -261,45 +261,20 @@ struct StringInStrImpl {
             std::fill(res.begin(), res.end(), 1);
             return Status::OK();
         }
+        StringSearch search(&rdata);
+        for (int i = 0; i < size; ++i) {
+            const auto* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+            StringRef strl(l_raw_str, l_str_size);
 
-        const UInt8* begin = ldata.data();
-        const UInt8* end = begin + ldata.size();
-        const UInt8* pos = begin;
-
-        /// Current index in the array of strings.
-        size_t i = 0;
-        std::fill(res.begin(), res.end(), 0);
-
-        StringRef rstr_ref(rdata.data, rdata.size);
-        StringSearch search(&rstr_ref);
-
-        while (pos < end) {
-            // search return matched substring start offset
-            pos = (UInt8*)search.search((char*)pos, end - pos);
-            if (pos >= end) {
-                break;
+            // Hive returns positions starting from 1.
+            int loc = search.search(&strl);
+            if (loc > 0) {
+                int len = std::min(loc, (int)strl.size);
+                loc = simd::VStringFunctions::get_char_len(strl.data, len);
             }
-
-            /// Determine which index it refers to.
-            /// begin + value_offsets[i] is the start offset of string at i+1
-            while (begin + loffsets[i] < pos) {
-                ++i;
-            }
-
-            /// We check that the entry does not pass through the boundaries of strings.
-            if (pos + rdata.size <= begin + loffsets[i]) {
-                int loc = (int)(pos - begin) - loffsets[i - 1];
-                int l_str_size = loffsets[i] - loffsets[i - 1];
-                auto len = std::min(l_str_size, loc);
-                loc = simd::VStringFunctions::get_char_len((char*)(begin + loffsets[i - 1]), len);
-                res[i] = loc + 1;
-            }
-
-            // move to next string offset
-            pos = begin + loffsets[i];
-            ++i;
+            res[i] = loc + 1;
         }
-
         return Status::OK();
     }
 
