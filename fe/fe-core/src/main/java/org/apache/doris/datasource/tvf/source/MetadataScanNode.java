@@ -73,20 +73,55 @@ public class MetadataScanNode extends ExternalScanNode {
                 .filter(slot -> slot.isMaterialized())
                 .map(slot -> slot.getColumn().getName())
                 .collect(java.util.stream.Collectors.toList());
-        TScanRange scanRange = new TScanRange();
-        scanRange.setMetaScanRange(tvf.getMetaScanRange(requiredFileds));
+        TMetaScanRange metaScanRange = tvf.getMetaScanRange(requiredFileds);
 
-        // TODO: split ranges to be
-        TScanRangeLocation location = new TScanRangeLocation();
-        Backend backend = backendPolicy.getNextBe();
-        location.setBackendId(backend.getId());
-        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+        if (!metaScanRange.isSetSerializedSplits()) {
+            // no need to split ranges to send to backends
+            TScanRangeLocation location = new TScanRangeLocation();
+            Backend backend = backendPolicy.getNextBe();
+            location.setBackendId(backend.getId());
+            location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
 
-        TScanRangeLocations locations = new TScanRangeLocations();
-        locations.addToLocations(location);
-        locations.setScanRange(scanRange);
+            TScanRange scanRange = new TScanRange();
+            scanRange.setMetaScanRange(metaScanRange);
 
-        scanRangeLocations.add(locations);
+            TScanRangeLocations locations = new TScanRangeLocations();
+            locations.addToLocations(location);
+            locations.setScanRange(scanRange);
+
+            scanRangeLocations.add(locations);
+        } else {
+            // need to split ranges to send to backends
+            List<Backend> backends = Lists.newArrayList(backendPolicy.getBackends());
+            List<String> splits = metaScanRange.getSerializedSplits();
+            int numSplitsPerBE = Math.max(1, splits.size() / backends.size());
+
+            for (int i = 0; i < backends.size(); i++) {
+                int from = i * numSplitsPerBE;
+                if (from >= splits.size()) {
+                    continue; // no splits for this backend
+                }
+                int to = Math.min((i + 1) * numSplitsPerBE, splits.size());
+
+                // set splited task to TMetaScanRange
+                TMetaScanRange subRange = metaScanRange.deepCopy();
+                subRange.setSerializedSplits(splits.subList(from, to));
+
+                TScanRangeLocation location = new TScanRangeLocation();
+                Backend backend = backends.get(i);
+                location.setBackendId(backend.getId());
+                location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+
+                TScanRange scanRange = new TScanRange();
+                scanRange.setMetaScanRange(subRange);
+
+                TScanRangeLocations locations = new TScanRangeLocations();
+                locations.addToLocations(location);
+                locations.setScanRange(scanRange);
+
+                scanRangeLocations.add(locations);
+            }
+        }
     }
 
     @Override
