@@ -58,11 +58,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The prefix of the iceberg rest catalog service.")
     private String icebergRestPrefix = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.warehouse", "warehouse"},
-            required = false,
-            description = "The warehouse of the iceberg rest catalog service.")
-    private String icebergRestWarehouse = "";
-
     @ConnectorProperty(names = {"iceberg.rest.security.type"},
             required = false,
             description = "The security type of the iceberg rest catalog service,"
@@ -130,6 +125,32 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The cache TTL for case insensitive name matching in ms.")
     private String icebergRestCaseInsensitiveNameMatchingCacheTtlMs = "0";
 
+    // The following properties are specific to AWS Glue Rest Catalog
+    @ConnectorProperty(names = {"iceberg.rest.sigv4-enabled"},
+            required = false,
+            description = "True for Glue Rest Catalog")
+    private String icebergRestSigV4Enabled = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.signing-name"},
+            required = false,
+            description = "The signing name for the iceberg rest catalog service.")
+    private String icebergRestSigningName = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.signing-region"},
+            required = false,
+            description = "The signing region for the iceberg rest catalog service.")
+    private String icebergRestSigningRegion = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.access-key-id"},
+            required = false,
+            description = "The access key ID for the iceberg rest catalog service.")
+    private String icebergRestAccessKeyId = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.secret-access-key"},
+            required = false,
+            description = "The secret access key for the iceberg rest catalog service.")
+    private String icebergRestSecretAccessKey = "";
+
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
     }
@@ -196,6 +217,15 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 throw new IllegalArgumentException("OAuth2 requires either credential or token");
             }
         }
+
+        // Check for glue rest catalog specific properties
+        rules.requireIf(icebergRestSigningName, "glue",
+                new String[] {icebergRestSigningRegion,
+                        icebergRestAccessKeyId,
+                        icebergRestSecretAccessKey,
+                        icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region, access-key-id, secret-access-key "
+                        + "and sigv4-enabled set to true when signing-name is glue");
         return rules;
     }
 
@@ -207,6 +237,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         addOptionalProperties();
         // Authentication properties
         addAuthenticationProperties();
+        // Glue Rest Catalog specific properties
+        addGlueRestCatalogProperties();
     }
 
     private void addCoreCatalogProperties() {
@@ -221,8 +253,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put(PREFIX_PROPERTY, icebergRestPrefix);
         }
 
-        if (Strings.isNotBlank(icebergRestWarehouse)) {
-            icebergRestCatalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, icebergRestWarehouse);
+        if (Strings.isNotBlank(warehouse)) {
+            icebergRestCatalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         }
 
         if (isIcebergRestVendedCredentialsEnabled()) {
@@ -253,6 +285,17 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
     }
 
+    private void addGlueRestCatalogProperties() {
+        if (Strings.isNotBlank(icebergRestSigningName) && icebergRestSigningName.equalsIgnoreCase("glue")) {
+            icebergRestCatalogProperties.put("rest.signing-name", "glue");
+            icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
+            icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
+            icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
+            icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
+        }
+    }
+
+
     public Map<String, String> getIcebergRestCatalogProperties() {
         return Collections.unmodifiableMap(icebergRestCatalogProperties);
     }
@@ -266,7 +309,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
      * This method handles all storage types (HDFS, S3, MinIO, etc.) and populates
      * the fileIOProperties map and Configuration object accordingly.
      *
-     * @param storagePropertiesMap Map of storage properties
+     * @param storagePropertiesList Map of storage properties
      * @param fileIOProperties Options map to be populated
      * @param conf Configuration object to be populated (for HDFS), will be created if null and HDFS is used
      */

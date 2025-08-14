@@ -26,6 +26,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
 #include "meta_service.h"
@@ -61,18 +62,28 @@ using check_create_table_type = std::function<const std::tuple<
 
 // Return TXN_OK if exists, TXN_KEY_NOT_FOUND if not exists, otherwise error
 static TxnErrorCode index_exists(Transaction* txn, const std::string& instance_id,
-                                 const IndexRequest* req) {
-    auto tablet_key = meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), 0, 0});
-    auto tablet_key_end =
-            meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), INT64_MAX, 0});
-    std::unique_ptr<RangeGetIterator> it;
+                                 bool is_versioned_read, const IndexRequest* req) {
+    if (!is_versioned_read) {
+        auto tablet_key = meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), 0, 0});
+        auto tablet_key_end =
+                meta_tablet_key({instance_id, req->table_id(), req->index_ids(0), INT64_MAX, 0});
+        std::unique_ptr<RangeGetIterator> it;
 
-    TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to get kv").tag("err", err);
+        TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get kv").tag("err", err);
+            return err;
+        }
+        return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
+    } else {
+        MetaReader reader(instance_id);
+        TxnErrorCode err = reader.get_index_index(txn, req->index_ids(0), nullptr);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG_WARNING("failed to get index index key").tag("err", err);
+            return err;
+        }
         return err;
     }
-    return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
 static TxnErrorCode check_recycle_key_exist(Transaction* txn, const std::string& key) {
@@ -106,7 +117,8 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         msg = "failed to create txn";
         return;
     }
-    err = index_exists(txn.get(), instance_id, request);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    err = index_exists(txn.get(), instance_id, is_versioned_read, request);
     // If index has existed, this might be a stale request
     if (err == TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::ALREADY_EXISTED;
@@ -191,12 +203,17 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         return;
     }
 
+    CommitIndexLogPB commit_index_log;
+    commit_index_log.set_db_id(request->db_id());
+    commit_index_log.set_table_id(request->table_id());
+
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            err = index_exists(txn.get(), instance_id, request);
+            err = index_exists(txn.get(), instance_id, is_versioned_read, request);
             // If index has existed, this might be a duplicate request
             if (err == TxnErrorCode::TXN_OK) {
                 return; // Index committed, OK
@@ -232,13 +249,52 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         }
         LOG_INFO("remove recycle index").tag("key", hex(key));
         txn->remove(key);
+
+        // Save the index meta/index keys
+        if (request->has_db_id() && is_version_write_enabled(instance_id)) {
+            int64_t db_id = request->db_id();
+            int64_t table_id = request->table_id();
+            std::string index_meta_key = versioned::meta_index_key({instance_id, index_id});
+            std::string index_index_key = versioned::index_index_key({instance_id, index_id});
+            std::string index_inverted_key =
+                    versioned::index_inverted_key({instance_id, db_id, table_id, index_id});
+            IndexIndexPB index_index_pb;
+            index_index_pb.set_db_id(db_id);
+            index_index_pb.set_table_id(table_id);
+            LOG(INFO) << index_index_pb.DebugString();
+            std::string index_index_value;
+            if (!index_index_pb.SerializeToString(&index_index_value)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = fmt::format("failed to serialize IndexIndexPB");
+                LOG_WARNING(msg).tag("index_id", index_id);
+                return;
+            }
+            versioned_put(txn.get(), index_meta_key, "");
+            txn->put(index_inverted_key, "");
+            txn->put(index_index_key, index_index_value);
+
+            commit_index_log.add_index_ids(index_id);
+        }
     }
 
     if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
         // init table version, for create and truncate table
-        std::string key = table_version_key({instance_id, request->db_id(), request->table_id()});
-        txn->atomic_add(key, 1);
-        LOG_INFO("put table version").tag("key", hex(key));
+        update_table_version(txn.get(), instance_id, request->db_id(), request->table_id());
+        commit_index_log.set_update_table_version(true);
+    }
+
+    if (commit_index_log.index_ids_size() > 0 && is_version_write_enabled(instance_id)) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_commit_index()->Swap(&commit_index_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
     }
 
     err = txn->commit();
@@ -277,6 +333,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     std::string to_save_val;
     {
         RecycleIndexPB pb;
+        pb.set_db_id(request->db_id());
         pb.set_table_id(request->table_id());
         pb.set_creation_time(::time(nullptr));
         pb.set_expiration(request->expiration());
@@ -284,13 +341,23 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         pb.SerializeToString(&to_save_val);
     }
     bool need_commit = false;
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    DropIndexLogPB drop_index_log;
+    drop_index_log.set_db_id(request->db_id());
+    drop_index_log.set_table_id(request->table_id());
+    drop_index_log.set_expiration(request->expiration());
+
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
-            LOG_INFO("put recycle index").tag("key", hex(key));
-            txn->put(key, to_save_val);
+            if (is_versioned_write) {
+                drop_index_log.add_index_ids(index_id);
+            } else {
+                LOG_INFO("put recycle index").tag("key", hex(key));
+                txn->put(key, to_save_val);
+            }
             need_commit = true;
             continue;
         }
@@ -324,6 +391,25 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         }
     }
     if (!need_commit) return;
+
+    if (drop_index_log.index_ids_size() > 0 && is_versioned_write) {
+        std::string operation_log_key = versioned::log_key({instance_id});
+        std::string operation_log_value;
+        OperationLogPB operation_log;
+        operation_log.mutable_drop_index()->Swap(&drop_index_log);
+        if (!operation_log.SerializeToString(&operation_log_value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
+            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            return;
+        }
+        versioned_put(txn.get(), operation_log_key, operation_log_value);
+        LOG(INFO) << "put drop index operation log"
+                  << " instance_id=" << instance_id << " table_id=" << request->table_id()
+                  << " index_ids=" << drop_index_log.index_ids_size()
+                  << " log_size=" << operation_log_value.size();
+    }
+
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -334,19 +420,29 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
 
 // Return TXN_OK if exists, TXN_KEY_NOT_FOUND if not exists, otherwise error
 static TxnErrorCode partition_exists(Transaction* txn, const std::string& instance_id,
-                                     const PartitionRequest* req) {
-    auto tablet_key = meta_tablet_key(
-            {instance_id, req->table_id(), req->index_ids(0), req->partition_ids(0), 0});
-    auto tablet_key_end = meta_tablet_key(
-            {instance_id, req->table_id(), req->index_ids(0), req->partition_ids(0), INT64_MAX});
-    std::unique_ptr<RangeGetIterator> it;
+                                     bool is_versioned_read, const PartitionRequest* req) {
+    if (!is_versioned_read) {
+        auto tablet_key = meta_tablet_key(
+                {instance_id, req->table_id(), req->index_ids(0), req->partition_ids(0), 0});
+        auto tablet_key_end = meta_tablet_key({instance_id, req->table_id(), req->index_ids(0),
+                                               req->partition_ids(0), INT64_MAX});
+        std::unique_ptr<RangeGetIterator> it;
 
-    TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to get kv").tag("err", err);
+        TxnErrorCode err = txn->get(tablet_key, tablet_key_end, &it, false, 1);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get kv").tag("err", err);
+            return err;
+        }
+        return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
+    } else {
+        MetaReader reader(instance_id);
+        TxnErrorCode err = reader.get_partition_index(txn, req->partition_ids(0), nullptr);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG_WARNING("failed to get partition index key").tag("err", err);
+            return err;
+        }
         return err;
     }
-    return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
 void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* controller,
@@ -386,7 +482,8 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         msg = "failed to create txn";
         return;
     }
-    err = partition_exists(txn.get(), instance_id, request);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    err = partition_exists(txn.get(), instance_id, is_versioned_read, request);
     // If index has existed, this might be a stale request
     if (err == TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::ALREADY_EXISTED;
@@ -504,6 +601,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     commit_partition_log.set_table_id(request->table_id());
     commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
 
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -511,7 +609,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) { // UNKNOWN
             // Compatible with requests without `index_ids`
             if (!request->index_ids().empty()) {
-                err = partition_exists(txn.get(), instance_id, request);
+                err = partition_exists(txn.get(), instance_id, is_versioned_read, request);
                 // If partition has existed, this might be a duplicate request
                 if (err == TxnErrorCode::TXN_OK) {
                     return; // Partition committed, OK

@@ -55,13 +55,18 @@ public class DayOfMonth extends ScalarFunction
         super("dayofmonth", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DayOfMonth(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DayOfMonth withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DayOfMonth(children.get(0));
+        return new DayOfMonth(getFunctionParams(children));
     }
 
     @Override

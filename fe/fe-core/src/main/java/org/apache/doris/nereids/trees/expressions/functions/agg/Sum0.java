@@ -66,8 +66,7 @@ public class Sum0 extends NotNullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
@@ -86,6 +85,11 @@ public class Sum0 extends NotNullableAggregateFunction
      */
     public Sum0(boolean distinct, boolean isSkew, Expression arg) {
         super("sum0", distinct, isSkew, arg);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Sum0(AggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -110,12 +114,12 @@ public class Sum0 extends NotNullableAggregateFunction
     @Override
     public Sum0 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum0(distinct, isSkew, children.get(0));
+        return new Sum0(getFunctionParams(distinct, children));
     }
 
     @Override
     public Expression withIsSkew(boolean isSkew) {
-        return new Sum0(distinct, isSkew, child());
+        return new Sum0(getFunctionParams(distinct, isSkew, children));
     }
 
     @Override
@@ -130,7 +134,8 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        if (getArgument(0).getDataType() instanceof NullType) {
+        if (getArgument(0).getDataType() instanceof NullType
+                || getArgument(0).getDataType() instanceof BooleanType) {
             return FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE);
         } else if (getArgument(0).getDataType() instanceof DecimalV2Type) {
             return FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD);
@@ -140,7 +145,7 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new Sum0(this.distinct, isSkew, param);
+        return new Sum0(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override

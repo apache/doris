@@ -1042,5 +1042,4 @@ public class StringArithmetic {
         }
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
     }
-
 }

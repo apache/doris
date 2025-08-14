@@ -18,6 +18,7 @@
 #include "vec/aggregate_functions/aggregate_function_approx_top_k.h"
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
 
@@ -28,12 +29,9 @@ AggregateFunctionPtr create_aggregate_function_approx_top_k(const std::string& n
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr) {
-    if (argument_types.size() < 3) {
-        return nullptr;
-    }
-
+    assert_arity_range(name, argument_types, 3, 128);
     return creator_without_type::create<AggregateFunctionApproxTopK>(
-            argument_types, result_is_nullable, attr.column_names);
+            argument_types, result_is_nullable, attr, attr.column_names);
 }
 
 void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& factory) {

@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "agent/utils.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
@@ -114,7 +115,11 @@ void DumpJeHeapProfileToDotActions::handle(HttpRequest* req) {
             HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
                                     "dump heap profile to dot failed, see be.INFO\n");
         } else {
+            std::string msg;
+            AgentUtils util;
             dot += "\n-------------------------------------------------------\n";
+            util.exec_cmd("type addr2line", &msg);
+            dot += "addr2line: " + msg + "\n";
             dot += "Copy the text after `digraph` in the above output to "
                    "http://www.webgraphviz.com to generate a dot graph.\n"
                    "after start heap profiler, if there is no operation, will print `No nodes to "

@@ -110,13 +110,7 @@ public class ArrayLiteral extends Literal implements ComparableLiteral {
         } else if (targetType instanceof ArrayType) {
             // we should pass dataType to constructor because arguments maybe empty
             return new ArrayLiteral(items.stream()
-                    .map(i -> {
-                        try {
-                            return i.uncheckedCastTo(((ArrayType) targetType).getItemType());
-                        } catch (Exception ignored) {
-                            return i.deprecatingUncheckedCastTo(((ArrayType) targetType).getItemType());
-                        }
-                    })
+                    .map(i -> i.uncheckedCastWithFallback(((ArrayType) targetType).getItemType()))
                     .map(Literal.class::cast)
                     .collect(ImmutableList.toImmutableList()), targetType);
         } else {

@@ -118,6 +118,11 @@ inline size_t hash_crc32(doris::vectorized::UInt128 u) {
 }
 
 template <>
+inline size_t hash_crc32(unsigned __int128 u) {
+    return doris::vectorized::UInt128HashCRC32()(u);
+}
+
+template <>
 inline size_t hash_crc32(doris::vectorized::Int128 u) {
     return doris::vectorized::UInt128HashCRC32()({(u >> 64) & int64_t(-1), u & int64_t(-1)});
 }
@@ -142,6 +147,7 @@ DEFINE_HASH(doris::vectorized::Int64)
 DEFINE_HASH(doris::vectorized::Int128)
 DEFINE_HASH(doris::vectorized::Float32)
 DEFINE_HASH(doris::vectorized::Float64)
+DEFINE_HASH(unsigned __int128)
 
 #undef DEFINE_HASH
 

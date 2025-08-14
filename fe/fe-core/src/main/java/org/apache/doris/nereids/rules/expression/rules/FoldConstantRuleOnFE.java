@@ -97,6 +97,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -522,7 +523,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
             return castResult;
         } catch (CastException c) {
-            if (ConnectContext.get().getSessionVariable().enableStrictCast()) {
+            if (SessionVariable.enableStrictCast()) {
                 throw c;
             } else {
                 return new NullLiteral(dataType);

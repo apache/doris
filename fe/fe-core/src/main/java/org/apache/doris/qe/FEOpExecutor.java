@@ -83,6 +83,9 @@ public class FEOpExecutor {
                 LOG.info("set txn entry to null");
             }
         }
+        if (result.isSetAffectedRows()) {
+            ctx.updateReturnRows((int) result.getAffectedRows());
+        }
     }
 
     public void cancel() throws Exception {

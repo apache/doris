@@ -56,10 +56,15 @@ public class NextDay extends ScalarFunction
         super("next_day", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private NextDay(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public NextDay withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new NextDay(children.get(0), children.get(1));
+        return new NextDay(getFunctionParams(children));
     }
 
     @Override

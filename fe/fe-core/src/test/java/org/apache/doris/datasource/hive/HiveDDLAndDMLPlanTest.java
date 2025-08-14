@@ -17,9 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DbName;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
@@ -40,9 +38,12 @@ import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartit
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -112,10 +113,15 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         createTable(createSourceInterPTable, true);
 
         // create external catalog and switch it
-        CreateCatalogStmt hiveCatalog = createStmt("create catalog " + mockedCtlName
+        String hiveCatalog = "create catalog " + mockedCtlName
                 + " properties('type' = 'hms',"
-                + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');");
-        Env.getCurrentEnv().getCatalogMgr().createCatalog(hiveCatalog);
+                + " 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(hiveCatalog);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
         switchHive();
 
         // create db and use it
@@ -252,11 +258,22 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     @Override
     protected void runAfterAll() throws Exception {
         switchHive();
-        String createDbStmtStr = "DROP DATABASE IF EXISTS " + mockedDbName;
-        DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Env.getCurrentEnv().dropDb(createDbStmt);
+        String dropDbStmtStr = "DROP DATABASE IF EXISTS " + mockedDbName;
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbStmtStr);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(connectContext, null);
+        }
+
         // check IF EXISTS
-        Env.getCurrentEnv().dropDb(createDbStmt);
+        DropDatabaseCommand command = (DropDatabaseCommand) logicalPlan;
+        DropDatabaseInfo dropDatabaseInfo = command.getDropDatabaseInfo();
+        Env.getCurrentEnv().dropDb(
+                dropDatabaseInfo.getCatalogName(),
+                dropDatabaseInfo.getDatabaseName(),
+                dropDatabaseInfo.isIfExists(),
+                dropDatabaseInfo.isForce());
     }
 
     @Test

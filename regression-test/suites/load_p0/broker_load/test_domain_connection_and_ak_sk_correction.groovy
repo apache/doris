@@ -102,7 +102,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         assertTrue(false. "The endpoint is wrong, so the connection test should fale")
     } catch (Exception e) {
         logger.info("the second sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Invalid endpoint format"), e.getMessage())
+        assertTrue(e.getMessage().contains("Invalid endpoint"), e.getMessage())
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""

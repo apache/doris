@@ -313,12 +313,19 @@ class RegressionTest {
         if (!config.withOutLoadData) {
             log.info('Start to run load scripts')
             runScripts(config, recorder, directoryFilter,
-                    { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "load" })
+                    { fileName -> {
+                        def name = fileName.substring(0, fileName.lastIndexOf("."))
+                        return name == "load" && name != "check_hash_bucket_table"} })
         }
         log.info('Start to run scripts')
         runScripts(config, recorder, directoryFilter, 
-                { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
+                { fileName -> {
+                        def name = fileName.substring(0, fileName.lastIndexOf("."))
+                        return name != "load" && name != "check_hash_bucket_table"} })
 
+        log.info('Start to run check hash bucket table scripts')
+        runScripts(config, recorder, directoryFilter, 
+                { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "check_hash_bucket_table" })
         return recorder
     }
 

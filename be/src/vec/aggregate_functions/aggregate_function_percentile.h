@@ -21,15 +21,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <vector>
 
-#include "agent/be_exec_version_manager.h"
 #include "util/counts.h"
 #include "util/tdigest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -39,12 +36,10 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -188,7 +183,9 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxTwoParams final : public AggregateFunctionPercentileApprox,
+                                                         public MultiExpression,
+                                                         public NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
@@ -216,7 +213,9 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxThreeParams final : public AggregateFunctionPercentileApprox,
+                                                           public MultiExpression,
+                                                           public NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
@@ -247,8 +246,10 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxWeightedThreeParams
-        : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxWeightedThreeParams final
+        : public AggregateFunctionPercentileApprox,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
@@ -281,8 +282,10 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxWeightedFourParams
-        : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxWeightedFourParams final
+        : public AggregateFunctionPercentileApprox,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedFourParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
@@ -429,7 +432,9 @@ struct PercentileState {
 
 template <PrimitiveType T>
 class AggregateFunctionPercentile final
-        : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>> {
+        : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Base = IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>>;
@@ -487,7 +492,9 @@ public:
 template <PrimitiveType T>
 class AggregateFunctionPercentileArray final
         : public IAggregateFunctionDataHelper<PercentileState<T>,
-                                              AggregateFunctionPercentileArray<T>> {
+                                              AggregateFunctionPercentileArray<T>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Base =

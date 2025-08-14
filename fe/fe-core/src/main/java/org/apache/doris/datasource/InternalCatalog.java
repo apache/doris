@@ -39,7 +39,6 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -673,11 +672,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             db.writeUnlock();
         }
-    }
-
-    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
-        recoverTable(recoverStmt.getDbName(), recoverStmt.getTableName(),
-                        recoverStmt.getNewTableName(), recoverStmt.getTableId());
     }
 
     public void recoverPartition(String dbName, String tableName, String partitionName,
@@ -1353,8 +1347,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         return false;
     }
 
-    public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        Database db = this.fullNameToDb.get(dbName);
+    public void replayCreateTable(String dbName, long dbId, Table table) throws MetaNotFoundException {
+        if (dbId != -1L) {
+            Database db = getDbOrMetaException(dbId);
+            replayCreateTableInternal(db, table);
+        } else {
+            // Compatible with old logic
+            Database db = getDbOrMetaException(dbName);
+            replayCreateTableInternal(db, table);
+        }
+    }
+
+    private void replayCreateTableInternal(Database db, Table table) throws MetaNotFoundException {
         try {
             db.createTableWithLock(table, true, false);
         } catch (DdlException e) {
@@ -2597,15 +2601,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
-            // only if session variable: disable_variant_flatten_nested = false and
+            // only if session variable: enable_variant_flatten_nested = true and
             // table property: variant_enable_flatten_nested = true
             // we can enable variant flatten nested otherwise throw error
-            if (ctx != null && !ctx.getSessionVariable().getDisableVariantFlattenNested()
+            if (ctx != null && ctx.getSessionVariable().getEnableVariantFlattenNested()
                     && variantEnableFlattenNested) {
                 olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
             } else if (variantEnableFlattenNested) {
                 throw new DdlException("If you want to enable variant flatten nested, "
-                        + "please set session variable: disable_variant_flatten_nested = false");
+                        + "please set session variable: enable_variant_flatten_nested = true");
+            } else {
+                // keep table property: variant_enable_flatten_nested = false
+                olapTable.setVariantEnableFlattenNested(false);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -3178,7 +3185,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Long tabletId : tabletIdSet) {
                     Env.getCurrentInvertedIndex().deleteTablet(tabletId);
                 }
-                LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
+                LOG.info("duplicate create table[{};{}] in db[{};{}], skip next steps",
+                        tableName, tableId, db.getName(), db.getId());
             } else {
                 // if table not exists, then db.createTableWithLock will write an editlog.
                 hadLogEditCreateTable = true;
@@ -3192,7 +3200,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             backendsPerBucketSeq);
                     Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
                 }
-                LOG.info("successfully create table[{};{}]", tableName, tableId);
+                LOG.info("successfully create table[{};{}] in db[{};{}]",
+                        tableName, tableId, db.getName(), db.getId());
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
                 // register or remove table from DynamicPartition after table created
@@ -3482,15 +3491,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
-            // only if session variable: disable_variant_flatten_nested = false and
+            // only if session variable: enable_variant_flatten_nested = true and
             // table property: variant_enable_flatten_nested = true
             // we can enable variant flatten nested otherwise throw error
-            if (ctx != null && !ctx.getSessionVariable().getDisableVariantFlattenNested()
+            if (ctx != null && ctx.getSessionVariable().getEnableVariantFlattenNested()
                     && variantEnableFlattenNested) {
                 olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
             } else if (variantEnableFlattenNested) {
                 throw new DdlException("If you want to enable variant flatten nested, "
-                        + "please set session variable: disable_variant_flatten_nested = false");
+                        + "please set session variable: enable_variant_flatten_nested = true");
+            } else {
+                // keep table property: variant_enable_flatten_nested = false
+                olapTable.setVariantEnableFlattenNested(false);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());

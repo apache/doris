@@ -52,10 +52,17 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     }
 
     sql """DROP TABLE IF EXISTS ${index_table}"""
+    int seed = Math.floor(Math.random() * 7) 
+    def var_def = "variant"
+    if (seed % 2 == 0) {
+        var_def = "variant<'repo.id' : int, 'repo.name' : string, 'repo.url' : string, 'repo.description' : string, 'repo.created_at' : string>"
+    } else {
+        var_def = "variant<properties(\"variant_max_subcolumns_count\" = \"100\")>"
+    }
     sql """
         CREATE TABLE IF NOT EXISTS ${index_table} (
             k bigint,
-            v variant
+            v ${var_def}
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1

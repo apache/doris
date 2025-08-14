@@ -195,13 +195,13 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
     protected Expression castToFloat() {
         String trimmedValue = value.trim();
         if (doublePattern.matcher(trimmedValue).matches()) {
-            if (isPosInf(trimmedValue)) {
+            if (DoubleLiteral.POS_INF_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Float.POSITIVE_INFINITY);
             }
-            if (isNegInf(trimmedValue)) {
+            if (DoubleLiteral.NEG_INF_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Float.NEGATIVE_INFINITY);
             }
-            if (isNaN(trimmedValue)) {
+            if (DoubleLiteral.NAN_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Float.NaN);
             }
             return Literal.of(Float.parseFloat(value.trim()));
@@ -212,13 +212,13 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
     protected Expression castToDouble() {
         String trimmedValue = value.trim();
         if (doublePattern.matcher(trimmedValue).matches()) {
-            if (isPosInf(trimmedValue)) {
+            if (DoubleLiteral.POS_INF_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Double.POSITIVE_INFINITY);
             }
-            if (isNegInf(trimmedValue)) {
+            if (DoubleLiteral.NEG_INF_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Double.NEGATIVE_INFINITY);
             }
-            if (isNaN(trimmedValue)) {
+            if (DoubleLiteral.NAN_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Double.NaN);
             }
             return Literal.of(Double.parseDouble(value.trim()));

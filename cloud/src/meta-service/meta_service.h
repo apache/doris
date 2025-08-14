@@ -141,11 +141,6 @@ public:
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override;
 
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override;
-
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
                     GetTabletResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -429,6 +424,21 @@ private:
                                  MetaServiceCode& code, std::string& msg,
                                  const std::string& instance_id, KVStats& stats);
 
+    // Get the first pending transaction ID for a partition. If there no any pending transaction,
+    // `first_txn_id` will be set to -1.
+    void get_partition_pending_txn_id(std::string_view instance_id, int64_t db_id, int64_t table_id,
+                                      int64_t partition_id, int64_t tablet_id,
+                                      std::stringstream& ss, MetaServiceCode& code,
+                                      std::string& msg, int64_t& first_txn_id, Transaction* txn);
+
+    // Get versions in batch, Only for versioned read.
+    std::pair<MetaServiceCode, std::string> batch_get_table_versions(
+            const GetVersionRequest* request, GetVersionResponse* response,
+            std::string_view instance_id, KVStats& stats);
+    std::pair<MetaServiceCode, std::string> batch_get_partition_versions(
+            const GetVersionRequest* request, GetVersionResponse* response,
+            std::string_view instance_id, KVStats& stats);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
@@ -533,13 +543,6 @@ public:
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tablet, controller, request, response, done);
-    }
-
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::update_tablet_schema, controller, request, response, done);
     }
 
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,

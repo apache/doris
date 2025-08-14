@@ -72,7 +72,7 @@ suite("analyze_agg") {
 
     test {
         sql "select count(distinct t2.b), variance(distinct t2.c) from t2"
-        exception "variance(DISTINCT c#2) can't support multi distinct."
+        exception "can't support multi distinct."
     }
 
     // should not bind g /g in group by again, otherwise will throw exception

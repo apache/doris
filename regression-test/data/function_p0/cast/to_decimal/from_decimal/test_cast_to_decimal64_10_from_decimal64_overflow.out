@@ -49,12 +49,21 @@
 1	\N
 2	\N
 
+-- !sql_22_non_strict --
+0	\N
+1	\N
+
 -- !sql_24_non_strict --
 0	\N
 1	\N
 2	\N
 
 -- !sql_25_non_strict --
+0	\N
+1	\N
+2	\N
+
+-- !sql_26_non_strict --
 0	\N
 1	\N
 2	\N
@@ -72,35 +81,6 @@
 -- !sql_30_non_strict --
 0	\N
 1	\N
-
--- !sql_32_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_33_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_34_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_36_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_37_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_38_non_strict --
-0	\N
-1	\N
 2	\N
 3	\N
 4	\N
@@ -108,7 +88,7 @@
 6	\N
 7	\N
 
--- !sql_39_non_strict --
+-- !sql_31_non_strict --
 0	\N
 1	\N
 

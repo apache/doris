@@ -33,7 +33,6 @@
 
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "util/container_util.hpp"
 #include "util/runtime_profile_counter_tree_node.h"
 #ifdef BE_TEST
 #include "common/status.h" // For ErrorCode
@@ -121,10 +120,8 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
 
         for (child_counter_src_itr = other->_child_counter_map.begin();
              child_counter_src_itr != other->_child_counter_map.end(); ++child_counter_src_itr) {
-            std::set<std::string>* child_counters = find_or_insert(
-                    &_child_counter_map, child_counter_src_itr->first, std::set<std::string>());
-            child_counters->insert(child_counter_src_itr->second.begin(),
-                                   child_counter_src_itr->second.end());
+            _child_counter_map[child_counter_src_itr->first].insert(
+                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
         }
     }
 
@@ -196,10 +193,8 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
 
         for (child_counter_src_itr = node.child_counters_map.begin();
              child_counter_src_itr != node.child_counters_map.end(); ++child_counter_src_itr) {
-            std::set<std::string>* child_counters = find_or_insert(
-                    &_child_counter_map, child_counter_src_itr->first, std::set<std::string>());
-            child_counters->insert(child_counter_src_itr->second.begin(),
-                                   child_counter_src_itr->second.end());
+            _child_counter_map[child_counter_src_itr->first].insert(
+                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
         }
     }
 
@@ -275,10 +270,8 @@ void RuntimeProfile::update(const google::protobuf::RepeatedPtrField<PRuntimePro
         }
 
         for (const auto& kv : node.child_counters_map()) {
-            std::set<std::string>* child_counters =
-                    find_or_insert(&_child_counter_map, kv.first, std::set<std::string>());
             for (const auto& child_name : kv.second.child_counters()) {
-                child_counters->insert(child_name);
+                _child_counter_map[kv.first].insert(child_name);
             }
         }
     }
@@ -488,9 +481,7 @@ RuntimeProfile::HighWaterMarkCounter* RuntimeProfile::AddHighWaterMarkCounter(
     RuntimeProfile::HighWaterMarkCounter* counter =
             _pool->add(new RuntimeProfile::HighWaterMarkCounter(unit, level, parent_counter_name));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -509,9 +500,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
 
     Counter* counter = _pool->add(new Counter(type, 0, level));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -528,9 +517,7 @@ RuntimeProfile::NonZeroCounter* RuntimeProfile::add_nonzero_counter(
            _counter_map.find(parent_counter_name) != _counter_map.end());
     NonZeroCounter* counter = _pool->add(new NonZeroCounter(type, level, parent_counter_name));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -545,9 +532,7 @@ RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
 
     DerivedCounter* counter = _pool->add(new DerivedCounter(type, counter_fn));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -571,9 +556,7 @@ void RuntimeProfile::add_description(const std::string& name, const std::string&
            _counter_map.find(parent_counter_name) != _counter_map.end());
     DescriptionEntry* counter = _pool->add(new DescriptionEntry(name, description));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
 }
 
 RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
@@ -595,9 +578,7 @@ RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
 
     ConditionCounter* counter = _pool->add(new ConditionCounter(type, counter_fn, level));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 

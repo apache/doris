@@ -8,75 +8,57 @@
 -- !sql_test_cast_to_decimal_9_1_from_decimal_9_0_overflow_8 --
 \N
 
--- !sql_test_cast_to_decimal_9_4_from_decimal_9_0_overflow_14 --
+-- !sql_test_cast_to_decimal_9_8_from_decimal_9_0_overflow_14 --
 \N
 
--- !sql_test_cast_to_decimal_9_4_from_decimal_9_0_overflow_14 --
+-- !sql_test_cast_to_decimal_9_8_from_decimal_9_0_overflow_14 --
 \N
 
--- !sql_test_cast_to_decimal_9_4_from_decimal_9_0_overflow_14 --
+-- !sql_test_cast_to_decimal_9_8_from_decimal_9_0_overflow_14 --
 \N
 
--- !sql_test_cast_to_decimal_9_4_from_decimal_9_1_overflow_15 --
+-- !sql_test_cast_to_decimal_9_8_from_decimal_9_1_overflow_15 --
 \N
 
--- !sql_test_cast_to_decimal_9_4_from_decimal_9_1_overflow_15 --
+-- !sql_test_cast_to_decimal_9_8_from_decimal_9_1_overflow_15 --
 \N
 
--- !sql_test_cast_to_decimal_9_4_from_decimal_9_1_overflow_15 --
+-- !sql_test_cast_to_decimal_9_8_from_decimal_9_1_overflow_15 --
 \N
 
--- !sql_test_cast_to_decimal_9_8_from_decimal_9_0_overflow_20 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_1_0_overflow_18 --
 \N
 
--- !sql_test_cast_to_decimal_9_8_from_decimal_9_0_overflow_20 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_1_0_overflow_18 --
 \N
 
--- !sql_test_cast_to_decimal_9_8_from_decimal_9_0_overflow_20 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_1_0_overflow_18 --
 \N
 
--- !sql_test_cast_to_decimal_9_8_from_decimal_9_1_overflow_21 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_0_overflow_20 --
 \N
 
--- !sql_test_cast_to_decimal_9_8_from_decimal_9_1_overflow_21 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_0_overflow_20 --
 \N
 
--- !sql_test_cast_to_decimal_9_8_from_decimal_9_1_overflow_21 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_0_overflow_20 --
 \N
 
--- !sql_test_cast_to_decimal_9_9_from_decimal_1_0_overflow_24 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_1_overflow_21 --
 \N
 
--- !sql_test_cast_to_decimal_9_9_from_decimal_1_0_overflow_24 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_1_overflow_21 --
 \N
 
--- !sql_test_cast_to_decimal_9_9_from_decimal_1_0_overflow_24 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_1_overflow_21 --
 \N
 
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_0_overflow_26 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_8_overflow_22 --
 \N
 
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_0_overflow_26 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_8_overflow_22 --
 \N
 
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_0_overflow_26 --
-\N
-
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_1_overflow_27 --
-\N
-
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_1_overflow_27 --
-\N
-
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_1_overflow_27 --
-\N
-
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_8_overflow_28 --
-\N
-
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_8_overflow_28 --
-\N
-
--- !sql_test_cast_to_decimal_9_9_from_decimal_9_8_overflow_28 --
+-- !sql_test_cast_to_decimal_9_9_from_decimal_9_8_overflow_22 --
 \N
 

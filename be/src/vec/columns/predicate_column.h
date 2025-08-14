@@ -394,11 +394,6 @@ public:
 
     const Container& get_data() const { return data; }
 
-    [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "replicate not supported in PredicateColumnType");
-    }
-
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
         if constexpr (is_string_type(Type)) {

@@ -39,7 +39,6 @@
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
-#include "util/container_util.hpp"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
@@ -369,7 +368,9 @@ Status PipelineTask::execute(bool* done) {
                                      debug_string());
     }
     auto fragment_context = _fragment_context.lock();
-    DCHECK(fragment_context);
+    if (!fragment_context) {
+        return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
+    }
     int64_t time_spent = 0;
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();

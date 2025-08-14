@@ -509,6 +509,10 @@ public:
         _compaction_score -= score;
     }
 
+    Status prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                       const PUniqueId& load_id, bool ingest);
+    // TODO: commit_txn
+
 private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);
@@ -640,7 +644,7 @@ private:
     int64_t _io_error_times = 0;
 
     // partition's visible version. it sync from fe, but not real-time.
-    std::shared_ptr<const VersionWithTime> _visible_version;
+    std::atomic<std::shared_ptr<const VersionWithTime>> _visible_version;
 
     std::atomic_bool _is_full_compaction_running = false;
 

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
 #include <stdint.h>
 
 #include <string>
@@ -96,6 +97,10 @@ public:
     static Status fetch_schema_table_data(const std::string& ip, const int32_t port,
                                           const TFetchSchemaTableDataRequest& request,
                                           TFetchSchemaTableDataResult* result);
+
+    static Status get_master_keys(const std::string& ip, const int32_t port,
+                                  const TGetEncryptionKeysRequest& request,
+                                  TGetEncryptionKeysResult* result);
 };
 
 } // namespace doris

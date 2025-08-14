@@ -37,7 +37,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/var_int.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -51,7 +50,9 @@ struct AggregateFunctionCountData {
 
 /// Simply count number of calls.
 class AggregateFunctionCount final
-        : public IAggregateFunctionDataHelper<AggregateFunctionCountData, AggregateFunctionCount> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionCountData, AggregateFunctionCount>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionCount(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}

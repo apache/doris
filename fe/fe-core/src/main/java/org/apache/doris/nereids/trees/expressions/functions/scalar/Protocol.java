@@ -47,13 +47,18 @@ public class Protocol extends ScalarFunction
         super("protocol", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Protocol(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Protocol withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Protocol(children.get(0));
+        return new Protocol(getFunctionParams(children));
     }
 
     @Override

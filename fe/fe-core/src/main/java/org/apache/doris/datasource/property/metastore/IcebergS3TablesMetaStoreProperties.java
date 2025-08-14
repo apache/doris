@@ -48,7 +48,6 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         s3Properties = S3Properties.of(origProps);
-        s3Properties.initNormalizeAndCheckProps();
     }
 
     @Override

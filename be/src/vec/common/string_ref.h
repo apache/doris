@@ -220,6 +220,8 @@ struct StringRef {
 
     // Trims leading and trailing spaces.
     StringRef trim() const;
+    StringRef trim_whitespace() const;
+    StringRef trim_quote() const;
 
     bool empty() const { return size == 0; }
 

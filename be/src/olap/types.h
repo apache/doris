@@ -666,10 +666,12 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT> {
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT> {
     using CppType = float;
+    using UnsignedCppType = uint32_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE> {
     using CppType = double;
+    using UnsignedCppType = uint64_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {

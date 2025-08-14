@@ -193,7 +193,6 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    bool get_bool(size_t n) const override { return bool(data[n]); }
     Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
 
     void clear() override { data.clear(); }
@@ -203,10 +202,6 @@ public:
     size_t filter(const IColumn::Filter& filter) override;
 
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
-
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     bool structure_equals(const IColumn& rhs) const override {
         if (auto rhs_concrete = typeid_cast<const ColumnDecimal<T>*>(&rhs))

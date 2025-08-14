@@ -51,13 +51,18 @@ public class MicroSecondsDiff extends ScalarFunction implements BinaryExpression
         super("microseconds_diff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MicroSecondsDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MicroSecondsDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MicroSecondsDiff(children.get(0), children.get(1));
+        return new MicroSecondsDiff(getFunctionParams(children));
     }
 
     @Override

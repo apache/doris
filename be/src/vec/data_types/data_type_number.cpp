@@ -21,6 +21,7 @@
 
 #include "util/mysql_global.h"
 #include "util/to_string.h"
+#include "vec/functions/cast/cast_to_string.h"
 
 namespace doris::vectorized {
 
@@ -41,20 +42,7 @@ template <PrimitiveType T>
 void DataTypeNumber<T>::push_number(
         ColumnString::Chars& chars,
         const typename PrimitiveTypeTraits<T>::ColumnItemType& num) const {
-    if constexpr (T == TYPE_FLOAT) {
-        char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = to_buffer(num, MAX_FLOAT_STR_LENGTH + 2, buf);
-        chars.insert(buf, buf + len);
-    } else if constexpr (T == TYPE_LARGEINT ||
-                         std::numeric_limits<
-                                 typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
-        fmt::memory_buffer buffer;
-        fmt::format_to(buffer, "{}", num);
-        chars.insert(buffer.data(), buffer.data() + buffer.size());
-    } else {
-        auto f = fmt::format_int(num);
-        chars.insert(f.data(), f.data() + f.size());
-    }
+    CastToString::push_number(num, chars);
 }
 
 template class DataTypeNumber<TYPE_BOOLEAN>;

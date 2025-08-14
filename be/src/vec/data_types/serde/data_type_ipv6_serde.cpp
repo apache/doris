@@ -114,11 +114,10 @@ Status DataTypeIPv6SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
         slice.trim_quote();
     }
     auto& column_data = reinterpret_cast<ColumnIPv6&>(column);
-    ReadBuffer rb(slice.data, slice.size);
+    StringRef str(slice.data, slice.size);
     IPv6 val = 0;
-    if (!read_ipv6_text_impl(val, rb)) {
-        return Status::InvalidArgument("parse ipv6 fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (!read_ipv6_text_impl(val, str)) {
+        return Status::InvalidArgument("parse ipv6 fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();
@@ -283,6 +282,52 @@ Status DataTypeIPv6SerDe::from_string_strict_mode_batch(const ColumnString& str,
         }
     }
     return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::from_string(StringRef& str, IColumn& column,
+                                      const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+
+    CastParameters params;
+    params.is_strict = false;
+
+    IPv6 val;
+    if (!CastToIPv6::from_string(str, val, params)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
+    }
+
+    column_to.insert_value(val);
+    return Status::OK();
+}
+
+Status DataTypeIPv6SerDe::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                  const FormatOptions& options) const {
+    auto& column_to = assert_cast<ColumnType&>(column);
+
+    CastParameters params;
+    params.is_strict = true;
+
+    IPv6 val;
+    if (!CastToIPv6::from_string(str, val, params)) {
+        return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
+    }
+
+    column_to.insert_value(val);
+    return Status::OK();
+}
+
+void DataTypeIPv6SerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                 ColumnString::Chars& chars,
+                                                 int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_IPV6);
+    const auto& data_ref = assert_cast<const ColumnIPv6&>(src_column).get_data_at(row_num);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
 }
 
 } // namespace doris::vectorized

@@ -79,6 +79,11 @@ public class WeekCeil extends ScalarFunction
         super("week_ceil", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private WeekCeil(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -87,13 +92,7 @@ public class WeekCeil extends ScalarFunction
         Preconditions.checkArgument(children.size() == 1
                 || children.size() == 2
                 || children.size() == 3);
-        if (children.size() == 1) {
-            return new WeekCeil(children.get(0));
-        } else if (children.size() == 2) {
-            return new WeekCeil(children.get(0), children.get(1));
-        } else {
-            return new WeekCeil(children.get(0), children.get(1), children.get(2));
-        }
+        return new WeekCeil(getFunctionParams(children));
     }
 
     @Override

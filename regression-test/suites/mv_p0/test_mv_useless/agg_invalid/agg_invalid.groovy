@@ -23,32 +23,32 @@ suite ("agg_invalid") {
         """
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_1 AS SELECT p1, SUM(v3) FROM t1 GROUP BY p1;"
+        sql "CREATE MATERIALIZED VIEW mv_1 AS SELECT p1 as a1, SUM(v3) FROM t1 GROUP BY p1;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_2 AS SELECT p1, MIN(v3+v3) FROM t1 GROUP BY p1;"
+        sql "CREATE MATERIALIZED VIEW mv_2 AS SELECT p1 as a1, MIN(v3+v3) FROM t1 GROUP BY p1;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_3 AS SELECT p1, SUM(v1) FROM t1 GROUP BY p1;"
+        sql "CREATE MATERIALIZED VIEW mv_3 AS SELECT p1 as a1, SUM(v1) FROM t1 GROUP BY p1;"
         exception null
     }
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_4 AS SELECT p1, SUM(abs(v1)) FROM t1 GROUP BY p1;"
+        sql "CREATE MATERIALIZED VIEW mv_4 AS SELECT p1 as a1, SUM(abs(v1)) FROM t1 GROUP BY p1;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_5 AS SELECT p1, p2, p1, SUM(v1) FROM t1 GROUP BY p1,p2,p1;"
+        sql "CREATE MATERIALIZED VIEW mv_5 AS SELECT p1 as a1, p2 as a2, p1 as a3, SUM(v1) FROM t1 GROUP BY p1,p2,p1;"
         exception "errCode = 2,"
     }
 
     test {
-        sql "CREATE MATERIALIZED VIEW mv_5 AS SELECT p1, p2, SUM(v1), SUM(v1) FROM t1 GROUP BY p1,p2;"
+        sql "CREATE MATERIALIZED VIEW mv_5 AS SELECT p1 as a1, p2 as a2, SUM(v1), SUM(v1) FROM t1 GROUP BY p1,p2;"
         exception "errCode = 2,"
     }
 }

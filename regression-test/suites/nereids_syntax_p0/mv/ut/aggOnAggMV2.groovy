@@ -46,7 +46,7 @@ suite ("aggOnAggMV2") {
     }
     order_qt_select_emps_mv "select deptno, sum(salary) from aggOnAggMV2 group by deptno order by deptno;"
 
-    createMV("create materialized view aggOnAggMV2_mv as select deptno, sum(salary) from aggOnAggMV2 group by deptno ;")
+    createMV("create materialized view aggOnAggMV2_mv as select deptno as x1, sum(salary) from aggOnAggMV2 group by deptno ;")
 
     sleep(3000)
  

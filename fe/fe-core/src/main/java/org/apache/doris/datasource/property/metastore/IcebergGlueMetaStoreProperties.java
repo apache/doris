@@ -54,9 +54,7 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         glueProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
-        glueProperties.checkAndInit();
         s3Properties = S3Properties.of(origProps);
-        s3Properties.initNormalizeAndCheckProps();
     }
 
     @Override
@@ -64,9 +62,7 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         Map<String, String> props = prepareBaseCatalogProps();
         appendS3Props(props);
         appendGlueProps(props);
-
         props.put("client.region", glueProperties.glueRegion);
-
 
         if (StringUtils.isNotBlank(warehouse)) {
             props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);

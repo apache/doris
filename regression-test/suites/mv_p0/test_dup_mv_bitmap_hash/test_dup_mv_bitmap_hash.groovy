@@ -38,7 +38,7 @@ suite ("test_dup_mv_bitmap_hash") {
     sql "insert into d_table select 2,2,'b';"
     sql "insert into d_table select 3,3,'c';"
 
-    createMV( "create materialized view k1g2bm as select k1,bitmap_union(to_bitmap(k2)) from d_table group by k1;")
+    createMV( "create materialized view k1g2bm as select k1 as x1,bitmap_union(to_bitmap(k2)) as x2 from d_table group by k1;")
 
     sql """analyze table d_table with sync;"""
     sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
@@ -49,7 +49,7 @@ suite ("test_dup_mv_bitmap_hash") {
     sql """set enable_stats=true;"""
     mv_rewrite_success("select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;", "k1g2bm")
 
-    createMV "create materialized view k1g3bm as select k1,bitmap_union(bitmap_hash(k3)) from d_table group by k1;"
+    createMV "create materialized view k1g3bm as select k1 as x3,bitmap_union(bitmap_hash(k3)) as x4 from d_table group by k1;"
 
     sql "insert into d_table select 2,2,'bb';"
     sql "insert into d_table select 3,3,'c';"

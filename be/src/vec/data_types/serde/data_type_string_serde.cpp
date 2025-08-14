@@ -17,6 +17,9 @@
 
 #include "data_type_string_serde.h"
 
+#include "runtime/define_primitive_type.h"
+#include "util/jsonb_document_cast.h"
+#include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column_string.h"
 
@@ -334,34 +337,13 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::write_one_cell_to_json(
-        const IColumn& column, rapidjson::Value& result,
-        rapidjson::Document::AllocatorType& allocator, Arena& mem_pool, int64_t row_num) const {
-    const auto& col = assert_cast<const ColumnType&>(column);
-    const auto& data_ref = col.get_data_at(row_num);
-    result.SetString(data_ref.data, cast_set<rapidjson::SizeType>(data_ref.size));
-    return Status::OK();
-}
-
-template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::read_one_cell_from_json(
-        IColumn& column, const rapidjson::Value& result) const {
-    auto& col = assert_cast<ColumnType&>(column);
-    if (!result.IsString()) {
-        rapidjson::StringBuffer buffer;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        result.Accept(writer);
-        col.insert_data(buffer.GetString(), buffer.GetSize());
-        return Status::OK();
-    }
-    col.insert_data(result.GetString(), result.GetStringLength());
-    return Status::OK();
-}
-
-template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const IColumn& from_column,
                                                                       int64_t row_num,
                                                                       JsonbWriter& writer) const {
+    if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+        return Status::NotSupported(
+                "DataTypeStringSerDeBase only supports ColumnString for serialize_column_to_jsonb");
+    }
     const auto& data = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
 
     // start writing string
@@ -382,6 +364,34 @@ Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const ICol
     }
 
     return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb(
+        IColumn& column, const JsonbValue* jsonb_value, CastParameters& castParms) const {
+    if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+        return Status::NotSupported(
+                "DataTypeStringSerDeBase only supports ColumnString for "
+                "deserialize_column_from_jsonb");
+    }
+    auto& col_str = assert_cast<ColumnString&>(column);
+    std::string str;
+    if (jsonb_value->isString()) {
+        const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+        str.assign(blob->getBlob(), blob->getBlobLen());
+    } else {
+        str = JsonbToJson {}.to_json_string(jsonb_value);
+    }
+    col_str.insert_value(str);
+
+    return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn& column,
+                                                        const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
 }
 
 template class DataTypeStringSerDeBase<ColumnString>;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.HdfsStorageVault;
 import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.StorageVaultMgr;
@@ -214,7 +213,7 @@ public class HdfsStorageVaultTest {
         StorageVault vault = new HdfsStorageVault("name", true, false);
         Assertions.assertThrows(DdlException.class,
                 () -> {
-                    mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt("non_existent"));
+                    mgr.setDefaultStorageVault("non_existent");
                 });
         vault.modifyProperties(ImmutableMap.of(
                 "type", "hdfs",
@@ -222,7 +221,7 @@ public class HdfsStorageVaultTest {
                 S3Properties.VALIDITY_CHECK, "false"));
         mgr.createHdfsVault(vault);
         Assertions.assertTrue(mgr.getDefaultStorageVault() == null);
-        mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt(vault.getName()));
+        mgr.setDefaultStorageVault(vault.getName());
         Assertions.assertTrue(mgr.getDefaultStorageVault().first.equals(vault.getName()));
     }
 

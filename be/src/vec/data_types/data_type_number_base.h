@@ -43,7 +43,6 @@ namespace doris::vectorized {
 
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 /** Implements part of the IDataType interface, common to all numbers and for Date and DateTime.
   */
@@ -144,13 +143,15 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
     using SerDeType = DataTypeNumberSerDe<T>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(nesting_level);
     };
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
 protected:
     template <typename Derived>

@@ -232,29 +232,6 @@ public:
         return res;
     }
 
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
-        size_t size = _item_count;
-        column_match_offsets_size(size, offsets.size());
-        auto res = doris::vectorized::ColumnFixedLengthObject::create(_item_size);
-        if (0 == size) {
-            return res;
-        }
-        res->resize(offsets.back());
-        typename Self::Container& res_data = res->get_data();
-
-        IColumn::Offset prev_offset = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t size_to_replicate = offsets[i] - prev_offset;
-            for (size_t j = 0; j < size_to_replicate; ++j) {
-                memcpy(&res_data[(prev_offset + j) * _item_size], &_data[i * _item_size],
-                       _item_size);
-            }
-            prev_offset = offsets[i];
-        }
-
-        return res;
-    }
-
     size_t byte_size() const override { return _data.size(); }
 
     size_t item_size() const { return _item_size; }

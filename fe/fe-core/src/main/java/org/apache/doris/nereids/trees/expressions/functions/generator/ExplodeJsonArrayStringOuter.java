@@ -47,13 +47,18 @@ public class ExplodeJsonArrayStringOuter extends TableGeneratingFunction impleme
         super("explode_json_array_string_outer", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayStringOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayStringOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayStringOuter(children.get(0));
+        return new ExplodeJsonArrayStringOuter(getFunctionParams(children));
     }
 
     @Override

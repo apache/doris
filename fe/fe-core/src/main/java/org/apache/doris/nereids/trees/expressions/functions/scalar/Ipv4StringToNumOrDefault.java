@@ -46,13 +46,18 @@ public class Ipv4StringToNumOrDefault extends ScalarFunction
         super("ipv4_string_to_num_or_default", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ipv4StringToNumOrDefault(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public Ipv4StringToNumOrDefault withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "ipv4_string_to_num_or_default accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv4StringToNumOrDefault(children.get(0));
+        return new Ipv4StringToNumOrDefault(getFunctionParams(children));
     }
 
     @Override

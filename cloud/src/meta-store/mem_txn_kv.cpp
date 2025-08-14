@@ -695,6 +695,61 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::batch_scan(
+        std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+        const std::vector<std::string>& keys, const BatchGetOptions& opts) {
+    if (keys.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+    std::lock_guard<std::mutex> l(lock_);
+    res->reserve(keys.size());
+
+    for (const auto& key : keys) {
+        if (unreadable_keys_.count(key) != 0) {
+            aborted_ = true;
+            LOG(WARNING) << "read unreadable key, abort";
+            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+        }
+
+        RangeKeySelector begin_selector, end_selector;
+        std::string start_key, end_key;
+        if (opts.reverse) {
+            end_key = key;
+            begin_selector = RangeKeySelector::FIRST_GREATER_THAN;
+            end_selector = RangeKeySelector::FIRST_GREATER_THAN;
+        } else {
+            start_key = key;
+            end_key = "\xFF";
+            begin_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+            end_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+        }
+
+        RangeGetOptions range_opts;
+        range_opts.snapshot = opts.snapshot;
+        range_opts.batch_limit = 1;
+        range_opts.reverse = opts.reverse;
+        range_opts.begin_key_selector = begin_selector;
+        range_opts.end_key_selector = end_selector;
+
+        std::unique_ptr<cloud::RangeGetIterator> iter;
+        auto ret = inner_get(start_key, end_key, &iter, range_opts);
+        if (ret != TxnErrorCode::TXN_OK) {
+            return ret;
+        }
+
+        if (iter->has_next()) {
+            auto [found_key, found_value] = iter->next();
+            res->push_back(std::make_pair(std::string(found_key), std::string(found_value)));
+        } else {
+            res->push_back(std::nullopt);
+        }
+    }
+
+    kv_->get_count_ += keys.size();
+    num_get_keys_ += keys.size();
+    return TxnErrorCode::TXN_OK;
+}
+
 FullRangeGetIterator::FullRangeGetIterator(std::string begin, std::string end,
                                            FullRangeGetOptions opts)
         : opts_(std::move(opts)), begin_(std::move(begin)), end_(std::move(end)) {}

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -80,6 +81,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                     MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
                     boolean isBaseIndexSelected = olapScan.getSelectedIndexId() == olapScan.getTable().getBaseIndexId();
                     Collection<Long> prunedTabletIds = getSelectedTabletIds(
+                            olapScan.getTable().getSchemaByIndexId(olapScan.getSelectedIndexId()),
                             filterMap, index, isBaseIndexSelected, partition.getDistributionInfo());
                     selectedTabletIdsBuilder.addAll(prunedTabletIds);
                 }
@@ -98,17 +100,16 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
         }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE);
     }
 
-    private Collection<Long> getSelectedTabletIds(Map<String, PartitionColumnFilter> filterMap,
+    private Collection<Long> getSelectedTabletIds(List<Column> schema, Map<String, PartitionColumnFilter> filterMap,
             MaterializedIndex index, boolean isBaseIndexSelected, DistributionInfo info) {
         if (info.getType() != DistributionInfoType.HASH) {
             return index.getTabletIdsInOrder();
         }
         HashDistributionInfo hashInfo = (HashDistributionInfo) info;
-        return new HashDistributionPruner(index.getTabletIdsInOrder(),
+        return new HashDistributionPruner(schema, index.getTabletIdsInOrder(),
                 hashInfo.getDistributionColumns(),
                 filterMap,
                 hashInfo.getBucketNum(),
-                isBaseIndexSelected
-        ).prune();
+                isBaseIndexSelected).prune();
     }
 }

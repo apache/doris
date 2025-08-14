@@ -1163,6 +1163,7 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // If your file cache is ample enough to accommodate all the data in your database,
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
+DECLARE_mBool(enable_file_cache_adaptive_write);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
@@ -1302,13 +1303,14 @@ DECLARE_mInt64(lookup_connection_cache_capacity);
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
-DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
+// Enable vertical compact subcolumns of variant column
+DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
@@ -1392,9 +1394,6 @@ DECLARE_Int32(workload_group_metrics_interval_ms);
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
-// Remove predicate that is always true for a segment.
-DECLARE_Bool(ignore_always_true_predicate_for_segment);
-
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
@@ -1414,6 +1413,9 @@ DECLARE_Bool(enable_snapshot_action);
 
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
+
+// The max sparse column statistics size for a variant column
+DECLARE_mInt32(variant_max_sparse_column_statistics_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
@@ -1631,6 +1633,9 @@ DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
 
 // p0, daily, rqg, external
 DECLARE_String(fuzzy_test_type);
+
+// The maximum number of threads supported when executing LLMFunction
+DECLARE_mInt32(llm_max_concurrent_requests);
 
 #ifdef BE_TEST
 // test s3

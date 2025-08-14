@@ -287,7 +287,13 @@ public:
         //
         // Default: 1000
         int concurrency;
+
+        // Used for `batch_scan`, if true, the underlying iterator will return keys in reverse order.
+        //
+        // Default: false
+        bool reverse = false;
     };
+
     /**
      * @brief batch get keys
      *
@@ -299,6 +305,30 @@ public:
     virtual TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                                    const std::vector<std::string>& keys,
                                    const BatchGetOptions& opts = BatchGetOptions()) = 0;
+
+    /**
+     * @brief Batch scan for the first key-value pair starting from each given key.
+     *
+     * For each key in the input keys, this function starts scanning from that key (inclusive)
+     * in the direction specified by `opts.reverse` (forward by default) and returns the first
+     * key-value pair encountered. If no key is found (i.e., scanning reaches the end without
+     * finding any key), the corresponding result is an empty optional.
+     *
+     * The function scans keys in batches and is more efficient than scanning each key individually.
+     *
+     * @param[out] res The output vector of optionals. Each element corresponds to the same index as in the input keys.
+     *                  If a key-value pair is found, the element will contain the pair; otherwise, it will be std::nullopt.
+     * @param[in] keys The list of keys from which to start the scan for each corresponding search.
+     * @param[in] opts Options such as `reverse` and `snapshot`. If `reverse` is true, the scan is in the backward direction.
+     *
+     * @return TXN_OK if all scans completed successfully. If any error occurs during the scanning,
+     *         the function stops immediately and returns the error code of the first error encountered.
+     *         Note: The output vector `res` may be partially filled when an error occurs.
+     */
+    virtual TxnErrorCode batch_scan(
+            std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+            const std::vector<std::string>& keys,
+            const BatchGetOptions& opts = BatchGetOptions()) = 0;
 
     /**
      * @brief return the approximate bytes consumed by the underlying transaction buffer.
@@ -720,6 +750,10 @@ public:
     TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
+
+    TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+                            const std::vector<std::string>& keys,
+                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
     size_t approximate_bytes() const override { return approximate_bytes_; }
 

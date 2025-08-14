@@ -288,7 +288,7 @@ public class ShowColumnStatsCommand extends ShowCommand {
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.updatedRows));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.rowCount));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.tableVersion));
-            row.add(String.valueOf(colStatsMeta == null ? "N/A" : p.second.getStringHotValues()));
+            row.add(String.valueOf(p.second.getStringHotValues()));
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);

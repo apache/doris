@@ -38,7 +38,7 @@ suite ("mv_percentile") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV("create materialized view kp as select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by k1,k2;")
+    createMV("create materialized view kp as select k1 as a1,k2 as a2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by k1,k2;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"

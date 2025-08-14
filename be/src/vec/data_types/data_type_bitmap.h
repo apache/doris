@@ -88,7 +88,6 @@ public:
         return data.to_string();
     }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     Field get_default() const override {
         return Field::create_field<TYPE_BITMAP>(BitmapValue::empty_bitmap());
@@ -97,6 +96,12 @@ public:
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for BitMap");
+    }
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field_with_data_type for BitMap");
     }
 
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);

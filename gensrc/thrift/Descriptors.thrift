@@ -153,6 +153,7 @@ enum TSchemaTableType {
     SCH_BACKEND_CONFIGURATION=55,
     SCH_BACKEND_TABLETS = 56,
     SCH_VIEW_DEPENDENCY = 57;
+    SCH_ENCRYPTION_KEYS = 58;
 }
 
 enum THdfsCompression {

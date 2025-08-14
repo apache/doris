@@ -50,13 +50,18 @@ public class StartsWith extends ScalarFunction
         super("starts_with", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StartsWith(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StartsWith withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new StartsWith(children.get(0), children.get(1));
+        return new StartsWith(getFunctionParams(children));
     }
 
     @Override

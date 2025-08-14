@@ -37,7 +37,7 @@ suite ("test_dup_mv_abs") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12a as select k1,abs(k2) from d_table;")
+    createMV ("create materialized view k12a as select k1 as a1,abs(k2) from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

@@ -68,6 +68,8 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
+    bool is_cancelled() const { return _cancelled.load(); }
+
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
 
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
@@ -109,6 +111,7 @@ private:
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
+    std::atomic<bool> _cancelled {false};
 
     std::shared_ptr<ResourceContext> _resource_ctx;
 

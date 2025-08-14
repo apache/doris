@@ -47,7 +47,7 @@ suite ("test_dup_mv_repeat") {
 
     sql """alter table db1 modify column n set stats ('row_count'='6');"""
 
-    createMV ("create materialized view dbviwe as select dt,s,sum(n) as n from db1 group by dt,s;")
+    createMV ("create materialized view dbviwe as select dt as a1,s as a2 ,sum(n) as n1 from db1 group by dt,s;")
 
     sql "analyze table db1 with sync;"
     sql """set enable_stats=false;"""

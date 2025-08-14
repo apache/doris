@@ -27,7 +27,12 @@
 
 set -eo pipefail
 
-build_version_prefix="doris"
+vendor=doris
+if [[ $1 != "" ]]; then
+    vendor=$1
+fi
+
+build_version_prefix="${vendor}"
 build_version_major=0
 build_version_minor=0
 build_version_patch=0

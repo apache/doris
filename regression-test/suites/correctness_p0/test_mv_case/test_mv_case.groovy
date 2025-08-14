@@ -31,7 +31,7 @@ suite("test_mv_case") {
             );"""
     sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON test_table_aaa2;"""
     create_sync_mv(context.dbName, "test_table_aaa2", "ods_zn_dnt_max1", """
-            select ordernum,max(dnt) as dnt from test_table_aaa2
+            select ordernum as a1,max(dnt) as a2 from test_table_aaa2
             group by ordernum
             ORDER BY ordernum;""")
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}' ;"""
@@ -54,7 +54,7 @@ suite("test_mv_case") {
             );"""
     sql """INSERT INTO test_mv_view_t VALUES('2024-04-01',  'x', 'y');"""
     createMV ("""create  materialized view  test_mv_view_t_mv as
-                select `day`, count(game_code)
+                select `day` as a4, count(game_code) as a5
                 from test_mv_view_t group by day;""")
     sql """create view test_mv_view_t_view
             as

@@ -68,14 +68,14 @@ suite("dup_negative_mv_test", "mv_negative") {
     def no_mv_name = """no_${prefix_str}_mv"""
 
 
-    def mtmv_sql =  """select col4, col1, col2, col3, col15, sum(col8) from ${tb_name} where col1 = "2023-08-16 22:27:00" group by col4, col1, col2, col3, col15 order by col4, col1, col2, col3, col15"""
+    def mtmv_sql =  """select col4 as g1, col1 as g2, col2 as g3, col3 as g4, col15 as g5, sum(col8) as g6 from ${tb_name} where col1 = "2023-08-16 22:27:00" group by col4, col1, col2, col3, col15 order by col4, col1, col2, col3, col15"""
     create_sync_mv(db, tb_name, mv_name, mtmv_sql)
 
     def desc_res = sql """desc ${tb_name} all;"""
     for (int i = 0; i < desc_res.size(); i++) {
         if (desc_res[i][0] == mv_name) {
             for (int j = i; j < i+6; j++) {
-                if (desc_res[j][2] != "mva_SUM__CAST(`col8` AS bigint)") {
+                if (desc_res[j][2] != "g6") {
                     assertTrue(desc_res[j][6] == "true")
                 } else {
                     assertTrue(desc_res[j][6] == "false")
@@ -88,47 +88,47 @@ suite("dup_negative_mv_test", "mv_negative") {
     mv_rewrite_success_without_check_chosen(sql_hit, mv_name)
 
     test {
-        sql """create materialized view ${no_mv_name} as select col4, col1, col2, col3, col15, col7 from ${tb_name} where col1 = '2023-08-16 22:27:00' order by col4, col1, col2, col3, col15, col7"""
+        sql """create materialized view ${no_mv_name} as select col4 as a1, col1 as a2, col2 as a3, col3 as a4, col15 as a5, col7 as a6 from ${tb_name} where col1 = '2023-08-16 22:27:00' order by col4, col1, col2, col3, col15, col7"""
         exception "The materialized view can not involved auto increment column"
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select col3, sum(col8) from ${tb_name} group by col3 having col3 > 1"""
+        sql """create materialized view ${no_mv_name} as select col3 as a1, sum(col8) from ${tb_name} group by col3 having col3 > 1"""
         exception "LogicalHaving is not supported"
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select col3, sum(col8) from ${tb_name} group by col3 limit 1"""
+        sql """create materialized view ${no_mv_name} as select col3 as a1, sum(col8) from ${tb_name} group by col3 limit 1"""
         exception "LogicalLimit is not supported"
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select col3, 1, sum(col8) from ${tb_name} group by col3"""
+        sql """create materialized view ${no_mv_name} as select col3 as a1, 1, sum(col8) from ${tb_name} group by col3"""
         exception "The materialized view contain constant expr is disallowed"
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select col3, col3, sum(col8) from ${tb_name} group by col3"""
+        sql """create materialized view ${no_mv_name} as select col3 as a1, col3 as a2, sum(col8) from ${tb_name} group by col3"""
         exception "The select expr is duplicated"
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select col3, sum(col8) / 1 from ${tb_name} group by col3"""
+        sql """create materialized view ${no_mv_name} as select col3 as a1, sum(col8) / 1 from ${tb_name} group by col3"""
         exception "materialized view's expr calculations cannot be included outside aggregate functions"
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select  sum(col8), col3 from ${tb_name} group by col3"""
+        sql """create materialized view ${no_mv_name} as select  sum(col8), col3 as a1 from ${tb_name} group by col3"""
         exception "The aggregate column should be after none agg column"
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select col1, col2, col3, sum(col8) from ${tb_name} group by col3, col1, col2 order by col3, col1, col2"""
+        sql """create materialized view ${no_mv_name} as select col1 as a1, col2 as a2, col3 as a3, sum(col8) from ${tb_name} group by col3, col1, col2 order by col3, col1, col2"""
         exception "The order of columns in order by clause must be same as the order of columnsin select list"
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select col1, col2, col3, sum(col8) from ${tb_name} group by col1, col2, col3 order by col3, col1, col2"""
+        sql """create materialized view ${no_mv_name} as select col1 as a1, col2 as a2, col3 as a3, sum(col8) from ${tb_name} group by col1, col2, col3 order by col3, col1, col2"""
         exception "The order of columns in order by clause must be same as the order of columnsin select list"
     }
 
@@ -138,12 +138,12 @@ suite("dup_negative_mv_test", "mv_negative") {
     }
 
     test {
-        sql """create materialized view ${no_mv_name} as select col3, col1, col2, col15, case when col2 > 1 then 1 else 2 end, sum(col8) from ${tb_name} group by 1,2,3,4,5 order by 1,2,3,4,5"""
+        sql """create materialized view ${no_mv_name} as select col3 as a1, col1 as a2, col2 as a3, col15 as a4, case when col2 > 1 then 1 else 2 end, sum(col8) from ${tb_name} group by 1,2,3,4,5 order by 1,2,3,4,5"""
         exception """only support the single column or function expr. Error column: CASE WHEN"""
     }
 
     test {
-        sql """create materialized view ${mv_name}_4 as select min(col8), col3 from ${tb_name} group by col3"""
+        sql """create materialized view ${mv_name}_4 as select min(col8), col3 as a1 from ${tb_name} group by col3"""
         exception """The aggregate column should be after none agg column"""
     }
 

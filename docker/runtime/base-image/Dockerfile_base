@@ -45,8 +45,9 @@ RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-cl
     fi;
 
 COPY --from=apache/doris:debug-latest /doris-debug /opt/apache-doris/
+COPY --from=apache/doris:debug-latest /dorisctl /opt/apache-doris/
 
 WORKDIR /opt/apache-doris
 
 # The last update at: April 29, 2025.
-# The docker image tag is changed to: base-2.0
+# The docker image tag is changed to: base-3.0

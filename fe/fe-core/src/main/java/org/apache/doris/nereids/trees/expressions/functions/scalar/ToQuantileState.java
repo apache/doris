@@ -50,6 +50,11 @@ public class ToQuantileState extends ScalarFunction
         super("to_quantile_state", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToQuantileState(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant()) {
@@ -63,7 +68,7 @@ public class ToQuantileState extends ScalarFunction
     @Override
     public ToQuantileState withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ToQuantileState(children.get(0), children.get(1));
+        return new ToQuantileState(getFunctionParams(children));
     }
 
     @Override

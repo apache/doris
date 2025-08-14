@@ -33,6 +33,11 @@ struct DirectoryDeleter {
     void operator()(lucene::store::Directory* ptr) const { _CLDECDELETE(ptr); }
 };
 
+struct TermDeleter {
+    void operator()(lucene::index::Term* p) const { _CLDECDELETE(p); }
+};
+using TermPtr = std::unique_ptr<lucene::index::Term, TermDeleter>;
+
 struct ErrorContext {
     std::string err_msg;
     std::exception_ptr eptr;
