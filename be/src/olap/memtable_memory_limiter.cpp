@@ -144,8 +144,7 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
             }
         }
         if (cancel_check && cancel_check()) {
-            LOG(INFO) << "cancelled when waiting for memtable flush, wg: "
-                      << (wg == nullptr ? "null" : wg->debug_string());
+            LOG(INFO) << "cancelled when waiting for memtable flush";
             return;
         }
         first = false;
@@ -167,7 +166,7 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
                                        ->process_memory_detail_str();
                 LOG_LONG_STRING(INFO, log_str);
             }
-            _flush_active_memtables(0, need_flush);
+            _flush_active_memtables(need_flush);
         }
     } while (_hard_limit_reached() && !_load_usage_low());
     g_memtable_memory_limit_waiting_threads << -1;
@@ -187,7 +186,7 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
     }
 }
 
-int64_t MemTableMemoryLimiter::_flush_active_memtables(uint64_t wg_id, int64_t need_flush) {
+int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
     if (need_flush <= 0) {
         return 0;
     }
@@ -219,10 +218,7 @@ int64_t MemTableMemoryLimiter::_flush_active_memtables(uint64_t wg_id, int64_t n
         if (w == nullptr) {
             continue;
         }
-        // If wg id is specified, but wg id not match, then not need flush
-        if (wg_id != 0 && w->workload_group_id() != wg_id) {
-            continue;
-        }
+
         int64_t mem = w->active_memtable_mem_consumption();
         if (mem < sort_mem * 0.9) {
             // if the memtable writer just got flushed, don't flush it again
