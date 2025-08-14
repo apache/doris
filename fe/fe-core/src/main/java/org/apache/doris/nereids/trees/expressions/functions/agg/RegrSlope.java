@@ -24,13 +24,8 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -44,12 +39,7 @@ public class RegrSlope extends AggregateFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE, SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE, FloatType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
     );
 
     /**
@@ -64,6 +54,11 @@ public class RegrSlope extends AggregateFunction
      */
     public RegrSlope(boolean distinct, Expression arg1, Expression arg2) {
         super("regr_slope", distinct, arg1, arg2);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private RegrSlope(AggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -82,7 +77,7 @@ public class RegrSlope extends AggregateFunction
     @Override
     public RegrSlope withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new RegrSlope(distinct, children.get(0), children.get(1));
+        return new RegrSlope(getFunctionParams(distinct, children));
     }
 
     @Override

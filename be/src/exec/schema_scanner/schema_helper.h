@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
 #include <stdint.h>
 
 #include <string>
@@ -43,10 +44,6 @@ class TShowProcessListRequest;
 class TShowProcessListResult;
 class TShowUserRequest;
 class TShowUserResult;
-class TFetchBackendsRequest;
-class TFetchBackendsResult;
-class TFetchFrontendsRequest;
-class TFetchFrontendsResult;
 
 // this class is a helper for getting schema info from FE
 class SchemaHelper {
@@ -101,13 +98,9 @@ public:
                                           const TFetchSchemaTableDataRequest& request,
                                           TFetchSchemaTableDataResult* result);
 
-    static Status fetch_backends(const std::string& ip, const int32_t port,
-                                 const TFetchBackendsRequest& request,
-                                 TFetchBackendsResult* result);
-
-    static Status fetch_frontends(const std::string& ip, const int32_t port,
-                                  const TFetchFrontendsRequest& request,
-                                  TFetchFrontendsResult* result);
+    static Status get_master_keys(const std::string& ip, const int32_t port,
+                                  const TGetEncryptionKeysRequest& request,
+                                  TGetEncryptionKeysResult* result);
 };
 
 } // namespace doris

@@ -47,13 +47,18 @@ public class Cos extends ScalarFunction
         super("cos", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Cos(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Cos withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cos(children.get(0));
+        return new Cos(getFunctionParams(children));
     }
 
     @Override

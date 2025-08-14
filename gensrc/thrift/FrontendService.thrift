@@ -420,6 +420,7 @@ struct TMasterOpResult {
     // transaction load
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
+    11: optional i64 affectedRows;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -1164,6 +1165,7 @@ struct TGetBinlogResult {
 
 struct TGetTabletReplicaInfosRequest {
     1: required list<i64> tablet_ids
+    2: optional i64 warm_up_job_id
 }
 
 struct TGetTabletReplicaInfosResult {
@@ -1611,72 +1613,38 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
-struct TFetchBackendsRequest {
+enum TEncryptionAlgorithm {
+    AES256 = 0,
+    SM4 = 1
 }
 
-
-struct TBackendDetailInfo {
-    1: optional i64 backend_id
-    2: optional string host
-    3: optional Types.TPort heartbeat_port
-    4: optional Types.TPort be_port
-    5: optional Types.TPort http_port
-    6: optional Types.TPort brpc_port
-    7: optional Types.TPort arrowflightsqlport
-    8: optional string last_start_time
-    9: optional string last_heartbeat
-    10: optional bool alive
-    11: optional bool system_decommissioned
-    12: optional i32 tablet_num
-    13: optional i64 data_used_capacity
-    14: optional i64 trash_used_capacity
-    15: optional i64 avail_capacity
-    16: optional i64 total_capacity
-    17: optional double used_pct
-    18: optional double max_disk_used_pct
-    19: optional i64 remote_used_capacity
-    20: optional string tag
-    21: optional string errmsg
-    22: optional string version
-    23: optional string status
-    24: optional i32 heartbeat_failure_counter
-    25: optional string node_role
-    26: optional i32 cpu_cores
-    27: optional i64 memory
+enum TEncryptionKeyType {
+    MASTER_KEY = 0,
+    DATA_KEY = 1,
 }
 
-struct TFetchBackendsResult {
-    1: optional list<TBackendDetailInfo> backends
+struct TEncryptionKey {
+    1: optional string id
+    2: optional i32 version
+    3: optional string parent_id
+    4: optional i32 parent_version
+    5: optional TEncryptionKeyType type
+    6: optional TEncryptionAlgorithm algorithm
+    7: optional string ciphertext
+    8: optional binary plaintext
+    9: optional string iv
+    10: optional i64 crc
+    11: optional i64 ctime
+    12: optional i64 mtime
 }
 
-struct TFetchFrontendsRequest {
+struct TGetEncryptionKeysRequest {
+    2: optional i32 version
 }
 
-
-struct TFrontendDetailInfo {
-    1: optional string name
-    2: optional string host
-    3: optional Types.TPort edit_log_port
-    4: optional Types.TPort http_port
-    5: optional Types.TPort query_port
-    6: optional Types.TPort rpc_port
-    7: optional Types.TPort arrowflightsqlport
-    8: optional string role
-    9: optional bool is_master
-    10: optional i32 cluster_id
-    11: optional bool join
-    12: optional bool alive
-    13: optional i64 replayed_journal_id
-    14: optional string last_start_time
-    15: optional string last_heartbeat
-    16: optional bool is_helper
-    17: optional string err_msg
-    18: optional string version
-    19: optional bool current_connected
-}
-
-struct TFetchFrontendsResult {
-    1: optional list<TFrontendDetailInfo> frontends
+struct TGetEncryptionKeysResult {
+    1: optional Status.TStatus status
+    2: optional list<TEncryptionKey> master_keys
 }
 
 service FrontendService {
@@ -1782,7 +1750,5 @@ service FrontendService {
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
 
-    TFetchBackendsResult fetchBackends(1: TFetchBackendsRequest request)
-
-    TFetchFrontendsResult fetchFrontends(1: TFetchFrontendsRequest request)
+    TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
 }

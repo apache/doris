@@ -32,8 +32,8 @@ public class IcebergRestPropertiesTest {
     public void testBasicRestProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
-        props.put("iceberg.rest.warehouse", "s3://warehouse/path");
         props.put("iceberg.rest.prefix", "prefix");
+        props.put("warehouse", "s3://warehouse/path");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps();
@@ -209,7 +209,7 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> props2 = new HashMap<>();
         props2.put("iceberg.rest.uri", "http://localhost:8080");
-        props2.put("iceberg.rest.warehouse", "s3://warehouse/path");
+        props2.put("warehouse", "s3://warehouse/path");
         IcebergRestProperties restProps2 = new IcebergRestProperties(props2);
         restProps2.initNormalizeAndCheckProps();
         Assertions.assertEquals("s3://warehouse/path",
@@ -230,5 +230,190 @@ public class IcebergRestPropertiesTest {
         Assertions.assertThrows(UnsupportedOperationException.class, () -> {
             catalogProps.put("test", "value");
         });
+    }
+
+    @Test
+    public void testGlueRestCatalogValidConfiguration() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("rest.access-key-id"));
+        Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                catalogProps.get("rest.secret-access-key"));
+        Assertions.assertEquals("true", catalogProps.get("rest.sigv4-enabled"));
+    }
+
+    @Test
+    public void testGlueRestCatalogCaseInsensitive() {
+        // Test that "GLUE" is also recognized (case insensitive)
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "GLUE");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-west-2", catalogProps.get("rest.signing-region"));
+    }
+
+    @Test
+    public void testGlueRestCatalogMissingSigningRegion() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        // Missing signing-region
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertThrows(IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+    }
+
+    @Test
+    public void testGlueRestCatalogMissingAccessKeyId() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        // Missing access-key-id
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertThrows(IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+    }
+
+    @Test
+    public void testGlueRestCatalogMissingSecretAccessKey() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        // Missing secret-access-key
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertThrows(IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+    }
+
+    @Test
+    public void testGlueRestCatalogMissingSigV4Enabled() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        // Missing sigv4-enabled
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertThrows(IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+    }
+
+    @Test
+    public void testNonGlueSigningNameDoesNotRequireAdditionalProperties() {
+        // Test that non-glue signing names don't require additional properties
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "custom-service");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps(); // Should not throw
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        // Should not contain glue-specific properties
+        Assertions.assertFalse(catalogProps.containsKey("rest.signing-name"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.signing-region"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
+    }
+
+    @Test
+    public void testEmptySigningNameDoesNotAddGlueProperties() {
+        // Test that empty signing name doesn't add glue properties
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps(); // Should not throw
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        // Should not contain glue-specific properties since signing-name is not "glue"
+        Assertions.assertFalse(catalogProps.containsKey("rest.signing-name"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.signing-region"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
+    }
+
+    @Test
+    public void testGlueRestCatalogWithOAuth2() {
+        // Test that Glue properties can be combined with OAuth2
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.oauth2.token", "my-access-token");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        // Should have both OAuth2 and Glue properties
+        Assertions.assertEquals("my-access-token", catalogProps.get(OAuth2Properties.TOKEN));
+        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("rest.access-key-id"));
+        Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                catalogProps.get("rest.secret-access-key"));
+        Assertions.assertEquals("true", catalogProps.get("rest.sigv4-enabled"));
+    }
+
+    @Test
+    public void testGlueRestCatalogMissingMultipleProperties() {
+        // Test error message when multiple required properties are missing
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        // Missing all required properties
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+
+        // The error message should mention the required properties
+        String errorMessage = exception.getMessage();
+        Assertions.assertTrue(errorMessage.contains("signing-region")
+                || errorMessage.contains("access-key-id")
+                || errorMessage.contains("secret-access-key")
+                || errorMessage.contains("sigv4-enabled"));
     }
 }

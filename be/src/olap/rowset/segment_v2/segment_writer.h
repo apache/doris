@@ -65,6 +65,8 @@ namespace segment_v2 {
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
+class VariantStatsCaculator;
+
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     uint32_t max_rows_per_segment = UINT32_MAX;
@@ -106,7 +108,6 @@ public:
     Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
-    Status append_block_with_variant_subcolumns(vectorized::Block& data);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
@@ -263,6 +264,8 @@ private:
     TabletSchemaSPtr _flush_schema = nullptr;
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
+    // variant statistics calculator for efficient stats collection
+    std::unique_ptr<VariantStatsCaculator> _variant_stats_calculator;
 };
 
 } // namespace segment_v2

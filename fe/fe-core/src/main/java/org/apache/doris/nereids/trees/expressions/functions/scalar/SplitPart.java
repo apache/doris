@@ -53,13 +53,18 @@ public class SplitPart extends ScalarFunction
         super("split_part", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SplitPart(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SplitPart withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new SplitPart(children.get(0), children.get(1), children.get(2));
+        return new SplitPart(getFunctionParams(children));
     }
 
     @Override

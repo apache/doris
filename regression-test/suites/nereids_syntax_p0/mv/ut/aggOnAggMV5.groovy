@@ -42,7 +42,7 @@ suite ("aggOnAggMV5") {
     sql """insert into aggOnAggMV5 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV5 values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view aggOnAggMV5_mv as select deptno, commission, sum(salary) from aggOnAggMV5 group by deptno, commission;")
+    createMV("create materialized view aggOnAggMV5_mv as select deptno as a1, commission as a2, sum(salary) from aggOnAggMV5 group by deptno, commission;")
 
     sql """insert into aggOnAggMV5 values("2020-01-01",1,"a",1,1,1);"""
 

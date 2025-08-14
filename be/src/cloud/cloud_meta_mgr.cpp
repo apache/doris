@@ -39,6 +39,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "cloud/schema_cloud_dictionary_cache.h"
@@ -1033,7 +1034,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
+Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
@@ -1082,6 +1083,25 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string&
         RETURN_IF_ERROR(
                 engine.get_schema_cloud_dictionary_cache().refresh_dict(rs_meta_pb.index_id()));
     }
+
+    int64_t timeout_ms = -1;
+    // if the `job_id` is not empty, it means this rowset was produced by a compaction job.
+    if (config::enable_compaction_delay_commit_for_warm_up && !job_id.empty()) {
+        // 1. assume the download speed is 100MB/s
+        // 2. we double the download time as timeout for safety
+        // 3. for small rowsets, the timeout we calculate maybe quite small, so we need a min_time_out
+        const double speed_mbps = 100.0; // 100MB/s
+        const double safety_factor = 2.0;
+        timeout_ms = std::min(
+                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.data_disk_size()) /
+                                              (speed_mbps * 1024 * 1024) * safety_factor * 1000),
+                         config::warm_up_rowset_sync_wait_min_timeout_ms),
+                config::warm_up_rowset_sync_wait_max_timeout_ms);
+        LOG(INFO) << "warm up rowset: " << rs_meta.version() << ", job_id: " << job_id
+                  << ", with timeout: " << timeout_ms << " ms";
+    }
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    manager.warm_up_rowset(rs_meta, timeout_ms);
     return st;
 }
 
@@ -1246,12 +1266,14 @@ Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
     return retry_rpc("commit restore job", req, &resp, &MetaService_Stub::commit_restore_job);
 }
 
-Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id) {
-    VLOG_DEBUG << "finish restore job, tablet_id: " << tablet_id;
+Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_completed) {
+    VLOG_DEBUG << "finish restore job, tablet_id: " << tablet_id
+               << ", is_completed: " << is_completed;
     RestoreJobRequest req;
     RestoreJobResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_id);
+    req.set_is_completed(is_completed);
 
     return retry_rpc("finish restore job", req, &resp, &MetaService_Stub::finish_restore_job);
 }

@@ -19,10 +19,10 @@ tbl_scalar_types_dup	DUP_KEYS	k1	bigint	bigint	Yes	true	\N		true
 		c_varchar	varchar(100)	varchar(100)	Yes	false	\N	NONE	true		
 		c_string	text	text	Yes	false	\N	NONE	true		
 											
-mv_tbl_scalar_types_dup_2	AGG_KEYS	mv_k1	bigint	bigint	Yes	true	\N		true	`k1`	
-		mva_SUM__CAST(`c_int` AS bigint)	bigint	bigint	Yes	false	\N	SUM	true	CAST(`c_int` AS bigint)	
-		mva_MAX__`c_int`	int	int	Yes	false	\N	MAX	true	`c_int`	
-		mva_MIN__`c_int`	int	int	Yes	false	\N	MIN	true	`c_int`	
+mv_tbl_scalar_types_dup_2	AGG_KEYS	a1	bigint	bigint	Yes	true	\N		true	`k1`	
+		__sum_1	bigint	bigint	Yes	false	\N	SUM	true	CAST(`c_int` AS bigint)	
+		__max_2	int	int	Yes	false	\N	MAX	true	`c_int`	
+		__min_3	int	int	Yes	false	\N	MIN	true	`c_int`	
 
 -- !sql --
 -2147475406	true	45	23794	-11023	915989078	2115356192	15927.068	1.392557423391501E9	45951348783208518.810	8340516346665031.310	2022-01-26	2022-04-13T11:13:48	2022-01-31	2022-02-16T06:07:21	130.50.6.0	DeniseMatthews@Yozio.mil	Londonderry Alley 61

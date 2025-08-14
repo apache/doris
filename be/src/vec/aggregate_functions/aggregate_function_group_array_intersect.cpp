@@ -53,9 +53,10 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
         const AggregateFunctionAttr& attr) {
     const auto& nested_type = remove_nullable(
             dynamic_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
-    AggregateFunctionPtr res =
-            creator_with_numeric_type::create<AggregateFunctionGroupArrayIntersect>(
-                    argument_types, result_is_nullable, attr);
+    AggregateFunctionPtr res = creator_with_type_list<
+            TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+            TYPE_LARGEINT>::create<AggregateFunctionGroupArrayIntersect>(argument_types,
+                                                                         result_is_nullable, attr);
 
     if (!res) {
         res = AggregateFunctionPtr(create_with_extra_types(nested_type, argument_types, attr));
@@ -73,7 +74,7 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
 AggregateFunctionPtr create_aggregate_function_group_array_intersect(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    assert_unary(name, argument_types);
+    assert_arity_range(name, argument_types, 1, 1);
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
 
     if (argument_type->get_primitive_type() != TYPE_ARRAY)

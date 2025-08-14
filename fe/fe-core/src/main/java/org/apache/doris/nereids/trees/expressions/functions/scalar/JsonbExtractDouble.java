@@ -51,13 +51,18 @@ public class JsonbExtractDouble extends ScalarFunction
         super("jsonb_extract_double", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonbExtractDouble(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonbExtractDouble withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new JsonbExtractDouble(children.get(0), children.get(1));
+        return new JsonbExtractDouble(getFunctionParams(children));
     }
 
     @Override
