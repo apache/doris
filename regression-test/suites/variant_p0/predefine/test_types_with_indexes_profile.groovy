@@ -18,7 +18,7 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
-    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
 
      def load_json_data = {table_name, file_name ->
         // load the json data

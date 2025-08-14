@@ -21,7 +21,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     if (new Random().nextInt(100) < 50) {
         count = "1000"
     }
-    sql """ set global_variant_max_subcolumns_count = ${count} """
+    sql """ set default_variant_max_subcolumns_count = ${count} """
     sql """
         CREATE TABLE `test_predefine` (
             `id` bigint NOT NULL,

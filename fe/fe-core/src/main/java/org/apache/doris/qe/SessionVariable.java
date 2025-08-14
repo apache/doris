@@ -729,10 +729,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "adaptive_pipeline_task_serial_read_on_limit";
 
-    public static final String GLOBAL_VARIANT_SUBCOLUMNS_COUNT = "global_variant_max_subcolumns_count";
+    public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
 
-    public static final String GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
-                                                            "global_variant_enable_typed_paths_to_sparse";
+    public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "default_variant_enable_typed_paths_to_sparse";
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
@@ -1683,7 +1683,7 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             fuzzy = true,
             description = {
-                    "允许使用一阶段聚合来执行带有order的group_concat函数",
+                    "允许使用一阶段聚合来执行带有 order 的 group_concat 函数",
                     "Enable to use one stage aggregation to execute the group_concat function with order"
             }
     )
@@ -1917,7 +1917,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(
             name = CHECK_ORC_INIT_SARGS_SUCCESS,
-            description = {"是否检查orc init sargs是否成功。默认为 false。",
+            description = {"是否检查 orc init sargs 是否成功。默认为 false。",
                     "Whether to check whether orc init sargs is successful. "
                             + "The default value is false."},
             needForward = true)
@@ -2142,7 +2142,7 @@ public class SessionVariable implements Serializable, Writable {
     public long partitionSampleRowCount = 3_000_000_000L;
 
     @VariableMgr.VarAttr(name = FETCH_HIVE_ROW_COUNT_SYNC,
-            description = {"同步获取Hive外表行数", "Fetch Hive external table row count synchronously"})
+            description = {"同步获取 Hive 外表行数", "Fetch Hive external table row count synchronously"})
     public boolean fetchHiveRowCountSync = true;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
@@ -2308,7 +2308,7 @@ public class SessionVariable implements Serializable, Writable {
     public String detailShapePlanNodes = "";
 
     @VariableMgr.VarAttr(name = ENABLE_EXPLAIN_NONE, needForward = true, description = {
-            "执行explain命令，但不打印explain结果",
+            "执行 explain 命令，但不打印 explain 结果",
             "execute explain command and return nothing"
     })
     public boolean enableExplainNone = false;
@@ -2535,12 +2535,12 @@ public class SessionVariable implements Serializable, Writable {
     public boolean newIsIpAddressInRange = true;
 
     @VariableMgr.VarAttr(
-            name = GLOBAL_VARIANT_SUBCOLUMNS_COUNT,
+            name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
             needForward = true,
-            checker = "checkGlobalVariantMaxSubcolumnsCount",
+            checker = "checkDefaultVariantMaxSubcolumnsCount",
             fuzzy = true
     )
-    public int globalVariantMaxSubcolumnsCount = 2048;
+    public int defaultVariantMaxSubcolumnsCount = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
             checker = "checkSqlConvertorFeatures",
@@ -2583,11 +2583,11 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(
-            name = GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
     )
-    public boolean globalEnableTypedPathsToSparse = false;
+    public boolean defaultEnableTypedPathsToSparse = false;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -2636,8 +2636,8 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
-        this.globalVariantMaxSubcolumnsCount = random.nextInt(10);
-        this.globalEnableTypedPathsToSparse = random.nextBoolean();
+        this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
+        this.defaultEnableTypedPathsToSparse = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -3993,7 +3993,7 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public void checkGlobalVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+    public void checkDefaultVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
         int value = Integer.valueOf(variantMaxSubcolumnsCount);
         if (value < 0 || value > 10000) {
             throw new UnsupportedOperationException(
@@ -4971,8 +4971,8 @@ public class SessionVariable implements Serializable, Writable {
         return enableExternalTableBatchMode;
     }
 
-    public int getGlobalVariantMaxSubcolumnsCount() {
-        return globalVariantMaxSubcolumnsCount;
+    public int getDefaultVariantMaxSubcolumnsCount() {
+        return defaultVariantMaxSubcolumnsCount;
     }
 
     public boolean isEnableAddIndexForNewData() {
@@ -4983,8 +4983,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
     }
 
-    public boolean getGlobalEnableTypedPathsToSparse() {
-        return globalEnableTypedPathsToSparse;
+    public boolean getDefaultEnableTypedPathsToSparse() {
+        return defaultEnableTypedPathsToSparse;
     }
 }
 

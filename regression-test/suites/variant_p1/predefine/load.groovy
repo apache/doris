@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_predefine_type_multi_index", "p1"){
     
-    sql """ set global_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
     
     def load_json_data = {table_name, file_name ->
         // load the json data
