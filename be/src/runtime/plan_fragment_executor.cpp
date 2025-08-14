@@ -515,6 +515,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             _fragment_instance_id,
             _backend_num,
             _runtime_state.get(),
+            _query_ctx->get_load_error_url(),
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
                       std::placeholders::_2)};

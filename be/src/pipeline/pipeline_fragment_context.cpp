@@ -1000,6 +1000,7 @@ Status PipelineFragmentContext::send_report(bool done) {
              _fragment_instance_id,
              _backend_num,
              _runtime_state.get(),
+             _query_ctx->get_load_error_url(),
              [this](Status st) { return update_status(st); },
              [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
                  cancel(reason, msg);
