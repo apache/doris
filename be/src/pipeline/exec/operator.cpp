@@ -390,6 +390,7 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::
         return status;
     }
     status = get_block(state, block, eos);
+    RETURN_IF_ERROR(block->check_type_and_column());
     return status;
 }
 

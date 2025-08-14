@@ -18,16 +18,18 @@
 #include "phrase_prefix_query.h"
 
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
-PhrasePrefixQuery::PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                                     const TQueryOptions& query_options,
-                                     const io::IOContext* io_ctx)
-        : _searcher(searcher),
-          _max_expansions(query_options.inverted_index_max_expansions),
-          _phrase_query(searcher, query_options, io_ctx),
-          _prefix_query(searcher, query_options, io_ctx) {}
+PhrasePrefixQuery::PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context)
+        : _searcher(std::move(searcher)),
+          _context(std::move(context)),
+          _phrase_query(_searcher, _context),
+          _prefix_query(_searcher, _context) {
+    _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+}
 
 void PhrasePrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
@@ -60,6 +62,7 @@ void PhrasePrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
             new_query_info.term_infos[i].position = query_info.term_infos[i].position;
         }
     }
+    new_query_info.is_similarity_score = query_info.is_similarity_score;
 
     if (_term_size == 1) {
         _prefix_query.add(new_query_info);
@@ -76,4 +79,5 @@ void PhrasePrefixQuery::search(roaring::Roaring& roaring) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

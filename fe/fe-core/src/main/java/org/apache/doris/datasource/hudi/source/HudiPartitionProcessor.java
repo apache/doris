@@ -19,7 +19,9 @@ package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.datasource.ExternalTable;
 
+import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
@@ -50,9 +52,9 @@ public abstract class HudiPartitionProcessor {
                 .build();
 
         HoodieTableMetadata newTableMetadata = HoodieTableMetadata.create(
-                new HudiLocalEngineContext(tableMetaClient.getStorageConf()), tableMetaClient.getStorage(),
+                new HoodieLocalEngineContext(tableMetaClient.getStorageConf()), tableMetaClient.getStorage(),
                 metadataConfig,
-                tableMetaClient.getBasePathV2().toString(), true);
+                tableMetaClient.getBasePath().toString(), true);
 
         return newTableMetadata.getAllPartitionPaths();
     }
@@ -98,8 +100,8 @@ public abstract class HudiPartitionProcessor {
                 } else {
                     partitionValue = partitionPath;
                 }
-                // TODO: In hive, the specific characters like '=', '/' will be url encoded
-                return Collections.singletonList(partitionValue);
+                // In hive, the specific characters like '=', '/' will be url encoded
+                return Collections.singletonList(FileUtils.unescapePathName(partitionValue));
             } else {
                 // If the partition column size is not equal to the partition fragments size
                 // and the partition column size > 1, we do not know how to map the partition
@@ -119,9 +121,9 @@ public abstract class HudiPartitionProcessor {
             for (int i = 0; i < partitionFragments.length; i++) {
                 String prefix = partitionColumns.get(i) + "=";
                 if (partitionFragments[i].startsWith(prefix)) {
-                    partitionValues.add(partitionFragments[i].substring(prefix.length()));
+                    partitionValues.add(FileUtils.unescapePathName(partitionFragments[i].substring(prefix.length())));
                 } else {
-                    partitionValues.add(partitionFragments[i]);
+                    partitionValues.add(FileUtils.unescapePathName(partitionFragments[i]));
                 }
             }
             return partitionValues;

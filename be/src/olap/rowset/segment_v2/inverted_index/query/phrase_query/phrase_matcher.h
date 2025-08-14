@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/util/docid_set_iterator.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class PostingsAndFreq {
 public:
@@ -34,7 +35,7 @@ public:
     DISI _postings;
     int32_t _position = 0;
     std::vector<std::string> _terms;
-    int32_t _n_terms = 0;
+    size_t _n_terms = 0;
 };
 
 class PostingsAndPosition {
@@ -63,4 +64,5 @@ private:
     const Derived* derived() const { return static_cast<const Derived*>(this); }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

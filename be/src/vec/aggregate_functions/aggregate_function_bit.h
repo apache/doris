@@ -27,6 +27,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -45,8 +46,8 @@ struct AggregateFunctionBaseData {
 public:
     AggregateFunctionBaseData(typename PrimitiveTypeTraits<T>::CppType init_value)
             : res_bit(init_value) {}
-    void write(BufferWritable& buf) const { write_binary(res_bit, buf); }
-    void read(BufferReadable& buf) { read_binary(res_bit, buf); }
+    void write(BufferWritable& buf) const { buf.write_binary(res_bit); }
+    void read(BufferReadable& buf) { buf.read_binary(res_bit); }
     typename PrimitiveTypeTraits<T>::CppType get() const { return res_bit; }
 
 protected:
@@ -106,7 +107,9 @@ struct AggregateFunctionGroupBitXorData : public AggregateFunctionBaseData<T> {
 /// Counts bitwise operation on numbers.
 template <PrimitiveType T, typename Data>
 class AggregateFunctionBitwise final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionBitwise(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(
@@ -119,7 +122,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         const auto& column = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                          TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
@@ -128,7 +131,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -137,7 +140,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

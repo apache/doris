@@ -208,6 +208,7 @@ void process_dictionary(SchemaCloudDictionary& dict,
     }
 }
 
+// **Notice**: Do not remove this code. We need this interface until all of the BE has been upgraded to 4.0.x
 // Writes schema dictionary metadata to RowsetMetaCloudPB.
 // Schema was extended in BE side, we need to reset schema to original frontend schema and store
 // such restored schema in fdb. And also add extra dict key info to RowsetMetaCloudPB.

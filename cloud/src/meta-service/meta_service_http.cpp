@@ -75,6 +75,9 @@ extern int decrypt_instance_info(InstanceInfoPB& instance, const std::string& in
                                  MetaServiceCode& code, std::string& msg,
                                  std::shared_ptr<Transaction>& txn);
 
+extern void get_kv_range_boundaries_count(std::vector<std::string>& partition_boundaries,
+                                          std::unordered_map<std::string, size_t>& partition_count);
+
 template <typename Message>
 static google::protobuf::util::Status parse_json_message(const std::string& unresolved_path,
                                                          const std::string& body, Message* req) {
@@ -532,38 +535,8 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
         auto msg = fmt::format("failed to get boundaries, code={}", code);
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
     }
-
     std::unordered_map<std::string, size_t> partition_count;
-    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
-    for (auto&& boundary : partition_boundaries) {
-        if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
-            continue;
-        }
-
-        std::string_view user_key(boundary);
-        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
-        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-        decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
-
-        auto visitor = [](auto&& arg) -> std::string {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, std::string>) {
-                return arg;
-            } else {
-                return std::to_string(arg);
-            }
-        };
-
-        if (!out.empty()) {
-            std::string key;
-            for (size_t i = 0; i < 3 && i < out.size(); ++i) {
-                key += std::visit(visitor, std::get<0>(out[i]));
-                key += '|';
-            }
-            key.pop_back(); // omit the last '|'
-            partition_count[key]++;
-        }
-    }
+    get_kv_range_boundaries_count(partition_boundaries, partition_count);
 
     // sort ranges by count
     std::vector<std::pair<std::string, size_t>> meta_ranges;
@@ -575,7 +548,7 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
     std::sort(meta_ranges.begin(), meta_ranges.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
 
-    std::string body = fmt::format("total partitions: {}\n", partition_boundaries.size());
+    std::string body = fmt::format("total meta ranges: {}\n", partition_boundaries.size());
     for (auto&& [key, count] : meta_ranges) {
         body += fmt::format("{}: {}\n", key, count);
     }

@@ -137,12 +137,17 @@ public:
                                                                        SystemClockEpoch)
                                            .count()});
             }
-        } catch (Azure::Storage::StorageException& e) {
+        } catch (Azure::Core::RequestFailedException& e) {
             LOG_WARNING(
                     "Azure request failed because {}, http_code: {}, request_id: {}, url: {}, "
                     "prefix: {}",
                     e.Message, static_cast<int>(e.StatusCode), e.RequestId, client_->GetUrl(),
                     req_.Prefix.Value());
+            is_valid_ = false;
+            return false;
+        } catch (std::exception& e) {
+            LOG_WARNING("Azure request failed because {}, url: {}, prefix: {}", e.what(),
+                        client_->GetUrl(), req_.Prefix.Value());
             is_valid_ = false;
             return false;
         }

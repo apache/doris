@@ -86,6 +86,12 @@ struct RowStoreReadStruct {
 
 class RowIdStorageReader {
 public:
+    //external profile info key.
+    static const std::string ScannersRunningTimeProfile;
+    static const std::string InitReaderAvgTimeProfile;
+    static const std::string GetBlockAvgTimeProfile;
+    static const std::string FileReadLinesProfile;
+
     static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
@@ -107,13 +113,19 @@ private:
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms);
 
-    static Status read_batch_external_row(const PRequestBlockDesc& request_block_desc,
-                                          std::shared_ptr<IdFileMap> id_file_map,
-                                          std::vector<SlotDescriptor>& slots,
-                                          std::shared_ptr<FileMapping> first_file_mapping,
-                                          const TUniqueId& query_id,
-                                          vectorized::Block& result_block, int64_t* init_reader_ms,
-                                          int64_t* get_block_ms);
+    static Status read_batch_external_row(
+            const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
+            std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
+            std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
+            vectorized::Block& result_block, PRuntimeProfileTree* pprofile,
+            int64_t* init_reader_avg_ms, int64_t* get_block_avg_ms, size_t* scan_range_cnt);
+
+    struct ExternalFetchStatistics {
+        int64_t init_reader_ms = 0;
+        int64_t get_block_ms = 0;
+        std::string file_read_bytes;
+        std::string file_read_times;
+    };
 };
 
 template <typename Func>

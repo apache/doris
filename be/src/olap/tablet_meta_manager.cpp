@@ -29,7 +29,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/endian.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
@@ -47,6 +46,7 @@ struct ReadOptions;
 struct WriteOptions;
 } // namespace rocksdb
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 // should use tablet->generate_tablet_meta_copy() method to get a copy of current tablet meta
@@ -139,7 +139,7 @@ Status TabletMetaManager::traverse_headers(
             return true;
         }
         TTabletId tablet_id = std::stol(parts[1], nullptr, 10);
-        TSchemaHash schema_hash = std::stol(parts[2], nullptr, 10);
+        TSchemaHash schema_hash = cast_set<int32_t>(std::stol(parts[2], nullptr, 10));
         return func(tablet_id, schema_hash, value);
     };
     Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);
@@ -229,8 +229,8 @@ void NO_SANITIZE_UNDEFINED TabletMetaManager::decode_delete_bitmap_key(std::stri
                                                                        TTabletId* tablet_id,
                                                                        int64_t* version) {
     DCHECK_EQ(enc_key.size(), 20);
-    *tablet_id = to_endian<std::endian::big>(UNALIGNED_LOAD64(enc_key.data() + 4));
-    *version = to_endian<std::endian::big>(UNALIGNED_LOAD64(enc_key.data() + 12));
+    *tablet_id = to_endian<std::endian::big>(unaligned_load<uint64_t>(enc_key.data() + 4));
+    *version = to_endian<std::endian::big>(unaligned_load<uint64_t>(enc_key.data() + 12));
 }
 
 Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
@@ -243,7 +243,7 @@ Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id
     DeleteBitmapPB delete_bitmap_pb;
     for (auto& [id, bitmap] : delete_bitmap->delete_bitmap) {
         auto& rowset_id = std::get<0>(id);
-        int64_t segment_id = std::get<1>(id);
+        auto segment_id = std::get<1>(id);
         delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
         delete_bitmap_pb.add_segment_ids(segment_id);
         std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
@@ -296,4 +296,5 @@ Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabl
     return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -37,6 +37,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(partsupp { supplier nation } ) leading(partsupp { supplier nation } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

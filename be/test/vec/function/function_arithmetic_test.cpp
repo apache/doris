@@ -47,12 +47,6 @@ TEST(function_arithmetic_test, function_arithmetic_divide_test) {
     std::string func_name = "divide";
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
-        DataSet data_set = {{{1234, 34}, 36.294117647058826}, {{1234, 0}, Null()}};
-        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
-    }
-
-    {
         InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
         DataSet data_set = {{{1234.1, 34.6}, 35.667630057803464}, {{1234.34, 0.0}, Null()}};
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));

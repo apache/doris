@@ -47,13 +47,18 @@ public class Acosh extends ScalarFunction
         super("acosh", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Acosh(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Acosh withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Acosh(children.get(0));
+        return new Acosh(getFunctionParams(children));
     }
 
     @Override

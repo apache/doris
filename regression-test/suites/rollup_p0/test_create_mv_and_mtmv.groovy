@@ -41,18 +41,16 @@ suite("test_create_mv_and_mtmt") {
 
     createMV("""
         CREATE materialized VIEW ${mvName} AS
-        SELECT advertiser,
-               channel,
-               dt,
-               bitmap_union(to_bitmap(user_id))
+        SELECT advertiser as a1,
+               channel as a2,
+               dt as a3,
+               bitmap_union(to_bitmap(user_id)) as a4
         FROM ${tableName}
         GROUP BY advertiser,
                  channel,
                  dt;
 
     """)
-    // Hit sync mv when setting enable_sync_mv_cost_based_rewrite as false
-    sql "set enable_sync_mv_cost_based_rewrite=false;"
     explain {
         sql("""
                     SELECT dt,advertiser,

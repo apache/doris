@@ -67,7 +67,7 @@ public class EnableFeatureClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         switch (featureName.toUpperCase()) {
             case "BATCH_DELETE":
                 this.needSchemaChange = true;

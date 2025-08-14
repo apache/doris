@@ -17,9 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -33,9 +33,9 @@ struct CheckOverFlowTest : public testing::Test {
     }
 
     Int128 to_i128(std::string str) {
-        ReadBuffer rb = ReadBuffer(str.data(), str.size());
+        StringRef str_ref(str.data(), str.size());
         Int128 val;
-        EXPECT_TRUE(read_int_text_impl(val, rb));
+        EXPECT_TRUE(try_read_int_text(val, str_ref));
         return val;
     };
 

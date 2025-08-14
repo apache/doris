@@ -104,7 +104,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
             _impl->set_getting_const_col(true);
         }
         ColumnNumbers args;
-        RETURN_IF_ERROR(_impl->execute_runtime_fitler(context, block, result_column_id, args));
+        RETURN_IF_ERROR(_impl->execute_runtime_filter(context, block, result_column_id, args));
         if (_getting_const_col) {
             _impl->set_getting_const_col(false);
         }

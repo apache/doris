@@ -49,6 +49,12 @@ struct SyncOptions {
     int64_t query_version = -1;
 };
 
+struct RecycledRowsets {
+    RowsetId rowset_id;
+    int64_t num_segments;
+    std::vector<std::string> index_file_names;
+};
+
 class CloudTablet final : public BaseTablet {
 public:
     CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta);
@@ -70,7 +76,7 @@ public:
         return _approximate_data_size.load(std::memory_order_relaxed);
     }
 
-    const std::string& tablet_path() const override;
+    std::string tablet_path() const override;
 
     // clang-format off
     int64_t fetch_add_approximate_num_rowsets (int64_t x) { return _approximate_num_rowsets .fetch_add(x, std::memory_order_relaxed); }
@@ -252,9 +258,6 @@ public:
 
     const auto& rowset_map() const { return _rs_version_map; }
 
-    // Merge all rowset schemas within a CloudTablet
-    Status merge_rowsets_schema();
-
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -266,12 +269,7 @@ public:
     std::atomic<int64_t> remote_read_time_us = 0;
     std::atomic<int64_t> exec_compaction_time_us = 0;
 
-    // Return merged extended schema
-    TabletSchemaSPtr merged_tablet_schema() const override;
-
     void build_tablet_report_info(TTabletInfo* tablet_info);
-
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
@@ -285,6 +283,11 @@ public:
 
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
+
+    // For each given rowset not in active use, clears its file cache and returns its
+    // ID, segment count, and index file names as RecycledRowsets entries.
+    static std::vector<RecycledRowsets> recycle_cached_data(
+            const std::vector<RowsetSharedPtr>& rowsets);
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
@@ -342,9 +345,6 @@ private:
     // To avoid multiple calc delete bitmap tasks on same (txn_id, tablet_id) with different
     // signatures being executed concurrently, we use _rowset_update_lock to serialize them
     mutable std::mutex _rowset_update_lock;
-
-    // Schema will be merged from all rowsets when sync_rowsets
-    TabletSchemaSPtr _merged_tablet_schema;
 
     // unused_rowsets, [start_version, end_version]
     std::mutex _gc_mutex;

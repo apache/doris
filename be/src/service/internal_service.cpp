@@ -45,6 +45,7 @@
 #include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -132,6 +133,7 @@ class RpcController;
 } // namespace google
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 using namespace ErrorCode;
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
@@ -177,13 +179,6 @@ void offer_failed(T* response, google::protobuf::Closure* done, const FifoThread
     LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
                  << pool.get_info();
 }
-
-// this struct is used to set signal task id in the constructor and reset it in the destructor
-// thread pool will reuse pthread, so we need to clean thread local data
-struct SignalTaskIdKeeper {
-    SignalTaskIdKeeper(const PUniqueId& id) { signal::set_signal_task_id(id); }
-    ~SignalTaskIdKeeper() { signal::set_signal_task_id(PUniqueId {}); }
-};
 
 template <typename T>
 class NewHttpClosure : public ::google::protobuf::Closure {
@@ -298,7 +293,7 @@ void PInternalService::tablet_writer_open(google::protobuf::RpcController* contr
     bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
-        SignalTaskIdKeeper keeper(request->id());
+        signal::SignalTaskIdKeeper keeper(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open(*request);
         if (!st.ok()) {
@@ -346,6 +341,8 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
         st = _exec_plan_fragment_impl(request->request(), version, compact);
     } catch (const Exception& e) {
         st = e.to_status();
+    } catch (const std::exception& e) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
     } catch (...) {
         st = Status::Error(ErrorCode::INTERNAL_ERROR,
                            "_exec_plan_fragment_impl meet unknown error");
@@ -404,7 +401,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
                                         POpenLoadStreamResponse* response,
                                         google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        SignalTaskIdKeeper keeper(request->load_id());
+        signal::SignalTaskIdKeeper keeper(request->load_id());
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
@@ -484,7 +481,7 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
-            SignalTaskIdKeeper keeper(request->id());
+            signal::SignalTaskIdKeeper keeper(request->id());
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
@@ -510,7 +507,7 @@ void PInternalService::tablet_writer_cancel(google::protobuf::RpcController* con
     bool ret = _heavy_work_pool.try_offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
-        SignalTaskIdKeeper keeper(request->id());
+        signal::SignalTaskIdKeeper keeper(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->cancel(*request);
         if (!st.ok()) {
@@ -636,7 +633,7 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
                                             google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        SignalTaskIdKeeper keeper(request->finst_id());
+        signal::SignalTaskIdKeeper keeper(request->finst_id());
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
@@ -848,6 +845,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
+        io::FileReaderStats file_reader_stats;
+        io_ctx.file_reader_stats = &file_reader_stats;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -1211,8 +1210,13 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                static_cast<void>(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                                   merged_schema));
+                st = vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                      merged_schema);
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
+                    st = Status::InternalError("Failed to get least common schema: {}",
+                                               st.to_string());
+                }
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->reserve_extracted_columns();
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
@@ -1240,16 +1244,22 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    auto schema = res.value()->merged_tablet_schema();
-                    if (schema != nullptr) {
-                        tablet_schemas.push_back(schema);
-                    }
+                    // TODO(lihangyu): implement this
+                    // auto schema = res.value()->merged_tablet_schema();
+                    // if (schema != nullptr) {
+                    //     tablet_schemas.push_back(schema);
+                    // }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    static_cast<void>(vectorized::schema_util::get_least_common_schema(
-                            tablet_schemas, nullptr, merged_schema));
+                    st = vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr,
+                                                                          merged_schema);
+                    if (!st.ok()) {
+                        LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
+                        st = Status::InternalError("Failed to get least common schema: {}",
+                                                   st.to_string());
+                    }
                     merged_schema->to_schema_pb(response->mutable_merged_schema());
                     VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 }
@@ -1410,7 +1420,7 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
                                     ::doris::PMergeFilterResponse* response,
                                     ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        SignalTaskIdKeeper keeper(request->query_id());
+        signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
@@ -1428,7 +1438,7 @@ void PInternalService::send_filter_size(::google::protobuf::RpcController* contr
                                         ::doris::PSendFilterSizeResponse* response,
                                         ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
-        SignalTaskIdKeeper keeper(request->query_id());
+        signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
         Status st = _exec_env->fragment_mgr()->send_filter_size(request);
         st.to_protobuf(response->mutable_status());
@@ -1444,7 +1454,7 @@ void PInternalService::sync_filter_size(::google::protobuf::RpcController* contr
                                         ::doris::PSyncFilterSizeResponse* response,
                                         ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
-        SignalTaskIdKeeper keeper(request->query_id());
+        signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
         Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
         st.to_protobuf(response->mutable_status());
@@ -1460,7 +1470,7 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
                                       ::doris::PPublishFilterResponse* response,
                                       ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        SignalTaskIdKeeper keeper(request->query_id());
+        signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
@@ -1562,7 +1572,7 @@ void PInternalService::fold_constant_expr(google::protobuf::RpcController* contr
                                           const PConstantExprRequest* request,
                                           PConstantExprResult* response,
                                           google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _light_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TFoldConstantParams t_request;
         Status st = Status::OK();
@@ -1574,8 +1584,17 @@ void PInternalService::fold_constant_expr(google::protobuf::RpcController* contr
         if (!st.ok()) {
             LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
                          << " .and query_id_is: " << t_request.query_id;
+            st.to_protobuf(response->mutable_status());
+            return;
         }
-        st = _fold_constant_expr(request->request(), response);
+        auto fold_func = [&]() -> Status {
+            std::unique_ptr<FoldConstantExecutor> fold_executor =
+                    std::make_unique<FoldConstantExecutor>();
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                    fold_executor->fold_constant_vexpr(t_request, response));
+            return Status::OK();
+        };
+        st = fold_func();
         if (!st.ok()) {
             LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
                          << " .and query_id_is: " << t_request.query_id;
@@ -1586,19 +1605,6 @@ void PInternalService::fold_constant_expr(google::protobuf::RpcController* contr
         offer_failed(response, done, _light_work_pool);
         return;
     }
-}
-
-Status PInternalService::_fold_constant_expr(const std::string& ser_request,
-                                             PConstantExprResult* response) {
-    TFoldConstantParams t_request;
-    {
-        const uint8_t* buf = (const uint8_t*)ser_request.data();
-        uint32_t len = ser_request.size();
-        RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
-    }
-    std::unique_ptr<FoldConstantExecutor> fold_executor = std::make_unique<FoldConstantExecutor>();
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(fold_executor->fold_constant_vexpr(t_request, response));
-    return Status::OK();
 }
 
 void PInternalService::transmit_block(google::protobuf::RpcController* controller,
@@ -2077,7 +2083,7 @@ void PInternalService::multiget_data(google::protobuf::RpcController* controller
                                      const PMultiGetRequest* request, PMultiGetResponse* response,
                                      google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([request, response, done]() {
-        SignalTaskIdKeeper keeper(request->query_id());
+        signal::SignalTaskIdKeeper keeper(request->query_id());
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
@@ -2117,20 +2123,24 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
-    st = remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
-            [request, response, done]() {
-                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-                signal::set_signal_task_id(request->query_id());
-                // multi get data by rowid
-                MonotonicStopWatch watch;
-                watch.start();
-                brpc::ClosureGuard closure_guard(done);
-                response->mutable_status()->set_status_code(0);
-                Status st = RowIdStorageReader::read_by_rowids(*request, response);
-                st.to_protobuf(response->mutable_status());
-                LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
-            },
-            nullptr));
+    st = remote_scan_sched->submit_scan_task(
+            vectorized::SimplifiedScanTask(
+                    [request, response, done]() {
+                        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                        signal::set_signal_task_id(request->query_id());
+                        // multi get data by rowid
+                        MonotonicStopWatch watch;
+                        watch.start();
+                        brpc::ClosureGuard closure_guard(done);
+                        response->mutable_status()->set_status_code(0);
+                        Status st = RowIdStorageReader::read_by_rowids(*request, response);
+                        st.to_protobuf(response->mutable_status());
+                        LOG(INFO) << "multiget_data finished, cost(us):"
+                                  << watch.elapsed_time() / 1000;
+                        return true;
+                    },
+                    nullptr, nullptr),
+            fmt::format("{}-multiget_data_v2", print_id(request->query_id())));
 
     if (!st.ok()) {
         brpc::ClosureGuard closure_guard(done);
@@ -2214,6 +2224,8 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                         });
             } catch (const Exception& e) {
                 st = e.to_status();
+            } catch (const std::exception& e) {
+                st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
             } catch (...) {
                 st = Status::Error(ErrorCode::INTERNAL_ERROR,
                                    "_exec_plan_fragment_impl meet unknown error");
@@ -2318,5 +2330,5 @@ void PInternalService::abort_refresh_dictionary(google::protobuf::RpcController*
                                                                            request->version_id());
     st.to_protobuf(response->mutable_status());
 }
-
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

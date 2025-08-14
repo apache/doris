@@ -50,13 +50,18 @@ public class EsQuery extends ScalarFunction
         super("esquery", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private EsQuery(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public EsQuery withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new EsQuery(children.get(0), children.get(1));
+        return new EsQuery(getFunctionParams(children));
     }
 
     @Override

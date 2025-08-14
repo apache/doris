@@ -48,13 +48,18 @@ public class ExplodeJsonArrayInt extends TableGeneratingFunction implements Unar
         super("explode_json_array_int", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonArrayInt(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonArrayInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonArrayInt(children.get(0));
+        return new ExplodeJsonArrayInt(getFunctionParams(children));
     }
 
     @Override

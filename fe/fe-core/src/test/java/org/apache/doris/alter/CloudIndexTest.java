@@ -18,7 +18,6 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DataSortInfo;
@@ -89,7 +88,6 @@ public class CloudIndexTest {
     private static EditLog testEditLog;
     private ConnectContext ctx;
 
-    private static Analyzer analyzer;
     private static Database db;
     private static OlapTable olapTable;
     private static CreateIndexClause createIndexClause;
@@ -322,8 +320,6 @@ public class CloudIndexTest {
             }
         };
 
-        analyzer = new Analyzer(masterEnv, ctx);
-
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         // Mock addCloudCluster to avoid EditLog issues
         new MockUp<CloudSystemInfoService>() {
@@ -389,12 +385,12 @@ public class CloudIndexTest {
 
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
+                IndexType.NGRAM_BF,
                 properties, "ngram bf index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         ctx.getSessionVariable().setEnableAddIndexForNewData(true);
@@ -439,12 +435,12 @@ public class CloudIndexTest {
 
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
-                org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
+                IndexType.NGRAM_BF,
                 properties, "ngram bf index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         // Set session variable to false (default)
@@ -507,7 +503,7 @@ public class CloudIndexTest {
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         ctx.getSessionVariable().setEnableAddIndexForNewData(false);
@@ -569,7 +565,7 @@ public class CloudIndexTest {
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         // Test with enable_add_index_for_new_data = true, should use lightweight mode
@@ -621,7 +617,7 @@ public class CloudIndexTest {
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
-        createIndexClause.analyze(analyzer);
+        createIndexClause.analyze();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);

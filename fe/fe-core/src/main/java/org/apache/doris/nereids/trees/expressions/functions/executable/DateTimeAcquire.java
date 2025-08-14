@@ -39,7 +39,7 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "now")
     public static Expression now() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()), 0);
     }
 
     @ExecFunction(name = "now")
@@ -53,7 +53,7 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "current_timestamp")
     public static Expression currentTimestamp() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()), 0);
     }
 
     @ExecFunction(name = "current_timestamp")
@@ -66,12 +66,12 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "localtime")
     public static Expression localTime() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()), 0);
     }
 
     @ExecFunction(name = "localtimestamp")
     public static Expression localTimestamp() {
-        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()), 0);
     }
 
     /**

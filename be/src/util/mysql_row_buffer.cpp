@@ -30,11 +30,11 @@
 
 #include "common/logging.h"
 #include "date_func.h"
-#include "gutil/strings/numbers.h"
 #include "olap/olap_common.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
+#include "util/to_string.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
@@ -170,7 +170,7 @@ char* add_int(T data, char* pos, bool dynamic_mode) {
 }
 
 static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
-    int length = LargeIntValue::to_buffer(data, pos + !dynamic_mode);
+    auto length = LargeIntValue::to_buffer(data, pos + !dynamic_mode);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
@@ -180,19 +180,9 @@ static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
 template <typename T>
 char* add_float(T data, char* pos, bool dynamic_mode) {
     int length = 0;
-    if constexpr (std::is_same_v<T, float>) {
-        length = FastFloatToBuffer(data, pos + !dynamic_mode);
-    } else if constexpr (std::is_same_v<T, double>) {
-        length = FastDoubleToBuffer(data, pos + !dynamic_mode);
+    if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
+        length = fast_to_buffer(data, pos + !dynamic_mode);
     }
-    if (!dynamic_mode) {
-        int1store(pos++, length);
-    }
-    return pos + length;
-}
-
-static char* add_time(double data, char* pos, bool dynamic_mode) {
-    int length = time_to_buffer_from_double(data, pos + !dynamic_mode);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
@@ -424,19 +414,6 @@ static int encode_binary_timev2(char* buff, double time, int scale) {
     }
 
     return pos; // Return total bytes written to buffer
-}
-
-template <bool is_binary_format>
-int MysqlRowBuffer<is_binary_format>::push_time(double data) {
-    if (is_binary_format && !_dynamic_mode) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Not supported time type for binary protocol");
-    }
-    // 1 for string trail, 1 for length, other for time str
-    reserve(2 + MAX_TIME_WIDTH);
-
-    _pos = add_time(data, _pos, _dynamic_mode);
-    return 0;
 }
 
 template <bool is_binary_format>

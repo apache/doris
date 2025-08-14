@@ -18,10 +18,8 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJobV2.JobState;
-import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.CatalogTestUtil;
@@ -83,7 +81,6 @@ public class RollupJobV2Test {
     private static Env slaveEnv;
 
     private static String transactionSource = "localfe";
-    private static Analyzer analyzer;
     private static AddRollupClause clause;
     private static AddRollupClause clause2;
 
@@ -106,14 +103,13 @@ public class RollupJobV2Test {
 
         slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         clause = new AddRollupClause(CatalogTestUtil.testRollupIndex2, Lists.newArrayList("k1", "v"), null,
                 CatalogTestUtil.testIndex1, null);
-        clause.analyze(analyzer);
+        clause.analyze();
 
         clause2 = new AddRollupClause(CatalogTestUtil.testRollupIndex3, Lists.newArrayList("k1", "v"), null,
                 CatalogTestUtil.testIndex1, null);
-        clause2.analyze(analyzer);
+        clause2.analyze();
 
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();

@@ -120,13 +120,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (value.compareTo(LARGE_INT_MIN) < 0 || value.compareTo(LARGE_INT_MAX) > 0) {
-            throw new AnalysisException("Number Overflow. literal: " + value);
-        }
-    }
-
-    @Override
     public boolean isMinValue() {
         return this.value.compareTo(LARGE_INT_MIN) == 0;
     }
@@ -238,11 +231,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
             }
         }
         return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
-    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
-        value = new BigInteger(Long.toUnsignedString(data.getLong()));
     }
 
     @Override

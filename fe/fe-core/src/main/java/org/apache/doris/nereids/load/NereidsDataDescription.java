@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.TableName;
@@ -47,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -57,6 +61,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -185,6 +190,60 @@ public class NereidsDataDescription {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
                 fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
                 mergeType, deleteCondition, sequenceColName, properties);
+    }
+
+    /**
+     * full param constructor
+     */
+    public NereidsDataDescription(String tableName,
+                                  PartitionNames partitionNames,
+                                  List<String> filePaths,
+                                  List<String> columns,
+                                  Separator columnSeparator,
+                                  Separator lineDelimiter,
+                                  String fileFormat,
+                                  String compressType,
+                                  String srcTableName,
+                                  List<String> columnsFromPath,
+                                  boolean isNegative,
+                                  List<Expression> columnMappingList,
+                                  Expression fileFilterExpr,
+                                  Expression whereExpr,
+                                  LoadTask.MergeType mergeType,
+                                  Expression deleteCondition,
+                                  String sequenceColName,
+                                  Map<String, String> properties) {
+        this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.filePaths = filePaths;
+        this.fileFieldNames = columns;
+        this.columnsFromPath = columnsFromPath;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
+        this.whereExpr = whereExpr;
+        this.srcTableName = srcTableName;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition;
+        this.sequenceCol = sequenceColName;
+        this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
     }
 
     /**
@@ -998,7 +1057,7 @@ public class NereidsDataDescription {
         analyzeFilePaths();
 
         if (partitionNames != null) {
-            partitionNames.analyze(null);
+            partitionNames.analyze();
         }
 
         analyzeColumns();
@@ -1096,5 +1155,54 @@ public class NereidsDataDescription {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    /**
+     * this method can convert NereidsDataDescription to DataDescription
+     */
+    public DataDescription toDataDescription(ConnectContext ctx) throws AnalysisException {
+        // we should get all member variables from NereidsDataDescription object,
+        // then set them to DataDescription object
+        List<Expr> legacyColumnMappingList = new ArrayList<>();
+        if (this.columnMappingList != null && !this.columnMappingList.isEmpty()) {
+            for (Expression expression : this.columnMappingList) {
+                if (expression != null) {
+                    legacyColumnMappingList.add(PlanUtils.translateToLegacyExpr(expression, null, ctx));
+                }
+            }
+        }
+
+        Expr legacyPrecedingFilterExpr = null;
+        if (this.precedingFilterExpr != null) {
+            legacyPrecedingFilterExpr = PlanUtils.translateToLegacyExpr(this.precedingFilterExpr, null, ctx);
+        }
+        Expr legacyWhere = null;
+        if (this.whereExpr != null) {
+            legacyWhere = PlanUtils.translateToLegacyExpr(this.whereExpr, null, ctx);
+        }
+        Expr legacyDeleteCondition = null;
+        if (this.deleteCondition != null) {
+            legacyDeleteCondition = PlanUtils.translateToLegacyExpr(this.deleteCondition, null, ctx);
+        }
+        Separator columnSeparator = analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR) == null
+                ? null : new Separator(analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR));
+        Separator lineDelimiter = analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER) == null
+                ? null : new Separator(analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER));
+
+        // first, we give an empty parsedColumnExprList
+        List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
+        DataDescription dataDescription = new DataDescription(
+                this.tableName, this.partitionNames, this.filePaths, this.fileFieldNames,
+                columnSeparator, lineDelimiter, analysisMap.get(FileFormatProperties.PROP_FORMAT),
+                analysisMap.get(FileFormatProperties.PROP_COMPRESS_TYPE), this.columnsFromPath, this.isNegative,
+                legacyColumnMappingList, legacyPrecedingFilterExpr, legacyWhere, this.mergeType, legacyDeleteCondition,
+                this.sequenceCol, this.properties, this.isHadoopLoad, this.dbName, this.srcTableName,
+                parsedColumnExprList, this.columnToHadoopFunction, this.uniquekeyUpdateMode, this.clientLocal,
+                this.fileSize, this.columnDef, this.backendId, this.isMysqlLoad, this.ignoreCsvRedundantCol,
+                this.fileFormatProperties, this.analysisMap);
+        // then the dataDescription object should do analyze method to get parsedColumnExprList
+        dataDescription.analyzeColumns();
+        dataDescription.analyzeMultiLoadColumns();
+        return dataDescription;
     }
 }

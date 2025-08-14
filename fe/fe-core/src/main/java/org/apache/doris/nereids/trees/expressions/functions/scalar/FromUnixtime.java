@@ -61,18 +61,18 @@ public class FromUnixtime extends ScalarFunction
         super("from_unixtime", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FromUnixtime(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public FromUnixtime withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1
-                || children.size() == 2);
-        if (children.size() == 1) {
-            return new FromUnixtime(children.get(0));
-        } else {
-            return new FromUnixtime(children.get(0), children.get(1));
-        }
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new FromUnixtime(getFunctionParams(children));
     }
 
     @Override

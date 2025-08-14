@@ -18,15 +18,14 @@
 #include "IKSegmenter.h"
 
 namespace doris::segment_v2 {
-
-constexpr size_t DEFAULT_MEMORY_POOL_SIZE = 512;
+#include "common/compile_check_begin.h"
 
 IKSegmenter::IKSegmenter(std::shared_ptr<Configuration> config)
-        : pool_(DEFAULT_MEMORY_POOL_SIZE),
+        : arena_(),
           config_(config),
-          context_(std::make_unique<AnalyzeContext>(pool_, config_)),
+          context_(std::make_unique<AnalyzeContext>(arena_, config_)),
           segmenters_(loadSegmenters()),
-          arbitrator_(IKArbitrator(pool_)) {}
+          arbitrator_(IKArbitrator(arena_)) {}
 
 std::vector<std::unique_ptr<ISegmenter>> IKSegmenter::loadSegmenters() {
     std::vector<std::unique_ptr<ISegmenter>> segmenters;
@@ -40,7 +39,7 @@ std::vector<std::unique_ptr<ISegmenter>> IKSegmenter::loadSegmenters() {
 bool IKSegmenter::next(Lexeme& lexeme) {
     while (!context_->getNextLexeme(lexeme)) {
         // Read data from the reader and fill the buffer
-        int available = context_->fillBuffer(input_);
+        auto available = static_cast<int32_t>(context_->fillBuffer(input_));
         if (available <= 0) {
             context_->reset();
             return false;
@@ -62,6 +61,7 @@ bool IKSegmenter::next(Lexeme& lexeme) {
         arbitrator_.process(*context_, config_->isUseSmart());
         context_->outputToResult();
         context_->markBufferOffset();
+        arena_.clear();
     }
     return true;
 }
@@ -74,7 +74,9 @@ void IKSegmenter::reset(lucene::util::Reader* newInput) {
     }
 }
 
-int IKSegmenter::getLastUselessCharNum() {
+size_t IKSegmenter::getLastUselessCharNum() {
     return context_->getLastUselessCharNum();
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

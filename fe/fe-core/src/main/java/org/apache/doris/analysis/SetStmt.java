@@ -57,12 +57,12 @@ public class SetStmt extends StatementBase implements NotFallbackInParser {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (setVars == null || setVars.isEmpty()) {
             throw new AnalysisException("Empty set statement.");
         }
         for (SetVar var : setVars) {
-            var.analyze(analyzer);
+            var.analyze();
         }
     }
 

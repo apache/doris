@@ -45,6 +45,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <type_traits>
 
@@ -171,10 +172,6 @@ private:
     friend class std::numeric_limits<integer<Bits, signed>>;
     friend class std::numeric_limits<integer<Bits, unsigned>>;
 };
-
-using UInt128 = integer<128, unsigned>;
-using Int256 = integer<256, signed>;
-using UInt256 = integer<256, unsigned>;
 
 template <typename T>
 static constexpr bool ArithmeticConcept() noexcept;

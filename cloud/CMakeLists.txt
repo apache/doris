@@ -201,11 +201,7 @@ endif()
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -ggdb -Wno-unused-local-typedefs")
-
-if (USE_DWARF)
-    set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -gdwarf-5")
-endif()
+set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -ggdb -Wno-unused-local-typedefs -gdwarf-5")
 
 # For CMAKE_BUILD_TYPE=Debug
 set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
@@ -532,6 +528,9 @@ install(FILES
 
 install(FILES
     ${BASE_DIR}/conf/doris_cloud.conf
+    ${BASE_DIR}/conf/asan_suppr.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
+    ${BASE_DIR}/conf/ubsan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 install(FILES

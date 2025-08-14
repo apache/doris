@@ -21,13 +21,10 @@
 #include "vec/aggregate_functions/aggregate_function_foreach.h"
 
 #include <memory>
-#include <ostream>
 
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -56,7 +53,8 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
                     "name {} , args {}",
                     nested_function_name, types_name(types));
         }
-        return creator_without_type::create<AggregateFunctionForEach>(types, true, nested_function);
+        return creator_without_type::create<AggregateFunctionForEach>(types, true, attr,
+                                                                      nested_function);
     };
     factory.register_foreach_function_combinator(
             creator, AggregateFunctionForEach::AGG_FOREACH_SUFFIX, true);

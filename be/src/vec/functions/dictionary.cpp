@@ -21,8 +21,10 @@
 
 #include "runtime/thread_context.h"
 #include "vec/columns/column.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 
 namespace doris::vectorized {
 

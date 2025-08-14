@@ -219,7 +219,7 @@ public class MaterializedViewHandlerTest {
         List<MVColumnItem> list = Lists.newArrayList(mvColumnItem);
         new Expectations() {
             {
-                olapTable.getBaseColumn(CreateMaterializedViewStmt.mvColumnBuilder(columnName1));
+                olapTable.getBaseColumn(columnName1);
                 result = null;
                 olapTable.hasMaterializedIndex(mvName);
                 result = false;
@@ -240,7 +240,7 @@ public class MaterializedViewHandlerTest {
                     createMaterializedViewStmt, olapTable);
             Assert.assertEquals(1, mvColumns.size());
             Column newMVColumn = mvColumns.get(0);
-            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), newMVColumn.getName());
+            Assert.assertEquals(columnName1, newMVColumn.getName());
             Assert.assertTrue(newMVColumn.isKey());
             Assert.assertEquals(null, newMVColumn.getAggregationType());
             Assert.assertEquals(false, newMVColumn.isAggregationTypeImplicit());

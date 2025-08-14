@@ -101,7 +101,7 @@ public class AzureProperties extends StorageProperties {
     private static final String AZURE_ENDPOINT_SUFFIX = ".blob.core.windows.net";
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         //check endpoint
         if (!endpoint.endsWith(AZURE_ENDPOINT_SUFFIX)) {
@@ -167,5 +167,12 @@ public class AzureProperties extends StorageProperties {
     @Override
     public String getStorageName() {
         return "Azure";
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        // Azure does not require any special Hadoop configuration for S3 compatibility.
+        // The properties are already set in the getBackendConfigProperties method.
+        // This method will be removed in the future when FileIO is fully implemented.
     }
 }

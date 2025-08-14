@@ -52,7 +52,7 @@ public class SetUserPropertyVar extends SetVar {
         return value;
     }
 
-    public void analyze(Analyzer analyzer, boolean isSelf) throws AnalysisException {
+    public void analyze(boolean isSelf) throws AnalysisException {
         if (Strings.isNullOrEmpty(key)) {
             throw new AnalysisException("User property key is null");
         }
@@ -61,10 +61,10 @@ public class SetUserPropertyVar extends SetVar {
             throw new AnalysisException("User property value is null");
         }
 
-        checkAccess(analyzer, isSelf);
+        checkAccess(isSelf);
     }
 
-    private void checkAccess(Analyzer analyzer, boolean isSelf) throws AnalysisException {
+    private void checkAccess(boolean isSelf) throws AnalysisException {
         for (Pattern advPattern : UserProperty.ADVANCED_PROPERTIES) {
             Matcher matcher = advPattern.matcher(key);
             if (matcher.find()) {

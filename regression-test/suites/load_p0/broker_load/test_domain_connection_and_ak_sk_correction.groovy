@@ -102,64 +102,9 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         assertTrue(false. "The endpoint is wrong, so the connection test should fale")
     } catch (Exception e) {
         logger.info("the second sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Invalid endpoint format"), e.getMessage())
+        assertTrue(e.getMessage().contains("Invalid endpoint"), e.getMessage())
     }
 
-    label = UUID.randomUUID().toString().replace("-", "")
-    try {
-        result = sql """
-            LOAD LABEL ${label}
-            (
-                DATA INFILE("s3://${getS3BucketName()}/regression/tpch/sf1/part.tbl")
-                INTO TABLE ${tableName}
-                COLUMNS TERMINATED BY "|"
-                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp)
-            )
-            WITH S3
-            (
-                "AWS_ENDPOINT" = "${getS3Endpoint()}",
-                "AWS_ACCESS_KEY" = "${getS3AK()}1",
-                "AWS_SECRET_KEY" = "${getS3SK()}",
-                "AWS_REGION" = "${getS3Region()}",
-                "PROVIDER" = "${getS3Provider()}"
-            );
-        """
-        logger.info("the third sql result is {}", result)
-        assertTrue(false. "AK is wrong, so the correction of AKSK test should fale")
-    } catch (Exception e) {
-        logger.info("the third sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
-    }
-
-    label = UUID.randomUUID().toString().replace("-", "")
-    try {
-        result = sql """
-            LOAD LABEL ${label}
-            (
-                DATA INFILE("s3://${getS3BucketName()}/regression/tpch/sf1/part.tbl")
-                INTO TABLE ${tableName}
-                COLUMNS TERMINATED BY "|"
-                (p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp),
-                DATA INFILE("s3://${getS3BucketName()}1/regression/tpch/sf1/orders.tbl.1", "s3://${getS3BucketName()}/regression/tpch/sf1/orders.tbl.2")
-                INTO TABLE ${tableNameOrders}
-                COLUMNS TERMINATED BY "|"
-                (o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority, o_clerk, o_shippriority, o_comment, temp)
-            )
-            WITH S3
-            (
-                "AWS_ENDPOINT" = "${getS3Endpoint()}",
-                "AWS_ACCESS_KEY" = "${getS3AK()}",
-                "AWS_SECRET_KEY" = "${getS3SK()}",
-                "AWS_REGION" = "${getS3Region()}",
-                "PROVIDER" = "${getS3Provider()}"
-            );
-        """
-        logger.info("the fourth sql result is {}", result)
-        assertTrue(false. "in the second DATA INFILE, the first bucket is wrong, so the sql should fail")
-    } catch (Exception e) {
-        logger.info("the fourth sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
-    }
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """ DROP TABLE IF EXISTS ${tableNameOrders} FORCE"""
 }

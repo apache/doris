@@ -39,6 +39,11 @@ public class Grouping extends GroupingScalarFunction implements UnaryExpression,
         super("Grouping", ImmutableList.of(child));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Grouping(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         // any argument type
@@ -61,6 +66,6 @@ public class Grouping extends GroupingScalarFunction implements UnaryExpression,
     @Override
     public Grouping withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Grouping(children.get(0));
+        return new Grouping(getFunctionParams(children));
     }
 }

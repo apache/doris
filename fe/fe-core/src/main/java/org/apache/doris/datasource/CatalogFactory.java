@@ -17,10 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.RefreshCatalogStmt;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
@@ -49,22 +45,6 @@ public class CatalogFactory {
     private static final Logger LOG = LogManager.getLogger(CatalogFactory.class);
 
     /**
-     * Convert the sql statement into catalog log.
-     */
-    public static CatalogLog createCatalogLog(long catalogId, StatementBase stmt) {
-        CatalogLog log = new CatalogLog();
-        if (stmt instanceof DropCatalogStmt) {
-            log.setCatalogId(catalogId);
-        } else if (stmt instanceof RefreshCatalogStmt) {
-            log.setCatalogId(catalogId);
-            log.setInvalidCache(((RefreshCatalogStmt) stmt).isInvalidCache());
-        } else {
-            throw new RuntimeException("Unknown stmt for catalog manager " + stmt.getClass().getSimpleName());
-        }
-        return log;
-    }
-
-    /**
      * create the catalog instance from catalog log.
      */
     public static CatalogIf createFromLog(CatalogLog log) throws DdlException {
@@ -79,15 +59,6 @@ public class CatalogFactory {
             throws DdlException {
         return createCatalog(catalogId, cmd.getCatalogName(), cmd.getResource(),
                 cmd.getComment(), cmd.getProperties(), false);
-    }
-
-    /**
-     * create the catalog instance from creating statement.
-     */
-    public static CatalogIf createFromStmt(long catalogId, CreateCatalogStmt stmt)
-            throws DdlException {
-        return createCatalog(catalogId, stmt.getCatalogName(), stmt.getResource(),
-                stmt.getComment(), stmt.getProperties(), false);
     }
 
     private static CatalogIf createCatalog(long catalogId, String name, String resource, String comment,

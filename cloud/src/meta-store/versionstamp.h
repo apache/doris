@@ -18,11 +18,14 @@
 #pragma once
 
 #include <byteswap.h>
+#include <fmt/format.h>
 
 #include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <string>
 
 namespace doris::cloud {
 
@@ -55,12 +58,11 @@ public:
             order = byteswap16(order);
         }
 
-        // Copy the big-endian version and order into the data array
         for (size_t i = 0; i < 8; ++i) {
-            data_[i] = (version >> ((7 - i) * 8)) & 0xff;
+            data_[i] = static_cast<uint8_t>(version >> (i * 8));
         }
         for (size_t i = 0; i < 2; ++i) {
-            data_[8 + i] = (order >> ((1 - i) * 8)) & 0xff;
+            data_[8 + i] = static_cast<uint8_t>(order >> (i * 8));
         }
     }
     constexpr Versionstamp(uint64_t version) : Versionstamp(version, 0) {}
@@ -83,6 +85,32 @@ public:
         return {{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}};
     }
 
+    constexpr static Versionstamp next(Versionstamp v) {
+        if (v == max()) {
+            return v; // If it's already the maximum, return it as is
+        }
+
+        uint16_t new_order = v.order() + 1;
+        if (new_order == 0) {
+            // If the order wraps around, increment the version
+            return Versionstamp(v.version() + 1, new_order);
+        }
+        return Versionstamp(v.version(), new_order);
+    }
+
+    constexpr static Versionstamp prev(Versionstamp v) {
+        if (v == min()) {
+            return v; // If it's already the minimum, return it as is
+        }
+
+        uint16_t new_order = v.order() - 1;
+        if (new_order == std::numeric_limits<uint16_t>::max()) {
+            // If the order wraps around, decrement the version
+            return Versionstamp(v.version() - 1, new_order);
+        }
+        return Versionstamp(v.version(), new_order);
+    }
+
     constexpr std::strong_ordering operator<=>(const Versionstamp& other) const {
         return data_ <=> other.data_;
     }
@@ -93,10 +121,9 @@ public:
 
     constexpr uint64_t version() const {
         // The first 8 bytes represent the version in big-endian order
-        uint64_t version = 0;
-        for (size_t i = 0; i < 8; ++i) {
-            version |= static_cast<uint64_t>(data_[i]) << ((7 - i) * 8);
-        }
+        uint8_t data[8];
+        std::copy(data_.begin(), data_.begin() + 8, data);
+        uint64_t version = std::bit_cast<uint64_t>(data);
         if constexpr (std::endian::native == std::endian::little) {
             // If the native endianness is little-endian, we need to convert to big-endian
             version = byteswap64(version);
@@ -106,14 +133,22 @@ public:
 
     constexpr uint16_t order() const {
         // The last 2 bytes represent the order in big-endian order
-        uint16_t order = 0;
-        for (size_t i = 0; i < 2; ++i) {
-            order |= static_cast<uint16_t>(data_[8 + i]) << ((1 - i) * 8);
-        }
+        uint8_t data[2];
+        std::copy(data_.begin() + 8, data_.end(), data);
+        uint16_t order = std::bit_cast<uint16_t>(data);
         if constexpr (std::endian::native == std::endian::little) {
             order = byteswap16(order);
         }
         return order;
+    }
+
+    std::string to_string() const {
+        std::string result;
+        result.reserve(21); // 10 bytes * 2 hex digits + 1 for null terminator
+        for (const auto& byte : data_) {
+            result += fmt::format("{:02x}", byte);
+        }
+        return result;
     }
 
 private:

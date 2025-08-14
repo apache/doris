@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.GroupConcatContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -62,6 +63,20 @@ public class LogicalPlanBuilderForSyncMv extends LogicalPlanBuilder {
                     .withIndexInSqlString(Optional.of(new UnboundFunction.FunctionIndexInSql(
                             ctx.functionIdentifier().functionNameIdentifier().start.getStartIndex(),
                             ctx.functionIdentifier().functionNameIdentifier().stop.getStopIndex(),
+                            ctx.stop.getStopIndex())));
+        } else {
+            return expression;
+        }
+    }
+
+    @Override
+    public Expression visitGroupConcat(GroupConcatContext ctx) {
+        Expression expression = super.visitGroupConcat(ctx);
+        if (expression instanceof UnboundFunction) {
+            return ((UnboundFunction) expression)
+                    .withIndexInSqlString(Optional.of(new UnboundFunction.FunctionIndexInSql(
+                            ctx.GROUP_CONCAT().getSymbol().getStartIndex(),
+                            ctx.GROUP_CONCAT().getSymbol().getStopIndex(),
                             ctx.stop.getStopIndex())));
         } else {
             return expression;

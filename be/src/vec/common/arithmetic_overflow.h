@@ -20,7 +20,7 @@
 
 #pragma once
 
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 namespace common {
 template <typename T>
 inline bool add_overflow(T x, T y, T& res) {

@@ -74,6 +74,7 @@ public class AggScalarSubQueryToWindowFunctionTest extends TPCHTestBase implemen
 
     @Test
     public void testRuleOnTPCHTest() {
+        connectContext.getSessionVariable().feDebug = false;
         check(TPCHUtils.Q2);
         check(TPCHUtils.Q17);
     }

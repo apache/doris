@@ -28,7 +28,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[store]
 
 Hint log:
-Used: leading(store_sales { store_returns d2 } broadcast d1 store ) 
-UnUsed: 
+Used: leading(store_sales { store_returns d2 } broadcast d1 store )
+UnUsed:
 SyntaxError:
 

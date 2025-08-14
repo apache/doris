@@ -86,7 +86,7 @@ Status IndexedColumnWriter::init() {
 Status IndexedColumnWriter::add(const void* value) {
     if (_options.write_value_index && _data_page_builder->count() == 0) {
         // remember page's first value because it's used to build value index
-        _type_info->deep_copy(_first_value.data(), value, &_arena);
+        _type_info->deep_copy(_first_value.data(), value, _arena);
     }
     size_t num_to_write = 1;
     RETURN_IF_ERROR(

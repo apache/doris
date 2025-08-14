@@ -93,22 +93,25 @@ public class InitMaterializationContextHook implements PlannerHook {
                     cascadesContext.getConnectContext().getQueryIdentifier());
             return;
         }
+        if (cascadesContext.getStatementContext().isShortCircuitQuery()) {
+            LOG.debug("MaterializationContext init return because isShortCircuitQuery, current queryId is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
+            return;
+        }
         Set<TableIf> collectedTables = Sets.newHashSet(cascadesContext.getStatementContext().getTables().values());
         if (collectedTables.isEmpty()) {
             return;
         }
         // Create sync materialization context
-        if (cascadesContext.getConnectContext().getSessionVariable()
-                .isEnableSyncMvCostBasedRewrite()) {
-            for (TableIf tableIf : collectedTables) {
-                if (tableIf instanceof OlapTable) {
-                    for (MaterializationContext context : createSyncMvContexts(
-                            (OlapTable) tableIf, cascadesContext)) {
-                        cascadesContext.addMaterializationContext(context);
-                    }
+        for (TableIf tableIf : collectedTables) {
+            if (tableIf instanceof OlapTable) {
+                for (MaterializationContext context : createSyncMvContexts(
+                        (OlapTable) tableIf, cascadesContext)) {
+                    cascadesContext.addMaterializationContext(context);
                 }
             }
         }
+
         // Create async materialization context
         for (MaterializationContext context : createAsyncMaterializationContext(cascadesContext,
                 collectedTables)) {

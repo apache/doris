@@ -131,8 +131,7 @@ public:
 
     Status create_index_file_writer(uint32_t segment_id, IndexFileWriterPtr* writer) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_schema) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush() override;
 
@@ -194,8 +193,14 @@ public:
         return this->_idx_files.get_file_writers();
     }
 
+    CalcDeleteBitmapToken* calc_delete_bitmap_token() { return _calc_delete_bitmap_token.get(); }
+
+    CalcDeleteBitmapTask* calc_delete_bitmap_task(int32_t segment_id) {
+        DCHECK(_context.mow_context != nullptr);
+        return _context.mow_context->get_calc_dbm_task(segment_id);
+    }
+
 private:
-    void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
@@ -254,7 +259,6 @@ protected:
 
     fmt::memory_buffer vlog_buffer;
 
-    std::shared_ptr<MowContext> _mow_context;
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
 
     int64_t _delete_bitmap_ns = 0;
@@ -274,8 +278,7 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_schema) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,

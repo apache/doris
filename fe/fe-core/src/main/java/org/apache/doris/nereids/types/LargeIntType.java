@@ -31,8 +31,8 @@ public class LargeIntType extends IntegralType {
     public static final LargeIntType UNSIGNED = new LargeIntType("unsigned");
 
     public static final BigInteger MAX_VALUE = new BigInteger("170141183460469231731687303715884105727");
-
     public static final BigInteger MIN_VALUE = new BigInteger("-170141183460469231731687303715884105728");
+    public static final int RANGE = 39; // The maximum number of digits that LargeInteger can represent.
 
     private static final int WIDTH = 16;
 

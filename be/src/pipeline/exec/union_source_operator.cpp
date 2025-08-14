@@ -28,6 +28,7 @@
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 
 namespace doris {
 #include "common/compile_check_begin.h"

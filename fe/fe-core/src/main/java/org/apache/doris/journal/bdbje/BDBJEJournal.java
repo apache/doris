@@ -146,10 +146,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                     DatabaseEntry theData = new DatabaseEntry(entity.getBinaryData());
                     currentJournalDB.put(txn, theKey, theData);  // Put with overwrite, it always success
                     dataSize += theData.getSize();
-                    if (i == 0) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("opCode = {}, journal size = {}", entity.getOpCode(), theData.getSize());
-                        }
+                    if (i == 0 && LOG.isDebugEnabled()) {
+                        LOG.debug("opCode = {}, journal size = {}, batchNum = {}", entity.getOpCode(),
+                                theData.getSize(), entitySize);
                     }
                 }
 
@@ -211,6 +210,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 if (watch.getTime() > 100000) {  // 100ms
                     LOG.warn("write bdb is too slow, cost {}ms, the first journal id, batch size {}, data size{}",
                             watch.getTime(), firstId, entitySize, dataSize);
+                }
+                if (MetricRepo.isInit) {
+                    MetricRepo.HISTO_JOURNAL_WRITE_LATENCY.update(watch.getTime());
                 }
             }
         }

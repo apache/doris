@@ -66,7 +66,7 @@ public class AliyunDLFProperties extends MetastoreProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         // Other properties that start with "dlf." will be saved in otherDlfProps,
         // and passed to the DLF client.

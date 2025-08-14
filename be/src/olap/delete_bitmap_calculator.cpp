@@ -17,12 +17,15 @@
 
 #include "olap/delete_bitmap_calculator.h"
 
+#include <cstdint>
+
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "olap/primary_key_index.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 Status MergeIndexDeleteBitmapCalculatorContext::get_current_key(Slice& slice) {
     if (_cur_row_id >= _num_rows) {
         return Status::EndOfFile("Reach the end of file");
@@ -51,7 +54,7 @@ Status MergeIndexDeleteBitmapCalculatorContext::seek_at_or_after(Slice const& ke
         return Status::EndOfFile("Reach the end of file");
     }
     RETURN_IF_ERROR(st);
-    auto current_ordinal = _iter->get_current_ordinal();
+    auto current_ordinal = cast_set<uint32_t>(_iter->get_current_ordinal());
     DCHECK(current_ordinal > _cur_row_id)
             << fmt::format("current_ordinal: {} should be greater than _cur_row_id: {}",
                            current_ordinal, _cur_row_id);
@@ -67,7 +70,7 @@ Status MergeIndexDeleteBitmapCalculatorContext::seek_at_or_after(Slice const& ke
     return _next_batch(current_ordinal);
 }
 
-Status MergeIndexDeleteBitmapCalculatorContext::_next_batch(size_t row_id) {
+Status MergeIndexDeleteBitmapCalculatorContext::_next_batch(uint32_t row_id) {
     // _iter should be seeked before calling this function
     DCHECK(row_id < _num_rows) << fmt::format("row_id: {} should be less than _num_rows: {}",
                                               row_id, _num_rows);
@@ -226,5 +229,5 @@ Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bi
     });
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

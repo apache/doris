@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <string>
 
+#include "common/cast_set.h"
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
@@ -33,6 +34,7 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 template <typename T>
 class ColumnStr;
@@ -60,7 +62,9 @@ using DataTypeInt64 = DataTypeNumber<TYPE_BIGINT>;
 using DataTypeInt128 = DataTypeNumber<TYPE_LARGEINT>;
 using DataTypeFloat32 = DataTypeNumber<TYPE_FLOAT>;
 using DataTypeFloat64 = DataTypeNumber<TYPE_DOUBLE>;
+using DataTypeUInt8 = DataTypeNumber<TYPE_BOOLEAN>;
 using DataTypeBool = DataTypeNumber<TYPE_BOOLEAN>;
+
 class DataTypeNothing;
 class DataTypeTimeV2;
 class DataTypeDateTime;
@@ -163,6 +167,10 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
 constexpr bool is_date_type(PrimitiveType type) {
     return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
            type == TYPE_DATEV2;
+}
+
+constexpr bool is_time_type(PrimitiveType type) {
+    return type == TYPE_TIME || type == TYPE_TIMEV2;
 }
 
 constexpr bool is_date_or_datetime(PrimitiveType type) {
@@ -479,7 +487,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMALV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMALV2;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMALV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
@@ -787,7 +795,7 @@ struct PrimitiveTypeConvertor<TYPE_DATE> {
     using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType;
 
     static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return value.to_olap_date();
+        return StorageFieldType(cast_set<uint32_t>(value.to_olap_date()));
     }
 };
 
@@ -811,4 +819,5 @@ struct PrimitiveTypeConvertor<TYPE_DECIMALV2> {
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

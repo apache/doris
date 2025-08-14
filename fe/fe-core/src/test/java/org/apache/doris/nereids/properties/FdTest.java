@@ -115,8 +115,9 @@ class FdTest extends TestWithFeService {
                 .analyze("select id, id2 from agg  group by id, id2 having id = 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
-                .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
+        // constant propagation will rewrite agg
+        // Assertions.assertTrue(plan.getLogicalProperties().getTrait()
+        //        .isDependent(ImmutableSet.of(plan.getOutput().get(0)), ImmutableSet.of(plan.getOutput().get(1))));
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isDependent(ImmutableSet.of(plan.getOutput().get(1)), ImmutableSet.of(plan.getOutput().get(0))));
     }

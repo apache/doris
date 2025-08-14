@@ -20,6 +20,7 @@
 #include <parallel_hashmap/phmap.h> // IWYU pragma: export
 
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris::vectorized {
 

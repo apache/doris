@@ -37,6 +37,11 @@ public abstract class GroupingScalarFunction extends ScalarFunction implements A
         super(name, arguments);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected GroupingScalarFunction(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * compute a long value that backend need to fill to the VirtualSlotRef
      */

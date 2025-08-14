@@ -927,4 +927,9 @@ suite("test_bitmap_function") {
     // BITMAP_FROM_ARRAY
     sql """ set experimental_enable_nereids_planner=true; """
     qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
+
+    test {
+        sql """ SELECT bitmap_from_base64('CQoL') AS result; """ 
+        exception "bitmap_from_base64 decode failed"
+    }
 }

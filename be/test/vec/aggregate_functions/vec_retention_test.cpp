@@ -63,6 +63,8 @@ public:
     }
 
     void TearDown() {}
+
+    Arena arena;
 };
 
 TEST_F(VRetentionTest, testEmpty) {
@@ -76,13 +78,13 @@ TEST_F(VRetentionTest, testEmpty) {
     buf_writer.commit();
     LOG(INFO) << "buf size : " << buf.size();
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place, buf_reader, nullptr);
+    agg_function->deserialize(place, buf_reader, arena);
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place, place2, nullptr);
+    agg_function->merge(place, place2, arena);
     auto column_result =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
     agg_function->insert_result_into(place, *column_result);
@@ -134,14 +136,14 @@ TEST_F(VRetentionTest, testSample) {
     agg_function->create(place);
     const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place2, place, nullptr);
+    agg_function->merge(place2, place, arena);
 
     auto column_result2 =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
@@ -184,7 +186,7 @@ TEST_F(VRetentionTest, testNoMerge) {
     agg_function->create(place);
     const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     auto column_result =
@@ -221,7 +223,7 @@ TEST_F(VRetentionTest, testSerialize) {
     agg_function->create(place);
     const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     ColumnString buf;
@@ -235,7 +237,7 @@ TEST_F(VRetentionTest, testSerialize) {
     agg_function->create(place2);
 
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place2, buf_reader, nullptr);
+    agg_function->deserialize(place2, buf_reader, arena);
 
     auto column_result =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
@@ -267,10 +269,10 @@ TEST_F(VRetentionTest, testSerialize) {
     agg_function->create(place3);
     const IColumn* column2[3] = {column_event4.get(), column_event5.get(), column_event6.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place3, column2, i, nullptr);
+        agg_function->add(place3, column2, i, arena);
     }
 
-    agg_function->merge(place2, place3, nullptr);
+    agg_function->merge(place2, place3, arena);
 
     auto column_result2 =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());

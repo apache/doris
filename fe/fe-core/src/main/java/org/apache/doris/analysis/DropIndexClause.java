@@ -62,7 +62,7 @@ public class DropIndexClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (StringUtils.isEmpty(indexName)) {
             throw new AnalysisException("index name is excepted");
         }

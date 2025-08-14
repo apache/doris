@@ -97,7 +97,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // NOTE: update command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
-                Optional.empty()).run(ctx, executor);
+                Optional.empty(), true, Optional.empty()).run(ctx, executor);
     }
 
     /**

@@ -65,6 +65,8 @@ static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector)
     case RangeKeySelector::LAST_LESS_THAN:
         return {0, 0};
     }
+    LOG(FATAL) << "Unknown RangeKeySelector: " << static_cast<int>(selector);
+    return {0, 0};
 }
 
 int FdbTxnKv::init() {
@@ -423,6 +425,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
                      << " key=" << hex(key);
         return cast_as_txn_code(err);
     }
+    get_bytes_ += len + key.size();
 
     if (!found) return TxnErrorCode::TXN_KEY_NOT_FOUND;
     *val = std::string((char*)ret, len);
@@ -460,6 +463,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
     std::unique_ptr<RangeGetIterator> ret(new RangeGetIterator(fut));
     RETURN_IF_ERROR(ret->init());
     num_get_keys_ += ret->size();
+    get_bytes_ += ret->get_kv_bytes();
     g_bvar_txn_kv_get_count_normalized << ret->size();
 
     *(iter) = std::move(ret);
@@ -707,6 +711,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
             const uint8_t* ret;
             int len;
             err = fdb_future_get_value(future, &found, &ret, &len);
+            num_get_keys_++;
             if (err) {
                 LOG(WARNING) << __PRETTY_FUNCTION__
                              << " failed to fdb_future_get_value err=" << fdb_get_error(err)
@@ -717,12 +722,113 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
                 res->push_back(std::nullopt);
                 continue;
             }
+            get_bytes_ += len + key.size();
             res->push_back(std::string((char*)ret, len));
         }
         futures.clear();
     }
     DCHECK_EQ(res->size(), num_keys);
-    num_get_keys_ += num_keys;
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::batch_scan(
+        std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+        const std::vector<std::string>& keys, const BatchGetOptions& opts) {
+    struct FDBFutureDelete {
+        void operator()(FDBFuture* future) { fdb_future_destroy(future); }
+    };
+
+    res->clear();
+    if (keys.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+
+    StopWatch sw;
+    auto stop_watcher = [&sw](int*) { g_bvar_txn_kv_range_get << sw.elapsed_us(); };
+    std::unique_ptr<int, decltype(stop_watcher)> defer((int*)0x01, std::move(stop_watcher));
+
+    size_t num_keys = keys.size();
+    res->reserve(keys.size());
+    g_bvar_txn_kv_get_count_normalized << keys.size();
+    std::vector<std::unique_ptr<FDBFuture, FDBFutureDelete>> futures;
+    futures.reserve(opts.concurrency);
+
+    fdb_bool_t snapshot = opts.snapshot ? 1 : 0;
+    fdb_bool_t reverse = opts.reverse ? 1 : 0;
+    for (size_t i = 0; i < num_keys; i += opts.concurrency) {
+        size_t batch_size = std::min(i + opts.concurrency, num_keys);
+        for (size_t j = i; j < batch_size; j++) {
+            const auto& key = keys[j];
+            FDBFuture* fut;
+            if (reverse) {
+                fut = fdb_transaction_get_range(
+                        txn_, FDB_KEYSEL_FIRST_GREATER_THAN((uint8_t*)"", 0),
+                        FDB_KEYSEL_FIRST_GREATER_THAN((uint8_t*)key.data(), key.size()),
+                        1, // limit: take the first one
+                        0, // target_bytes, unlimited
+                        FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
+                        0,        // iteration
+                        snapshot, // snapshot
+                        reverse   // reverse
+                );
+            } else {
+                fut = fdb_transaction_get_range(
+                        txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)key.data(), key.size()),
+                        FDB_KEYSEL_FIRST_GREATER_THAN((uint8_t*)"\xFF", 1),
+                        1, // limit: take the first one
+                        0, // target_bytes, unlimited
+                        FDBStreamingMode::FDB_STREAMING_MODE_WANT_ALL,
+                        0,        // iteration
+                        snapshot, // snapshot
+                        reverse   // reverse
+                );
+            }
+
+            futures.emplace_back(fut);
+            approximate_bytes_ += key.size() * 2;
+        }
+
+        size_t num_futures = futures.size();
+        for (size_t j = 0; j < num_futures; j++) {
+            FDBFuture* future = futures[j].get();
+            std::string_view key = keys[i + j];
+
+            RETURN_IF_ERROR(await_future(future));
+            fdb_error_t err = fdb_future_get_error(future);
+            if (err) {
+                LOG(WARNING) << __PRETTY_FUNCTION__
+                             << " failed to fdb_future_get_error err=" << fdb_get_error(err)
+                             << " key=" << hex(key);
+                return cast_as_txn_code(err);
+            }
+
+            const FDBKeyValue* kvs;
+            int kvs_size;
+            fdb_bool_t more;
+            err = fdb_future_get_keyvalue_array(future, &kvs, &kvs_size, &more);
+            num_get_keys_++;
+
+            if (err) {
+                LOG(WARNING) << __PRETTY_FUNCTION__
+                             << " failed to fdb_future_get_keyvalue_array err="
+                             << fdb_get_error(err) << " key=" << hex(key);
+                return cast_as_txn_code(err);
+            }
+
+            if (kvs_size == 0) {
+                res->push_back(std::nullopt);
+            } else {
+                const FDBKeyValue& kv = kvs[0];
+                get_bytes_ += kv.value_length + key.size();
+                std::string output_key((char*)kv.key, kv.key_length);
+                std::string output_value((char*)kv.value, kv.value_length);
+                res->emplace_back(std::make_pair(std::move(output_key), std::move(output_value)));
+            }
+        }
+        futures.clear();
+    }
+
+    DCHECK_EQ(res->size(), num_keys);
     return TxnErrorCode::TXN_OK;
 }
 

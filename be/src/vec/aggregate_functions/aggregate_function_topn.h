@@ -137,33 +137,33 @@ struct AggregateFunctionTopNData {
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(top_num, buf);
-        write_binary(capacity, buf);
+        buf.write_binary(top_num);
+        buf.write_binary(capacity);
 
         uint64_t element_number = std::min(capacity, (uint64_t)counter_map.size());
-        write_binary(element_number, buf);
+        buf.write_binary(element_number);
 
         auto counter_vector = get_remain_vector();
 
         for (auto i = 0; i < element_number; i++) {
             auto element = counter_vector[i];
-            write_binary(element.second, buf);
-            write_binary(element.first, buf);
+            buf.write_binary(element.second);
+            buf.write_binary(element.first);
         }
     }
 
     void read(BufferReadable& buf) {
-        read_binary(top_num, buf);
-        read_binary(capacity, buf);
+        buf.read_binary(top_num);
+        buf.read_binary(capacity);
 
         uint64_t element_number = 0;
-        read_binary(element_number, buf);
+        buf.read_binary(element_number);
 
         counter_map.clear();
         std::pair<DataType, uint64_t> element;
         for (auto i = 0; i < element_number; i++) {
-            read_binary(element.first, buf);
-            read_binary(element.second, buf);
+            buf.read_binary(element.first);
+            buf.read_binary(element.second);
             counter_map.insert(element);
         }
     }
@@ -309,14 +309,14 @@ public:
                       argument_types_) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         Impl::add(this->data(place), columns, row_num);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -325,14 +325,16 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 };
 
 //topn function return string
 template <typename Impl>
-class AggregateFunctionTopN final : public AggregateFunctionTopNBase<Impl> {
+class AggregateFunctionTopN final : public AggregateFunctionTopNBase<Impl>,
+                                    MultiExpression,
+                                    NullableAggregateFunction {
 public:
     AggregateFunctionTopN(const DataTypes& argument_types_)
             : AggregateFunctionTopNBase<Impl>(argument_types_) {}
@@ -349,7 +351,9 @@ public:
 
 //topn function return array
 template <typename Impl>
-class AggregateFunctionTopNArray final : public AggregateFunctionTopNBase<Impl> {
+class AggregateFunctionTopNArray final : public AggregateFunctionTopNBase<Impl>,
+                                         MultiExpression,
+                                         NullableAggregateFunction {
 public:
     AggregateFunctionTopNArray(const DataTypes& argument_types_)
             : AggregateFunctionTopNBase<Impl>(argument_types_),

@@ -74,15 +74,15 @@ public class IcebergExternalTableBranchAndTagTest {
         tempDirectory = Files.createTempDirectory("");
         map.put("warehouse", "file://" + tempDirectory.toString());
         map.put("type", "hadoop");
+        map.put("iceberg.catalog.type", IcebergExternalCatalog.ICEBERG_HADOOP);
         icebergCatalog =
                 (HadoopCatalog) CatalogUtil.buildIcebergCatalog("iceberg_catalog", map, new Configuration());
-
+        map.put("type", "iceberg");
         // init iceberg table
         icebergCatalog.createNamespace(Namespace.of(dbName));
         icebergTable = icebergCatalog.createTable(
                 TableIdentifier.of(dbName, tblName),
             new Schema(Types.NestedField.required(1, "level", Types.StringType.get())));
-
         // init external table
         catalog = Mockito.spy(new IcebergHadoopExternalCatalog(1L, "iceberg", null, map, null));
         catalog.setInitializedForTest(true);
@@ -111,7 +111,7 @@ public class IcebergExternalTableBranchAndTagTest {
         RefreshManager refreshManager = Mockito.mock(RefreshManager.class);
         Mockito.when(mockEnv.getRefreshManager()).thenReturn(refreshManager);
         Mockito.doNothing().when(refreshManager)
-                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyLong());
+                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.anyLong());
     }
 
     @AfterEach

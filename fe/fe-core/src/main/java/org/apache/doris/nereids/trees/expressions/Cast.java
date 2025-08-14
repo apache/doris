@@ -22,8 +22,16 @@ import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -75,20 +83,127 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public boolean nullable() {
+        if (SessionVariable.enableStrictCast()) {
+            DataType childDataType = child().getDataType();
+            if (childDataType.isJsonType() && !targetType.isJsonType()) {
+                return true;
+            }
+            return child().nullable();
+        } else {
+            return unStrictCastNullable();
+        }
+    }
+
+    protected boolean unStrictCastNullable() {
+        if (child().nullable()) {
+            return true;
+        }
+        // Not allowed cast is forbidden in CheckCast, and all the Propagation Nullable cases are handled above
+        // and the default return false below.
+        // The if branches below only handle 2 cases: always nullable and nullable that may overflow.
         DataType childDataType = child().getDataType();
+        // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if (!childDataType.isDateLikeType() && targetType.isDateLikeType()) {
+        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type())
+                && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
+            // datetime to datetime is always nullable
             return true;
-        } else if (!childDataType.isTimeType() && targetType.isTimeType()) {
+        } else if (childDataType.isTimeType()) {
+            // time to tinyint, smallint, int and time is always nullable.
+            return targetType.isTinyIntType() || targetType.isSmallIntType() || targetType.isIntegerType()
+                    || targetType.isTimeType();
+        } else if (childDataType.isIntegralType()) {
+            // integral to integral
+            if (targetType.isIntegralType()) {
+                if (childDataType.isLargeIntType() && !targetType.isLargeIntType()) {
+                    return true;
+                }
+                if (childDataType.isBigIntType() && !targetType.isLargeIntType() && !targetType.isBigIntType()) {
+                    return true;
+                }
+                if (childDataType.isIntegerType() && (targetType.isSmallIntType() || targetType.isTinyIntType())) {
+                    return true;
+                }
+                return childDataType.isSmallIntType() && targetType.isTinyIntType();
+            } else if (targetType.isDecimalLikeType()) {
+                // Integral to decimal
+                int range = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+                        : ((DecimalV3Type) targetType).getRange();
+                if (childDataType.isTinyIntType() && range < TinyIntType.RANGE) {
+                    return true;
+                } else if (childDataType.isSmallIntType() && range < SmallIntType.RANGE) {
+                    return true;
+                } else if (childDataType.isIntegerType() && range < IntegerType.RANGE) {
+                    return true;
+                } else if (childDataType.isBigIntType() && range < BigIntType.RANGE) {
+                    return true;
+                } else {
+                    return childDataType.isLargeIntType() && range < LargeIntType.RANGE;
+                }
+            } else if (targetType.isDateLikeType() || targetType.isTimeType()) {
+                // integral to date like and time is always nullable.
+                return true;
+            }
+        } else if (childDataType.isFloatType() || childDataType.isDoubleType()) {
+            // Double/Float to integral, decimal, date like and time are always nullable.
+            return targetType.isIntegralType() || targetType.isDecimalLikeType()
+                    || targetType.isDateLikeType() || targetType.isTimeType();
+        } else if (childDataType.isDecimalLikeType()) {
+            // Decimal to integral
+            if (targetType.isIntegralType()) {
+                int range = 0;
+                if (childDataType.isDecimalV2Type()) {
+                    range = ((DecimalV2Type) childDataType).getRange();
+                } else {
+                    range = ((DecimalV3Type) childDataType).getRange();
+                }
+                if (range >= LargeIntType.RANGE) {
+                    return true;
+                }
+                if (targetType.isTinyIntType() && range >= TinyIntType.RANGE) {
+                    return true;
+                }
+                if (targetType.isSmallIntType() && range >= SmallIntType.RANGE) {
+                    return true;
+                }
+                if (targetType.isIntegerType() && range >= IntegerType.RANGE) {
+                    return true;
+                }
+                return targetType.isBigIntType() && range >= BigIntType.RANGE;
+            } else if (targetType.isDecimalLikeType()) {
+                // Decimal to decimal
+                int targetRange = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+                        : ((DecimalV3Type) targetType).getRange();
+                int sourceRange = childDataType.isDecimalV2Type() ? ((DecimalV2Type) childDataType).getRange()
+                        : ((DecimalV3Type) childDataType).getRange();
+                if (sourceRange > targetRange) {
+                    return true;
+                }
+                if (sourceRange < targetRange) {
+                    return false;
+                }
+                // When source range == target range, if source precision is larger than target precision,
+                // it is possible to be null when fraction part overflow.
+                // e.g. decimal(3, 2) to decimal(2, 1), 9.99 to decimal(2, 1) overflow, result is null.
+                int targetPrecision = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getPrecision()
+                        : ((DecimalV3Type) targetType).getPrecision();
+                int sourcePrecision = childDataType.isDecimalV2Type() ? ((DecimalV2Type) childDataType).getPrecision()
+                        : ((DecimalV3Type) childDataType).getPrecision();
+                return sourcePrecision > targetPrecision;
+            } else if (targetType.isTimeType() || targetType.isDateLikeType()) {
+                //Decimal to date like and time are always nullable.
+                return true;
+            }
+        } else if (childDataType.isBooleanType() && targetType.isDecimalLikeType()) {
+            // Boolean to decimal
+            return (targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+                    : ((DecimalV3Type) targetType).getRange()) < 1;
+        } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
+            // Json to other type is always nullable
             return true;
-        } else if (childDataType.isJsonType() || targetType.isJsonType()) {
-            return true;
-        } else if (childDataType.isVariantType() || targetType.isVariantType()) {
-            return true;
-        } else {
-            return child().nullable();
         }
+        return false;
     }
 
     @Override

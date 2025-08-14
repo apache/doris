@@ -18,9 +18,10 @@
 #include "io/cache/cache_lru_dumper.h"
 
 #include "io/cache/block_file_cache.h"
-#include "io/cache/cache_lru_dumper.h"
 #include "io/cache/lru_queue_recorder.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
+#include "vec/common/endian.h"
 
 namespace doris::io {
 
@@ -29,11 +30,13 @@ std::string CacheLRUDumper::Footer::serialize_as_string() const {
     result.reserve(sizeof(Footer));
 
     // Serialize meta_offset (convert to little-endian)
-    uint64_t meta_offset_le = htole64(meta_offset);
+    uint64_t meta_offset_le;
+    encode_fixed64_le(reinterpret_cast<uint8_t*>(&meta_offset_le), meta_offset);
     result.append(reinterpret_cast<const char*>(&meta_offset_le), sizeof(meta_offset_le));
 
     // Serialize checksum (convert to little-endian)
-    uint32_t checksum_le = htole32(checksum);
+    uint32_t checksum_le;
+    encode_fixed32_le(reinterpret_cast<uint8_t*>(&checksum_le), checksum);
     result.append(reinterpret_cast<const char*>(&checksum_le), sizeof(checksum_le));
 
     result.append(reinterpret_cast<const char*>(&version), sizeof(version));
@@ -52,13 +55,13 @@ bool CacheLRUDumper::Footer::deserialize_from_string(const std::string& data) {
     // Deserialize meta_offset (convert from little-endian)
     uint64_t meta_offset_le;
     std::memcpy(&meta_offset_le, ptr, sizeof(meta_offset_le));
-    meta_offset = le64toh(meta_offset_le);
+    meta_offset = decode_fixed64_le(reinterpret_cast<uint8_t*>(&meta_offset_le));
     ptr += sizeof(meta_offset_le);
 
     // Deserialize checksum (convert from little-endian)
     uint32_t checksum_le;
     std::memcpy(&checksum_le, ptr, sizeof(checksum_le));
-    checksum = le32toh(checksum_le);
+    checksum = decode_fixed32_le(reinterpret_cast<uint8_t*>(&checksum_le));
     ptr += sizeof(checksum_le);
 
     version = *((uint8_t*)ptr);
@@ -216,7 +219,7 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
 
     // Write footer
     Footer footer;
-    footer.meta_offset = htole64(meta_offset); // Explicitly convert to little-endian
+    footer.meta_offset = meta_offset;
     footer.checksum = 0;
     footer.version = 1;
     std::memcpy(footer.magic, "DOR", 3);
@@ -321,9 +324,6 @@ Status CacheLRUDumper::parse_dump_footer(std::ifstream& in, std::string& filenam
         LOG(WARNING) << warn_msg;
         return Status::InternalError<false>(warn_msg);
     }
-
-    // Convert from little-endian to host byte order
-    footer.meta_offset = le64toh(footer.meta_offset);
 
     // Validate footer
     if (footer.version != 1 || std::string(footer.magic, 3) != "DOR") {

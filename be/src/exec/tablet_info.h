@@ -333,7 +333,7 @@ private:
             _partitions_map;
 
     bool _is_in_partition = false;
-    uint32_t _mem_usage = 0;
+    size_t _mem_usage = 0;
     // only works when using list partition, the resource is owned by _partitions
     VOlapTablePartition* _default_partition = nullptr;
 

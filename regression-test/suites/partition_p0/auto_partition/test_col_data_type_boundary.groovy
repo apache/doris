@@ -52,16 +52,16 @@ suite("test_col_data_type_boundary") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");"""
     sql """insert into table_tinyint values(1, -128);"""
-    sql """insert into table_tinyint values(1, -129);"""
+    sql """insert into table_tinyint values(1, -127);"""
     partitions_res1 = sql """show partitions from table_tinyint order by PartitionId;"""
     sql """insert into table_tinyint values(1, 127);"""
     sql """insert into table_tinyint values(2, 127);"""
-    sql """insert into table_tinyint values(3, 128);"""
+    sql """insert into table_tinyint values(3, 126);"""
     partitions_res2 = sql """show partitions from table_tinyint order by PartitionId;"""
     select_rows = sql """select count() from table_tinyint;"""
-    assertEquals(select_rows[0][0], 4)
+    assertEquals(select_rows[0][0], 5)
     assertEquals(partitions_res1.size(), 2)
-    assertEquals(partitions_res2.size(), 2)
+    assertEquals(partitions_res2.size(), 4)
     assertEquals(partitions_res1[0][0], partitions_res2[0][0])
     assertEquals(partitions_res1[1][0], partitions_res2[1][0])
     try {
@@ -86,15 +86,15 @@ suite("test_col_data_type_boundary") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");"""
     sql """insert into table_smallint values(1, -32768)"""
-    sql """insert into table_smallint values(2, -32769)"""
+    sql """insert into table_smallint values(2, -32767)"""
     partitions_res1 = sql """show partitions from table_smallint order by PartitionId;"""
     sql """insert into table_smallint values(3, 32767)"""
-    sql """insert into table_smallint values(4, 32768)"""
+    sql """insert into table_smallint values(4, 32766)"""
     partitions_res2 = sql """show partitions from table_smallint order by PartitionId;"""
     select_rows = sql """select count() from table_smallint;"""
     assertEquals(select_rows[0][0], 4)
     assertEquals(partitions_res1.size(), 2)
-    assertEquals(partitions_res2.size(), 2)
+    assertEquals(partitions_res2.size(), 4)
     assertEquals(partitions_res1[0][0], partitions_res2[0][0])
     assertEquals(partitions_res1[1][0], partitions_res2[1][0])
     try {
@@ -119,15 +119,15 @@ suite("test_col_data_type_boundary") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");"""
     sql """insert into table_int values(1, -2147483648)"""
-    sql """insert into table_int values(2, -2147483649)"""
+    sql """insert into table_int values(2, -2147483647)"""
     partitions_res1 = sql """show partitions from table_int order by PartitionId;"""
     sql """insert into table_int values(3, 2147483647)"""
-    sql """insert into table_int values(4, 2147483648)"""
+    sql """insert into table_int values(4, 2147483646)"""
     partitions_res2 = sql """show partitions from table_int order by PartitionId;"""
     select_rows = sql """select count() from table_int;"""
     assertEquals(select_rows[0][0], 4)
     assertEquals(partitions_res1.size(), 2)
-    assertEquals(partitions_res2.size(), 2)
+    assertEquals(partitions_res2.size(), 4)
     assertEquals(partitions_res1[0][0], partitions_res2[0][0])
     assertEquals(partitions_res1[1][0], partitions_res2[1][0])
     try {
@@ -152,15 +152,15 @@ suite("test_col_data_type_boundary") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");"""
     sql """insert into table_bigint values(1, -9223372036854775808)"""
-    sql """insert into table_bigint values(2, -9223372036854775809)"""
+    sql """insert into table_bigint values(2, -9223372036854775807)"""
     partitions_res1 = sql """show partitions from table_bigint order by PartitionId;"""
     sql """insert into table_bigint values(3, 9223372036854775807)"""
-    sql """insert into table_bigint values(4, 9223372036854775808)"""
+    sql """insert into table_bigint values(4, 9223372036854775806)"""
     partitions_res2 = sql """show partitions from table_bigint order by PartitionId;"""
     select_rows = sql """select count() from table_bigint;"""
     assertEquals(select_rows[0][0], 4)
     assertEquals(partitions_res1.size(), 2)
-    assertEquals(partitions_res2.size(), 2)
+    assertEquals(partitions_res2.size(), 4)
     assertEquals(partitions_res1[0][0], partitions_res2[0][0])
     assertEquals(partitions_res1[1][0], partitions_res2[1][0])
     try {

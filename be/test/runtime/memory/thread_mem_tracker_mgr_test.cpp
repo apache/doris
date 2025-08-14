@@ -462,10 +462,7 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemoryFailed) {
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(t);
     {
-        WorkloadGroupInfo wg_info {.id = 1,
-                                   .memory_limit = 2048,
-                                   .enable_memory_overcommit = false,
-                                   .memory_high_watermark = 100};
+        WorkloadGroupInfo wg_info {.id = 1, .memory_limit = 2048, .memory_high_watermark = 100};
         auto wg = _wg_manager->get_or_create_workload_group(wg_info);
         rc->set_workload_group(wg);
         thread_context->attach_task(rc);
@@ -498,43 +495,6 @@ TEST_F(ThreadMemTrackerMgrTest, ReserveMemoryFailed) {
         EXPECT_EQ(t->consumption(), 2048);
         EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 2048);
         EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 2048);
-
-        thread_context->thread_mem_tracker_mgr->shrink_reserved();
-        EXPECT_EQ(t->consumption(), 0);
-        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
-        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
-
-        thread_context->detach_task();
-        EXPECT_EQ(t->consumption(), 0);
-        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 0);
-        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
-    }
-
-    {
-        WorkloadGroupInfo wg_info {.id = 2, .memory_limit = 1024, .enable_memory_overcommit = true};
-        auto wg = _wg_manager->get_or_create_workload_group(wg_info);
-        rc->set_workload_group(wg);
-        thread_context->attach_task(rc);
-
-        auto st = thread_context->thread_mem_tracker_mgr->try_reserve(1024L * 1024);
-        EXPECT_TRUE(st.ok()) << st.to_string();
-        EXPECT_EQ(t->consumption(), 1024L * 1024);
-        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 1024L * 1024);
-        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 1024L * 1024);
-
-        st = thread_context->thread_mem_tracker_mgr->try_reserve(1024);
-        EXPECT_EQ(st.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << st.to_string();
-        EXPECT_EQ(t->consumption(), 1024L * 1024);
-        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 1024L * 1024);
-        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 1024L * 1024);
-
-        t->set_limit(-1);
-        st = thread_context->thread_mem_tracker_mgr->try_reserve(1024L * 1024 * 1024);
-        EXPECT_TRUE(st.ok()) << st.to_string();
-        EXPECT_EQ(t->consumption(), 1024L * 1024 + 1024L * 1024 * 1024);
-        EXPECT_EQ(wg->wg_refresh_interval_memory_growth(), 1024L * 1024 + 1024L * 1024 * 1024);
-        EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(),
-                  1024L * 1024 + 1024L * 1024 * 1024);
 
         thread_context->thread_mem_tracker_mgr->shrink_reserved();
         EXPECT_EQ(t->consumption(), 0);

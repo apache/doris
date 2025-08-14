@@ -138,8 +138,7 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
 Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end,
-                                               std::vector<StringRef>& buffer_list) const {
+                                               int64_t end, vectorized::Arena& arena) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     const auto& string_column = assert_cast<const ColumnString&>(column);
     // First pass: calculate total memory needed and collect serialized values
@@ -158,15 +157,11 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
         }
     }
     // Allocate continues memory based on calculated size
-    char* ptr = (char*)malloc(total_size);
+    char* ptr = arena.alloc(total_size);
     if (!ptr) {
         return Status::InternalError(
                 "malloc memory {} error when write variant column data to orc file.", total_size);
     }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = total_size;
-    buffer_list.emplace_back(bufferRef);
     // Second pass: copy data to allocated memory
     size_t offset = 0;
     for (size_t i = 0; i < serialized_values.size(); i++) {
@@ -179,12 +174,41 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
                     "exceed total_size {} . ",
                     offset, len, total_size);
         }
-        memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value.data(), len);
-        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+        memcpy(ptr + offset, serialized_value.data(), len);
+        cur_batch->data[row_id] = ptr + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
     cur_batch->numElements = end - start;
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                                              int64_t end) const {
+    const auto& string_column = assert_cast<const ColumnString&>(column);
+    result.mutable_string_value()->Reserve(cast_set<int>(end - start));
+    auto* ptype = result.mutable_type();
+    ptype->set_id(PGenericType::JSONB);
+    for (size_t row_num = start; row_num < end; ++row_num) {
+        const auto& string_ref = string_column.get_data_at(row_num);
+        if (string_ref.size > 0) {
+            result.add_string_value(
+                    JsonbToJson::jsonb_to_json_string(string_ref.data, string_ref.size));
+        } else {
+            result.add_string_value(NULL_IN_CSV_FOR_ORDINARY_TYPE);
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto& column_string = assert_cast<ColumnString&>(column);
+    column_string.reserve(column_string.size() + arg.string_value_size());
+    JsonBinaryValue value;
+    for (int i = 0; i < arg.string_value_size(); ++i) {
+        RETURN_IF_ERROR(value.from_json_string(arg.string_value(i)));
+        column_string.insert_data(value.value(), value.size());
+    }
     return Status::OK();
 }
 
@@ -255,67 +279,55 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
     }
 }
 
-Status DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                                  rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& mem_pool, int64_t row_num) const {
-    const auto& data = assert_cast<const ColumnString&>(column);
-    const auto jsonb_val = data.get_data_at(row_num);
-    if (jsonb_val.empty()) {
-        return Status::OK();
-    }
-    JsonbValue* val = JsonbDocument::createValue(jsonb_val.data, jsonb_val.size);
-    if (val == nullptr) {
-        return Status::InternalError("Failed to get json document from jsonb");
-    }
-    rapidjson::Value value;
-    convert_jsonb_to_rapidjson(*val, value, allocator);
-    if (val->isObject() && result.IsObject()) {
-        JsonFunctions::merge_objects(result, value, allocator);
-    } else {
-        result = std::move(value);
+Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                                     JsonbWriter& writer) const {
+    const auto& jsonb_binary = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
+    JsonbDocument* doc = nullptr;
+    RETURN_IF_ERROR(
+            JsonbDocument::checkAndCreateDocument(jsonb_binary.data, jsonb_binary.size, &doc));
+
+    if (!writer.writeValue(doc->getValue())) {
+        return Status::InternalError(
+                "writeValue failed in DataTypeJsonbSerDe::serialize_column_to_jsonb");
     }
     return Status::OK();
 }
 
-Status DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
-                                                   const rapidjson::Value& result) const {
-    // TODO improve performance
+Status DataTypeJsonbSerDe::deserialize_column_from_jsonb(IColumn& column,
+                                                         const JsonbValue* jsonb_value,
+                                                         CastParameters& castParms) const {
+    JsonbWriter writer;
+    if (!writer.writeValue(jsonb_value)) {
+        return Status::InternalError(
+                "writeValue failed in DataTypeJsonbSerDe::deserialize_column_from_jsonb");
+    }
+
     auto& col = assert_cast<ColumnString&>(column);
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    result.Accept(writer);
-    JsonBinaryValue jsonb_value;
-    RETURN_IF_ERROR(jsonb_value.from_json_string(buffer.GetString(), buffer.GetLength()));
-    col.insert_data(jsonb_value.value(), jsonb_value.size());
+    col.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     return Status::OK();
 }
-Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
-                                              int64_t end) const {
-    const auto& string_column = assert_cast<const ColumnString&>(column);
-    result.mutable_string_value()->Reserve(cast_set<int>(end - start));
-    auto* ptype = result.mutable_type();
-    ptype->set_id(PGenericType::JSONB);
-    for (size_t row_num = start; row_num < end; ++row_num) {
-        const auto& string_ref = string_column.get_data_at(row_num);
-        if (string_ref.size > 0) {
-            result.add_string_value(
-                    JsonbToJson::jsonb_to_json_string(string_ref.data, string_ref.size));
-        } else {
-            result.add_string_value(NULL_IN_CSV_FOR_ORDINARY_TYPE);
-        }
-    }
-    return Status::OK();
+Status DataTypeJsonbSerDe::from_string(StringRef& str, IColumn& column,
+                                       const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
 }
 
-Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& column_string = assert_cast<ColumnString&>(column);
-    column_string.reserve(column_string.size() + arg.string_value_size());
-    JsonBinaryValue value;
-    for (int i = 0; i < arg.string_value_size(); ++i) {
-        RETURN_IF_ERROR(value.from_json_string(arg.string_value(i)));
-        column_string.insert_data(value.value(), value.size());
-    }
-    return Status::OK();
+void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                  ColumnString::Chars& chars,
+                                                  int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_JSONB);
+    const auto& col = assert_cast<const ColumnString&>(src_column);
+    const auto& data_ref = col.get_data_at(row_num);
+    size_t data_size = data_ref.size;
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&data_size),
+           sizeof(size_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data, data_size);
 }
 } // namespace vectorized
 } // namespace doris

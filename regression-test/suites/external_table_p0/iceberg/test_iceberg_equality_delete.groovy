@@ -60,7 +60,26 @@ suite("test_iceberg_equality_delete", "p0,external,doris,external_docker,externa
         qt_max3 """select max(val) from customer_flink_three"""
         qt_max3_orc """select max(val) from customer_flink_three_orc"""
 
-        sql """drop catalog ${catalog_name}"""
+        // test sql
+        qt_test_sql """
+            SELECT
+              CASE
+                WHEN content = 0 THEN 'DataFile'
+                WHEN content = 1 THEN 'PositionDeleteFile'
+                WHEN content = 2 THEN 'EqualityDeleteFile'
+                ELSE 'Unknown'
+              END AS ContentType,
+              -- SUM(file_size_in_bytes) AS SizeInBytes,
+              SUM(record_count) AS Records
+            FROM
+              test_db.customer_flink_three_orc\$files
+            GROUP BY
+              ContentType
+            ORDER BY
+              ContentType;
+        """
+
+        // sql """drop catalog ${catalog_name}"""
 }
 
 /*

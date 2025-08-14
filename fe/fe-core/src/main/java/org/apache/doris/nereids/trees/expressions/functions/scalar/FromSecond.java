@@ -46,10 +46,15 @@ public class FromSecond extends ScalarFunction
         super("from_second", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FromSecond(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FromSecond withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new FromSecond(children.get(0));
+        return new FromSecond(getFunctionParams(children));
     }
 
     @Override

@@ -47,10 +47,15 @@ public class MicroSecondsAdd extends ScalarFunction
         super("microseconds_add", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MicroSecondsAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MicroSecondsAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MicroSecondsAdd(children.get(0), children.get(1));
+        return new MicroSecondsAdd(getFunctionParams(children));
     }
 
     @Override

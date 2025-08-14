@@ -22,6 +22,7 @@
 #include "word_delimiter_filter.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class WordDelimiterFilterFactory : public TokenFilterFactory {
     friend class WordDelimiterFilterFactoryTest;
@@ -115,7 +116,7 @@ public:
                                      WordDelimiterIterator::DEFAULT_WORD_DELIM_TABLE.size());
         std::vector<char> types(table_size, 0);
         for (size_t i = 0; i < types.size(); ++i) {
-            types[i] = WordDelimiterIterator::get_type(i);
+            types[i] = WordDelimiterIterator::get_type(static_cast<int32_t>(i));
         }
         for (const auto& mapping : type_map) {
             types[mapping.first] = mapping.second;
@@ -144,8 +145,8 @@ private:
 
     static std::string parse_string(const std::string& s) {
         std::string out;
-        int32_t len = s.length();
-        int32_t read_pos = 0;
+        size_t len = s.length();
+        size_t read_pos = 0;
         while (read_pos < len) {
             char c = s[read_pos++];
             if (c == '\\') {
@@ -198,4 +199,5 @@ private:
     std::unordered_set<std::string> _protected_words;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

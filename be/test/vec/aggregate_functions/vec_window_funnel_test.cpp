@@ -29,8 +29,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -54,9 +53,9 @@ public:
     void SetUp() {
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         DataTypes data_types = {
-                std::make_shared<DataTypeInt64>(),    std::make_shared<DataTypeString>(),
-                std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),    std::make_shared<DataTypeUInt8>(),
+                std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+                std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>()};
         agg_function = factory.get("window_funnel", data_types, false,
                                    BeExecVersionManager::get_newest_version());
@@ -64,6 +63,8 @@ public:
     }
 
     void TearDown() {}
+
+    Arena arena;
 };
 
 TEST_F(VWindowFunnelTest, testEmpty) {
@@ -77,13 +78,13 @@ TEST_F(VWindowFunnelTest, testEmpty) {
     buf_writer.commit();
     LOG(INFO) << "buf size : " << buf.size();
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place, buf_reader, nullptr);
+    agg_function->deserialize(place, buf_reader, arena);
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place, place2, nullptr);
+    agg_function->merge(place, place2, arena);
     ColumnInt32 column_result;
     agg_function->insert_result_into(place, column_result);
     EXPECT_EQ(column_result.get_data()[0], 0);
@@ -103,11 +104,12 @@ TEST_F(VWindowFunnelTest, testSerialize) {
         column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
 
-    auto column_timestamp = ColumnDateTime::create();
+    auto column_timestamp = ColumnDateTimeV2::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 2, 28, 0, 0, i);
-        column_timestamp->insert_data((char*)&time_value, 0);
+        auto dtv2 = time_value.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
     }
     auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
@@ -145,7 +147,7 @@ TEST_F(VWindowFunnelTest, testSerialize) {
                                 column_event1.get(), column_event2.get(), column_event3.get(),
                                 column_event4.get()};
     for (int i = 0; i < NUM_CONDS; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     ColumnInt32 column_result;
@@ -163,7 +165,7 @@ TEST_F(VWindowFunnelTest, testSerialize) {
     agg_function->create(place2);
 
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place2, buf_reader, nullptr);
+    agg_function->deserialize(place2, buf_reader, arena);
 
     ColumnInt32 column_result2;
     agg_function->insert_result_into(place2, column_result2);
@@ -177,11 +179,12 @@ TEST_F(VWindowFunnelTest, testMax4SortedNoMerge) {
     for (int i = 0; i < NUM_CONDS; i++) {
         column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
-    auto column_timestamp = ColumnDateTime::create();
+    auto column_timestamp = ColumnDateTimeV2::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 2, 28, 0, 0, i);
-        column_timestamp->insert_data((char*)&time_value, 0);
+        auto dtv2 = time_value.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
     }
     auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
@@ -221,7 +224,7 @@ TEST_F(VWindowFunnelTest, testMax4SortedNoMerge) {
                                     column_event2.get(),    column_event3.get(),
                                     column_event4.get()};
         for (int i = 0; i < NUM_CONDS; i++) {
-            agg_function->add(place, column, i, nullptr);
+            agg_function->add(place, column, i, arena);
         }
 
         ColumnInt32 column_result;
@@ -238,11 +241,12 @@ TEST_F(VWindowFunnelTest, testMax4SortedMerge) {
     for (int i = 0; i < NUM_CONDS; i++) {
         column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
-    auto column_timestamp = ColumnDateTime::create();
+    auto column_timestamp = ColumnDateTimeV2::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 2, 28, 0, 0, i);
-        column_timestamp->insert_data((char*)&time_value, 0);
+        auto dtv2 = time_value.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
     }
     auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
@@ -282,14 +286,14 @@ TEST_F(VWindowFunnelTest, testMax4SortedMerge) {
                                     column_event2.get(),    column_event3.get(),
                                     column_event4.get()};
         for (int i = 0; i < NUM_CONDS; i++) {
-            agg_function->add(place, column, i, nullptr);
+            agg_function->add(place, column, i, arena);
         }
 
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
 
-        agg_function->merge(place2, place, nullptr);
+        agg_function->merge(place2, place, arena);
         ColumnInt32 column_result;
         agg_function->insert_result_into(place2, column_result);
         EXPECT_EQ(column_result.get_data()[0],
@@ -305,11 +309,12 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedNoMerge) {
     for (int i = 0; i < NUM_CONDS; i++) {
         column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
-    auto column_timestamp = ColumnDateTime::create();
+    auto column_timestamp = ColumnDateTimeV2::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 2, 28, 0, 0, NUM_CONDS - i);
-        column_timestamp->insert_data((char*)&time_value, 0);
+        auto dtv2 = time_value.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
     }
     auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
@@ -349,7 +354,7 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedNoMerge) {
                                     column_event2.get(),    column_event3.get(),
                                     column_event4.get()};
         for (int i = 0; i < NUM_CONDS; i++) {
-            agg_function->add(place, column, i, nullptr);
+            agg_function->add(place, column, i, arena);
         }
 
         LOG(INFO) << "win " << win;
@@ -367,11 +372,12 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedMerge) {
     for (int i = 0; i < NUM_CONDS; i++) {
         column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
-    auto column_timestamp = ColumnDateTime::create();
+    auto column_timestamp = ColumnDateTimeV2::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 2, 28, 0, 0, NUM_CONDS - i);
-        column_timestamp->insert_data((char*)&time_value, 0);
+        auto dtv2 = time_value.to_datetime_v2();
+        column_timestamp->insert_data((char*)&dtv2, 0);
     }
     auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
@@ -411,14 +417,14 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedMerge) {
                                     column_event2.get(),    column_event3.get(),
                                     column_event4.get()};
         for (int i = 0; i < NUM_CONDS; i++) {
-            agg_function->add(place, column, i, nullptr);
+            agg_function->add(place, column, i, arena);
         }
 
         std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
 
-        agg_function->merge(place2, place, NULL);
+        agg_function->merge(place2, place, arena);
         ColumnInt32 column_result;
         agg_function->insert_result_into(place2, column_result);
         EXPECT_EQ(column_result.get_data()[0],

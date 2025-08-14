@@ -105,19 +105,23 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
             {"meta_address", std::to_string((long)input_table.get())},
             {"required_fields", input_table_schema.first},
             {"columns_types", input_table_schema.second}};
-    jobject input_map = JniUtil::convert_to_java_map(env, input_params);
+    jobject input_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
     auto output_table_schema = JniConnector::parse_table_schema(&block, {result}, true);
     std::string output_nullable =
             block.get_by_position(result).type->is_nullable() ? "true" : "false";
     std::map<String, String> output_params = {{"is_nullable", output_nullable},
                                               {"required_fields", output_table_schema.first},
                                               {"columns_types", output_table_schema.second}};
-    jobject output_map = JniUtil::convert_to_java_map(env, output_params);
+    jobject output_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
     long output_address = env->CallLongMethod(jni_ctx->executor, jni_ctx->executor_evaluate_id,
                                               input_map, output_map);
-    env->DeleteLocalRef(input_map);
-    env->DeleteLocalRef(output_map);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteGlobalRef(input_map);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteGlobalRef(output_map);
+    RETURN_ERROR_IF_EXC(env);
     return JniConnector::fill_block(&block, {result}, output_address);
 }
 

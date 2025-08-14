@@ -411,9 +411,7 @@ public abstract class MaterializationContext {
         if (!chosenMaterializationQualifiers.isEmpty()) {
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
                     builder.append("  ")
-                            .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
-        } else {
-            builder.append("  chose: none, \n");
+                            .append(generateIdentifierName(materializationQualifier)).append(" chose\n"));
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
@@ -425,9 +423,7 @@ public abstract class MaterializationContext {
         if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
             rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
                     builder.append("  ")
-                            .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
-        } else {
-            builder.append("  not chose: none, \n");
+                            .append(generateIdentifierName(materializationQualifier)).append(" not chose\n"));
         }
         // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
@@ -435,10 +431,15 @@ public abstract class MaterializationContext {
             if (!ctx.isSuccess()) {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
+                if (ctx.isEnableRecordFailureDetail()) {
+                    failReasonSet = ctx.getFailReason().values().stream()
+                            .map(Pair::toString)
+                            .collect(ImmutableSet.toImmutableSet());
+                }
                 builder.append("\n")
                         .append("  ")
-                        .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail, \n")
-                        .append("  FailSummary: ").append(String.join(", ", failReasonSet));
+                        .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail\n")
+                        .append("  FailInfo: ").append(String.join(", ", failReasonSet));
             }
         }
         return builder.toString();

@@ -29,7 +29,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /** Cursor allows to compare rows in different blocks (and parts).
   * Cursor moves inside single block.
   * It is used in priority queue.
@@ -93,7 +93,7 @@ struct MergeSortCursorImpl {
         }
 
         pos = 0;
-        rows = block->rows();
+        rows = (int)block->rows();
     }
 
     bool is_first() const { return pos == 0; }
@@ -154,7 +154,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             MergeSortCursorImpl::reset();
         } else {
             pos = 0;
-            rows = block->rows();
+            rows = (int)block->rows();
         }
     }
 
@@ -473,4 +473,5 @@ template <typename Cursor>
 using SortingQueue = SortingQueueImpl<Cursor, SortingQueueStrategy::Default>;
 template <typename Cursor>
 using SortingQueueBatch = SortingQueueImpl<Cursor, SortingQueueStrategy::Batch>;
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

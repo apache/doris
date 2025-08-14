@@ -64,7 +64,7 @@ public:
       */
     virtual AggregateFunctionPtr transform_aggregate_function(
             const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
-            const bool result_is_nullable) const = 0;
+            const bool result_is_nullable, const AggregateFunctionAttr& attr) const = 0;
 
     virtual ~IAggregateFunctionCombinator() = default;
 };

@@ -54,9 +54,11 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "vec/common/arena.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
@@ -121,7 +123,6 @@ TabletReader::~TabletReader() {
 
 Status TabletReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
-    _predicate_arena = std::make_unique<vectorized::Arena>();
 
     Status res = _init_params(read_params);
     if (!res.ok()) {
@@ -263,6 +264,12 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     _reader_context.ttl_seconds = _tablet->ttl_seconds();
+    _reader_context.score_runtime = read_params.score_runtime;
+    _reader_context.collection_statistics = read_params.collection_statistics;
+
+    _reader_context.virtual_column_exprs = read_params.virtual_column_exprs;
+    _reader_context.vir_cid_to_idx_in_block = read_params.vir_cid_to_idx_in_block;
+    _reader_context.vir_col_idx_to_type = read_params.vir_col_idx_to_type;
 
     return Status::OK();
 }
@@ -273,13 +280,13 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
     }
     TabletColumn column_with_cast_type = orig;
     auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
-    FieldType filed_type = TabletColumn::get_field_type_by_type(cast_type);
-    if (filed_type == FieldType::OLAP_FIELD_TYPE_UNKNOWN) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid type for variant column: {}",
-                               cast_type);
-    }
-    column_with_cast_type.set_type(filed_type);
-    return column_with_cast_type;
+    return vectorized::schema_util::get_column_by_type(
+            cast_type, orig.name(),
+            {
+                    .unique_id = orig.unique_id(),
+                    .parent_unique_id = orig.parent_unique_id(),
+                    .path_info = *orig.path_info_ptr(),
+            });
 }
 
 Status TabletReader::_init_params(const ReaderParams& read_params) {
@@ -345,7 +352,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
     } else if (read_params.return_columns.empty()) {
-        for (size_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+        for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
             _return_columns.push_back(i);
             if (_tablet_schema->column(i).is_key()) {
                 _key_cids.push_back(i);
@@ -538,8 +545,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         const auto& column = *DORIS_TRY(_tablet_schema->column(tmp_cond.column_name));
         const auto& mcolumn = materialize_column(column);
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
-        ColumnPredicate* predicate =
-                parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena.get());
+        ColumnPredicate* predicate = parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena);
         // record condition value into predicate_params in order to pushdown segment_iterator,
         // _gen_predicate_result_sign will build predicate result unique sign with condition value
         predicate->attach_profile_counter(param.runtime_filter_id, param.filtered_rows_counter,
@@ -708,4 +714,5 @@ Status TabletReader::init_reader_params_and_create_block(
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

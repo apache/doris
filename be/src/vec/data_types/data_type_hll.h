@@ -64,6 +64,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return false; }
@@ -80,7 +81,6 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override { return "HLL()"; }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     Field get_default() const override {
         return Field::create_field<TYPE_HLL>(HyperLogLog::empty());
@@ -94,8 +94,9 @@ public:
 
     static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
 
+    using SerDeType = DataTypeHLLSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeHLLSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 };
 

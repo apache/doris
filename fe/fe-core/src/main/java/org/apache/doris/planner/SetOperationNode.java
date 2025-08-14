@@ -18,7 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
@@ -54,15 +53,6 @@ public abstract class SetOperationNode extends PlanNode {
     // List of set operation result exprs of the originating SetOperationStmt. Used for
     // determining passthrough-compatibility of children.
     protected List<Expr> setOpResultExprs;
-
-    // Expr lists corresponding to the input query stmts.
-    // The ith resultExprList belongs to the ith child.
-    // All exprs are resolved to base tables.
-    protected List<List<Expr>> resultExprLists = Lists.newArrayList();
-
-    // Expr lists that originate from constant select stmts.
-    // We keep them separate from the regular expr lists to avoid null children.
-    protected List<List<Expr>> constExprLists = Lists.newArrayList();
 
     // Materialized result/const exprs corresponding to materialized slots.
     // Set in finalize() and substituted against the corresponding child's output smap.
@@ -101,12 +91,16 @@ public abstract class SetOperationNode extends PlanNode {
         this.isInSubplan = false;
     }
 
-    public void addConstExprList(List<Expr> exprs) {
-        constExprLists.add(exprs);
+    public void setMaterializedConstExprLists(List<List<Expr>> exprs) {
+        this.materializedConstExprLists = exprs;
     }
 
-    public void addResultExprLists(List<Expr> exprs) {
-        resultExprLists.add(exprs);
+    public void setMaterializedResultExprLists(List<List<Expr>> exprs) {
+        this.materializedResultExprLists = exprs;
+    }
+
+    public List<List<Expr>> getMaterializedResultExprLists() {
+        return materializedResultExprLists;
     }
 
     public void setColocate(boolean colocate) {
@@ -160,9 +154,9 @@ public abstract class SetOperationNode extends PlanNode {
         if (CollectionUtils.isNotEmpty(conjuncts)) {
             output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
-        if (CollectionUtils.isNotEmpty(constExprLists)) {
+        if (CollectionUtils.isNotEmpty(materializedConstExprLists)) {
             output.append(prefix).append("constant exprs: ").append("\n");
-            for (List<Expr> exprs : constExprLists) {
+            for (List<Expr> exprs : materializedConstExprLists) {
                 output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
                         .collect(Collectors.joining(" | "))).append("\n");
             }
@@ -199,41 +193,5 @@ public abstract class SetOperationNode extends PlanNode {
         }
         numInstances = Math.max(1, numInstances);
         return numInstances;
-    }
-
-    /**
-     * just for Nereids.
-     */
-    public void finalizeForNereids(List<SlotDescriptor> constExprSlots, List<SlotDescriptor> resultExprSlots) {
-        materializedConstExprLists.clear();
-        for (List<Expr> exprList : constExprLists) {
-            Preconditions.checkState(exprList.size() == constExprSlots.size());
-            List<Expr> newExprList = Lists.newArrayList();
-            for (int i = 0; i < exprList.size(); ++i) {
-                if (constExprSlots.get(i).isMaterialized()) {
-                    newExprList.add(exprList.get(i));
-                }
-            }
-            materializedConstExprLists.add(newExprList);
-        }
-
-        materializedResultExprLists.clear();
-        Preconditions.checkState(resultExprLists.size() == children.size());
-        for (int i = 0; i < resultExprLists.size(); ++i) {
-            List<Expr> exprList = resultExprLists.get(i);
-            List<Expr> newExprList = Lists.newArrayList();
-            Preconditions.checkState(exprList.size() == resultExprSlots.size());
-            for (int j = 0; j < exprList.size(); ++j) {
-                if (resultExprSlots.get(j).isMaterialized()) {
-                    newExprList.add(exprList.get(j));
-                    // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
-                    resultExprSlots.get(j)
-                            .setIsNullable(resultExprSlots.get(j).getIsNullable() || exprList.get(j).isNullable());
-                }
-            }
-            materializedResultExprLists.add(newExprList);
-        }
-        Preconditions.checkState(
-                materializedResultExprLists.size() == getChildren().size());
     }
 }

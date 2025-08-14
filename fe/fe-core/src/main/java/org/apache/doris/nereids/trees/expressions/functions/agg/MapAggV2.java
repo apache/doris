@@ -57,13 +57,18 @@ public class MapAggV2 extends NotNullableAggregateFunction
         super("map_agg_v2", distinct, arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MapAggV2(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public MapAggV2 withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MapAggV2(distinct, children.get(0), children.get(1));
+        return new MapAggV2(getFunctionParams(distinct, children));
     }
 
     @Override

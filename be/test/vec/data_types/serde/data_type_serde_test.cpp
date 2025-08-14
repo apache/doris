@@ -234,7 +234,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         Arena pool;
         jsonb_writer.writeStartObject();
-        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, &pool, 0, 0);
+        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, pool, 0, 0);
         jsonb_writer.writeEndObject();
         auto jsonb_column = ColumnString::create();
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
@@ -266,7 +266,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         Arena pool;
         jsonb_writer.writeStartObject();
-        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, &pool, 0, 0);
+        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, pool, 0, 0);
         jsonb_writer.writeEndObject();
         auto jsonb_column = ColumnString::create();
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),

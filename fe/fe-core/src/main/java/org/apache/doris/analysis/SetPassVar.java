@@ -46,7 +46,7 @@ public class SetPassVar extends SetVar {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         boolean isSelf = false;
         ConnectContext ctx = ConnectContext.get();
         if (userIdent == null) {

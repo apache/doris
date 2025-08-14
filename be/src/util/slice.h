@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 

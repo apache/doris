@@ -21,6 +21,7 @@
 #include <foundationdb/fdb_c_options.g.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -286,7 +287,13 @@ public:
         //
         // Default: 1000
         int concurrency;
+
+        // Used for `batch_scan`, if true, the underlying iterator will return keys in reverse order.
+        //
+        // Default: false
+        bool reverse = false;
     };
+
     /**
      * @brief batch get keys
      *
@@ -298,6 +305,30 @@ public:
     virtual TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                                    const std::vector<std::string>& keys,
                                    const BatchGetOptions& opts = BatchGetOptions()) = 0;
+
+    /**
+     * @brief Batch scan for the first key-value pair starting from each given key.
+     *
+     * For each key in the input keys, this function starts scanning from that key (inclusive)
+     * in the direction specified by `opts.reverse` (forward by default) and returns the first
+     * key-value pair encountered. If no key is found (i.e., scanning reaches the end without
+     * finding any key), the corresponding result is an empty optional.
+     *
+     * The function scans keys in batches and is more efficient than scanning each key individually.
+     *
+     * @param[out] res The output vector of optionals. Each element corresponds to the same index as in the input keys.
+     *                  If a key-value pair is found, the element will contain the pair; otherwise, it will be std::nullopt.
+     * @param[in] keys The list of keys from which to start the scan for each corresponding search.
+     * @param[in] opts Options such as `reverse` and `snapshot`. If `reverse` is true, the scan is in the backward direction.
+     *
+     * @return TXN_OK if all scans completed successfully. If any error occurs during the scanning,
+     *         the function stops immediately and returns the error code of the first error encountered.
+     *         Note: The output vector `res` may be partially filled when an error occurs.
+     */
+    virtual TxnErrorCode batch_scan(
+            std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+            const std::vector<std::string>& keys,
+            const BatchGetOptions& opts = BatchGetOptions()) = 0;
 
     /**
      * @brief return the approximate bytes consumed by the underlying transaction buffer.
@@ -323,6 +354,11 @@ public:
      * @brief return the bytes of the delete keys consumed.
      **/
     virtual size_t delete_bytes() const = 0;
+
+    /**
+     * @brief return the bytes of the get values consumed.
+     **/
+    virtual size_t get_bytes() const = 0;
 
     /**
      * @brief return the bytes of the put key and values consumed.
@@ -376,6 +412,12 @@ public:
      * @return size
      */
     virtual int size() const = 0;
+
+    /**
+     * Get all FDBKeyValue's bytes include key's bytes
+     * RangeGetIterator created by get range, when get range the keys in the range too.
+     */
+    virtual int64_t get_kv_bytes() const = 0;
 
     /**
      * Get the remaining size of the range, some kinds of iterators may not support this function.
@@ -557,6 +599,14 @@ public:
 
     int size() const override { return kvs_size_; }
 
+    int64_t get_kv_bytes() const override {
+        int64_t total_bytes {};
+        for (int i = 0; i < kvs_size_; i++) {
+            total_bytes += kvs_[i].key_length + kvs_[i].value_length;
+        }
+        return total_bytes;
+    }
+
     int remaining() const override {
         if (idx_ < 0 || idx_ >= kvs_size_) return 0;
         return kvs_size_ - idx_;
@@ -701,6 +751,10 @@ public:
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
+    TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+                            const std::vector<std::string>& keys,
+                            const BatchGetOptions& opts = BatchGetOptions()) override;
+
     size_t approximate_bytes() const override { return approximate_bytes_; }
 
     size_t num_get_keys() const override { return num_get_keys_; }
@@ -713,6 +767,8 @@ public:
 
     size_t put_bytes() const override { return put_bytes_; }
 
+    size_t get_bytes() const override { return get_bytes_; }
+
 private:
     std::shared_ptr<Database> db_ {nullptr};
     bool commited_ = false;
@@ -723,6 +779,7 @@ private:
     size_t num_del_keys_ {0};
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
+    size_t get_bytes_ {0};
     size_t put_bytes_ {0};
     size_t approximate_bytes_ {0};
 };

@@ -45,14 +45,12 @@ struct RowsetWriterContext {
 
     RowsetId rowset_id;
     int64_t tablet_id {0};
-    int64_t tablet_schema_hash {0};
+    int32_t tablet_schema_hash {0};
     int64_t index_id {0};
     int64_t partition_id {0};
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
-    // for variant schema update
-    TabletSchemaSPtr merged_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -97,6 +95,7 @@ struct RowsetWriterContext {
     bool write_file_cache = false;
     bool is_hot_data = false;
     uint64_t file_cache_ttl_sec = 0;
+    uint64_t approximate_bytes_to_write = 0;
     /// end file cache opts
 
     // segcompaction for this RowsetWriter, disable it for some transient writers
@@ -105,6 +104,11 @@ struct RowsetWriterContext {
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
     bool is_transient_rowset_writer = false;
+
+    // For collect segment statistics for compaction
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+
+    // TODO(lihangyu) remove this lock
     // In semi-structure senario tablet_schema will be updated concurrently,
     // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
     std::shared_ptr<std::mutex> schema_lock;
@@ -149,7 +153,10 @@ struct RowsetWriterContext {
                 .is_cold_data = is_hot_data,
                 .file_cache_expiration = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
                                                  ? newest_write_timestamp + file_cache_ttl_sec
-                                                 : 0};
+                                                 : 0,
+                .approximate_bytes_to_write = approximate_bytes_to_write,
+        };
+
         return opts;
     }
 };

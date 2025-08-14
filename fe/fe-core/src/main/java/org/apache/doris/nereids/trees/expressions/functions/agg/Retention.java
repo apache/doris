@@ -59,6 +59,11 @@ public class Retention extends NullableAggregateFunction
         super("retention", distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Retention(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
@@ -78,15 +83,13 @@ public class Retention extends NullableAggregateFunction
      */
     @Override
     public Retention withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Retention(distinct, alwaysNullable, children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Retention(getFunctionParams(distinct, children));
     }
 
     @Override
     public Retention withAlwaysNullable(boolean alwaysNullable) {
-        return new Retention(distinct, alwaysNullable, children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        return new Retention(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

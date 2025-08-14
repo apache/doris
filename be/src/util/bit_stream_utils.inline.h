@@ -31,7 +31,7 @@
 using doris::BitUtil;
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 inline void BitWriter::PutValue(uint64_t v, int num_bits) {
     DCHECK_LE(num_bits, 64);
     // Truncate the higher-order bits. This is necessary to
@@ -122,7 +122,8 @@ bool BitReader::GetValue(int num_bits, T* v) {
         return false;
     }
 
-    *v = BitUtil::TrailingBits(buffered_values_, bit_offset_ + num_bits) >> bit_offset_;
+    *v = static_cast<T>(BitUtil::TrailingBits(buffered_values_, bit_offset_ + num_bits) >>
+                        bit_offset_);
 
     bit_offset_ += num_bits;
     if (bit_offset_ >= 64) {
@@ -347,20 +348,5 @@ bool BatchedBitReader::GetUleb128(UINT_T* v) {
     return true;
 }
 
-template <typename INT_T>
-bool BatchedBitReader::GetZigZagInteger(INT_T* v) {
-    static_assert(std::is_integral<INT_T>::value, "Integral type required.");
-    static_assert(std::is_signed<INT_T>::value, "Signed type required.");
-
-    using UINT_T = std::make_unsigned_t<INT_T>;
-
-    UINT_T v_unsigned;
-    if (UNLIKELY(!GetUleb128<UINT_T>(&v_unsigned))) return false;
-
-    /// Here we rely on implementation defined behaviour in converting UINT_T to INT_T.
-    *v = (v_unsigned >> 1) ^ -(v_unsigned & 1u);
-
-    return true;
-}
-
+#include "common/compile_check_end.h"
 } // namespace doris

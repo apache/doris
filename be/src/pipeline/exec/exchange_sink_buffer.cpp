@@ -370,7 +370,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                                                       std::move(send_remote_block_closure),
                                                       channel->_brpc_dest_addr));
             } else {
-                transmit_blockv2(*channel->_brpc_stub, std::move(send_remote_block_closure));
+                transmit_blockv2(channel->_brpc_stub.get(), std::move(send_remote_block_closure));
             }
         }
 
@@ -500,7 +500,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                                                       std::move(send_remote_block_closure),
                                                       channel->_brpc_dest_addr));
             } else {
-                transmit_blockv2(*channel->_brpc_stub, std::move(send_remote_block_closure));
+                transmit_blockv2(channel->_brpc_stub.get(), std::move(send_remote_block_closure));
             }
         }
         if (!_send_multi_blocks && request.block_holder->get_block()) {

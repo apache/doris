@@ -122,7 +122,7 @@ private:
             pipeline::Dependency::create_shared(0, 0, "TestScanDependency");
     std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_shared<CgroupV2CpuCtl>(1);
     std::unique_ptr<SimplifiedScanScheduler> scan_scheduler =
-            std::make_unique<SimplifiedScanScheduler>("ForTest", cgroup_cpu_ctl);
+            std::make_unique<ThreadPoolSimplifiedScanScheduler>("ForTest", cgroup_cpu_ctl);
 };
 
 TEST_F(ScannerContextTest, test_init) {
@@ -555,14 +555,14 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     scanner_context->_max_scan_concurrency = 1;
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
 
-    Status st = scanner_context->_schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
+    Status st = scanner_context->schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(scanner_context->_num_scheduled_scanners, 1);
 
     scanner_context->_max_scan_concurrency = 10;
     scanner_context->_max_scan_concurrency = 1;
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
-    st = scanner_context->_schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
+    st = scanner_context->schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(scanner_context->_num_scheduled_scanners, scanner_context->_max_scan_concurrency);
 
@@ -578,7 +578,7 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
     int margin = scanner_context->_get_margin(transfer_lock, scheduler_lock);
     ASSERT_EQ(margin, scanner_context->_min_scan_concurrency_of_scan_scheduler);
-    st = scanner_context->_schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
+    st = scanner_context->schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
     ASSERT_TRUE(st.ok());
     // 15 since we have 15 scanners.
     ASSERT_EQ(scanner_context->_num_scheduled_scanners, 15);
@@ -598,9 +598,9 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     scanner_context->_max_scan_concurrency = 1;
     scanner_context->_min_scan_concurrency = 1;
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
-    st = scanner_context->_schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
+    st = scanner_context->schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
     auto scan_task = std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
-    st = scanner_context->_schedule_scan_task(scan_task, transfer_lock, scheduler_lock);
+    st = scanner_context->schedule_scan_task(scan_task, transfer_lock, scheduler_lock);
     // current scan task is added back.
     ASSERT_EQ(scanner_context->_pending_scanners.size(), 1);
     ASSERT_EQ(scanner_context->_num_scheduled_scanners, 1);
@@ -615,13 +615,13 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     scanner_context->_max_scan_concurrency = 1;
     scanner_context->_min_scan_concurrency = 1;
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
-    st = scanner_context->_schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
+    st = scanner_context->schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
     scan_task = std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
     scan_task->cached_blocks.emplace_back(Block::create_unique(), 0);
     // Illigeal situation.
     // If current scan task has cached block, it should not be called with this methods.
-    EXPECT_ANY_THROW(std::ignore = scanner_context->_schedule_scan_task(scan_task, transfer_lock,
-                                                                        scheduler_lock));
+    EXPECT_ANY_THROW(std::ignore = scanner_context->schedule_scan_task(scan_task, transfer_lock,
+                                                                       scheduler_lock));
 }
 
 TEST_F(ScannerContextTest, scan_queue_mem_limit) {

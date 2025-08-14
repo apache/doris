@@ -21,7 +21,6 @@ import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.iceberg.HiveCompatibleCatalog;
 import org.apache.doris.datasource.iceberg.dlf.client.DLFCachedClientPool;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
@@ -63,7 +62,7 @@ public class DLFCatalog extends HiveCompatibleCatalog {
                     properties.get(S3Properties.Env.TOKEN)));
         }
         String region = properties.getOrDefault(OssProperties.REGION, properties.get(S3Properties.Env.REGION));
-        boolean isUsePathStyle = properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
+        boolean isUsePathStyle = properties.getOrDefault("use_path_style", "false")
                 .equalsIgnoreCase("true");
         // s3 file io just supports s3-like endpoint
         String s3Endpoint = endpoint.replace(region, "s3." + region);

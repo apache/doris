@@ -144,21 +144,21 @@ public:
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
-        std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+        std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap = nullptr;
 
         // return_columns is init from query schema
-        std::vector<uint32_t> return_columns;
+        std::vector<ColumnId> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs
         std::set<int32_t> output_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
         // use only in vec exec engine
-        std::vector<uint32_t>* origin_return_columns = nullptr;
+        std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         vectorized::VExpr* remaining_vconjunct_root = nullptr;
@@ -194,6 +194,13 @@ public:
         std::string to_string() const;
 
         int64_t batch_size = -1;
+
+        std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+        std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
+        std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+        std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+        CollectionStatisticsPtr collection_statistics;
     };
 
     TabletReader() = default;
@@ -278,8 +285,9 @@ protected:
 
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    std::unique_ptr<vectorized::Arena> _predicate_arena;
-    std::vector<uint32_t> _return_columns;
+    vectorized::Arena _predicate_arena;
+    std::vector<ColumnId> _return_columns;
+
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys
     std::vector<uint32_t> _orderby_key_columns;
@@ -297,6 +305,7 @@ protected:
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
+    // Indicates whether the tablets has do a aggregation in storage engine.
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;

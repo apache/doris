@@ -49,7 +49,7 @@ suite ("null_insert") {
     sql """INSERT INTO `test` (`date`) VALUES ('2023-07-19');"""
 
     createMV("""CREATE materialized view mv_test AS
-                SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
+                SELECT date as x1, vid as x2, os as x3, ver as x4, ip_country as x5, hll_union(hll_hash(uid))
                 FROM test
                 GROUP BY date,vid,os,ver,ip_country;""")
 

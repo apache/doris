@@ -21,6 +21,7 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Lists;
 import org.apache.ivy.util.StringUtils;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -85,25 +86,32 @@ public class FeNameFormatTest {
                 "test",      // Letters only
                 "a_b_c",     // Multiple underscores
                 "a_1",       // Underscore + number
-                "B2"         // Uppercase letter + number
+                "B2",        // Uppercase letter + number
+                "1abc",      // Starts with digit
+                "abc$",      // Contains invalid symbol $
+                "-abc",      // Starts with hyphen
+                "_abc"       // Starts with underscore
         );
 
         List<String> alwaysInvalid = Lists.newArrayList(
-                "1abc",      // Starts with digit
-                "@test",     // Contains invalid symbol @
                 "",          // Empty string
-                "a b",       // Contains space
-                "abc!",      // Contains invalid symbol !
-                "a\nb",      // Contains newline
-                "abc$",      // Contains invalid symbol $
-                "-abc",      // Starts with hyphen
-                "_abc",      // Starts with underscore
-                "a*b",       // Contains asterisk
-                "a.b",       // Contains dot
-                "a#b"        // Contains hash
+                "x ",          // space character as last one
+                "x\t",         // table character as last one
+                "x\n"          // enter character as last one
         );
 
         List<String> unicodeValid = Lists.newArrayList(
+                "@test",     // Contains invalid symbol @
+                "a b",       // Contains space
+                "a\tb",      // Contains space
+                "a\nb",      // Contains space
+                "a\rb",      // Contains space
+                " ab",       // Contains space
+                "a*b",       // Contains asterisk
+                "a.b",       // Contains dot
+                "a#b",       // Contains hash
+                "abc!",      // Contains invalid symbol !
+                "a\nb",      // Contains newline
                 "éclair",    // Contains French letter
                 "über",      // Contains German umlaut
                 "北京",      // Chinese characters
@@ -132,6 +140,8 @@ public class FeNameFormatTest {
                 "__id",
                 "___id",
                 "___id_",
+                "mv_",
+                "mva_",
                 "@timestamp",
                 "@timestamp#",
                 "timestamp*",
@@ -140,23 +150,29 @@ public class FeNameFormatTest {
                 "?id_",
                 "#id_",
                 "$id_",
-                "a-zA-Z0-9.+-/?@#$%^&*\" ,:"
+                "a-zA-Z0-9.+-/?@#$%^&*\" ,:",
+                " x",
+                "y x",
+                "y\tx",
+                "y\nx",
+                "y\rx"
         );
 
         List<String> alwaysInvalid = Lists.newArrayList(
                 // inner column prefix
-                "mv_",
-                "mva_",
                 "__doris_shadow_",
-
-                // invalid
                 "",
-                "\\",
-                "column\\",
+                " ",
+                "x ",
+                "x\t",
+                "x\n",
+                "x\r",
                 StringUtils.repeat("a", 257)
         );
 
         List<String> unicodeValid = Lists.newArrayList(
+                "\\",
+                "column\\",
                 "中文",
                 "語言",
                 "язык",
@@ -379,13 +395,16 @@ public class FeNameFormatTest {
                     ExceptionChecker.expectThrowsNoException(() -> validator.accept(s));
                 }
                 for (String s : alwaysInvalid) {
-                    ExceptionChecker.expectThrows(AnalysisException.class, () -> validator.accept(s));
+                    Assertions.assertThrowsExactly(AnalysisException.class, () -> validator.accept(s),
+                            "name should be invalid: " + s);
                 }
                 for (String s : unicodeValid) {
                     if (unicode) {
                         ExceptionChecker.expectThrowsNoException(() -> validator.accept(s));
                     } else {
-                        ExceptionChecker.expectThrows(AnalysisException.class, () -> validator.accept(s));
+                        Assertions.assertThrowsExactly(AnalysisException.class, () -> validator.accept(s),
+                                "name should be invalid: " + s);
+
                     }
                 }
             }

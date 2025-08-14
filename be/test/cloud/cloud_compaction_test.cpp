@@ -38,7 +38,7 @@ namespace doris {
 class TabletMap;
 
 class CloudCompactionTest : public testing::Test {
-    CloudCompactionTest() : _engine(CloudStorageEngine({})) {}
+    CloudCompactionTest() : _engine(CloudStorageEngine(EngineOptions {})) {}
     void SetUp() override {
         config::compaction_promotion_size_mbytes = 1024;
         config::compaction_promotion_ratio = 0.05;

@@ -178,7 +178,7 @@ public:
                     std::vector<vectorized::AggregateDataPtr>& values,
                     const vectorized::AggregateDataPtr null_key_data) {
         SCOPED_TIMER(_spill_serialize_hash_table_timer);
-        context.insert_keys_into_columns(keys, key_columns_, keys.size());
+        context.insert_keys_into_columns(keys, key_columns_, (uint32_t)keys.size());
 
         if (null_key_data) {
             // only one key of group by support wrap null key

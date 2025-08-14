@@ -320,11 +320,11 @@ suite("test_hudi_partition_prune", "p2,external,hudi,external_remote,external_re
             sql("${one_partition_date}")
             contains "partition=1/2"
         }
-        // qt_one_partition_timestamp one_partition_timestamp
-        // explain {
-        //     sql("${one_partition_timestamp}")
-        //     contains "partition=1/2"
-        // }
+        qt_one_partition_timestamp one_partition_timestamp
+        explain {
+            sql("${one_partition_timestamp}")
+            contains "partition=1/2"
+        }
 
         sql """drop catalog if exists ${catalog_name};"""
 

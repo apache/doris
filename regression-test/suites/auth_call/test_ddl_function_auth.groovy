@@ -23,14 +23,6 @@ suite("test_ddl_function_auth","p0,auth_call") {
     String dbName = 'test_ddl_function_auth_db'
     String functionName = 'test_ddl_function_auth_fct'
 
-    //cloud-mode
-    if (isCloudMode()) {
-        def clusters = sql " SHOW CLUSTERS; "
-        assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
-    }
-
     try_sql("DROP USER ${user}")
     try_sql """drop database if exists ${dbName}"""
     try_sql("""DROP FUNCTION ${dbName}.${functionName}(INT)""")
@@ -38,6 +30,14 @@ suite("test_ddl_function_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
     sql """grant select_priv on ${dbName}.* to ${user}"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+    }
 
     // ddl create,show,drop
     connect(user, "${pwd}", context.config.jdbcUrl) {

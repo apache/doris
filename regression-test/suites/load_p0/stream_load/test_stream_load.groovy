@@ -617,7 +617,7 @@ suite("test_stream_load", "p0") {
         table "${tableName3}"
 
         set 'column_separator', ','
-        set 'columns', 'tmpk1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k1=k13'
+        set 'columns', 'k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13'
 
         file 'all_types.csv'
         time 10000 // limit inflight 10s

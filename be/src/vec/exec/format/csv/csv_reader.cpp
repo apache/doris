@@ -39,6 +39,7 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/s3_file_reader.h"
+#include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
@@ -245,8 +246,12 @@ Status CsvReader::init_reader(bool is_load) {
              _file_format_type != TFileFormatType::FORMAT_CSV_PLAIN)) {
             return Status::InternalError<false>("For now we do not support split compressed file");
         }
-        _start_offset -= 1;
-        _size += 1;
+        // pre-read to promise first line skipped always read
+        int64_t pre_read_len = std::min(
+                static_cast<int64_t>(_params.file_attributes.text_params.line_delimiter.size()),
+                _start_offset);
+        _start_offset -= pre_read_len;
+        _size += pre_read_len;
         // not first range will always skip one line
         _skip_lines = 1;
     }
@@ -537,10 +542,13 @@ Status CsvReader::_create_file_reader(bool need_schema) {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+        auto file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options,
                 io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
+        _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+                                                                         _io_ctx->file_reader_stats)
+                               : file_reader;
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {

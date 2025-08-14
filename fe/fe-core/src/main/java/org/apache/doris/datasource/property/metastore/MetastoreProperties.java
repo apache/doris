@@ -21,16 +21,15 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectionProperties;
 
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 /**
  * MetastoreProperties is the base class for handling configuration of different types of metastores
@@ -44,18 +43,15 @@ import java.util.function.Function;
  */
 public class MetastoreProperties extends ConnectionProperties {
 
-    /**
-     * Enum representing supported metastore types.
-     * Each type can have one or more alias strings (case-insensitive).
-     */
     public enum Type {
         HMS("hms"),
+        ICEBERG("iceberg"),
+        PAIMON("paimon"),
         GLUE("glue"),
         DLF("dlf"),
-        ICEBERG_REST("rest"),
         DATAPROC("dataproc"),
         FILE_SYSTEM("filesystem", "hadoop"),
-        UNKNOWN(); // fallback, not used directly
+        UNKNOWN();
 
         private final Set<String> aliases;
 
@@ -63,12 +59,6 @@ public class MetastoreProperties extends ConnectionProperties {
             this.aliases = new HashSet<>(Arrays.asList(aliases));
         }
 
-        /**
-         * Parses a string into a {@link Type} if possible.
-         *
-         * @param input string value (case-insensitive)
-         * @return optional type if match found
-         */
         public static Optional<Type> fromString(String input) {
             if (input == null) {
                 return Optional.empty();
@@ -83,99 +73,53 @@ public class MetastoreProperties extends ConnectionProperties {
         }
     }
 
-    /**
-     * The resolved metastore type for this configuration.
-     */
     @Getter
     protected Type type;
 
-    /**
-     * Common property keys that may specify the metastore type.
-     * These are checked in order to resolve the type from provided config.
-     */
-    private static final List<String> POSSIBLE_TYPE_KEYS = Arrays.asList(
-            "metastore.type",
-            "hive.metastore.type",
-            "iceberg.catalog.type",
-            "paimon.catalog.type",
-            "type"
-    );
+    private static final String METASTORE_TYPE_KEY = "type";
 
-    /**
-     * Registry mapping each {@link Type} to its constructor logic.
-     */
-    private static final Map<Type, Function<Map<String, String>, MetastoreProperties>> FACTORY_MAP
-            = new EnumMap<>(Type.class);
+    private static final Map<Type, MetastorePropertiesFactory> FACTORY_MAP = new EnumMap<>(Type.class);
 
     static {
-        // Register all known factories here
-        FACTORY_MAP.put(Type.HMS, HMSProperties::new);
-        FACTORY_MAP.put(Type.GLUE, AWSGlueProperties::new);
-        FACTORY_MAP.put(Type.DLF, AliyunDLFProperties::new);
-        FACTORY_MAP.put(Type.ICEBERG_REST, IcebergRestProperties::new);
-        FACTORY_MAP.put(Type.DATAPROC, DataProcProperties::new);
-        FACTORY_MAP.put(Type.FILE_SYSTEM, FileMetastoreProperties::new);
+        //subclasses should be registered here
+        register(Type.HMS, new HMSPropertiesFactory());
+        register(Type.ICEBERG, new IcebergPropertiesFactory());
+        register(Type.PAIMON, new PaimonPropertiesFactory());
     }
 
-    /**
-     * Factory method to create an appropriate {@link MetastoreProperties} instance from raw properties.
-     *
-     * @param origProps original user configuration
-     * @return resolved and initialized metastore properties instance
-     * @throws UserException if the configuration is invalid or unsupported
-     */
-    public static MetastoreProperties create(Map<String, String> origProps) throws UserException {
-        Type msType = resolveType(origProps);
-        return create(msType, origProps);
+    public static void register(Type type, MetastorePropertiesFactory factory) {
+        FACTORY_MAP.put(type, factory);
     }
 
-    /**
-     * Resolves the {@link Type} of metastore from the property map by checking common keys.
-     *
-     * @param props original property map
-     * @return resolved type
-     */
-    private static Type resolveType(Map<String, String> props) {
-        for (String key : POSSIBLE_TYPE_KEYS) {
-            if (props.containsKey(key)) {
-                String value = props.get(key);
-                Optional<Type> opt = Type.fromString(value);
-                if (opt.isPresent()) {
-                    return opt.get();
-                } else {
-                    throw new IllegalArgumentException("Unknown metastore type value '" + value + "' for key: " + key);
-                }
-            }
-        }
-        throw new IllegalArgumentException("No metastore type found in properties. Tried keys: " + POSSIBLE_TYPE_KEYS);
-    }
-
-    /**
-     * Factory method to directly create a metastore properties instance given a type.
-     *
-     * @param type      resolved type
-     * @param origProps original configuration
-     * @return constructed and validated {@link MetastoreProperties}
-     * @throws UserException if validation fails
-     */
-    public static MetastoreProperties create(Type type, Map<String, String> origProps) throws UserException {
-        Function<Map<String, String>, MetastoreProperties> constructor = FACTORY_MAP.get(type);
-        if (constructor == null) {
+    public static MetastoreProperties create(Map<String, String> props) throws UserException {
+        Type type = resolveType(props);
+        MetastorePropertiesFactory factory = FACTORY_MAP.get(type);
+        if (factory == null) {
             throw new IllegalArgumentException("Unsupported metastore type: " + type);
         }
-        MetastoreProperties instance = constructor.apply(origProps);
-        instance.initNormalizeAndCheckProps();
-        return instance;
+        return factory.create(props);
     }
 
-    /**
-     * Base constructor for subclasses to initialize the common state.
-     *
-     * @param type      metastore type
-     * @param origProps original configuration
-     */
-    protected MetastoreProperties(Type type, Map<String, String> origProps) {
-        super(origProps);
+    private static Type resolveType(Map<String, String> props) {
+        String typeValue = props.get(METASTORE_TYPE_KEY);
+        if (StringUtils.isBlank(typeValue)) {
+            throw new IllegalArgumentException("Metastore type is required");
+        }
+
+        Optional<Type> typeOpt = Type.fromString(typeValue);
+        if (typeOpt.isPresent()) {
+            return typeOpt.get();
+        }
+        throw new IllegalArgumentException("Unknown metastore type value '" + typeValue + "'. "
+                + "Supported types are: " + Arrays.toString(Type.values()));
+    }
+
+    protected MetastoreProperties(Type type, Map<String, String> props) {
+        super(props);
         this.type = type;
+    }
+
+    protected MetastoreProperties(Map<String, String> props) {
+        super(props);
     }
 }

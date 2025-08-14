@@ -36,6 +36,8 @@
 #include "util/md5.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
         : HttpHandlerWithAuth(exec_env, hier, type) {}
@@ -44,11 +46,11 @@ void CheckRPCChannelAction::handle(HttpRequest* req) {
     std::string req_ip = req->param("ip");
     std::string req_port = req->param("port");
     std::string req_payload_size = req->param("payload_size");
-    uint64_t port = 0;
-    uint64_t payload_size = 0;
+    int port = 0;
+    int payload_size = 0;
     try {
-        port = std::stoull(req_port);
-        payload_size = std::stoull(req_payload_size);
+        port = std::stoi(req_port);
+        payload_size = std::stoi(req_payload_size);
         if (port > 65535) {
             HttpChannel::send_reply(
                     req, HttpStatus::INTERNAL_SERVER_ERROR,
@@ -108,4 +110,5 @@ void CheckRPCChannelAction::handle(HttpRequest* req) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

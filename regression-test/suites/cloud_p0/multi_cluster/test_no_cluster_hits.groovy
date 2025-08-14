@@ -145,7 +145,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         logger.info("ms addr={}, port={}", ms.host, ms.httpPort)
         drop_cluster(currentCluster.cluster, cloudClusterId, ms)
 
-        dockerAwaitUntil(5) {
+        awaitUntil(5) {
             result = sql_return_maparray """show clusters"""
             logger.info("show cluster2 : {}", result) 
             result.size() == 0

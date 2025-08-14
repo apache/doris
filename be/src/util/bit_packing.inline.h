@@ -22,10 +22,11 @@
 #include "util/bit_packing.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 inline int64_t BitPacking::NumValuesToUnpack(int bit_width, int64_t in_bytes, int64_t num_values) {
     // Check if we have enough input bytes to decode 'num_values'.
-    if (bit_width == 0 || BitUtil::RoundUpNumBytes(num_values * bit_width) <= in_bytes) {
+    if (bit_width == 0 ||
+        BitUtil::RoundUpNumBytes((uint32_t)(num_values * bit_width)) <= in_bytes) {
         // Limited by output space.
         return num_values;
     } else {
@@ -92,8 +93,8 @@ std::pair<const uint8_t*, int64_t> BitPacking::UnpackValues(const uint8_t* __res
 
     // Then unpack the final partial batch.
     if (remainder_values > 0) {
-        in_pos =
-                UnpackUpTo31Values<OutType, BIT_WIDTH>(in_pos, in_bytes, remainder_values, out_pos);
+        in_pos = UnpackUpTo31Values<OutType, BIT_WIDTH>(in_pos, in_bytes, (int)remainder_values,
+                                                        out_pos);
     }
     return std::make_pair(in_pos, values_to_read);
 }
@@ -383,5 +384,5 @@ const uint8_t* BitPacking::UnpackAndDecodeUpTo31Values(const uint8_t* __restrict
     return in + BYTES_TO_READ;
 #pragma pop_macro("DECODE_VALUES_CASE")
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

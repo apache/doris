@@ -23,10 +23,12 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import lombok.Getter;
+import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -54,6 +56,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         OSS,
         OBS,
         COS,
+        OSS_HDFS,
         MINIO,
         AZURE,
         BROKER,
@@ -62,6 +65,41 @@ public abstract class StorageProperties extends ConnectionProperties {
     }
 
     public abstract Map<String, String> getBackendConfigProperties();
+
+    /**
+     * Hadoop storage configuration used for interacting with HDFS-based systems.
+     * <p>
+     * Currently, some underlying APIs in Hive and Iceberg still rely on the HDFS protocol directly.
+     * Because of this, we must introduce an additional storage layer conversion here to adapt
+     * our system's storage abstraction to the HDFS protocol.
+     * <p>
+     * In the future, once we have unified the storage access layer by implementing our own
+     * FileIO abstraction (a custom, unified interface for file system access),
+     * this conversion layer will no longer be necessary. The FileIO abstraction
+     * will provide seamless and consistent access to different storage backends,
+     * eliminating the need to rely on HDFS protocol specifics.
+     * <p>
+     * This approach will simplify the integration and improve maintainability
+     * by standardizing the way storage systems are accessed.
+     */
+    @Getter
+    public Configuration hadoopStorageConfig;
+
+    /**
+     * Get backend configuration properties with optional runtime properties.
+     * This method allows passing runtime properties (like vended credentials)
+     * that should be merged with the base configuration.
+     *
+     * @param runtimeProperties additional runtime properties to merge, can be null
+     * @return Map of backend properties including runtime properties
+     */
+    public Map<String, String> getBackendConfigProperties(Map<String, String> runtimeProperties) {
+        Map<String, String> properties = new HashMap<>(getBackendConfigProperties());
+        if (runtimeProperties != null && !runtimeProperties.isEmpty()) {
+            properties.putAll(runtimeProperties);
+        }
+        return properties;
+    }
 
     @Getter
     protected Type type;
@@ -91,6 +129,7 @@ public abstract class StorageProperties extends ConnectionProperties {
 
         for (StorageProperties storageProperties : result) {
             storageProperties.initNormalizeAndCheckProps();
+            storageProperties.initializeHadoopStorageConfig();
         }
         return result;
     }
@@ -110,6 +149,7 @@ public abstract class StorageProperties extends ConnectionProperties {
             StorageProperties p = func.apply(origProps);
             if (p != null) {
                 p.initNormalizeAndCheckProps();
+                p.initializeHadoopStorageConfig();
                 return p;
             }
         }
@@ -188,4 +228,6 @@ public abstract class StorageProperties extends ConnectionProperties {
     public abstract String validateAndGetUri(Map<String, String> loadProps) throws UserException;
 
     public abstract String getStorageName();
+
+    public abstract void initializeHadoopStorageConfig();
 }

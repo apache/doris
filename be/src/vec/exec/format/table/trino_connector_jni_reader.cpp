@@ -107,8 +107,11 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
     // call: setPluginsDir(String pluginsDir)
     jstring trino_connector_plugin_path =
             env->NewStringUTF(doris::config::trino_connector_plugin_dir.c_str());
+    RETURN_ERROR_IF_EXC(env);
     env->CallStaticVoidMethod(plugin_loader_cls, set_plugins_dir_method,
                               trino_connector_plugin_path);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteLocalRef(trino_connector_plugin_path);
     RETURN_ERROR_IF_EXC(env);
 
     return Status::OK();

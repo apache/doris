@@ -310,37 +310,37 @@ suite("test_broker_load_p2", "p2") {
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000"    // case 30
                     ]
 
-    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 0
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 1
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 2
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 3
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 4
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 5
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 6
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 7
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 8
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 9
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 10
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 11
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 12
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 13
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 14
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 15
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 16
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 17
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 18
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 19
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 20
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 21
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 22
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 23
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 24
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 25
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 26
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 27
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 28
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 29
-                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"   // case 30
+    def task_info = ["${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 0
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 1
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 2
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 3
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 4
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 5
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 6
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 7
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 8
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 9
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 10
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 11
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 12
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 13
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 14
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 15
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 16
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 17
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 18
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 19
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 20
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 21
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 22
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 23
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 24
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 25
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 26
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 27
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 28
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",  // case 29
+                     "${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"   // case 30
     ]
 
     def error_msg = ["",                                                         // case 0
@@ -448,7 +448,7 @@ suite("test_broker_load_p2", "p2") {
                     logger.info("Load status: " + logStr + ", label: $label")
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
-                        assertTrue(result[0][6].contains(task_info[i]))
+                        assertTrue(result[0][6].contains(task_info[i]), "expected: " + task_info[i] + ", actual: " + result[0][6] + ", label: $label")
                         def load_counters = etl_info[i].split('; ');
                         for (String counter : load_counters) {
                             assertTrue(result[0][5].contains(counter), "expected: " + counter + ", actual: " + result[0][5] + ", label: $label")
@@ -457,7 +457,7 @@ suite("test_broker_load_p2", "p2") {
                     }
                     if (result[0][2].equals("CANCELLED")) {
                         logger.info("Load result: " + result[0])
-                        assertTrue(result[0][6].contains(task_info[i]))
+                        assertTrue(result[0][6].contains(task_info[i]), "expected: " + task_info[i] + ", actual: " + result[0][6] + ", label: $label")
                         assertTrue(result[0][7].contains(error_msg[i]), "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
                         break;
                     }

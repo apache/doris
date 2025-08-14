@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -76,6 +77,9 @@ public class AggStateType extends DataType {
                 .copyOf(Objects.requireNonNull(subTypeNullables, "subTypeNullables should not be null"));
         Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
                 "AggStateType' subTypes.size()!=subTypeNullables.size()");
+        Objects.requireNonNull(functionName, "functionName should not be null");
+        // be only supports lowercase function names
+        functionName = functionName.toLowerCase(Locale.ROOT);
         this.functionName = aliasToName.getOrDefault(functionName, functionName);
     }
 

@@ -73,7 +73,9 @@ public:
         EngineOptions options;
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
-        k_engine = std::make_unique<StorageEngine>(options);
+        auto engine = std::make_unique<StorageEngine>(options);
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        k_engine = &ExecEnv::GetInstance()->storage_engine().to_local();
         _data_dir = new DataDir(*k_engine, _engine_data_path, 1000000000);
         static_cast<void>(_data_dir->init());
         _tablet_mgr = k_engine->tablet_manager();
@@ -82,10 +84,11 @@ public:
     virtual void TearDown() {
         SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         _tablet_mgr = nullptr;
         config::compaction_num_per_round = 1;
     }
-    std::unique_ptr<StorageEngine> k_engine;
+    StorageEngine* k_engine;
 
 private:
     DataDir* _data_dir = nullptr;
@@ -470,7 +473,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     }
 
     {
-        config::compaction_num_per_round = 10;
+        k_engine->_compaction_num_per_round = 10;
         for (int64_t i = 1; i <= 100; ++i) {
             create_tablet(10000 + i, false, i);
         }
@@ -485,7 +488,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             ASSERT_EQ(t->calc_compaction_score(), 100 - index);
             index++;
         }
-        config::compaction_num_per_round = 1;
+        k_engine->_compaction_num_per_round = 1;
         // drop all tablets
         for (int64_t id = 10001; id <= 10100; ++id) {
             Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
@@ -494,7 +497,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     }
 
     {
-        config::compaction_num_per_round = 10;
+        k_engine->_compaction_num_per_round = 10;
         for (int64_t i = 1; i <= 100; ++i) {
             create_tablet(20000 + i, false, i);
         }
@@ -511,7 +514,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
         ASSERT_EQ(compact_tablets[10]->tablet_id(), 20102);
         ASSERT_EQ(compact_tablets[10]->calc_compaction_score(), 200);
 
-        config::compaction_num_per_round = 1;
+        k_engine->_compaction_num_per_round = 1;
         // drop all tablets
         for (int64_t id = 20001; id <= 20100; ++id) {
             Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
@@ -523,7 +526,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     }
 
     {
-        config::compaction_num_per_round = 10;
+        k_engine->_compaction_num_per_round = 10;
         for (int64_t i = 1; i <= 5; ++i) {
             create_tablet(30000 + i, false, i + 5);
         }
@@ -537,7 +540,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 10 - i);
         }
 
-        config::compaction_num_per_round = 1;
+        k_engine->_compaction_num_per_round = 1;
         // drop all tablets
         for (int64_t id = 30001; id <= 30005; ++id) {
             Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);

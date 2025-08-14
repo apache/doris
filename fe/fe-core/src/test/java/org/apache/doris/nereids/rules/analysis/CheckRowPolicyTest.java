@@ -22,17 +22,13 @@ import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -47,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.PlanRewriter;
-import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -71,10 +66,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     private static String userName = "user1";
     private static String policyName = "policy1";
 
-    private static OlapTable olapTable = new OlapTable(0L, tableName,
-            ImmutableList.<Column>of(new Column("k1", Type.INT, false, AggregateType.NONE, "0", ""),
-                    new Column("k2", Type.INT, false, AggregateType.NONE, "0", "")),
-            KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
+    private static OlapTable olapTable;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -90,14 +82,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 + " (k1 int, k2 int) AGGREGATE KEY(k1, k2) distributed by random buckets 1"
                 + " properties(\"replication_num\" = \"1\");");
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
-        long tableId = db.getTableOrMetaException("table1").getId();
-        olapTable.setId(tableId);
-        olapTable.setIndexMeta(-1,
-                olapTable.getName(),
-                olapTable.getFullSchema(),
-                0, 0, (short) 0,
-                TStorageType.COLUMN,
-                KeysType.PRIMARY_KEYS);
+        olapTable = (OlapTable) db.getTableOrAnalysisException(tableName);
 
         // create user
         UserIdentity user = new UserIdentity(userName, "%");
@@ -223,6 +208,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     public void checkOnePolicyRandomDist() throws Exception {
         useUser(userName);
         connectContext.getState().setIsQuery(true);
+        connectContext.setStatementContext(new StatementContext());
         Plan plan = PlanRewriter.bottomUpRewrite(new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                 ImmutableList.of(tableNameRanddomDist)), connectContext, new BindRelation());
 

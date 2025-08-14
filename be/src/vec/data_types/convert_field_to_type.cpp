@@ -34,6 +34,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/typeid_cast.h"
@@ -90,6 +91,11 @@ public:
         writer->writeString(x);
         writer->writeEndString();
     }
+    void operator()(const JsonbField& x, JsonbWriter* writer) const {
+        JsonbDocument* doc;
+        THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(x.get_value(), x.get_size(), &doc));
+        writer->writeValue(doc->getValue());
+    }
     void operator()(const Array& x, JsonbWriter* writer) const;
 
     void operator()(const Tuple& x, JsonbWriter* writer) const {
@@ -125,9 +131,6 @@ public:
     void operator()(const Map& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
-    void operator()(const JsonbField& x, JsonbWriter* writer) const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
 };
 
 void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const {
@@ -143,7 +146,7 @@ void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const 
 namespace {
 template <typename From, PrimitiveType T>
 Field convert_numeric_type_impl(const Field& from) {
-    typename PrimitiveTypeTraits<T>::CppType result;
+    typename PrimitiveTypeTraits<T>::ColumnItemType result;
     if (!accurate::convertNumeric(from.get<From>(), result)) {
         return {};
     }
@@ -153,11 +156,11 @@ Field convert_numeric_type_impl(const Field& from) {
 template <PrimitiveType T>
 void convert_numric_type(const Field& from, const IDataType& type, Field* to) {
     if (from.get_type() == PrimitiveType::TYPE_BIGINT) {
-        *to = convert_numeric_type_impl<Int64, TYPE_BIGINT>(from);
+        *to = convert_numeric_type_impl<Int64, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_DOUBLE) {
-        *to = convert_numeric_type_impl<Float64, TYPE_DOUBLE>(from);
+        *to = convert_numeric_type_impl<Float64, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_LARGEINT) {
-        *to = convert_numeric_type_impl<Int128, TYPE_LARGEINT>(from);
+        *to = convert_numeric_type_impl<Int128, T>(from);
     } else {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
@@ -280,4 +283,5 @@ void convert_field_to_type(const Field& from_value, const IDataType& to_type, Fi
         return convert_field_to_typeImpl(from_value, to_type, from_type_hint, to);
     }
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

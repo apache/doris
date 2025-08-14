@@ -22,6 +22,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.StandardDateFormat;
@@ -185,6 +187,18 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                         + (scale > 0 ? ".%0" + scale + "d" : ""),
                 year, month, day, hour, minute, second,
                 (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale)));
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        }
+        if (targetType.isDateTimeType()) {
+            return new DateTimeLiteral((DateTimeType) targetType,
+                    year, month, day, hour, minute, second, microSecond);
+        }
+        return super.uncheckedCastTo(targetType);
     }
 
     public String getMicrosecondString() {

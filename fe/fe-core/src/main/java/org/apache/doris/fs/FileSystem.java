@@ -18,6 +18,9 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.fs.io.DorisInputFile;
+import org.apache.doris.fs.io.DorisOutputFile;
+import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
@@ -58,6 +61,16 @@ public interface FileSystem {
                              String destFilePath,
                              Runnable runWhenPathNotExist) {
         throw new UnsupportedOperationException("Unsupported operation rename dir on current file system.");
+    }
+
+    default Status deleteAll(List<String> remotePaths) {
+        for (String remotePath : remotePaths) {
+            Status deleteStatus = delete(remotePath);
+            if (!deleteStatus.ok()) {
+                return deleteStatus;
+            }
+        }
+        return Status.OK;
     }
 
     Status delete(String remotePath);
@@ -104,5 +117,17 @@ public interface FileSystem {
 
     default Status listDirectories(String remotePath, Set<String> result) {
         throw new UnsupportedOperationException("Unsupported operation list directories on current file system.");
+    }
+
+    default DorisOutputFile newOutputFile(ParsedPath path) {
+        throw new UnsupportedOperationException("Unsupported operation new output file on current file system.");
+    }
+
+    default DorisInputFile newInputFile(ParsedPath path) {
+        return newInputFile(path, -1);
+    }
+
+    default DorisInputFile newInputFile(ParsedPath path, long length) {
+        throw new UnsupportedOperationException("Unsupported operation new input file on current file system.");
     }
 }

@@ -33,10 +33,9 @@ import java.util.List;
  */
 public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
 
-    private PhysicalOlapScan scan;
-    private SlotReference rowId;
+    private final PhysicalOlapScan scan;
+    private final SlotReference rowId;
     private final List<Slot> lazySlots;
-    private List<Slot> output;
 
     /**
      * constr
@@ -56,7 +55,10 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
                 physicalOlapScan.getPhysicalProperties(),
                 physicalOlapScan.getStats(),
                 physicalOlapScan.getTableSample(),
-                physicalOlapScan.getOperativeSlots());
+                physicalOlapScan.getOperativeSlots(),
+                physicalOlapScan.getVirtualColumns(),
+                physicalOlapScan.getScoreOrderKeys(),
+                physicalOlapScan.getScoreLimit());
         this.scan = physicalOlapScan;
         this.rowId = rowId;
         this.lazySlots = ImmutableList.copyOf(lazySlots);
@@ -69,12 +71,9 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
 
     @Override
     public List<Slot> computeOutput() {
-        if (output == null) {
-            output = ImmutableList.<Slot>builder()
-                    .addAll(scan.getOperativeSlots())
-                    .add(rowId).build();
-        }
-        return output;
+        return ImmutableList.<Slot>builder()
+                .addAll(scan.getOperativeSlots())
+                .add(rowId).build();
     }
 
     public PhysicalOlapScan getScan() {
@@ -103,8 +102,7 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
                 .append("]");
         if (!getAppliedRuntimeFilters().isEmpty()) {
             shapeBuilder.append(" apply RFs:");
-            getAppliedRuntimeFilters()
-                    .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
+            getAppliedRuntimeFilters().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
         }
         return shapeBuilder.toString();
     }

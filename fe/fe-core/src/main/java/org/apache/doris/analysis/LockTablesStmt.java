@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -41,13 +40,11 @@ public class LockTablesStmt extends StatementBase implements NotFallbackInParser
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         for (LockTable lockTable : lockTables) {
             TableName tableName = lockTable.getTableName();
-            tableName.analyze(analyzer);
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
-            db.getTableOrAnalysisException(tableName.getTbl());
+            tableName.analyze();
 
             // check auth
             if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(

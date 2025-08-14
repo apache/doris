@@ -38,7 +38,7 @@ suite ("orderByOnPView") {
     sql """insert into orderByOnPView values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into orderByOnPView values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view orderByOnPView_mv as select deptno, empid from orderByOnPView;")
+    createMV("create materialized view orderByOnPView_mv as select deptno as a1, empid as a2 from orderByOnPView;")
 
     sleep(3000)
 

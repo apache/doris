@@ -18,7 +18,16 @@
 #pragma once
 
 #include <cstdint>
+// clang20 + -O1 causes warnings about pass-failed
+// error: loop not unrolled: the optimizer was unable to perform the requested transformation; the transformation might be disabled or specified as part of an unsupported transformation ordering [-Werror,-Wpass-failed=transform-warning]
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpass-failed"
+#endif
 #include <memory>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #include <string>
 #include <vector>
 
@@ -117,6 +126,7 @@ protected:
 
     bool _is_vertical;
     bool _allow_delete_in_cumu_compaction;
+    bool _enable_vertical_compact_variant_subcolumns;
 
     Version _output_version;
 
@@ -170,7 +180,7 @@ protected:
 private:
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info(bool is_ordered_compaction = false);
 
     // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
@@ -213,7 +223,7 @@ private:
 
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info();
 
     virtual Status modify_rowsets();
 

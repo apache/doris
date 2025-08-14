@@ -128,8 +128,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject[AND[any_value(count(x)) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`, assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row') AS `assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row')`, assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row') AS `assert_true(OR[count(*) IS NULL,(count(*) <= 1)], 'correlate scalar subquery must return only 1 row')`]
-------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((expr_(a + b) = cast(x as BIGINT))) otherCondition=()
---------PhysicalProject[(a + b) AS `expr_(a + b)`, test_subquery_nullable_t1.a]
+------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((expr_(cast(a as BIGINT) + cast(b as BIGINT)) = cast(x as BIGINT))) otherCondition=()
+--------PhysicalProject[(cast(a as BIGINT) + cast(b as BIGINT)) AS `expr_(cast(a as BIGINT) + cast(b as BIGINT))`, test_subquery_nullable_t1.a]
 ----------PhysicalOlapScan[test_subquery_nullable_t1]
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]

@@ -92,10 +92,25 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         } else {
             doBeforeCommit();
             summaryProfile.ifPresent(profile -> profile.setTransactionBeginTime(transactionType()));
-            transactionManager.commit(txnId);
+            if (table instanceof ExternalTable) {
+                try {
+                    ExternalTable externalTable = (ExternalTable) table;
+                    externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
+                        try {
+                            transactionManager.commit(txnId);
+                        } catch (UserException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                } catch (Exception e) {
+                    throw new UserException(Util.getRootCauseMessage(e), e);
+                }
+            } else {
+                transactionManager.commit(txnId);
+            }
             summaryProfile.ifPresent(SummaryProfile::setTransactionEndTime);
             txnStatus = TransactionStatus.COMMITTED;
-            Env.getCurrentEnv().getRefreshManager().refreshTable(
+            Env.getCurrentEnv().getRefreshManager().handleRefreshTable(
                     catalogName,
                     table.getDatabase().getFullName(),
                     table.getName(),
@@ -126,7 +141,19 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             }
         }
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, t.getMessage());
-        transactionManager.rollback(txnId);
+
+        if (table instanceof ExternalTable) {
+            try {
+                ExternalTable externalTable = (ExternalTable) table;
+                externalTable.getCatalog().getExecutionAuthenticator().execute(() -> {
+                    transactionManager.rollback(txnId);
+                });
+            } catch (Exception e) {
+                LOG.warn("errors when abort txn. {} for table: {}", txnId, table.getName(), e);
+            }
+        } else {
+            transactionManager.rollback(txnId);
+        }
     }
 
     @Override

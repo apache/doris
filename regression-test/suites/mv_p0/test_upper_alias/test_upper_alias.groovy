@@ -41,12 +41,12 @@ suite ("test_upper_alias") {
 
     createMV ("""
         create materialized view test_0401_mv as 
-        select d_b, sum(amt_b0) as amt_b0 from test_0401 group by d_b;
+        select d_b as a1, sum(amt_b0) as amt_b0x from test_0401 group by d_b;
     """)
 
     createMV ("""
         create materialized view test_0401_mv2 as 
-        select d_a,d_b from test_0401;
+        select d_a as a2,d_b as a3 from test_0401;
     """)
 
     sql "analyze table test_0401 with sync;"

@@ -56,7 +56,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[catalog_returns]
 
 Hint log:
-Used: leading(web_sales broadcast date_dim web_returns )  leading(catalog_sales broadcast date_dim catalog_returns ) leading(store_sales broadcast date_dim store_returns ) leading(ss shuffle ws shuffle cs ) 
-UnUsed: 
+Used: leading(web_sales broadcast date_dim web_returns ) leading(catalog_sales broadcast date_dim catalog_returns ) leading(store_sales broadcast date_dim store_returns ) leading(ss shuffle ws shuffle cs )
+UnUsed:
 SyntaxError:
 

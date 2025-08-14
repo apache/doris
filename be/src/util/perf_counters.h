@@ -150,7 +150,7 @@ private:
         // DataSource specific data.  This is used to pull the counter values.
         union {
             // For SYS_PERF_COUNTER. File descriptor where the counter value is stored.
-            int fd;
+            int64_t fd;
             // For PROC_SELF_IO.  Line number from /proc/self/io file with this counter's value
             int proc_io_line_number;
         };
@@ -164,7 +164,7 @@ private:
     std::vector<std::vector<int64_t>> _snapshots;
     // System perf counters can be grouped together.  The OS will update all grouped counters
     // at the same time.  This is useful to better correlate counter values.
-    int _group_fd;
+    int64_t _group_fd;
 
     static int64_t _vm_rss;
     static std::string _vm_rss_str;

@@ -18,14 +18,20 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -40,11 +46,13 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"obs.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
+            required = false,
             description = "The access key of OBS.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"obs.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+            required = false,
             description = "The secret key of OBS.")
     protected String secretKey = "";
 
@@ -64,13 +72,29 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
      * Group(1) captures the region name (e.g., cn-hangzhou).
      * FYI: https://console-intl.huaweicloud.com/apiexplorer/#/endpoint/OBS
      */
-    private static final Pattern ENDPOINT_PATTERN = Pattern
-            .compile("^(?:https?://)?obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com$");
+    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
+            .compile("^(?:https?://)?obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com$"));
 
 
     public OBSProperties(Map<String, String> origProps) {
         super(Type.OBS, origProps);
         // Initialize fields from origProps
+    }
+
+    @Override
+    public void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        // Check if credentials are provided properly - either both or neither
+        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
+            return;
+        }
+        // Allow anonymous access if both access_key and secret_key are empty
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            return;
+        }
+        // If only one is provided, it's an error
+        throw new StoragePropertiesException(
+                        "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
@@ -91,8 +115,36 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
-    protected Pattern endpointPattern() {
+    protected Set<Pattern> endpointPatterns() {
         return ENDPOINT_PATTERN;
     }
 
+    @Override
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
+        if (credentialsProvider != null) {
+            return credentialsProvider;
+        }
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            // For anonymous access (no credentials required)
+            return AnonymousCredentialsProvider.create();
+        }
+        return null;
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        super.initializeHadoopStorageConfig();
+        hadoopStorageConfig.set("fs.obs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        hadoopStorageConfig.set("fs.obs.access.key", accessKey);
+        hadoopStorageConfig.set("fs.obs.secret.key", secretKey);
+        hadoopStorageConfig.set("fs.obs.endpoint", endpoint);
+    }
+
+    protected void setEndpointIfPossible() {
+        super.setEndpointIfPossible();
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Property obs.endpoint is required.");
+        }
+    }
 }

@@ -63,7 +63,7 @@ suite("test_audit_log_behavior") {
             ],
             [
                     "insert into audit_log_behavior select 6, '3F6B9A_${cnt}' from audit_log_behavior",
-                    "insert into audit_log_behavior select 6, '3F6B9A_${cnt++}' from a ... /* truncated. audit_plugin_max_insert_stmt_length=58 */"
+                    "insert into audit_log_behavior select 6, '3F6B9A_${cnt++}' from a ... /* truncated. audit_plugin_max_sql_length=58 */"
             ],
             [
                     "select id, name from audit_log_behavior as loooooooooooooooong_alias",
@@ -91,10 +91,9 @@ suite("test_audit_log_behavior") {
         def res = sql "${query}"
         while (res.isEmpty()) {
             if (retry-- < 0) {
-                logger.warn("It has retried a few but still failed, you need to check it")
-                return
+                throw new RuntimeException("It has retried a few but still failed, you need to check it")
             }
-            sleep(1000)
+            sleep(3000)
             res = sql "${query}"
         }
         assertEquals(tuple2[1].toString(), res[0][0].toString())

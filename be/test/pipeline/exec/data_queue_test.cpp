@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "pipeline/dependency.h"
+#include "vec/data_types/data_type_number.h"
 
 namespace doris::pipeline {
 

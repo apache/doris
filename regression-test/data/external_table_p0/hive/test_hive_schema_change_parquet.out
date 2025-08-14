@@ -153,6 +153,20 @@ true
 \N
 \N
 
+-- !parquet_timestamp_to_smallint --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
 -- !parquet_decimal1_to_smallint --
 \N
 \N
@@ -247,6 +261,20 @@ true
 4
 \N
 123
+\N
+\N
+\N
+
+-- !parquet_timestamp_to_tinyint --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 \N
 \N
 \N
@@ -359,6 +387,20 @@ true
 4
 \N
 123
+\N
+\N
+\N
+
+-- !parquet_timestamp_to_smallint --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 \N
 \N
 \N
@@ -485,6 +527,20 @@ true
 4
 \N
 123
+\N
+\N
+\N
+
+-- !parquet_timestamp_to_int --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 \N
 \N
 \N
@@ -628,6 +684,20 @@ true
 \N
 \N
 \N
+
+-- !parquet_timestamp_to_bigint --
+1697978096000
+1577836800000
+\N
+\N
+\N
+1577836799000
+1653040800000
+\N
+1672531200000
+1672531200000
+1672531200000
+1672531200000
 
 -- !parquet_decimal1_to_bigint --
 99999999

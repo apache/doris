@@ -49,13 +49,18 @@ public class UuidtoInt extends ScalarFunction
         super("uuid_to_int", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private UuidtoInt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public UuidtoInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new UuidtoInt(children.get(0));
+        return new UuidtoInt(getFunctionParams(children));
     }
 
     @Override

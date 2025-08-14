@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
@@ -240,11 +239,6 @@ public class StorageVaultMgr {
         }
     }
 
-    @VisibleForTesting
-    public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
-        setDefaultStorageVault(stmt.getStorageVaultName());
-    }
-
     public void setDefaultStorageVault(String vaultName) throws DdlException {
         Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
         Cloud.StorageVaultPB.Builder vaultBuilder = Cloud.StorageVaultPB.newBuilder();
@@ -294,6 +288,27 @@ public class StorageVaultMgr {
             return defaultVaultInfo;
         } finally {
             rwLock.readLock().unlock();
+        }
+    }
+
+    public StorageVaultType getStorageVaultTypeByName(String vaultName) throws DdlException {
+        try {
+            Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+
+            for (Cloud.StorageVaultPB vault : resp.getStorageVaultList()) {
+                if (vault.getName().equals(vaultName)) {
+                    if (vault.hasHdfsInfo()) {
+                        return StorageVaultType.HDFS;
+                    } else if (vault.hasObjInfo()) {
+                        return StorageVaultType.S3;
+                    }
+                }
+            }
+            return StorageVaultType.UNKNOWN;
+        } catch (RpcException e) {
+            LOG.warn("failed to get storage vault type due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
         }
     }
 

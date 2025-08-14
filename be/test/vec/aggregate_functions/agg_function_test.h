@@ -46,7 +46,7 @@ private:
         agg_fn->create(place);
 
         {
-            auto st = agg_fn->execute_single_add(&block, place, &arena);
+            auto st = agg_fn->execute_single_add(&block, place, arena);
             EXPECT_TRUE(st.ok()) << st.msg();
 
             MutableColumnPtr result_column = expected_column.column->clone_empty();
@@ -65,7 +65,7 @@ private:
         agg_fn->reset(place);
 
         {
-            auto st = agg_fn->execute_single_add(&block, place, &arena);
+            auto st = agg_fn->execute_single_add(&block, place, arena);
             EXPECT_TRUE(st.ok()) << st.msg();
 
             MutableColumnPtr result_column = expected_column.column->clone_empty();
@@ -94,7 +94,7 @@ private:
             agg_fn->create(place);
             Defer defer([&]() { agg_fn->destroy(place); });
 
-            auto st = agg_fn->execute_single_add(&block, place, &arena);
+            auto st = agg_fn->execute_single_add(&block, place, arena);
             EXPECT_TRUE(st.ok()) << st.msg();
 
             agg_fn->function()->serialize_without_key_to_column(place, *serialize_column);
@@ -107,7 +107,7 @@ private:
             agg_fn->create(place);
             Defer defer([&]() { agg_fn->destroy(place); });
 
-            agg_fn->function()->deserialize_and_merge_from_column(place, *serialize_column, &arena);
+            agg_fn->function()->deserialize_and_merge_from_column(place, *serialize_column, arena);
 
             MutableColumnPtr result_column = expected_column.column->clone_empty();
 
@@ -144,7 +144,7 @@ private:
                 agg_fn->create(place);
                 Defer defer([&]() { agg_fn->destroy(place); });
 
-                auto st = agg_fn->execute_single_add(&block, place, &arena);
+                auto st = agg_fn->execute_single_add(&block, place, arena);
                 EXPECT_TRUE(st.ok()) << st.msg();
                 std::vector<AggregateDataPtr> places {place};
                 agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
@@ -157,7 +157,7 @@ private:
 
                 agg_fn->create(place);
                 Defer defer([&]() { agg_fn->destroy(place); });
-                agg_fn->function()->deserialize_from_column(place, *serialize_column, &arena, 1);
+                agg_fn->function()->deserialize_from_column(place, *serialize_column, arena, 1);
 
                 check_result(place);
             }
@@ -168,7 +168,7 @@ private:
             Arena arena;
             {
                 EXPECT_TRUE(agg_fn->streaming_agg_serialize_to_column(&block, serialize_column,
-                                                                      block.rows(), &arena));
+                                                                      block.rows(), arena));
             }
 
             {
@@ -178,7 +178,7 @@ private:
                 agg_fn->create(place);
                 Defer defer([&]() { agg_fn->destroy(place); });
                 agg_fn->function()->deserialize_and_merge_from_column_range(
-                        place, *serialize_column, 0, block.rows() - 1, &arena);
+                        place, *serialize_column, 0, block.rows() - 1, arena);
 
                 check_result(place);
             }
@@ -194,7 +194,7 @@ private:
                 agg_fn->create(place);
                 Defer defer([&]() { agg_fn->destroy(place); });
 
-                auto st = agg_fn->execute_single_add(&block, place, &arena);
+                auto st = agg_fn->execute_single_add(&block, place, arena);
                 EXPECT_TRUE(st.ok()) << st.msg();
                 std::vector<AggregateDataPtr> places {place};
                 agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
@@ -210,7 +210,7 @@ private:
                         arena.alloc(agg_fn->function()->size_of_data()));
 
                 agg_fn->function()->deserialize_and_merge_vec(places.data(), 0, place2,
-                                                              serialize_column.get(), &arena, 1);
+                                                              serialize_column.get(), arena, 1);
 
                 check_result(place1);
             }
@@ -226,7 +226,7 @@ private:
                 agg_fn->create(place);
                 Defer defer([&]() { agg_fn->destroy(place); });
 
-                auto st = agg_fn->execute_single_add(&block, place, &arena);
+                auto st = agg_fn->execute_single_add(&block, place, arena);
                 EXPECT_TRUE(st.ok()) << st.msg();
                 std::vector<AggregateDataPtr> places {place};
                 agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
@@ -242,7 +242,7 @@ private:
                         arena.alloc(agg_fn->function()->size_of_data()));
 
                 agg_fn->function()->deserialize_and_merge_vec_selected(
-                        places.data(), 0, place2, serialize_column.get(), &arena, 1);
+                        places.data(), 0, place2, serialize_column.get(), arena, 1);
 
                 check_result(place1);
             }

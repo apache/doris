@@ -45,7 +45,7 @@ public class HudiSchemaCacheValue extends HMSSchemaCacheValue {
     }
 
     public InternalSchema getCommitInstantInternalSchema(HoodieTableMetaClient metaClient, Long commitInstantTime) {
-        return InternalSchemaCache.searchSchemaAndCache(commitInstantTime, metaClient, true);
+        return InternalSchemaCache.searchSchemaAndCache(commitInstantTime, metaClient);
     }
 
     public boolean isEnableSchemaEvolution() {

@@ -147,6 +147,9 @@ public class StatementContext implements Closeable {
 
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
+
+    private final Map<CTEId, Statistics> cteIdToProducerStats = new HashMap<>();
+
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
@@ -268,10 +271,10 @@ public class StatementContext implements Closeable {
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
         if (connectContext != null && connectContext.getSessionVariable() != null
-                && connectContext.queryId() != null
                 && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
             this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity(), connectContext.queryId());
+                    connectContext.getCurrentUserIdentity());
             if (originStatement != null) {
                 this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
@@ -877,5 +880,13 @@ public class StatementContext implements Closeable {
 
     public boolean isPrepareStage() {
         return prepareStage;
+    }
+
+    public Statistics getProducerStatsByCteId(CTEId id) {
+        return cteIdToProducerStats.get(id);
+    }
+
+    public void setProducerStats(CTEId id, Statistics stats) {
+        cteIdToProducerStats.put(id, stats);
     }
 }

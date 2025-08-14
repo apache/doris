@@ -17,6 +17,10 @@
 
 suite("test_nereids_show_grants") {
     String dbName = "show_grants_db"
+    sql "DROP USER IF EXISTS 'aaaaa'@'%';"
+    sql "DROP USER IF EXISTS 'zzzzz'@'%';"
+    sql "DROP USER IF EXISTS 'aaaaa'@'192.168.%';"
+
     sql "CREATE USER 'aaaaa'@'%' IDENTIFIED BY '12345';"
     sql "CREATE USER 'zzzzz'@'%' IDENTIFIED BY '12345';"
     sql "CREATE USER 'aaaaa'@'192.168.%' IDENTIFIED BY '12345';"

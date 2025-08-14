@@ -18,6 +18,7 @@
 #include "LetterSegmenter.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 LetterSegmenter::LetterSegmenter()
         : letter_connectors_ {'#', '&', '+', '-', '.', '@', '_'}, num_connectors_ {',', '.'} {
@@ -57,14 +58,14 @@ bool LetterSegmenter::processEnglishLetter(AnalyzeContext& context) {
         // The current tokenizer has not yet started processing English characters
         if (context.getCurrentCharType() == CharacterUtil::CHAR_ENGLISH) {
             // Record the starting pointer position, indicate that the tokenizer enters the processing state
-            english_start_ = context.getCursor();
+            english_start_ = static_cast<int32_t>(context.getCursor());
             english_end_ = english_start_;
         }
     } else {
         // The current tokenizer is processing English characters
         if (context.getCurrentCharType() == CharacterUtil::CHAR_ENGLISH) {
             // Record the current pointer position as the end position
-            english_end_ = context.getCursor();
+            english_end_ = static_cast<int32_t>(context.getCursor());
         } else {
             // Encounter non-English characters, output tokens
             Lexeme newLexeme =
@@ -98,14 +99,14 @@ bool LetterSegmenter::processArabicLetter(AnalyzeContext& context) {
         // The current tokenizer has not yet started processing numeric characters
         if (context.getCurrentCharType() == CharacterUtil::CHAR_ARABIC) {
             // Record the starting pointer position, indicate that the tokenizer enters the processing state
-            arabic_start_ = context.getCursor();
+            arabic_start_ = static_cast<int32_t>(context.getCursor());
             arabic_end_ = arabic_start_;
         }
     } else {
         // The current tokenizer is processing numeric characters
         if (context.getCurrentCharType() == CharacterUtil::CHAR_ARABIC) {
             // Record the current pointer position as the end position
-            arabic_end_ = context.getCursor();
+            arabic_end_ = static_cast<int32_t>(context.getCursor());
         } else if (context.getCurrentCharType() == CharacterUtil::CHAR_USELESS &&
                    isNumConnector(context.getCurrentChar())) {
             // Do not output numbers, but do not mark the end
@@ -141,7 +142,7 @@ bool LetterSegmenter::processMixLetter(AnalyzeContext& context) {
         // The current tokenizer has not yet started processing characters.
         if (context.getCurrentCharType() == CharacterUtil::CHAR_ARABIC ||
             context.getCurrentCharType() == CharacterUtil::CHAR_ENGLISH) {
-            start_ = context.getCursor();
+            start_ = static_cast<int32_t>(context.getCursor());
             end_ = start_;
         }
     } else {
@@ -149,11 +150,11 @@ bool LetterSegmenter::processMixLetter(AnalyzeContext& context) {
         if (context.getCurrentCharType() == CharacterUtil::CHAR_ARABIC ||
             context.getCurrentCharType() == CharacterUtil::CHAR_ENGLISH) {
             // Record the possible end positions
-            end_ = context.getCursor();
+            end_ = static_cast<int32_t>(context.getCursor());
         } else if (context.getCurrentCharType() == CharacterUtil::CHAR_USELESS &&
                    isLetterConnector(context.getCurrentChar())) {
             // Record the possible end positions
-            end_ = context.getCursor();
+            end_ = static_cast<int32_t>(context.getCursor());
         } else {
             // Encounter non-letter characters, output a token
             Lexeme newLexeme = createLexeme(context, start_, end_, Lexeme::Type::Letter);
@@ -197,4 +198,6 @@ Lexeme LetterSegmenter::createLexeme(AnalyzeContext& context, int start, int end
                   typed_runes[end].getNextBytePosition() - typed_runes[start].getBytePosition(),
                   type, start, end);
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

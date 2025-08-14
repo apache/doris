@@ -53,13 +53,18 @@ public class Year extends ScalarFunction
         super("year", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Year(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Year withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Year(children.get(0));
+        return new Year(getFunctionParams(children));
     }
 
     @Override

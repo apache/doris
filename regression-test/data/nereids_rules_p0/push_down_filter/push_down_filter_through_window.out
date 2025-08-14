@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalPartitionTopN
 ----------PhysicalProject
-------------filter((abs((id + value1)) < 4))
+------------filter((abs((cast(id as BIGINT) + cast(value1 as BIGINT))) < 4))
 --------------PhysicalOlapScan[push_down_multi_column_predicate_through_window_t]
 
 -- !multi_column_predicate_push_down_window --

@@ -42,6 +42,7 @@
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/table/iceberg_sys_table_jni_reader.h"
+#include "vec/exec/format/table/paimon_sys_table_jni_reader.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -68,6 +69,12 @@ Status MetaScanner::open(RuntimeState* state) {
         // TODO: refactor this code
         auto reader = IcebergSysTableJniReader::create_unique(
                 _tuple_desc->slots(), state, _profile, _scan_range.meta_scan_range.iceberg_params);
+        const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
+        RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
+        _reader = std::move(reader);
+    } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PAIMON) {
+        auto reader = PaimonSysTableJniReader::create_unique(
+                _tuple_desc->slots(), state, _profile, _scan_range.meta_scan_range.paimon_params);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
         _reader = std::move(reader);

@@ -22,7 +22,6 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <vector>
@@ -38,7 +37,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/var_int.h"
 
 template <typename T>
 struct HashCRC32;
@@ -77,7 +75,9 @@ struct AggregateFunctionUniqDistributeKeyData {
 
 template <PrimitiveType T, typename Data>
 class AggregateFunctionUniqDistributeKey final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniqDistributeKey<T, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniqDistributeKey<T, Data>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     using KeyType = std::conditional_t<is_string_type(T), UInt128,
                                        typename PrimitiveTypeTraits<T>::ColumnItemType>;
@@ -92,7 +92,7 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         detail::OneAdder<T, Data>::add(this->data(place), *columns[0], row_num);
     }
 
@@ -113,7 +113,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena*, bool /*agg_many*/) const override {
+                   const IColumn** columns, Arena&, bool /*agg_many*/) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
 
@@ -134,7 +134,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena&) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
         auto& set = this->data(place).set;
@@ -148,24 +148,24 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).count += this->data(rhs).count;
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        write_var_uint(this->data(place).set.size(), buf);
+        buf.write_var_uint(this->data(place).set.size());
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
-        read_var_uint(this->data(place).count, buf);
+                     Arena&) const override {
+        buf.read_var_uint(this->data(place).count);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(this->data(place).count);
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
                                  size_t num_rows) const override {
         auto data = reinterpret_cast<const UInt64*>(
                 assert_cast<const ColumnFixedLengthObject&>(column).get_data().data());
@@ -189,7 +189,7 @@ public:
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena*) const override {
+                                           const size_t num_rows, Arena&) const override {
         auto& dst_col = assert_cast<ColumnFixedLengthObject&>(*dst);
         CHECK(dst_col.item_size() == sizeof(UInt64))
                 << "size is not equal: " << dst_col.item_size() << " " << sizeof(UInt64);
@@ -201,7 +201,7 @@ public:
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena*) const override {
+                                           Arena&) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
         auto* data = reinterpret_cast<const UInt64*>(col.get_data().data());
@@ -212,7 +212,7 @@ public:
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena*) const override {
+                                                 Arena&) const override {
         CHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
@@ -223,19 +223,19 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, nullptr, num_rows);
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec(places, offset, rhs, nullptr, num_rows);
+        this->merge_vec(places, offset, rhs, arena, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const IColumn* column, Arena*,
-                                            const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, nullptr, num_rows);
+                                            AggregateDataPtr rhs, const IColumn* column,
+                                            Arena& arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec_selected(places, offset, rhs, nullptr, num_rows);
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,

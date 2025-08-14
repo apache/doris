@@ -46,13 +46,18 @@ public class ToIpv4 extends ScalarFunction
         super("to_ipv4", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToIpv4(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ToIpv4 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "to_ipv4 accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new ToIpv4(children.get(0));
+        return new ToIpv4(getFunctionParams(children));
     }
 
     @Override

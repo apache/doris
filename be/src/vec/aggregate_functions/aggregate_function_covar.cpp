@@ -27,8 +27,10 @@ namespace doris::vectorized {
 template <template <typename> class Function, template <PrimitiveType> class Data>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
-                                                  const bool result_is_nullable) {
-    return creator_with_numeric_type::create<Function, Data>(argument_types, result_is_nullable);
+                                                  const bool result_is_nullable,
+                                                  const AggregateFunctionAttr& attr) {
+    return creator_with_type_list<TYPE_DOUBLE>::create<Function, Data>(argument_types,
+                                                                       result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,
@@ -36,7 +38,7 @@ AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string
                                                                const bool result_is_nullable,
                                                                const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampCovariance, SampData>(
-            name, argument_types, result_is_nullable);
+            name, argument_types, result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string& name,
@@ -44,7 +46,7 @@ AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string&
                                                               const bool result_is_nullable,
                                                               const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSampCovariance, PopData>(
-            name, argument_types, result_is_nullable);
+            name, argument_types, result_is_nullable, attr);
 }
 
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory) {

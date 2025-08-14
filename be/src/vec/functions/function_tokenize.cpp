@@ -38,7 +38,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 using namespace doris::segment_v2::inverted_index;
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
@@ -63,6 +63,35 @@ Status parse(const std::string& str, std::map<std::string, std::string>& result)
     return Status::OK();
 }
 
+void FunctionTokenize::_do_tokenize_none(const ColumnString& src_column_string,
+                                         const MutableColumnPtr& dest_column_ptr) const {
+    ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
+    for (size_t i = 0; i < src_offsets_size; i++) {
+        const StringRef tokenize_str = src_column_string.get_data_at(i);
+
+        rapidjson::Document doc;
+        doc.SetArray();
+        rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
+
+        rapidjson::Value obj(rapidjson::kObjectType);
+        obj.AddMember(
+                "token",
+                rapidjson::Value(tokenize_str.data,
+                                 static_cast<rapidjson::SizeType>(tokenize_str.size), allocator)
+                        .Move(),
+                allocator);
+        doc.PushBack(obj, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
+        writer.SetFormatOptions(rapidjson::kFormatSingleLineArray);
+        doc.Accept(writer);
+        const std::string json_array_str = buffer.GetString();
+
+        dest_column_ptr->insert_data(json_array_str.data(), json_array_str.size());
+    }
+}
+
 void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                                     InvertedIndexCtx& inverted_index_ctx,
                                     const MutableColumnPtr& dest_column_ptr) const {
@@ -75,7 +104,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
         }
 
         auto reader = InvertedIndexAnalyzer::create_reader(inverted_index_ctx.char_filter_map);
-        reader->init(tokenize_str.data, tokenize_str.size, true);
+        reader->init(tokenize_str.data, (int)tokenize_str.size, true);
         auto analyzer_tokens = InvertedIndexAnalyzer::get_analyse_result(
                 reader.get(), inverted_index_ctx.analyzer);
 
@@ -133,6 +162,14 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
                         "'unicode', 'icu', 'basic' and 'ik' analyzers are supported.");
             }
 
+            // Special handling for PARSER_NONE: return original string as single token
+            if (inverted_index_ctx.custom_analyzer.empty() &&
+                inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_NONE) {
+                _do_tokenize_none(*col_left, dest_column_ptr);
+                block.replace_by_position(result, std::move(dest_column_ptr));
+                return Status::OK();
+            }
+
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
             inverted_index_ctx.support_phrase =
                     get_parser_phrase_support_string_from_properties(properties);
@@ -163,4 +200,10 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     }
     return Status::RuntimeError("unimplemented function {}", get_name());
 }
+
+void register_function_tokenize(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionTokenize>();
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

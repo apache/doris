@@ -56,6 +56,7 @@ public:
     std::string name_suffix() const override;
 
 private:
+    friend class vectorized::FileScanner;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source = nullptr;
     int _max_scanners;
     // A in memory cache to save some common components
