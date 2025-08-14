@@ -806,6 +806,11 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
                               hex(load_stats_key));
             return;
         }
+
+        // The compact stats is initialized with zero values
+        stats_pb.set_num_rows(0);
+        stats_pb.set_num_rowsets(0);
+        stats_pb.set_num_segments(0);
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
         if (!versioned::document_put(txn.get(), compact_stats_key, std::move(stats_pb))) {
@@ -2971,6 +2976,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
     }
     RPC_RATE_LIMIT(get_tablet_stats)
 
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader reader(instance_id, txn_kv_.get());
     for (auto& i : request->tablet_idx()) {
         TabletIndexPB idx(i);
         // FIXME(plat1ko): Get all tablet stats in one txn
@@ -2986,16 +2993,30 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             // the txn is not a local variable, if not reset will count last res twice
             txn.reset(nullptr);
         };
-        if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
-              idx.has_partition_id() && i.has_tablet_id())) {
-            get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
-            if (code != MetaServiceCode::OK) return;
-        }
-        auto tablet_stats = response->add_tablet_stats();
-        internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
-        if (code != MetaServiceCode::OK) {
-            response->clear_tablet_stats();
-            break;
+
+        if (!is_versioned_read) {
+            if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
+                  idx.has_partition_id() && i.has_tablet_id())) {
+                get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
+                if (code != MetaServiceCode::OK) return;
+            }
+            auto tablet_stats = response->add_tablet_stats();
+            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
+            if (code != MetaServiceCode::OK) {
+                response->clear_tablet_stats();
+                break;
+            }
+        } else {
+            TxnErrorCode err = reader.get_tablet_merged_stats(
+                    idx.tablet_id(), response->add_tablet_stats(), nullptr);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,
+                                  idx.tablet_id());
+                LOG(WARNING) << msg;
+                response->clear_tablet_stats();
+                return;
+            }
         }
 #ifdef NDEBUG
         // Force data size >= 0 to reduce the losses caused by bugs
