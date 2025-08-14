@@ -120,11 +120,6 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
-import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -163,6 +158,8 @@ import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.legacy.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -642,12 +639,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
                                 LogicalAggregate.class, LogicalJoin.class
                         ),
-                        costBased(topDown(
-                                new PushDownAggWithDistinctThroughJoinOneSide(),
-                                new PushDownAggThroughJoinOneSide(),
-                                new PushDownAggThroughJoin()
-                        )),
-                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        // costBased(topDown(
+                        //         new PushDownAggWithDistinctThroughJoinOneSide(),
+                        //         new PushDownAggThroughJoinOneSide(),
+                        //         new PushDownAggThroughJoin()
+                        // )),
+                        //costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),
 
@@ -660,7 +658,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("join skew salting rewrite",
                         topDown(new SaltJoin())),
                 topic("eliminate Aggregate according to fd items",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
+                        cascadesContext -> cascadesContext
+                                .rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
                         custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new),
