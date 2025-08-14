@@ -56,6 +56,14 @@ public:
 
 private:
     static inline int64_t _sys_avail_mem_less_than_warning_water_mark();
+    static inline int64_t _process_used_mem_more_than_soft_mem_limit();
+
+    bool _soft_limit_reached();
+    bool _hard_limit_reached();
+    bool _load_usage_low();
+    int64_t _need_flush();
+    int64_t _flush_active_memtables(uint64_t wg_id, int64_t need_flush);
+    void _refresh_mem_tracker();
     std::mutex _lock;
     std::condition_variable _hard_limit_end_cond;
     int64_t _mem_usage = 0;

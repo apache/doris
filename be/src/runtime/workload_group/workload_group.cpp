@@ -81,11 +81,8 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info)
     }
     _remote_scan_io_throttle = std::make_shared<IOThrottle>();
     if (_max_memory_percent > 0) {
-        std::cout << _max_memory_percent << std::endl;
-        std::cout << _min_memory_percent << std::endl;
         _min_memory_limit = static_cast<int64_t>(
                 static_cast<double>(_memory_limit * _min_memory_percent) / _max_memory_percent);
-        std::cout << _min_memory_limit << std::endl;
     }
 
     _wg_metrics = std::make_shared<WorkloadGroupMetrics>(this);
