@@ -415,30 +415,39 @@ Status CloudWarmUpManager::set_event(int64_t job_id, TWarmUpEventType::type even
     return st;
 }
 
-std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id) {
+std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id, bool bypass_cache,
+                                                               bool& cache_hit) {
     std::vector<TReplicaInfo> replicas;
     std::vector<int64_t> cancelled_jobs;
     std::lock_guard<std::mutex> lock(_mtx);
+    cache_hit = false;
     for (auto& [job_id, cache] : _tablet_replica_cache) {
-        auto it = cache.find(tablet_id);
-        if (it != cache.end()) {
-            // check ttl expire
-            auto now = std::chrono::steady_clock::now();
-            auto sec = std::chrono::duration_cast<std::chrono::seconds>(now - it->second.first);
-            if (sec.count() < config::warmup_tablet_replica_info_cache_ttl_sec) {
-                replicas.push_back(it->second.second);
-                LOG(INFO) << "get_replica_info: cache hit, tablet_id=" << tablet_id
-                          << ", job_id=" << job_id;
-                continue;
-            } else {
-                LOG(INFO) << "get_replica_info: cache expired, tablet_id=" << tablet_id
-                          << ", job_id=" << job_id;
-                cache.erase(it);
+        if (!bypass_cache) {
+            auto it = cache.find(tablet_id);
+            if (it != cache.end()) {
+                // check ttl expire
+                auto now = std::chrono::steady_clock::now();
+                auto sec = std::chrono::duration_cast<std::chrono::seconds>(now - it->second.first);
+                if (sec.count() < config::warmup_tablet_replica_info_cache_ttl_sec) {
+                    replicas.push_back(it->second.second);
+                    LOG(INFO) << "get_replica_info: cache hit, tablet_id=" << tablet_id
+                              << ", job_id=" << job_id;
+                    cache_hit = true;
+                    continue;
+                } else {
+                    LOG(INFO) << "get_replica_info: cache expired, tablet_id=" << tablet_id
+                              << ", job_id=" << job_id;
+                    cache.erase(it);
+                }
             }
+            LOG(INFO) << "get_replica_info: cache miss, tablet_id=" << tablet_id
+                      << ", job_id=" << job_id;
         }
-        LOG(INFO) << "get_replica_info: cache miss, tablet_id=" << tablet_id
-                  << ", job_id=" << job_id;
 
+        if (!cache_hit) {
+            // We are trying to save one retry by refresh all the remaining caches
+            bypass_cache = true;
+        }
         ClusterInfo* cluster_info = ExecEnv::GetInstance()->cluster_info();
         if (cluster_info == nullptr) {
             LOG(WARNING) << "get_replica_info: have not get FE Master heartbeat yet, job_id="
@@ -506,20 +515,39 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 }
 
 void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
-    auto replicas = get_replica_info(rs_meta.tablet_id());
+    bool cache_hit = false;
+    auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
     if (replicas.empty()) {
         LOG(INFO) << "There is no need to warmup tablet=" << rs_meta.tablet_id()
                   << ", skipping rowset=" << rs_meta.rowset_id().to_string();
         return;
     }
+    Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, !cache_hit);
+    if (cache_hit && !st.ok() && st.is<ErrorCode::TABLE_NOT_FOUND>()) {
+        replicas = get_replica_info(rs_meta.tablet_id(), true, cache_hit);
+        st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, true);
+    }
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to warm up rowset, tablet_id=" << rs_meta.tablet_id()
+                     << ", rowset_id=" << rs_meta.rowset_id().to_string() << ", status=" << st;
+    }
+}
+
+Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
+                                              std::vector<TReplicaInfo>& replicas,
+                                              int64_t sync_wait_timeout_ms,
+                                              bool skip_existence_check) {
+    auto tablet_id = rs_meta.tablet_id();
     int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
     g_file_cache_warm_up_rowset_last_call_unix_ts.set_value(now_ts);
+    auto ret_st = Status::OK();
 
     PWarmUpRowsetRequest request;
     request.add_rowset_metas()->CopyFrom(rs_meta.get_rowset_pb());
     request.set_unix_ts_us(now_ts);
+    request.set_skip_existence_check(skip_existence_check);
     for (auto& replica : replicas) {
         // send sync request
         std::string host = replica.host;
@@ -531,7 +559,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host " << replica.host << ": "
                              << status.to_string();
-                return;
+                continue;
             }
         }
         std::string brpc_addr = get_host_port(host, replica.brpc_port);
@@ -587,12 +615,14 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
         PWarmUpRowsetResponse response;
         brpc_stub->warm_up_rowset(&cntl, &request, &response, nullptr);
     }
+    return ret_st;
 }
 
 void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
                                        const std::vector<RecycledRowsets>& rowsets) {
     LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowsets.size();
-    auto replicas = get_replica_info(tablet_id);
+    bool cache_hit = false;
+    auto replicas = get_replica_info(tablet_id, false, cache_hit);
     if (replicas.empty()) {
         return;
     }
