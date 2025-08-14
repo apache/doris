@@ -723,7 +723,7 @@ public class Util {
     // Only used for external db/table's id generation
     // And the db/table's id must >=0, see DescriptorTable.toThrift()
     public static long genIdByName(String... names) {
-        return Math.abs(sha256long(String.join(".", names)));
+        return sha256long(String.join(".", names)) & Long.MAX_VALUE;
     }
 
     public static String generateTempTableInnerName(String tableName) {
