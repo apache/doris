@@ -73,7 +73,7 @@ suite("test_s3_load_progressive_scanned_rows", "nonConcurrent,p0") {
             String [][] result = ''
             while (max_try_milli_secs > 0) {
                 result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
-                LOG.info("SHOW LOAD result: ${result}")
+                logger.info("SHOW LOAD result: ${result}")
 
                 scannedRows = (result =~ /"ScannedRows":(\d+)/)[0][1] as long
                 loadBytes   = (result =~ /"LoadBytes":(\d+)/)[0][1] as long
