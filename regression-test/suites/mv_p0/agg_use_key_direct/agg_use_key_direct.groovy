@@ -59,5 +59,5 @@ suite ("agg_use_key_direct") {
     order_qt_select_min """select min(distinct k3) from agg_use_key_direct"""
 
     mv_rewrite_success("""select avg(distinct k3) from agg_use_key_direct""", "common_mv")
-    order_qt_select_avg """select min(distinct k3) from agg_use_key_direct"""
+    order_qt_select_avg """select avg(distinct k3) from agg_use_key_direct"""
 }
