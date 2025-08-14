@@ -44,6 +44,11 @@ public class TableIndexes {
         this.properties = Maps.newHashMap();
     }
 
+    public TableIndexes(List<Index> indexes, Map<String, String> properties) {
+        this.indexes = indexes;
+        this.properties = properties;
+    }
+
     public List<Index> getIndexes() {
         if (indexes == null) {
             indexes = Lists.newArrayList();

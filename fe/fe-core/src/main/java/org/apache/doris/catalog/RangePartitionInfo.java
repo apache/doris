@@ -31,8 +31,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -43,11 +41,10 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class RangePartitionInfo extends PartitionInfo {
-    private static final Logger LOG = LogManager.getLogger(RangePartitionInfo.class);
 
     public RangePartitionInfo() {
         // for persist
-        super(PartitionType.RANGE);
+        super();
     }
 
     public RangePartitionInfo(List<Column> partitionColumns) {
@@ -65,23 +62,18 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     public Map<Long, PartitionItem> getPartitionItems(Collection<Long> partitionIds) {
-        readLock();
-        try {
-            Map<Long, PartitionItem> columnRanges = Maps.newLinkedHashMapWithExpectedSize(partitionIds.size());
-            for (Long partitionId : partitionIds) {
-                PartitionItem partitionItem = idToItem.get(partitionId);
-                if (partitionItem == null) {
-                    partitionItem = idToTempItem.get(partitionId);
-                }
-                if (partitionItem == null) {
-                    throw new IllegalStateException("Can not found partition item: " + partitionId);
-                }
-                columnRanges.put(partitionId, partitionItem);
+        Map<Long, PartitionItem> columnRanges = Maps.newLinkedHashMapWithExpectedSize(partitionIds.size());
+        for (Long partitionId : partitionIds) {
+            PartitionItem partitionItem = idToItem.get(partitionId);
+            if (partitionItem == null) {
+                partitionItem = idToTempItem.get(partitionId);
             }
-            return columnRanges;
-        } finally {
-            readUnlock();
+            if (partitionItem == null) {
+                throw new IllegalStateException("Can not found partition item: " + partitionId);
+            }
+            columnRanges.put(partitionId, partitionItem);
         }
+        return columnRanges;
     }
 
     @Override
@@ -104,8 +96,10 @@ public class RangePartitionInfo extends PartitionInfo {
 
     @Override
     public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
-        Map<Long, PartitionItem> tmpMap = getIdToItem(isTemp);
-
+        Map<Long, PartitionItem> tmpMap = idToItem;
+        if (isTemp) {
+            tmpMap = idToTempItem;
+        }
         List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
         if (isSorted) {
             Collections.sort(itemEntryList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
@@ -115,10 +109,9 @@ public class RangePartitionInfo extends PartitionInfo {
 
     public List<Map.Entry<Long, PartitionItem>> getAllPartitionItemEntryList(boolean isSorted) {
         Map<Long, PartitionItem> tmpMap = Maps.newHashMap();
-        readLock();
+
         tmpMap.putAll(idToItem);
         tmpMap.putAll(idToTempItem);
-        readUnlock();
 
         List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
         if (isSorted) {
@@ -229,100 +222,85 @@ public class RangePartitionInfo extends PartitionInfo {
     @Override
     public String toSql(OlapTable table, List<Long> partitionId) {
         StringBuilder sb = new StringBuilder();
-        readLock();
-        try {
-            int idx = 0;
-            if (enableAutomaticPartition()) {
-                sb.append("AUTO PARTITION BY RANGE ");
-                for (Expr e : partitionExprs) {
-                    sb.append("(");
-                    sb.append(e.toSql());
-                    sb.append(")");
-                }
-                sb.append("\n(");
-            } else {
-                sb.append("PARTITION BY RANGE(");
-                for (Column column : partitionColumns) {
-                    if (idx != 0) {
-                        sb.append(", ");
-                    }
-                    sb.append("`").append(column.getName()).append("`");
-                    idx++;
-                }
-                sb.append(")\n(");
+        int idx = 0;
+        if (enableAutomaticPartition()) {
+            sb.append("AUTO PARTITION BY RANGE ");
+            for (Expr e : partitionExprs) {
+                sb.append("(");
+                sb.append(e.toSql());
+                sb.append(")");
             }
-
-            // sort range
-            List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
-            Collections.sort(entries, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
-
-            idx = 0;
-            for (Map.Entry<Long, PartitionItem> entry : entries) {
-                Partition partition = table.getPartition(entry.getKey());
-                if (partition == null) {
-                    LOG.warn("can't find partition {} in table {}", entry.getKey(), table.getName());
-                    continue;
+            sb.append("\n(");
+        } else {
+            sb.append("PARTITION BY RANGE(");
+            for (Column column : partitionColumns) {
+                if (idx != 0) {
+                    sb.append(", ");
                 }
-                String partitionName = partition.getName();
-                Range<PartitionKey> range = entry.getValue().getItems();
-
-                // print all partitions' range is fixed range, even if some of them is created by less than range
-                sb.append("PARTITION ").append(partitionName).append(" VALUES [");
-                sb.append(range.lowerEndpoint().toSql());
-                sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
-                if (!"".equals(getStoragePolicy(entry.getKey()))) {
-                    sb.append("(\"storage_policy\" = \"").append(getStoragePolicy(entry.getKey())).append("\")");
-                }
-
-                if (partitionId != null) {
-                    partitionId.add(entry.getKey());
-                    break;
-                }
-
-                if (idx != entries.size() - 1) {
-                    sb.append(",\n");
-                }
+                sb.append("`").append(column.getName()).append("`");
                 idx++;
             }
-            sb.append(")");
-        } finally {
-            readUnlock();
+            sb.append(")\n(");
         }
+
+        // sort range
+        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
+        Collections.sort(entries, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+
+        idx = 0;
+        for (Map.Entry<Long, PartitionItem> entry : entries) {
+            Partition partition = table.getPartition(entry.getKey());
+            String partitionName = partition.getName();
+            Range<PartitionKey> range = entry.getValue().getItems();
+
+            // print all partitions' range is fixed range, even if some of them is created by less than range
+            sb.append("PARTITION ").append(partitionName).append(" VALUES [");
+            sb.append(range.lowerEndpoint().toSql());
+            sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
+            if (!"".equals(getStoragePolicy(entry.getKey()))) {
+                sb.append("(\"storage_policy\" = \"").append(getStoragePolicy(entry.getKey())).append("\")");
+            }
+
+            if (partitionId != null) {
+                partitionId.add(entry.getKey());
+                break;
+            }
+
+            if (idx != entries.size() - 1) {
+                sb.append(",\n");
+            }
+            idx++;
+        }
+        sb.append(")");
         return sb.toString();
     }
 
     @Override
     public PartitionDesc toPartitionDesc(OlapTable table) throws AnalysisException {
-        readLock();
-        try {
-            List<String> partitionColumnNames = partitionColumns.stream()
-                    .map(Column::getName).collect(Collectors.toList());
-            List<AllPartitionDesc> allPartitionDescs = Lists.newArrayListWithCapacity(this.idToItem.size());
+        List<String> partitionColumnNames = partitionColumns.stream().map(Column::getName).collect(Collectors.toList());
+        List<AllPartitionDesc> allPartitionDescs = Lists.newArrayListWithCapacity(this.idToItem.size());
 
-            // sort range
-            List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
-            Collections.sort(entries, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
-            for (Map.Entry<Long, PartitionItem> entry : entries) {
-                Partition partition = table.getPartition(entry.getKey());
-                String partitionName = partition.getName();
+        // sort range
+        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
+        Collections.sort(entries, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        for (Map.Entry<Long, PartitionItem> entry : entries) {
+            Partition partition = table.getPartition(entry.getKey());
+            String partitionName = partition.getName();
 
-                Range<PartitionKey> range = entry.getValue().getItems();
-                PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
-                        PartitionKey.toPartitionValue(range.lowerEndpoint()),
-                        PartitionKey.toPartitionValue(range.upperEndpoint()));
+            Range<PartitionKey> range = entry.getValue().getItems();
+            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
+                    PartitionInfo.toPartitionValue(range.lowerEndpoint()),
+                    PartitionInfo.toPartitionValue(range.upperEndpoint()));
 
-                Map<String, String> properties = Maps.newHashMap();
-                Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                    if (!p.equals("")) {
-                        properties.put("STORAGE POLICY", p);
-                    }
-                });
+            Map<String, String> properties = Maps.newHashMap();
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
+                if (!p.equals("")) {
+                    properties.put("STORAGE POLICY", p);
+                }
+            });
 
-                allPartitionDescs.add(new SinglePartitionDesc(false, partitionName, partitionKeyDesc, properties));
-            }
-            return new RangePartitionDesc(this.partitionExprs, partitionColumnNames, allPartitionDescs);
-        } finally {
-            readUnlock();
+            allPartitionDescs.add(new SinglePartitionDesc(false, partitionName, partitionKeyDesc, properties));
         }
+        return new RangePartitionDesc(this.partitionExprs, partitionColumnNames, allPartitionDescs);
     }
 }

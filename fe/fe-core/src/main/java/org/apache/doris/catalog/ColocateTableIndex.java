@@ -915,7 +915,11 @@ public class ColocateTableIndex implements Writable {
                     tableProperty.modifyTableProperties(analyzedDynamicPartition);
                     tableProperty.buildDynamicProperty();
                 }
-                table.getPartitionInfo().modifyReplicaAlloc(replicaAlloc);
+                for (ReplicaAllocation alloc : table.getPartitionInfo().getPartitionReplicaAllocations().values()) {
+                    Map<Tag, Short> allocMap = alloc.getAllocMap();
+                    allocMap.clear();
+                    allocMap.putAll(replicaAlloc.getAllocMap());
+                }
             } finally {
                 table.writeUnlock();
             }

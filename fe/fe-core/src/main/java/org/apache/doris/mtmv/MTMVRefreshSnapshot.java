@@ -70,13 +70,11 @@ public class MTMVRefreshSnapshot {
         return relatedPartitionSnapshot.equals(baseTableCurrentSnapshot);
     }
 
-    public void updateSnapshots(Map<String, MTMVRefreshPartitionSnapshot> addPartitionSnapshots) {
+    public void updateSnapshots(Map<String, MTMVRefreshPartitionSnapshot> addPartitionSnapshots,
+            Set<String> mvPartitionNames) {
         if (!MapUtils.isEmpty(addPartitionSnapshots)) {
             this.partitionSnapshots.putAll(addPartitionSnapshots);
         }
-    }
-
-    public void clearUnUsedSnapshot(Set<String> mvPartitionNames) {
         Iterator<String> iterator = partitionSnapshots.keySet().iterator();
         while (iterator.hasNext()) {
             String partitionName = iterator.next();

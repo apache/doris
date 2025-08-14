@@ -82,14 +82,14 @@ public class ListPartitionItem extends PartitionItem {
 
     @Override
     public PartitionKeyDesc toPartitionKeyDesc() {
-        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionKey::toPartitionValue)
+        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
                 .collect(Collectors.toList());
         return PartitionKeyDesc.createIn(inValues);
     }
 
     @Override
     public PartitionKeyDesc toPartitionKeyDesc(int pos) throws AnalysisException {
-        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionKey::toPartitionValue)
+        List<List<PartitionValue>> inValues = partitionKeys.stream().map(PartitionInfo::toPartitionValue)
                 .collect(Collectors.toList());
         Set<List<PartitionValue>> res = Sets.newHashSet();
         for (List<PartitionValue> values : inValues) {
