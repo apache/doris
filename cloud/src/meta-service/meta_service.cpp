@@ -806,6 +806,11 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
                               hex(load_stats_key));
             return;
         }
+
+        // The compact stats is initialized with zero values
+        stats_pb.set_num_rows(0);
+        stats_pb.set_num_rowsets(0);
+        stats_pb.set_num_segments(0);
         std::string compact_stats_key =
                 versioned::tablet_compact_stats_key({instance_id, tablet_id});
         if (!versioned::document_put(txn.get(), compact_stats_key, std::move(stats_pb))) {
@@ -1125,80 +1130,6 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                   << " instance_id=" << instance_id << " log_size=" << operation_log_value.size();
     }
 
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to update tablet meta, err=" << err;
-        msg = ss.str();
-        return;
-    }
-}
-
-void MetaServiceImpl::update_tablet_schema(::google::protobuf::RpcController* controller,
-                                           const UpdateTabletSchemaRequest* request,
-                                           UpdateTabletSchemaResponse* response,
-                                           ::google::protobuf::Closure* done) {
-    DCHECK(false) << "should not call update_tablet_schema";
-    RPC_PREPROCESS(update_tablet_schema, get, put);
-    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
-        return;
-    }
-
-    RPC_RATE_LIMIT(update_tablet_schema)
-
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to init txn";
-        return;
-    }
-
-    doris::TabletMetaCloudPB tablet_meta;
-    internal_get_tablet(code, msg, instance_id, txn.get(), request->tablet_id(), &tablet_meta,
-                        true);
-    if (code != MetaServiceCode::OK) {
-        return;
-    }
-
-    std::string schema_key, schema_val;
-    while (request->has_tablet_schema()) {
-        if (!config::write_schema_kv) {
-            tablet_meta.mutable_schema()->CopyFrom(request->tablet_schema());
-            break;
-        }
-        tablet_meta.set_schema_version(request->tablet_schema().schema_version());
-        meta_schema_key({instance_id, tablet_meta.index_id(), tablet_meta.schema_version()},
-                        &schema_key);
-        if (txn->get(schema_key, &schema_val, true) == TxnErrorCode::TXN_OK) {
-            break; // schema has already been saved
-        }
-        if (!request->tablet_schema().SerializeToString(&schema_val)) [[unlikely]] {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize tablet schema value";
-            return;
-        }
-        txn->put(schema_key, schema_val);
-        break;
-    }
-
-    int64_t table_id = tablet_meta.table_id();
-    int64_t index_id = tablet_meta.index_id();
-    int64_t partition_id = tablet_meta.partition_id();
-    int64_t tablet_id = tablet_meta.tablet_id();
-    MetaTabletKeyInfo key_info {instance_id, table_id, index_id, partition_id, tablet_id};
-    std::string key;
-    std::string val;
-    meta_tablet_key(key_info, &key);
-    if (!tablet_meta.SerializeToString(&val)) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "failed to serialize tablet meta";
-        return;
-    }
-    txn->put(key, val);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -3045,6 +2976,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
     }
     RPC_RATE_LIMIT(get_tablet_stats)
 
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader reader(instance_id, txn_kv_.get());
     for (auto& i : request->tablet_idx()) {
         TabletIndexPB idx(i);
         // FIXME(plat1ko): Get all tablet stats in one txn
@@ -3060,16 +2993,30 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             // the txn is not a local variable, if not reset will count last res twice
             txn.reset(nullptr);
         };
-        if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
-              idx.has_partition_id() && i.has_tablet_id())) {
-            get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
-            if (code != MetaServiceCode::OK) return;
-        }
-        auto tablet_stats = response->add_tablet_stats();
-        internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
-        if (code != MetaServiceCode::OK) {
-            response->clear_tablet_stats();
-            break;
+
+        if (!is_versioned_read) {
+            if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
+                  idx.has_partition_id() && i.has_tablet_id())) {
+                get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
+                if (code != MetaServiceCode::OK) return;
+            }
+            auto tablet_stats = response->add_tablet_stats();
+            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
+            if (code != MetaServiceCode::OK) {
+                response->clear_tablet_stats();
+                break;
+            }
+        } else {
+            TxnErrorCode err = reader.get_tablet_merged_stats(
+                    idx.tablet_id(), response->add_tablet_stats(), nullptr);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,
+                                  idx.tablet_id());
+                LOG(WARNING) << msg;
+                response->clear_tablet_stats();
+                return;
+            }
         }
 #ifdef NDEBUG
         // Force data size >= 0 to reduce the losses caused by bugs
