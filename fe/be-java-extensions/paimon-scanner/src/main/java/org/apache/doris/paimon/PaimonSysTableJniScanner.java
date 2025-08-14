@@ -21,8 +21,6 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
-import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
-import org.apache.doris.paimon.PaimonTableCache.TableExt;
 
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.reader.RecordReader;
@@ -63,12 +61,6 @@ public class PaimonSysTableJniScanner extends JniScanner {
     private List<String> paimonAllFieldNames;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
-    private final long ctlId;
-    private final long dbId;
-    private final long tblId;
-    private final String dbName;
-    private final String tblName;
-    private final String queryType;
 
     /**
      * Constructs a new PaimonSysTableJniScanner for reading Paimon system tables.
@@ -86,13 +78,12 @@ public class PaimonSysTableJniScanner extends JniScanner {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
         }
         initTableInfo(columnTypes, requiredFields, batchSize);
+        this.table = PaimonUtils.deserialize(params.get("serialized_table"));
+        this.paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
+        }
         this.paimonSplit = PaimonUtils.deserialize(params.get("serialized_split"));
-        this.ctlId = Long.parseLong(params.get("ctl_id"));
-        this.dbId = Long.parseLong(params.get("db_id"));
-        this.tblId = Long.parseLong(params.get("tbl_id"));
-        this.dbName = params.get("db_name");
-        this.tblName = params.get("tbl_name");
-        this.queryType = params.get("query_type");
         this.hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
@@ -115,7 +106,6 @@ public class PaimonSysTableJniScanner extends JniScanner {
             // so we need to provide a classloader, otherwise it will cause NPE.
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
-                initTable();
                 initReader();
                 return null;
             });
@@ -140,24 +130,6 @@ public class PaimonSysTableJniScanner extends JniScanner {
             return preExecutionAuthenticator.execute(this::readAndProcessNextBatch);
         } catch (Exception e) {
             throw new RuntimeException(e);
-        }
-    }
-
-    private void initTable() {
-        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
-                paimonOptionParams, hadoopOptionParams, dbName, tblName, queryType);
-        TableExt tableExt = PaimonTableCache.getTable(key);
-        Table paimonTable = tableExt.getTable();
-        if (paimonTable == null) {
-            throw new RuntimeException(
-                    String.format(
-                            "Failed to get Paimon system table  {%s}.{%s}${%s}. ",
-                            dbName, tblName, queryType));
-        }
-        this.table = paimonTable;
-        this.paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
         }
     }
 
