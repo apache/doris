@@ -1302,4 +1302,7 @@ public class Column implements GsonPostProcessable {
         return fieldPatternType;
     }
 
+    public String getExtraInfo() {
+        return extraInfo;
+    }
 }
