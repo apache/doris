@@ -23,6 +23,7 @@
 #include <bitset>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class CharReplaceCharFilter : public lucene::analysis::CharFilter {
 public:
@@ -47,4 +48,5 @@ private:
     lucene::util::SStringReader<char> _transformed_input;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

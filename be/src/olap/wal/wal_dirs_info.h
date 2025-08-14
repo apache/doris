@@ -29,6 +29,7 @@
 #include "common/status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class WalDirInfo {
     ENABLE_FACTORY_CREATOR(WalDirInfo);
 
@@ -86,4 +87,5 @@ private:
     std::shared_mutex _lock;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

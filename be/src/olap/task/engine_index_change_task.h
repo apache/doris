@@ -20,6 +20,7 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class StorageEngine;
 class TAlterInvertedIndexReq;
 
@@ -38,4 +39,5 @@ private:
     const TAlterInvertedIndexReq& _alter_inverted_index_req;
 }; // EngineTask
 
+#include "common/compile_check_end.h"
 } // namespace doris

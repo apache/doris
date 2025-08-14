@@ -22,6 +22,7 @@
 #include "token_filter.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 /**
  * @brief A token filter that converts Unicode text to lowercase using ICU library.
@@ -81,4 +82,5 @@ private:
 };
 using LowerCaseFilterPtr = std::shared_ptr<LowerCaseFilter>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

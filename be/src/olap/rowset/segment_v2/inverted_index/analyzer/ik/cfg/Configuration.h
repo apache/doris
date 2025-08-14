@@ -21,6 +21,7 @@
 #include <vector>
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 // TODO(ryan19929): Optimize the design of the Configuration class, remove duplicate configurations (like mode and lowercase)
 class Configuration {
 private:
@@ -84,4 +85,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

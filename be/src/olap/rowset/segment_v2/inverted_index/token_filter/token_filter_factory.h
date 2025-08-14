@@ -21,6 +21,7 @@
 #include "olap/rowset/segment_v2/inverted_index/token_filter/token_filter.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class TokenFilterFactory : public AbstractAnalysisFactory {
 public:
@@ -31,4 +32,5 @@ public:
 };
 using TokenFilterFactoryPtr = std::shared_ptr<TokenFilterFactory>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

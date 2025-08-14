@@ -18,6 +18,7 @@
 #include "Lexeme.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 Lexeme::Lexeme(size_t offset, size_t byte_begin, size_t byte_length, Type type, size_t char_begin,
                size_t char_end)
@@ -69,4 +70,5 @@ bool Lexeme::operator<(const Lexeme& other) const noexcept {
            (byte_begin_ == other.byte_begin_ && byte_length_ < other.byte_length_);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

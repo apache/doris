@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/inverted_index/util/linked_hash_map.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class SloppyPhraseMatcher : public PhraseMatcherBase<SloppyPhraseMatcher> {
 public:
@@ -70,4 +71,5 @@ private:
     int32_t _match_length = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

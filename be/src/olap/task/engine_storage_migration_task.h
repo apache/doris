@@ -31,6 +31,7 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class DataDir;
 class StorageEngine;
 
@@ -84,4 +85,5 @@ private:
     std::vector<PendingRowsetGuard> _pending_rs_guards;
 }; // EngineTask
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -26,6 +26,7 @@
 #include "ISegmenter.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class CJKSegmenter : public ISegmenter {
 private:
@@ -40,4 +41,5 @@ public:
     void reset() override;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

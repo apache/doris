@@ -30,6 +30,7 @@
 #include "script_iterator.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class CompositeBreakIterator {
 public:
@@ -55,4 +56,5 @@ private:
 };
 using CompositeBreakIteratorPtr = std::unique_ptr<CompositeBreakIterator>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

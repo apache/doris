@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 CustomAnalyzerConfig::CustomAnalyzerConfig(Builder* builder) {
     _tokenizer_config = builder->_tokenizer_config;
@@ -59,4 +60,5 @@ Settings ComponentConfig::get_params() const {
     return _params;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/exact_phrase_matcher.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 ExactPhraseMatcher::ExactPhraseMatcher(std::vector<PostingsAndPosition> postings)
         : _postings(std::move(postings)) {}
@@ -89,4 +90,5 @@ bool ExactPhraseMatcher::advance_position(PostingsAndPosition& posting, int32_t 
     return true;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

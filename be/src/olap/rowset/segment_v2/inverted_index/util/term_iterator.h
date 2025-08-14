@@ -29,6 +29,7 @@
 CL_NS_USE(index)
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 struct IOContext;
 } // namespace doris::io
 
@@ -110,4 +111,5 @@ protected:
     TermDocsPtr term_docs_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

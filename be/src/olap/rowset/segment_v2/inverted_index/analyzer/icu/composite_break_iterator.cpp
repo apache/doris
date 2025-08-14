@@ -22,6 +22,7 @@
 #include <memory>
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 CompositeBreakIterator::CompositeBreakIterator(const ICUTokenizerConfigPtr& config)
         : config_(config) {
@@ -80,4 +81,5 @@ BreakIteratorWrapper* CompositeBreakIterator::get_break_iterator(int32_t scriptC
     return word_breakers_[scriptCode].get();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

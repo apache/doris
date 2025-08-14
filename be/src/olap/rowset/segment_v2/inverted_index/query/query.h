@@ -41,6 +41,7 @@ CL_NS_USE(search)
 CL_NS_USE(util)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 using SearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
 
@@ -58,4 +59,5 @@ public:
     virtual void search(roaring::Roaring& roaring) = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

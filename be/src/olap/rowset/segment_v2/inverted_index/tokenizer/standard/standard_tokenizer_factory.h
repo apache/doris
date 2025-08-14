@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class StandardTokenizerFactory : public TokenizerFactory {
 public:
@@ -44,4 +45,5 @@ private:
     int32_t _max_token_length = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

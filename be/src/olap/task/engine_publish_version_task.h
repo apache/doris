@@ -35,6 +35,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class EnginePublishVersionTask;
 class TPublishVersionRequest;
@@ -141,4 +142,5 @@ private:
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

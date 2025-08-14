@@ -26,6 +26,7 @@
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class BasicTokenizer : public Tokenizer {
 public:
@@ -45,4 +46,5 @@ private:
     std::vector<std::string_view> _tokens_text;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

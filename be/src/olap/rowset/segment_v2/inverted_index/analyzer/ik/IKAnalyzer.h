@@ -20,6 +20,7 @@
 #include "IKTokenizer.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class IKAnalyzer : public Analyzer {
 public:
@@ -66,4 +67,5 @@ private:
     std::shared_ptr<Configuration> config_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

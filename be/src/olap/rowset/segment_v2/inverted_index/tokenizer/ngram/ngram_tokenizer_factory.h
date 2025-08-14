@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class NGramTokenizerFactory : public TokenizerFactory {
 public:
@@ -61,4 +62,5 @@ private:
     CharMatcherPtr _matcher;
 };
 
+#include "common/compile_check_end.h"
 }; // namespace doris::segment_v2::inverted_index

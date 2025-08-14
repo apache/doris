@@ -28,6 +28,7 @@
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class ICUTokenizer : public Tokenizer {
 public:
@@ -47,4 +48,5 @@ private:
     CompositeBreakIteratorPtr breaker_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

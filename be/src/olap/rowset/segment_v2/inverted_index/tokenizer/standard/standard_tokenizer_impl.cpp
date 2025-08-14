@@ -18,6 +18,7 @@
 #include "standard_tokenizer_impl.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 const std::vector<int32_t> StandardTokenizerImpl::ZZ_LEXSTATE = {0, 0};
 
@@ -1979,4 +1980,5 @@ const std::vector<int32_t> StandardTokenizerImpl::ZZ_ATTRIBUTE = {
         0, 9, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 1, 1, 0, 1,
         1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 9, 1, 1, 1, 1, 1, 1};
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -26,6 +26,7 @@
 #include "icu_common.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class ScriptIterator {
 public:
@@ -61,4 +62,5 @@ private:
 };
 using ScriptIteratorPtr = std::unique_ptr<ScriptIterator>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2
