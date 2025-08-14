@@ -217,7 +217,12 @@ suite("test_string_function") {
 
 
     sql """
+        DROP TABLE IF EXISTS strings_LOCATE_test
+    """
+
+    sql """
         CREATE TABLE IF NOT EXISTS strings_LOCATE_test (
+        id int,
         str VARCHAR
         )
         DISTRIBUTED BY HASH(str) BUCKETS 2
@@ -227,11 +232,11 @@ suite("test_string_function") {
     """
 
     sql """
-        insert into strings_LOCATE_test values("123456789"),("1234567890"),(null),("abcabc"),("789");
+        insert into strings_LOCATE_test values(1,"123456789"),(2,"1234567890"),(3,null),(4,"abcabc"),(5,"789");
     """
 
 
-    qt_sql "SELECT str ,  LOCATE('78', str , 2) FROM strings_LOCATE_test order by str;"
+    qt_sql "SELECT id ,  LOCATE('78', str , 2) FROM strings_LOCATE_test order by id;"
 
 
 
