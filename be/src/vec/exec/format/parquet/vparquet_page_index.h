@@ -46,10 +46,6 @@ public:
     ~PageIndex() = default;
     Status create_skipped_row_range(tparquet::OffsetIndex& offset_index,
                                     int64_t total_rows_of_group, int page_idx, RowRange* row_range);
-    Status collect_skipped_page_range(tparquet::ColumnIndex* column_index,
-                                      const ColumnValueRangeType& col_val_range,
-                                      const FieldSchema* col_schema,
-                                      std::vector<int>& skipped_ranges, const cctz::time_zone& ctz);
     bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
     Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
                               tparquet::ColumnIndex* column_index);
