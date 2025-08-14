@@ -316,6 +316,17 @@ std::string JdbcTableDescriptor::debug_string() const {
     return fmt::to_string(buf);
 }
 
+RemoteDorisTableDescriptor::RemoteDorisTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+RemoteDorisTableDescriptor::~RemoteDorisTableDescriptor() = default;
+
+std::string RemoteDorisTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "RemoteDorisTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
 TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
         : _id(tdesc.id),
           _num_materialized_slots(0),
@@ -587,6 +598,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::TRINO_CONNECTOR_TABLE:
             desc = pool->add(new TrinoConnectorTableDescriptor(tdesc));
+            break;
+        case TTableType::REMOTE_DORIS_TABLE:
+            desc = pool->add(new RemoteDorisTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

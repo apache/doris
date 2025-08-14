@@ -66,6 +66,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
@@ -1167,7 +1168,11 @@ public class OlapScanNode extends ScanNode {
     }
 
     public boolean isPointQuery() {
-        return ConnectContext.get().getStatementContext().isShortCircuitQuery();
+        StatementContext statementContext = ConnectContext.get().getStatementContext();
+        if (statementContext != null) {
+            return statementContext.isShortCircuitQuery();
+        }
+        return false;
     }
 
     private void computeTabletInfo() throws UserException {

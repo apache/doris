@@ -15,26 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.property.constants;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector"),
-    ARROW_RESULT("arrow_result");
+public class RemoteDorisProperties {
+    public static final String FE_HOSTS = "fe_nodes";
+    public static final String FE_ARROW_HOSTS = "fe_arrow_hosts";
 
-    private final String tableFormatType;
+    public static final String USER = "user";
+    public static final String PASSWORD = "password";
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
-    }
+    public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
+    public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
 
-    public String value() {
-        return tableFormatType;
-    }
+    // Supports older versions of remote Doris; enabling this may introduce some inaccuracies in schema parsing.
+    public static final String COMPATIBLE = "compatible";
 }
