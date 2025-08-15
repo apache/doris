@@ -39,9 +39,27 @@ void insert_one_cell_to_column(MutableColumnPtr& column, const IColumn& value) {
     }
 }
 
+Status TryExpr::open(RuntimeState* state, VExprContext* context,
+                     FunctionContext::FunctionStateScope scope) {
+    auto status = VExpr::open(state, context, scope);
+    _open_failed = !status.ok();
+    return Status::OK();
+}
+
 Status TryExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_data_type->is_nullable());
     DCHECK_EQ(_children.size(), 1);
+
+    if (_open_failed) {
+        // If open failed, we should return a null column.
+        auto result_column = _data_type->create_column();
+        DCHECK(result_column->is_nullable());
+        result_column->insert_many_defaults(block->rows());
+        block->insert({std::move(result_column), _data_type, expr_name()});
+        *result_column_id = block->columns() - 1;
+        return Status::OK();
+    }
+
     auto nested_expr = _children[0];
     auto batch_exec_status = nested_expr->execute(context, block, result_column_id);
     if (batch_exec_status.ok()) {

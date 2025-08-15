@@ -37,10 +37,16 @@ public:
     ~TryExpr() override = default;
 
     const std::string& expr_name() const override { return _expr_name; }
+
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
 private:
     const std::string _expr_name = "try expr";
+
+    bool _open_failed = false;
 };
 } // namespace vectorized
 
