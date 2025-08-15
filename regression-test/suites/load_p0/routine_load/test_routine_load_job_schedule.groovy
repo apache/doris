@@ -52,7 +52,6 @@ suite("test_routine_load_job_schedule","nonConcurrent") {
             def record = new ProducerRecord<>(newTopic.name(), index, null, line)
             producer.send(record)
         }
-        producer.close()
 
         def tableName = "test_routine_load_job_schedule"
         def job = "test_routine_load_job_schedule"
