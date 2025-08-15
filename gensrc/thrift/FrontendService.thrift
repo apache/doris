@@ -420,6 +420,7 @@ struct TMasterOpResult {
     // transaction load
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
+    11: optional i64 affectedRows;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -850,6 +851,7 @@ struct TSchemaTableRequestParams {
     4: optional string catalog  // use for table specific queries
     5: optional i64 dbId         // used for table specific queries
     6: optional string time_zone // used for DATETIME field
+    7: optional string frontend_conjuncts
 }
 
 struct TFetchSchemaTableDataRequest {

@@ -446,3 +446,10 @@ d***is
 -- !sub_replace_utf8_sql10 --
 \N
 
+-- !sql --
+1	7
+2	7
+3	\N
+4	0
+5	0
+

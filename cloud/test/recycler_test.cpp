@@ -39,6 +39,7 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
@@ -86,37 +87,17 @@ std::vector<std::string> index_v1_file_path = {
         "data/1753202846974/0200000000007864994f6aa97288842758c2e89b03e65682_0_1753202846943.idx",
         "data/1753202845724/020000000000786635407b55b72242ac167cf83cd4c598a2_0_1753202841593.idx",
         "data/1753202846984/020000000000788bdd40fcf18bcaa1bbd4058ef92606e79a_0_1753202846923.idx",
-        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_0_1753202846963.idx",
-        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_0_1753202846903.idx",
-        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_1_1753202846903.idx",
-        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a2_1_1753202846963.idx",
+        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a0_0_1753202846963.idx",
+        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a1_0_1753202846963.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a0_0_1753202844931.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a1_0_1753202844931.idx",
         "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0_1753202844931.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0_1753222846410.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0_1753202847011.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_1_1753202844931.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_1_1753222846410.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_1_1753202847011.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_2_1753202844931.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_2_1753222846410.idx",
-        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_2_1753202847011.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65680_0_1753202843931.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65681_0_1753202843931.idx",
         "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202843931.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753252846410.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202847021.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_1_1753202843931.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_1_1753252846410.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_1_1753202847021.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_2_1753202843931.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_2_1753252846410.idx",
-        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_2_1753202847021.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202824931.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1756202846410.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202847071.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_1_1753202824931.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_1_1756202846410.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_1_1753202847071.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_2_1753202824931.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_2_1756202846410.idx",
-        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_2_1753202847071.idx"};
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65680_0_1753202824931.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65681_0_1753202824931.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202824931.idx"};
 // clang-format on
 
 doris::cloud::RecyclerThreadPoolGroup thread_group;
@@ -309,92 +290,6 @@ static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
     return 0;
 }
 
-static int create_committed_rowset_with_tablet_schema(
-        TxnKv* txn_kv, StorageVaultAccessor* accessor, const std::string& resource_id,
-        int64_t tablet_id, int64_t version, int num_segments = 1, size_t num_inverted_indexes = 1,
-        bool use_inverted_index_storage_format_v1 = true) {
-    std::string val;
-    std::unique_ptr<Transaction> txn;
-    int64_t tablet_index_id = 123;
-    int64_t schema_version = 456;
-
-    auto rowset_id = next_rowset_id();
-    MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
-    std::string rowset_meta_key = meta_rowset_key(key_info);
-
-    doris::RowsetMetaCloudPB rowset_pb;
-    rowset_pb.set_rowset_id(0); // useless but required
-    rowset_pb.set_rowset_id_v2(rowset_id);
-    rowset_pb.set_num_segments(num_segments);
-    rowset_pb.set_tablet_id(tablet_id);
-    rowset_pb.set_resource_id(resource_id);
-    rowset_pb.set_creation_time(current_time);
-    rowset_pb.set_schema_version(schema_version);
-    rowset_pb.SerializeToString(&val);
-
-    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
-    txn->put(rowset_meta_key, val);
-    if (txn->commit() != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
-
-    TabletIndexPB tablet_index;
-    tablet_index.set_index_id(tablet_index_id);
-    tablet_index.set_tablet_id(tablet_id);
-    std::string tablet_index_key = meta_tablet_idx_key({instance_id, tablet_id});
-    tablet_index.SerializeToString(&val);
-    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
-    txn->put(tablet_index_key, val);
-    if (txn->commit() != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
-
-    if (num_inverted_indexes) {
-        doris::TabletSchemaCloudPB tablet_schema;
-        if (use_inverted_index_storage_format_v1) {
-            tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
-        } else {
-            tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
-        }
-        tablet_schema.set_schema_version(schema_version);
-        for (size_t i = 0; i < num_inverted_indexes; i++) {
-            auto index = tablet_schema.add_index();
-            index->set_index_id(i);
-            index->set_index_type(IndexType::INVERTED);
-        }
-        std::string tablet_schema_key =
-                meta_schema_key({instance_id, tablet_index_id, schema_version});
-        std::string val;
-        tablet_schema.SerializeToString(&val);
-        if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
-        txn->put(tablet_schema_key, val);
-        if (txn->commit() != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
-    }
-
-    for (int i = 0; i < num_segments; ++i) {
-        auto path = segment_path(tablet_id, rowset_id, i);
-        accessor->put_file(path, "");
-        if (use_inverted_index_storage_format_v1) {
-            for (int j = 0; j < num_inverted_indexes; ++j) {
-                std::string path = inverted_index_path_v1(tablet_id, rowset_id, i, j, "");
-                accessor->put_file(path, "");
-            }
-        } else {
-            std::string path = inverted_index_path_v2(tablet_id, rowset_id, i);
-            accessor->put_file(path, "");
-        }
-    }
-    return 0;
-}
-
 static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,
                                                          StorageVaultAccessor* accessor,
                                                          const std::string& resource_id,
@@ -402,6 +297,7 @@ static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,
                                                          int64_t version = 1) {
     std::string val;
     std::unique_ptr<Transaction> txn;
+    TxnErrorCode err;
 
     // Parse file path to extract tablet_id and rowset_id
     // Expected format: data/{tablet_id}/{rowset_id}_{segment_id}.{ext}
@@ -433,7 +329,8 @@ static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,
     int64_t segment_id = stoll(segment_str);
     int64_t tablet_index_id = tablet_id + 10;
     // take the last 4 digits of tablet_id as the unique identifier
-    int64_t schema_version = std::atoll(path_parts[1].substr(path_parts[1].size() - 4).c_str());
+    int64_t schema_version =
+            std::atoll(path_parts[1].substr(path_parts[1].size() - 4).c_str()) + version;
 
     // Create rowset meta data
     MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
@@ -449,13 +346,9 @@ static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,
     rowset_pb.set_schema_version(schema_version);
     rowset_pb.SerializeToString(&val);
 
-    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
+    err = txn_kv->create_txn(&txn);
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK) << err;
     txn->put(rowset_meta_key, val);
-    if (txn->commit() != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
 
     // Create tablet index meta data
     TabletIndexPB tablet_index;
@@ -463,46 +356,27 @@ static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,
     tablet_index.set_tablet_id(tablet_id);
     std::string tablet_index_key = meta_tablet_idx_key({instance_id, tablet_id});
     tablet_index.SerializeToString(&val);
-    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
     txn->put(tablet_index_key, val);
-    if (txn->commit() != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
 
     // Create tablet schema if dealing with index files
     if (extension == "idx") {
         std::string tablet_schema_key =
                 meta_schema_key({instance_id, tablet_index_id, schema_version});
-        std::string tablet_schema_val;
-        if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
+
         doris::TabletSchemaCloudPB tablet_schema;
+        tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        tablet_schema.set_schema_version(schema_version);
+        auto index = tablet_schema.add_index();
+        index->set_index_id(tablet_schema.index().size());
+        index->set_index_type(IndexType::INVERTED);
 
-        if (txn->get(tablet_schema_key, &tablet_schema_val) == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
-            tablet_schema.set_schema_version(schema_version);
-
-            auto index = tablet_schema.add_index();
-            index->set_index_id(tablet_schema.index().size());
-            index->set_index_type(IndexType::INVERTED);
-
-        } else {
-            tablet_schema.ParseFromString(tablet_schema_val);
-
-            auto index = tablet_schema.add_index();
-            index->set_index_id(tablet_schema.index().size());
-            index->set_index_type(IndexType::INVERTED);
-        }
-        tablet_schema.SerializeToString(&val);
-
-        txn->put(tablet_schema_key, val);
-        if (txn->commit() != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
+        MetaServiceCode code;
+        std::string msg;
+        put_schema_kv(code, msg, txn.get(), tablet_schema_key, tablet_schema);
     }
+
+    err = txn->commit();
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK) << err;
 
     std::string segment_path = file_path.substr(0, file_path.size() - 4) + ".dat";
     accessor->put_file(segment_path, "");
@@ -518,6 +392,7 @@ static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
                                                          size_t& version) {
     std::string val;
     std::unique_ptr<Transaction> txn;
+    TxnErrorCode err;
 
     // Parse file path to extract tablet_id and rowset_id
     // Expected format: data/{tablet_id}/{rowset_id}_{segment_id}_{index_id}{suffix}.idx
@@ -560,7 +435,8 @@ static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
     int segment_id = stoll(segment_str);
     int64_t index_id = std::stoll(index_id_str);
     int64_t tablet_index_id = tablet_id + 10;
-    int64_t schema_version = std::atoll(path_parts[1].substr(path_parts[1].size() - 4).c_str());
+    int64_t schema_version =
+            std::atoll(path_parts[1].substr(path_parts[1].size() - 4).c_str()) + version;
 
     // Create rowset meta data
     MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
@@ -576,13 +452,9 @@ static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
     rowset_pb.set_schema_version(schema_version);
     rowset_pb.SerializeToString(&val);
 
-    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
+    err = txn_kv->create_txn(&txn);
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK) << err;
     txn->put(rowset_meta_key, val);
-    if (txn->commit() != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
 
     // Create tablet index meta data
     TabletIndexPB tablet_index;
@@ -590,53 +462,31 @@ static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
     tablet_index.set_tablet_id(tablet_id);
     std::string tablet_index_key = meta_tablet_idx_key({instance_id, tablet_id});
     tablet_index.SerializeToString(&val);
-    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
+
     txn->put(tablet_index_key, val);
-    if (txn->commit() != TxnErrorCode::TXN_OK) {
-        return -1;
-    }
 
     // Create tablet schema if dealing with index files
     if (extension == "idx") {
         std::string tablet_schema_key =
                 meta_schema_key({instance_id, tablet_index_id, schema_version});
-        std::string tablet_schema_val;
-        if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
+
         doris::TabletSchemaCloudPB tablet_schema;
+        tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        tablet_schema.set_schema_version(schema_version);
 
-        if (txn->get(tablet_schema_key, &tablet_schema_val) == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
-            tablet_schema.set_schema_version(schema_version);
-
-            auto index = tablet_schema.add_index();
-            index->set_index_id(index_id);
-            index->set_index_type(IndexType::INVERTED);
-            if (!index_suffix.empty()) {
-                index->set_index_suffix_name(index_suffix);
-            }
-
-        } else {
-            tablet_schema.ParseFromString(tablet_schema_val);
-
-            auto* index = tablet_schema.add_index();
-            index->set_index_id(index_id);
-            index->set_index_type(IndexType::INVERTED);
-            if (!index_suffix.empty()) {
-                index->set_index_suffix_name(index_suffix);
-            }
+        auto index = tablet_schema.add_index();
+        index->set_index_id(index_id);
+        index->set_index_type(IndexType::INVERTED);
+        if (!index_suffix.empty()) {
+            index->set_index_suffix_name(index_suffix);
         }
-        tablet_schema.SerializeToString(&val);
 
-        txn->put(tablet_schema_key, val);
-        if (txn->commit() != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
+        MetaServiceCode code;
+        std::string msg;
+        put_schema_kv(code, msg, txn.get(), tablet_schema_key, tablet_schema);
     }
-
+    err = txn->commit();
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK) << err;
     std::string segment_path = fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, segment_id);
     accessor->put_file(segment_path, "");
     accessor->put_file(file_path, "");
@@ -646,10 +496,11 @@ static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
 
 static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                                    const std::string& resource_id, int64_t tablet_id,
-                                   int64_t version, int num_segments = 1,
+                                   int64_t version, int64_t index_id, int num_segments = 1,
                                    int num_inverted_indexes = 1) {
     std::string key;
     std::string val;
+    int64_t schema_version = tablet_id + version + num_inverted_indexes + 1;
 
     auto rowset_id = next_rowset_id();
     MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
@@ -662,15 +513,8 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
     rowset_pb.set_tablet_id(tablet_id);
     rowset_pb.set_resource_id(resource_id);
     rowset_pb.set_creation_time(current_time);
-    if (num_inverted_indexes > 0) {
-        auto schema = rowset_pb.mutable_tablet_schema();
-        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
-        for (int i = 0; i < num_inverted_indexes; ++i) {
-            auto index = schema->add_index();
-            index->set_index_id(i);
-            index->set_index_type(IndexType::INVERTED);
-        }
-    }
+    rowset_pb.set_schema_version(schema_version);
+    rowset_pb.set_index_id(index_id);
     rowset_pb.SerializeToString(&val);
 
     std::unique_ptr<Transaction> txn;
@@ -678,6 +522,37 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
         return -1;
     }
     txn->put(key, val);
+
+    std::string key1;
+    std::string val1;
+    MetaTabletIdxKeyInfo key_info1 {instance_id, tablet_id};
+    meta_tablet_idx_key(key_info1, &key1);
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_db_id(db_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    if (!tablet_idx_pb.SerializeToString(&val1)) {
+        return -1;
+    }
+
+    txn->put(key1, val1);
+
+    int64_t tablet_schema_version_cnt = tablet_id + version + 1;
+
+    for (size_t i = 0; i < num_inverted_indexes; i++) {
+        std::string tablet_schema_key =
+                meta_schema_key({instance_id, index_id, ++tablet_schema_version_cnt});
+        doris::TabletSchemaCloudPB tablet_schema;
+        tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        tablet_schema.set_schema_version(tablet_schema_version_cnt);
+        auto index = tablet_schema.add_index();
+        index->set_index_id(i);
+        index->set_index_type(IndexType::INVERTED);
+        MetaServiceCode code;
+        std::string msg;
+        put_schema_kv(code, msg, txn.get(), tablet_schema_key, tablet_schema);
+    }
+
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
     }
@@ -686,24 +561,6 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
         auto path = segment_path(tablet_id, rowset_id, i);
         accessor->put_file(path, "");
         for (int j = 0; j < num_inverted_indexes; ++j) {
-            std::string key1;
-            std::string val1;
-            MetaTabletIdxKeyInfo key_info1 {instance_id, tablet_id};
-            meta_tablet_idx_key(key_info1, &key1);
-            TabletIndexPB tablet_table;
-            tablet_table.set_db_id(db_id);
-            tablet_table.set_index_id(j);
-            tablet_table.set_tablet_id(tablet_id);
-            if (!tablet_table.SerializeToString(&val1)) {
-                return -1;
-            }
-            if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
-                return -1;
-            }
-            txn->put(key1, val1);
-            if (txn->commit() != TxnErrorCode::TXN_OK) {
-                return -1;
-            }
             auto path = inverted_index_path_v1(tablet_id, rowset_id, i, j, "");
             accessor->put_file(path, "");
         }
@@ -808,8 +665,8 @@ static int create_restore_job_tablet(TxnKv* txn_kv, int64_t tablet_id) {
 
     RestoreJobCloudPB restore_job_pb;
     restore_job_pb.set_tablet_id(tablet_id);
-    restore_job_pb.set_creation_time(::time(nullptr) - 3600);
-    restore_job_pb.set_expiration(0);
+    restore_job_pb.set_ctime_s(::time(nullptr) - 3600);
+    restore_job_pb.set_expired_at_s(0);
     restore_job_pb.set_state(RestoreJobCloudPB::DROPPED);
     restore_job_pb.SerializeToString(&val);
 
@@ -1723,7 +1580,8 @@ TEST(RecyclerTest, recycle_tablet) {
                               i & 1);
     }
     for (int i = 0; i < 500; ++i) {
-        create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_tablet", tablet_id, i);
+        create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_tablet", tablet_id, i,
+                                index_id);
     }
 
     ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
@@ -1801,7 +1659,7 @@ TEST(RecyclerTest, recycle_tablet_with_rowset_ref_count) {
     constexpr int table_id = 10000, index_id = 10001, partition_id = 10002, tablet_id = 10003;
     auto accessor = recycler.accessor_map_.begin()->second;
     create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
-    create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_tablet", tablet_id, 1);
+    create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_tablet", tablet_id, 1, index_id);
 
     std::string rowset_id = next_rowset_id();
     {
@@ -2080,7 +1938,8 @@ TEST(RecyclerTest, recycle_indexes) {
             create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1);
         }
         for (int j = 0; j < 10; ++j) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j,
+                                    index_id);
         }
     }
 
@@ -2205,7 +2064,7 @@ TEST(RecyclerTest, recycle_partitions) {
             }
             for (int j = 0; j < 10; ++j) {
                 create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_partitions",
-                                        tablet_id, j);
+                                        tablet_id, j, index_id);
             }
         }
     }
@@ -3258,7 +3117,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         }
         for (int j = 0; j < 10; ++j) {
             // create meta key
-            create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j,
+                                    index_id);
         }
     }
 
@@ -3445,12 +3305,12 @@ TEST(CheckerTest, normal_inverted_check) {
     auto accessor = checker.accessor_map_.begin()->second;
     for (int t = 10001; t <= 10100; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 1);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1);
         }
     }
     for (int t = 10101; t <= 10200; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 5);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 5);
         }
     }
     ASSERT_EQ(checker.do_inverted_check(), 0);
@@ -3495,7 +3355,7 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
     auto accessor = checker.accessor_map_.begin()->second;
     for (int t = 10001; t <= 10100; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 1);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1);
         }
     }
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -4011,12 +3871,12 @@ TEST(CheckerTest, normal) {
     auto accessor = checker.accessor_map_.begin()->second;
     for (int t = 10001; t <= 10100; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset_with_tablet_schema(txn_kv.get(), accessor.get(), "1", t, v, 1);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1);
         }
     }
     for (int t = 10101; t <= 10200; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset_with_tablet_schema(txn_kv.get(), accessor.get(), "1", t, v, 5);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 5);
         }
     }
     ASSERT_EQ(checker.do_check(), 0);
@@ -4037,14 +3897,12 @@ TEST(CheckerTest, abnormal) {
     auto accessor = checker.accessor_map_.begin()->second;
     for (int t = 10001; t <= 10100; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset_with_tablet_schema(txn_kv.get(), accessor.get(), "1", t, v, 1,
-                                                       0);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1, 0);
         }
     }
     for (int t = 10101; t <= 10200; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset_with_tablet_schema(txn_kv.get(), accessor.get(), "1", t, v, 5,
-                                                       0);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 5, 0);
         }
     }
 

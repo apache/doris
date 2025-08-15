@@ -206,6 +206,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
+    _inverted_index_analyzer_timer = ADD_TIMER(_segment_profile, "InvertedIndexAnalyzerTime");
+    _inverted_index_lookup_timer = ADD_TIMER(_segment_profile, "InvertedIndexLookupTimer");
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
@@ -538,7 +540,6 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             // Remote tablet still in-flight.
             return Status::OK();
         }
-        DCHECK(_cloud_tablet_future.valid() && _cloud_tablet_future.get().ok());
         COUNTER_UPDATE(_sync_rowset_timer, _sync_cloud_tablets_watcher.elapsed_time());
         auto total_rowsets = std::accumulate(
                 _tablets.cbegin(), _tablets.cend(), 0LL,

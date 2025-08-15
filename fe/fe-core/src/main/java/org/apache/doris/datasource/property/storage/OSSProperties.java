@@ -90,12 +90,15 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * <p>
      */
-    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
+    public static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
                     .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$"),
             Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
             Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
 
     private static final List<String> URI_KEYWORDS = Arrays.asList("uri", "warehouse");
+
+    private static List<String> DLF_TYPE_KEYWORDS = Arrays.asList("hive.metastore.type",
+            "iceberg.catalog.type", "paimon.catalog.type");
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
@@ -120,6 +123,17 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             return (value.contains("aliyuncs.com"));
         }
 
+        value = Stream.of("oss.region")
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (StringUtils.isNotBlank(value)) {
+            return true;
+        }
+        if (isDlfMSType(origProps)) {
+            return true;
+        }
         Optional<String> uriValue = origProps.entrySet().stream()
                 .filter(e -> URI_KEYWORDS.stream()
                         .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
@@ -146,26 +160,36 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         return isAliyunOss || isAmazonS3 || isDls;
     }
 
+    private static boolean isDlfMSType(Map<String, String> params) {
+        return DLF_TYPE_KEYWORDS.stream()
+                .anyMatch(key -> params.containsKey(key) && StringUtils.isNotBlank(params.get(key))
+                        && StringUtils.equalsIgnoreCase("dlf", params.get(key)));
+    }
+
     @Override
-    protected void checkEndpoint() {
+    protected void setEndpointIfPossible() {
         if (StringUtils.isBlank(this.endpoint) && StringUtils.isNotBlank(this.region)) {
-            Optional<String> uriValueOpt = origProps.entrySet().stream()
-                    .filter(e -> URI_KEYWORDS.stream()
-                            .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
-                    .map(Map.Entry::getValue)
-                    .filter(Objects::nonNull)
-                    .filter(OSSProperties::isKnownObjectStorage)
-                    .findFirst();
-            if (uriValueOpt.isPresent()) {
-                String uri = uriValueOpt.get();
-                // If the URI does not start with http(s), derive endpoint from region
-                // (http(s) URIs are handled by separate logic elsewhere)
-                if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
-                    this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+            if (isDlfMSType(origProps)) {
+                this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+            } else {
+                Optional<String> uriValueOpt = origProps.entrySet().stream()
+                        .filter(e -> URI_KEYWORDS.stream()
+                                .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
+                        .map(Map.Entry::getValue)
+                        .filter(Objects::nonNull)
+                        .filter(OSSProperties::isKnownObjectStorage)
+                        .findFirst();
+                if (uriValueOpt.isPresent()) {
+                    String uri = uriValueOpt.get();
+                    // If the URI does not start with http(s), derive endpoint from region
+                    // (http(s) URIs are handled by separate logic elsewhere)
+                    if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
+                        this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+                    }
                 }
             }
         }
-        super.checkEndpoint();
+        super.setEndpointIfPossible();
     }
 
     @Override
@@ -185,7 +209,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         // If only one is provided, it's an error
         throw new StoragePropertiesException(
                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
-
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {

@@ -812,7 +812,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 ColumnType col_from_str;
                 for (size_t i = 0; i != row_count; ++i) {
                     auto item = col_str_to_str.get_data_at(i);
-                    ReadBuffer rb((char*)item.data, item.size);
+                    StringRef rb((char*)item.data, item.size);
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -827,7 +827,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(str);
                 } else {
-                    ReadBuffer rb(str.data(), str.size());
+                    StringRef rb(str.data(), str.size());
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -848,7 +848,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(str);
                 } else {
-                    ReadBuffer rb(str.data(), str.size());
+                    StringRef rb(str.data(), str.size());
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -874,7 +874,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(item.to_string());
                 } else {
-                    ReadBuffer rb((char*)item.data, item.size);
+                    StringRef rb((char*)item.data, item.size);
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));

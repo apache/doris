@@ -212,6 +212,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Format;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatNumber;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatRound;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
@@ -252,11 +254,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToStri
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsInf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Compat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -350,6 +354,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseDataSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
@@ -1269,6 +1274,14 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(fmod, context);
     }
 
+    default R visitFormat(Format format, C context) {
+        return visitScalarFunction(format, context);
+    }
+
+    default R visitFormatNumber(FormatNumber formatNumber, C context) {
+        return visitScalarFunction(formatNumber, context);
+    }
+
     default R visitFpow(Fpow fpow, C context) {
         return visitScalarFunction(fpow, context);
     }
@@ -1427,6 +1440,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIsIPAddressInRange(IsIpAddressInRange isIpAddressInRange, C context) {
         return visitScalarFunction(isIpAddressInRange, context);
+    }
+
+    default R visitIsNan(IsNan isNan, C context) {
+        return visitScalarFunction(isNan, context);
+    }
+
+    default R visitIsInf(IsInf isInf, C context) {
+        return visitScalarFunction(isInf, context);
     }
 
     default R visitIpv6CIDRToRange(Ipv6CIDRToRange ipv6CIDRToRange, C context) {
@@ -1767,6 +1788,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRandomBytes(RandomBytes randomBytes, C context) {
         return visitScalarFunction(randomBytes, context);
+    }
+
+    default R visitParseDataSize(ParseDataSize parseDataSize, C context) {
+        return visitScalarFunction(parseDataSize, context);
     }
 
     default R visitPassword(Password password, C context) {

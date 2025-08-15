@@ -36,14 +36,10 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SlotRef;
@@ -3414,16 +3410,8 @@ public class Env {
         getInternalCatalog().recoverDatabase(dbName, dbId, newDbName);
     }
 
-    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverTable(recoverStmt);
-    }
-
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         getInternalCatalog().recoverTable(dbName, tableName, newTableName, tableId);
-    }
-
-    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverPartition(recoverStmt);
     }
 
     public void recoverPartition(String dbName, String tableName, String partitionName,
@@ -4776,7 +4764,8 @@ public class Env {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Table table = info.getTable();
-            getInternalCatalog().replayCreateTable(info.getDbName(), table);
+            long dbId = info.getDbId();
+            getInternalCatalog().replayCreateTable(info.getDbName(), dbId, table);
             if (table instanceof MTMV) {
                 ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
             }
@@ -4801,14 +4790,6 @@ public class Env {
         DropMTMVInfo dropMTMVInfo = command.getDropMTMVInfo();
         dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false,
                 true, dropMTMVInfo.isIfExists(), true);
-    }
-
-    public void dropTable(DropTableStmt stmt) throws DdlException {
-        if (stmt == null) {
-            throw new DdlException("DropTableStmt is null");
-        }
-        dropTable(stmt.getCatalogName(), stmt.getDbName(), stmt.getTableName(), stmt.isView(),
-                stmt.isMaterializedView(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void dropTable(String catalogName, String dbName, String tableName, boolean isView, boolean isMtmv,
@@ -6849,10 +6830,6 @@ public class Env {
         } finally {
             olapTable.writeUnlock();
         }
-    }
-
-    public void installPlugin(InstallPluginStmt stmt) throws UserException, IOException {
-        pluginMgr.installPlugin(stmt);
     }
 
     public long savePlugins(CountingDataOutputStream dos, long checksum) throws IOException {

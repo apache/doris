@@ -220,7 +220,7 @@ suite("test_json_load", "p0,nonConcurrent") {
     def check_load_result = {checklabel, testTablex ->
         def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 sql "sync"
                 qt_select "select * from ${testTablex} order by id"
@@ -939,6 +939,35 @@ suite("test_json_load", "p0,nonConcurrent") {
         
         sql "sync"
         qt_select30 "select * from ${testTable} order by k1"
+
+    } finally {
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // try to load  `boolean` => `tinyint, int , string, decimal`
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `id` int,
+                `k1` tinyint NULL,
+                `k2` int NULL,
+                `k3` string NULL,
+                `k4` decimal(10,2) NULL
+            )
+            DUPLICATE KEY(`id`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+
+        load_json_data.call("${testTable}", "${testTable}_case31", 'true', '', 'json', '', '',
+                             '', '', '', 'test_read_boolean_to_int.json')
+        
+        sql "sync"
+        qt_select31 "select * from ${testTable} order by id"
 
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${testTable}")

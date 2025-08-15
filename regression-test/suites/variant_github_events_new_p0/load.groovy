@@ -44,14 +44,15 @@ suite("regression_test_variant_github_events_p0", "p0"){
             }
         }
     }
-
+    int max_subcolumns_count = Math.floor(Math.random() * 50) + 1
+    boolean enable_typed_paths_to_sparse = new Random().nextBoolean()
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant,
+            v variant<'payload.pull_request.head.repo.topics' : array<text>, properties("variant_max_subcolumns_count" = "${max_subcolumns_count}", "variant_enable_typed_paths_to_sparse" = "${enable_typed_paths_to_sparse}")>,
             INDEX idx_var(v) USING INVERTED COMMENT ''
         )
         DUPLICATE KEY(`k`)
@@ -137,7 +138,7 @@ suite("regression_test_variant_github_events_p0", "p0"){
             }
         }
     }
-    sql """ALTER TABLE github_events ADD COLUMN v2 variant DEFAULT NULL"""
+    sql """ALTER TABLE github_events ADD COLUMN v2 variant<properties("variant_max_subcolumns_count" = "${max_subcolumns_count}", "variant_enable_typed_paths_to_sparse" = "${enable_typed_paths_to_sparse}")> DEFAULT NULL"""
     for(int t = 0; t <= 10; t += 1){ 
         long k = 9223372036854775107 + t
         sql """INSERT INTO github_events VALUES (${k}, '{"aaaa" : 1234, "bbbb" : "11ssss"}', '{"xxxx" : 1234, "yyyy" : [1.111]}')"""
@@ -150,30 +151,33 @@ suite("regression_test_variant_github_events_p0", "p0"){
     trigger_and_wait_compaction("github_events", "full")
 
     // query and filterd by inverted index
-    profile("test_profile_1") {
-        sql """ set enable_common_expr_pushdown = true; """
-        sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
-        sql """ set enable_pipeline_x_engine = true;"""
-        sql """ set enable_profile = true;"""
-        sql """ set profile_level = 2;"""
-        run {
-            qt_sql_inv """/* test_profile_1 */
-                select count() from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] )
-            """
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            // Use a regular expression to match the numeric value inside parentheses after "RowsInvertedIndexFiltered:"
-            def matcher = (profileString =~ /RowsInvertedIndexFiltered:\s+[^\(]+\((\d+)\)/)
-            def total = 0
-            while (matcher.find()) {
-                total += matcher.group(1).toInteger()
+    if (!enable_typed_paths_to_sparse) {
+        profile("test_profile_1") {
+            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+            sql """ set enable_pipeline_x_engine = true;"""
+            sql """ set enable_profile = true;"""
+            sql """ set profile_level = 2;"""
+            run {
+                qt_sql_inv """/* test_profile_1 */
+                    select count() from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] )
+                """
             }
-            // Assert that the sum of all matched numbers equals 67677
-            assertEquals(67677, total)
-        } 
+
+            check { profileString, exception ->
+                log.info(profileString)
+                // Use a regular expression to match the numeric value inside parentheses after "RowsInvertedIndexFiltered:"
+                def matcher = (profileString =~ /RowsInvertedIndexFiltered:\s+[^\(]+\((\d+)\)/)
+                def total = 0
+                while (matcher.find()) {
+                    total += matcher.group(1).toInteger()
+                }
+                // Assert that the sum of all matched numbers equals 67677
+                assertEquals(67677, total)
+            } 
+        }
     }
+    
     sql """ set enable_common_expr_pushdown = true; """
     sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
     qt_sql_inv """select count() from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] )"""

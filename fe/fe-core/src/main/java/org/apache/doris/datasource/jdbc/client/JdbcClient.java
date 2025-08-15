@@ -416,17 +416,30 @@ public abstract class JdbcClient {
     protected void processTable(String remoteDbName, String remoteTableName, String[] tableTypes,
             Consumer<ResultSet> resultSetConsumer) {
         Connection conn = null;
-        ResultSet rs = null;
+        ResultSet standardRs = null;
+        Statement stmt = null;
+        ResultSet customRs = null;
+
         try {
             conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            rs = databaseMetaData.getTables(catalogName, remoteDbName, remoteTableName, tableTypes);
-            resultSetConsumer.accept(rs);
+
+            // 1. Process standard tables from getTables() method
+            standardRs = databaseMetaData.getTables(catalogName, remoteDbName, remoteTableName, tableTypes);
+            resultSetConsumer.accept(standardRs);
+
+            // 2. Process additional tables from custom SQL query (if any)
+            String additionalQuery = getAdditionalTablesQuery(remoteDbName, remoteTableName, tableTypes);
+            if (additionalQuery != null && !additionalQuery.trim().isEmpty()) {
+                stmt = conn.createStatement();
+                customRs = stmt.executeQuery(additionalQuery);
+                resultSetConsumer.accept(customRs);
+            }
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to process table", e);
         } finally {
-            close(rs, conn);
+            close(customRs, stmt, standardRs, conn);
         }
     }
 
@@ -472,6 +485,23 @@ public abstract class JdbcClient {
     }
 
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);
+
+    /**
+     * Get additional SQL query for tables that cannot be retrieved from standard getTables() method.
+     * For example, Oracle SYNONYM tables need custom SQL query.
+     * <p>
+     * Default implementation returns null, meaning no additional query is needed.
+     * Subclasses can override this method to provide custom SQL queries.
+     *
+     * @param remoteDbName database name
+     * @param remoteTableName table name (can be null for all tables)
+     * @param tableTypes table types array
+     * @return SQL query string, or null if no additional query needed
+     */
+    protected String getAdditionalTablesQuery(String remoteDbName, String remoteTableName, String[] tableTypes) {
+        // Default implementation: most databases don't need additional queries
+        return null;
+    }
 
     protected Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION && precision > 0) {

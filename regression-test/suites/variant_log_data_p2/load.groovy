@@ -15,17 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_logdata", "nonConcurrent,p2"){
-    def set_be_config = { key, value ->
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-    }
+suite("regression_test_variant_logdata", "p2"){
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -70,25 +60,19 @@ suite("regression_test_variant_logdata", "nonConcurrent,p2"){
     // 12. streamload remote file
     def table_name = "logdata"
     create_table.call(table_name, "DUPLICATE", "4")
-    // sql "set enable_two_phase_read_opt = false;"
-    // no sparse columns
     load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
-    qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
+    qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract_string(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
     qt_sql_32_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
     sql "truncate table ${table_name}"
 
-    // 0.95 default ratio    
     load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
-    qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
+    qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract_string(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
     qt_sql_33_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
     sql "truncate table ${table_name}"
 
-    // always sparse column
     load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
-    qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
+    qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract_string(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
     sql "truncate table ${table_name}"
-    qt_sql_35 """select json_extract(v,"\$.json.parseFailed")  from logdata where k = 162 and  json_extract(v,"\$.json.parseFailed") != 'null';"""
+    qt_sql_35 """select json_extract(v,"\$.json.parseFailed")  from logdata where k = 162 and  json_extract_string(v,"\$.json.parseFailed") != 'null';"""
     qt_sql_35_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
-    // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
-    // unique table
 }

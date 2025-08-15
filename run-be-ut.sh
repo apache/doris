@@ -207,10 +207,6 @@ if [[ -z "${USE_LIBCPP}" ]]; then
     fi
 fi
 
-if [[ -z "${USE_DWARF}" ]]; then
-    USE_DWARF='OFF'
-fi
-
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
 fi
@@ -243,7 +239,6 @@ cd "${CMAKE_BUILD_DIR}"
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
-    -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
     -DUSE_JEMALLOC=OFF \
     -DUSE_AVX2="${USE_AVX2}" \

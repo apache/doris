@@ -3514,124 +3514,134 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 3);
+        if (arguments.size() != 3) {
+            return Status::InvalidArgument("Function {} requires 3 arguments, but got {}",
+                                           get_name(), arguments.size());
+        }
         bool col_const[3];
         ColumnPtr argument_columns[3];
         for (int i = 0; i < 3; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        argument_columns[2] = col_const[2] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[2]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[2]).column;
-        default_preprocess_parameter_columns(argument_columns, col_const, {0, 1}, block, arguments);
 
-        auto col_left = assert_cast<const ColumnString*>(argument_columns[0].get());
-        auto col_right = assert_cast<const ColumnString*>(argument_columns[1].get());
-        auto col_pos = assert_cast<const ColumnInt32*>(argument_columns[2].get());
+        const auto* col_left = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* col_right = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const auto* col_pos = assert_cast<const ColumnInt32*>(argument_columns[2].get());
 
         ColumnInt32::MutablePtr col_res = ColumnInt32::create();
         auto& vec_res = col_res->get_data();
         vec_res.resize(block.rows());
 
-        if (col_const[0] && col_const[1]) {
-            scalar_search<true>(col_left->get_data_at(0), col_right, col_pos->get_data(), vec_res);
-        } else if (col_const[0] && !col_const[1]) {
-            scalar_search<false>(col_left->get_data_at(0), col_right, col_pos->get_data(), vec_res);
-        } else if (!col_const[0] && col_const[1]) {
-            vector_search<true>(col_left, col_right, col_pos->get_data(), vec_res);
+        const bool is_ascii = col_left->is_ascii() && col_right->is_ascii();
+
+        if (col_const[0]) {
+            std::visit(
+                    [&](auto is_ascii, auto str_const, auto pos_const) {
+                        scalar_search<is_ascii, str_const, pos_const>(
+                                col_left->get_data_at(0), col_right, col_pos->get_data(), vec_res,
+                                input_rows_count);
+                    },
+                    vectorized::make_bool_variant(is_ascii),
+                    vectorized::make_bool_variant(col_const[1]),
+                    vectorized::make_bool_variant(col_const[2]));
+
         } else {
-            vector_search<false>(col_left, col_right, col_pos->get_data(), vec_res);
+            std::visit(
+                    [&](auto is_ascii, auto str_const, auto pos_const) {
+                        vector_search<is_ascii, str_const, pos_const>(col_left, col_right,
+                                                                      col_pos->get_data(), vec_res,
+                                                                      input_rows_count);
+                    },
+                    vectorized::make_bool_variant(is_ascii),
+                    vectorized::make_bool_variant(col_const[1]),
+                    vectorized::make_bool_variant(col_const[2]));
         }
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 
 private:
-    template <bool Const>
+    template <bool is_ascii, bool str_const, bool pos_const>
     void scalar_search(const StringRef& ldata, const ColumnString* col_right,
-                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res) const {
-        const ColumnString::Chars& rdata = col_right->get_chars();
-        const ColumnString::Offsets& roffsets = col_right->get_offsets();
-
-        auto size = posdata.size();
+                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res,
+                       size_t size) const {
         res.resize(size);
         StringRef substr(ldata.data, ldata.size);
-        std::shared_ptr<StringSearch> search_ptr(new StringSearch(&substr));
+        StringSearch search {&substr};
 
         for (int i = 0; i < size; ++i) {
-            if constexpr (!Const) {
-                const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-                int r_str_size = roffsets[i] - roffsets[i - 1];
-
-                StringRef str(r_raw_str, r_str_size);
-                res[i] = locate_pos(substr, str, search_ptr, posdata[i]);
-            } else {
-                res[i] = locate_pos(substr, col_right->get_data_at(0), search_ptr, posdata[i]);
-            }
+            res[i] = locate_pos<is_ascii>(substr,
+                                          col_right->get_data_at(index_check_const<str_const>(i)),
+                                          search, posdata[index_check_const<pos_const>(i)]);
         }
     }
 
-    template <bool Const>
+    template <bool is_ascii, bool str_const, bool pos_const>
     void vector_search(const ColumnString* col_left, const ColumnString* col_right,
-                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res) const {
-        const ColumnString::Chars& rdata = col_right->get_chars();
-        const ColumnString::Offsets& roffsets = col_right->get_offsets();
-
-        const ColumnString::Chars& ldata = col_left->get_chars();
-        const ColumnString::Offsets& loffsets = col_left->get_offsets();
-
-        auto size = posdata.size();
+                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res,
+                       size_t size) const {
         res.resize(size);
-        std::shared_ptr<StringSearch> search_ptr;
+        StringSearch search;
         for (int i = 0; i < size; ++i) {
-            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            int l_str_size = loffsets[i] - loffsets[i - 1];
-
-            StringRef substr(l_raw_str, l_str_size);
-            if constexpr (!Const) {
-                const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-                int r_str_size = roffsets[i] - roffsets[i - 1];
-
-                StringRef str(r_raw_str, r_str_size);
-                res[i] = locate_pos(substr, str, search_ptr, posdata[i]);
-            } else {
-                res[i] = locate_pos(substr, col_right->get_data_at(0), search_ptr, posdata[i]);
-            }
+            StringRef substr = col_left->get_data_at(i);
+            search.set_pattern(&substr);
+            res[i] = locate_pos<is_ascii>(substr,
+                                          col_right->get_data_at(index_check_const<str_const>(i)),
+                                          search, posdata[index_check_const<pos_const>(i)]);
         }
     }
 
-    int locate_pos(StringRef substr, StringRef str, std::shared_ptr<StringSearch> search_ptr,
-                   int start_pos) const {
-        if (substr.size == 0) {
-            if (start_pos <= 0) {
-                return 0;
-            } else if (start_pos == 1) {
-                return 1;
-            } else if (start_pos > str.size) {
-                return 0;
-            } else {
-                return start_pos;
-            }
+    template <bool is_ascii>
+    int locate_pos(StringRef substr, StringRef str, StringSearch& search, int start_pos) const {
+        if (str.size == 0 && substr.size == 0 && start_pos == 1) {
+            // BEHAVIOR COMPATIBLE WITH MYSQL
+            // locate('','')	locate('','',1)	locate('','',2)
+            // 1	1	0
+            return 1;
         }
-        // Hive returns 0 for *start_pos <= 0,
-        // but throws an exception for *start_pos > str->len.
-        // Since returning 0 seems to be Hive's error condition, return 0.
+        if (is_ascii) {
+            return locate_pos_ascii(substr, str, search, start_pos);
+        } else {
+            return locate_pos_utf8(substr, str, search, start_pos);
+        }
+    }
+
+    int locate_pos_utf8(StringRef substr, StringRef str, StringSearch& search,
+                        int start_pos) const {
         std::vector<size_t> index;
         size_t char_len = simd::VStringFunctions::get_char_len(str.data, str.size, index);
-        if (start_pos <= 0 || start_pos > str.size || start_pos > char_len) {
+        if (start_pos <= 0 || start_pos > char_len) {
             return 0;
         }
-        if (!search_ptr) {
-            search_ptr.reset(new StringSearch(&substr));
+        if (substr.size == 0) {
+            return start_pos;
         }
         // Input start_pos starts from 1.
         StringRef adjusted_str(str.data + index[start_pos - 1], str.size - index[start_pos - 1]);
-        int32_t match_pos = search_ptr->search(&adjusted_str);
+        int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
-            size_t len = std::min(adjusted_str.size, (size_t)match_pos);
-            return start_pos + simd::VStringFunctions::get_char_len(adjusted_str.data, len);
+            return start_pos + simd::VStringFunctions::get_char_len(adjusted_str.data, match_pos);
+        } else {
+            return 0;
+        }
+    }
+
+    int locate_pos_ascii(StringRef substr, StringRef str, StringSearch& search,
+                         int start_pos) const {
+        if (start_pos <= 0 || start_pos > str.size) {
+            return 0;
+        }
+        if (substr.size == 0) {
+            return start_pos;
+        }
+        // Input start_pos starts from 1.
+        StringRef adjusted_str(str.data + start_pos - 1, str.size - start_pos + 1);
+        int32_t match_pos = search.search(&adjusted_str);
+        if (match_pos >= 0) {
+            // Hive returns the position in the original string starting from 1.
+            return start_pos + match_pos;
         } else {
             return 0;
         }
@@ -4647,6 +4657,8 @@ private:
 class FunctionTranslate : public IFunction {
 public:
     static constexpr auto name = "translate";
+    using AsciiMap = std::array<UInt8, 128>;
+    constexpr static UInt8 DELETE_CHAR = 255; // 255 means delete this char
     static FunctionPtr create() { return std::make_shared<FunctionTranslate>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 3; }
@@ -4697,53 +4709,86 @@ private:
     template <bool IsConst>
     static void impl_vectors_ascii(const ColumnString* col_source, const ColumnString* col_from,
                                    const ColumnString* col_to, ColumnString* col_res) {
-        col_res->get_chars().reserve(col_source->get_chars().size());
-        col_res->get_offsets().reserve(col_source->get_offsets().size());
-        std::unordered_map<char, char> translate_map;
+        auto& res_chars = col_res->get_chars();
+        auto& res_offsets = col_res->get_offsets();
+        res_chars.reserve(col_source->get_chars().size());
+        res_offsets.reserve(col_source->get_offsets().size());
+        DCHECK_EQ(col_res->size(), 0);
+        AsciiMap map;
         if (IsConst) {
             const auto& from_str = col_from->get_data_at(0);
             const auto& to_str = col_to->get_data_at(0);
-            translate_map =
-                    build_translate_map_ascii(from_str.to_string_view(), to_str.to_string_view());
+            if (!build_translate_map_ascii(map, from_str, to_str)) {
+                // if the map is not need delete char, we can directly copy the source string,then use map to translate
+                res_offsets.insert(col_source->get_offsets().begin(),
+                                   col_source->get_offsets().end());
+                res_chars.insert(col_source->get_chars().begin(), col_source->get_chars().end());
+                for (int i = 0; i < res_chars.size(); ++i) {
+                    res_chars[i] = map[res_chars[i]]; // translate the chars
+                }
+                return; // no need to translate
+            }
         }
+
+        auto res_size = 0;
+        auto* begin_data = col_res->get_chars().data();
         for (size_t i = 0; i < col_source->size(); ++i) {
             const auto& source_str = col_source->get_data_at(i);
             if (!IsConst) {
                 const auto& from_str = col_from->get_data_at(i);
                 const auto& to_str = col_to->get_data_at(i);
-                translate_map = build_translate_map_ascii(from_str.to_string_view(),
-                                                          to_str.to_string_view());
+                build_translate_map_ascii(map, from_str, to_str);
             }
-            auto translated_str = translate_ascii(source_str.to_string_view(), translate_map);
-            col_res->insert_data(translated_str.data(), translated_str.size());
+            auto* dst_data = begin_data + res_size;
+            res_size += translate_ascii(source_str, map, dst_data);
+
+            res_offsets.push_back(res_size);
         }
+        DCHECK_GE(res_chars.capacity(), res_size);
+        res_chars.resize(res_size);
     }
 
-    static std::unordered_map<char, char> build_translate_map_ascii(
-            const std::string_view& from_str, const std::string_view& to_str) {
-        std::unordered_map<char, char> translate_map;
-        for (size_t i = 0; i < from_str.size(); ++i) {
-            if (translate_map.find(from_str[i]) == translate_map.end()) {
-                translate_map[from_str[i]] = i < to_str.size() ? to_str[i] : 0;
+    // return true if no need delete char
+    bool static build_translate_map_ascii(AsciiMap& map, const StringRef& from_str,
+                                          const StringRef& to_str) {
+        for (size_t i = 0; i < map.size(); ++i) {
+            map[i] = i; // initialize map to identity
+        }
+        std::array<UInt8, 128> set_map {0};
+        const auto min_size = std::min(from_str.size, to_str.size);
+        // all ascii characters are in the range [0, 127]
+        for (size_t i = 0; i < min_size; ++i) {
+            auto from_char = from_str.data[i];
+            auto to_char = to_str.data[i];
+            if (set_map[from_char] == 0) {
+                set_map[from_char] = 1;
+                map[from_char] = to_char;
             }
         }
-        return translate_map;
+
+        bool need_delete_char = false;
+
+        for (size_t i = min_size; i < from_str.size; ++i) {
+            auto from_char = from_str.data[i];
+            if (set_map[from_char] == 0) {
+                set_map[from_char] = 1;
+                map[from_char] = DELETE_CHAR; // delete this char
+                need_delete_char = true;
+            }
+        }
+        return need_delete_char;
     }
 
-    static std::string translate_ascii(const std::string_view& source_str,
-                                       std::unordered_map<char, char>& translate_map) {
-        std::string result;
-        result.reserve(source_str.size());
-        for (auto const& c : source_str) {
-            if (translate_map.find(c) != translate_map.end()) {
-                if (translate_map[c]) {
-                    result.push_back(translate_map[c]);
-                }
-            } else {
-                result.push_back(c);
+    static size_t translate_ascii(const StringRef& source_str, AsciiMap& map, UInt8* dst_data) {
+        auto* begin_data = dst_data;
+        for (size_t i = 0; i < source_str.size; ++i) {
+            auto c = source_str.data[i];
+            if (map[c] == DELETE_CHAR) {
+                continue; // delete this char
             }
+            *dst_data++ = map[c];
         }
-        return result;
+        return dst_data - begin_data;
     }
 
     template <bool IsConst>

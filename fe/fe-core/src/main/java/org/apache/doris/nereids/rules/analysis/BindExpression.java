@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -278,6 +279,11 @@ public class BindExpression implements AnalysisRuleFactory {
                     "the size of nameParts of UnboundSlot in LogicalGenerate must be 2.");
 
             Expression boundGenerator = analyzer.analyze(generate.getGenerators().get(i));
+
+            if (boundGenerator instanceof RewriteWhenAnalyze) {
+                boundGenerator = ((RewriteWhenAnalyze) boundGenerator).rewrite();
+            }
+
             if (!(boundGenerator instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(boundGenerator.toSql() + " is not a TableGeneratingFunction");
             }

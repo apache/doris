@@ -294,7 +294,8 @@ void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::str
 
 static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instance_id,
                              int64_t table_id, int64_t index_id,
-                             const std::vector<std::array<int64_t, 2>>& tablet_idxes) {
+                             const std::vector<std::array<int64_t, 2>>& tablet_idxes,
+                             bool skip_tablet_meta = false) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
 
@@ -309,6 +310,9 @@ static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instanc
         stats.set_cumulative_point(30);
         txn->put(stats_key, stats.SerializeAsString());
 
+        if (skip_tablet_meta) {
+            continue;
+        }
         doris::TabletMetaCloudPB tablet_pb;
         tablet_pb.set_table_id(table_id);
         tablet_pb.set_index_id(index_id);
@@ -1752,6 +1756,10 @@ TEST(MetaServiceTest, PrecommitTxnTest2) {
 
 TEST(MetaServiceTest, CommitTxnTest) {
     auto meta_service = get_meta_service();
+    int64_t table_id = 1234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
     // case: first version of rowset
     {
         int64_t txn_id = -1;
@@ -1776,8 +1784,8 @@ TEST(MetaServiceTest, CommitTxnTest) {
         // mock rowset and tablet
         int64_t tablet_id_base = 1103;
         for (int i = 0; i < 5; ++i) {
-            create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
-            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1849,6 +1857,10 @@ TEST(MetaServiceTest, CommitTxnTest) {
 TEST(MetaServiceTest, CommitTxnExpiredTest) {
     auto meta_service = get_meta_service();
 
+    int64_t table_id = 1234789234;
+    int64_t index_id = 1235;
+    int64_t partition_id = 1236;
+
     // case: first version of rowset
     {
         int64_t txn_id = -1;
@@ -1874,8 +1886,8 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
         // mock rowset and tablet
         int64_t tablet_id_base = 1103;
         for (int i = 0; i < 5; ++i) {
-            create_tablet(meta_service.get(), 1234789234, 1235, 1236, tablet_id_base + i);
-            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
+            auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
             CreateRowsetResponse res;
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -1899,9 +1911,8 @@ TEST(MetaServiceTest, CommitTxnExpiredTest) {
     }
 }
 
-static void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id,
-                                     int64_t index_id, int64_t partition_id, int64_t tablet_id,
-                                     int64_t txn_id) {
+void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                              int64_t partition_id, int64_t tablet_id, int64_t txn_id) {
     create_tablet(meta_service, table_id, index_id, partition_id, tablet_id);
     auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
     CreateRowsetResponse res;
@@ -2050,8 +2061,8 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         ASSERT_EQ(res.versions()[1], 2);
 
         ASSERT_EQ(res.table_ids()[2], t1);
-        ASSERT_EQ(res.partition_ids()[2], t1_p1);
-        ASSERT_EQ(res.versions()[2], 3);
+        ASSERT_EQ(res.partition_ids()[2], t1_p1) << res.ShortDebugString();
+        ASSERT_EQ(res.versions()[2], 3) << res.ShortDebugString();
     }
 
     // doubly commit txn
@@ -4504,8 +4515,8 @@ TEST(MetaServiceTest, DecodeTest) {
     std::cout << "rowset2=" << proto_to_json(rowset2) << std::endl;
 }
 
-static void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
-                             int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res) {
+void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                      int64_t partition_id, int64_t tablet_id, GetTabletStatsResponse& res) {
     brpc::Controller cntl;
     GetTabletStatsRequest req;
     auto idx = req.add_tablet_idx();
@@ -5217,6 +5228,38 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         for (const auto& cumulative_point : res.cumulative_points()) {
             ASSERT_EQ(cumulative_point, 30);
         }
+    }
+
+    for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
+        config::enable_batch_get_mow_tablet_stats_and_meta = val;
+        // 2.5 abnormal path, meeting error when reading tablets' meta
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal5";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+
+        sp->enable_processing();
+
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes {
+                {70001, 12345}, {80001, 3456}, {90001, 6789}};
+
+        add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes, true);
+
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::TABLET_NOT_FOUND);
     }
 }
 
@@ -6993,23 +7036,25 @@ TEST(MetaServiceTest, BatchGetVersion) {
                 insert_rowsets;
     };
 
+    // table ids: 2, 3, 4, 5
+    // partition ids: 6, 7, 8, 9
     std::vector<TestCase> cases = {
             // all version are missing
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {-1, -1, -1, -1}, {}},
-            // update table 1, partition 1
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, -1, -1, -1}, {{1, 1, 1}}},
-            // update table 2, partition 1
-            // update table 3, partition 2
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, -1, 2, 2}, {{2, 1, 3}, {3, 2, 4}}},
-            // update table 1, partition 2 twice
-            {{1, 1, 2, 3}, {1, 2, 1, 2}, {2, 3, 2, 2}, {{1, 2, 2}, {1, 2, 2}}},
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {-1, -1, -1, -1}, {}},
+            // update table 1, partition 6
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, -1, -1, -1}, {{1, 6, 1}}},
+            // update table 2, partition 6
+            // update table 3, partition 7
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, -1, 2, 2}, {{3, 8, 3}, {4, 9, 4}}},
+            // update table 1, partition 7 twice
+            {{1, 2, 3, 4}, {6, 7, 8, 9}, {2, 3, 2, 2}, {{2, 7, 2}, {2, 7, 2}}},
     };
 
     auto service = get_meta_service();
-    create_tablet(service.get(), 1, 1, 1, 1);
-    create_tablet(service.get(), 1, 1, 2, 2);
-    create_tablet(service.get(), 2, 1, 1, 3);
-    create_tablet(service.get(), 3, 1, 2, 4);
+    create_tablet(service.get(), 1, 1, 6, 1);
+    create_tablet(service.get(), 2, 1, 7, 2);
+    create_tablet(service.get(), 3, 1, 8, 3);
+    create_tablet(service.get(), 4, 1, 9, 4);
 
     size_t num_cases = cases.size();
     size_t label_index = 0;
@@ -7017,7 +7062,7 @@ TEST(MetaServiceTest, BatchGetVersion) {
         auto& [table_ids, partition_ids, expected_versions, insert_rowsets] = cases[i];
         for (auto [table_id, partition_id, tablet_id] : insert_rowsets) {
             LOG(INFO) << "insert rowset for table " << table_id << " partition " << partition_id
-                      << " table_id " << tablet_id;
+                      << " tablet_id " << tablet_id;
             insert_rowset(service.get(), 1, std::to_string(++label_index), table_id, partition_id,
                           tablet_id);
         }
@@ -10633,6 +10678,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         auto* rs_meta = tablet_meta->add_rs_metas();
         *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
 
+        // first request
         meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
@@ -10640,9 +10686,22 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
 
+        RestoreJobCloudPB restore_job_pb;
+        ASSERT_TRUE(restore_job_pb.ParseFromString(val));
+        ASSERT_EQ(restore_job_pb.tablet_id(), tablet_id);
+        ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::PREPARED);
+        ASSERT_EQ(restore_job_pb.version(), 0);
+
+        // second request
         meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        ASSERT_TRUE(res.status().msg().find("already exists") != std::string::npos);
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+
+        restore_job_pb.Clear();
+        ASSERT_TRUE(restore_job_pb.ParseFromString(val));
+        ASSERT_EQ(restore_job_pb.tablet_id(), tablet_id);
+        ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::PREPARED);
+        ASSERT_EQ(restore_job_pb.version(), 1);
         req.Clear();
         res.Clear();
     }
@@ -10729,15 +10788,15 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(txn->get(bitmap_key, &val), TxnErrorCode::TXN_OK);
         ASSERT_EQ(val, "test_bitmap");
 
-        // ths restore job key should be removed, restore job rowset key should not be found
-        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        // ths restore job key should not be removed, restore job rowset key should be found
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
         MetaServiceCode code;
         std::string msg;
         scan_restore_job_rowset(txn.get(), instance_id, tablet_id, code, msg,
                                 &restore_job_rs_metas);
         ASSERT_EQ(code, MetaServiceCode::OK) << msg;
-        ASSERT_EQ(restore_job_rs_metas.size(), 0);
+        ASSERT_EQ(restore_job_rs_metas.size(), 1);
         req.Clear();
         res.Clear();
     }
@@ -10798,18 +10857,18 @@ TEST(MetaServiceTest, RestoreJobTest) {
             ASSERT_EQ(saved_rs_meta.end_version(), ver);
         }
 
-        // ths restore job key should be removed, restore job rowset key should not be found
+        // ths restore job key should not be removed, restore job rowset key should be found
         std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
         std::string val;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
         MetaServiceCode code;
         std::string msg;
         scan_restore_job_rowset(txn.get(), instance_id, tablet_id, code, msg,
                                 &restore_job_rs_metas);
         ASSERT_EQ(code, MetaServiceCode::OK) << msg;
-        ASSERT_EQ(restore_job_rs_metas.size(), 0);
+        ASSERT_EQ(restore_job_rs_metas.size(), 10000);
         req.Clear();
         res.Clear();
     }
@@ -10838,7 +10897,73 @@ TEST(MetaServiceTest, RestoreJobTest) {
         req.Clear();
         res.Clear();
     }
-    // normal finish restore job
+    // finish restore job COMMITTED -> COMPLETED
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // prepare restore job
+        RestoreJobRequest make_req;
+        RestoreJobResponse make_res;
+        make_req.set_tablet_id(tablet_id);
+        make_req.set_expiration(time(nullptr) + 3600);
+
+        auto* tablet_meta = make_req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+        auto* rs_meta = tablet_meta->add_rs_metas();
+        *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
+        auto* delete_bitmap = tablet_meta->mutable_delete_bitmap();
+        delete_bitmap->add_rowset_ids(rs_meta->rowset_id_v2());
+        delete_bitmap->add_versions(1);
+        delete_bitmap->add_segment_ids(1);
+        delete_bitmap->add_segment_delete_bitmaps("test_bitmap");
+
+        meta_service->prepare_restore_job(&cntl, &make_req, &make_res, nullptr);
+        ASSERT_EQ(make_res.status().code(), MetaServiceCode::OK);
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        std::string restore_job_rs_key = job_restore_rowset_key({instance_id, tablet_id, version});
+        ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
+
+        req.set_tablet_id(tablet_id);
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
+
+        // finish_restore_job to COMPLETED
+        req.set_tablet_id(tablet_id);
+        req.set_is_completed(true);
+        meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        // this restore job key should be in COMPLETED state
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
+        RestoreJobCloudPB restore_job_pb;
+        ASSERT_TRUE(restore_job_pb.ParseFromString(val));
+        ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::COMPLETED);
+        ASSERT_EQ(restore_job_pb.need_recycle_data(), false);
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
+        MetaServiceCode code;
+        std::string msg;
+        scan_restore_job_rowset(txn.get(), instance_id, tablet_id, code, msg,
+                                &restore_job_rs_metas);
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_EQ(restore_job_rs_metas.size(), 1);
+        req.Clear();
+        res.Clear();
+    }
+    // finish restore job state PREPARED -> DROPPED
     {
         reset_meta_service();
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -10869,17 +10994,19 @@ TEST(MetaServiceTest, RestoreJobTest) {
         std::string restore_job_rs_key = job_restore_rowset_key({instance_id, tablet_id, version});
         ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
 
-        // finish_restore_job
+        // finish_restore_job to DROPPED
         req.set_tablet_id(tablet_id);
+        req.set_is_completed(false);
         meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
-        // ths restore job key should be in dropped state
+        // this restore job key should be in DROPPED state
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
         RestoreJobCloudPB restore_job_pb;
         ASSERT_TRUE(restore_job_pb.ParseFromString(val));
         ASSERT_EQ(restore_job_pb.state(), RestoreJobCloudPB::DROPPED);
+        ASSERT_EQ(restore_job_pb.need_recycle_data(), true);
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> restore_job_rs_metas;
         MetaServiceCode code;
         std::string msg;
@@ -10889,6 +11016,39 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(restore_job_rs_metas.size(), 1);
         req.Clear();
         res.Clear();
+    }
+    // finish restore job invalid state PREPARED -> COMPLETED
+    {
+        reset_meta_service();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // prepare restore job
+        RestoreJobRequest make_req;
+        RestoreJobResponse make_res;
+        make_req.set_tablet_id(tablet_id);
+        make_req.set_expiration(time(nullptr) + 3600);
+
+        // set tablet meta
+        auto* tablet_meta = make_req.mutable_tablet_meta();
+        tablet_meta->set_table_id(table_id);
+        tablet_meta->set_index_id(index_id);
+        tablet_meta->set_partition_id(partition_id);
+        tablet_meta->set_tablet_id(tablet_id);
+        tablet_meta->set_schema_version(1);
+        auto* rs_meta = tablet_meta->add_rs_metas();
+        *rs_meta = create_rowset(txn_id, tablet_id, partition_id, version);
+
+        meta_service->prepare_restore_job(&cntl, &make_req, &make_res, nullptr);
+        ASSERT_EQ(make_res.status().code(), MetaServiceCode::OK);
+
+        // finish_restore_job to COMPLETED
+        req.set_tablet_id(tablet_id);
+        req.set_is_completed(true);
+        meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("invalid state to complete") != std::string::npos);
     }
 }
 

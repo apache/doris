@@ -45,6 +45,7 @@
 #include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -340,6 +341,8 @@ void PInternalService::_exec_plan_fragment_in_pthread(google::protobuf::RpcContr
         st = _exec_plan_fragment_impl(request->request(), version, compact);
     } catch (const Exception& e) {
         st = e.to_status();
+    } catch (const std::exception& e) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
     } catch (...) {
         st = Status::Error(ErrorCode::INTERNAL_ERROR,
                            "_exec_plan_fragment_impl meet unknown error");
@@ -1241,10 +1244,11 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    auto schema = res.value()->merged_tablet_schema();
-                    if (schema != nullptr) {
-                        tablet_schemas.push_back(schema);
-                    }
+                    // TODO(lihangyu): implement this
+                    // auto schema = res.value()->merged_tablet_schema();
+                    // if (schema != nullptr) {
+                    //     tablet_schemas.push_back(schema);
+                    // }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
@@ -2220,6 +2224,8 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                         });
             } catch (const Exception& e) {
                 st = e.to_status();
+            } catch (const std::exception& e) {
+                st = Status::Error(ErrorCode::INTERNAL_ERROR, e.what());
             } catch (...) {
                 st = Status::Error(ErrorCode::INTERNAL_ERROR,
                                    "_exec_plan_fragment_impl meet unknown error");
