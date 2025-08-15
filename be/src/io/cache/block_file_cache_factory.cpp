@@ -163,6 +163,12 @@ std::string FileCacheFactory::clear_file_caches(bool sync) {
     return ss.str();
 }
 
+void FileCacheFactory::dump_all_caches() {
+    for (const auto& cache : _caches) {
+        cache->dump_lru_queues(true);
+    }
+}
+
 std::vector<std::string> FileCacheFactory::get_base_paths() {
     std::vector<std::string> paths;
     for (const auto& pair : _path_to_cache) {

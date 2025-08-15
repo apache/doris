@@ -48,7 +48,7 @@ public:
         _start_time = ss.str();
     };
 
-    void dump_queue(const std::string& queue_name);
+    void dump_queue(const std::string& queue_name, bool force);
     void restore_queue(LRUQueue& queue, const std::string& queue_name,
                        std::lock_guard<std::mutex>& cache_lock);
     void remove_lru_dump_files();
