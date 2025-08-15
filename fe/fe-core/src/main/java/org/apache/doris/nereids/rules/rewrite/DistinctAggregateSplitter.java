@@ -94,9 +94,12 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         // 带group by的场景, group by key ndv低, distinct key ndv高, 则转为multi_distinct
         //      其他情况都拆分
         // 不带group by的场景, distinct key的ndv低,使用multi_distinct, ndv高,使用cte拆分
+
+        // 包含count(distinct a,b) 这种，一定不能使用multi_distinct
         if (AggregateUtils.containsCountDistinctMultiExpr(aggregate)) {
             return false;
         }
+        // 必须要使用multi_distinct的场景
         if (aggregate.mustUseMultiDistinctAgg()) {
             return true;
         }
@@ -122,6 +125,18 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
     }
 
     private Plan rewrite(LogicalAggregate<? extends Plan> aggregate) {
+        if (shouldUseMultiDistinct(aggregate)) {
+            return convertToMultiDistinct(aggregate);
+        } else {
+            return splitDistinctAgg(aggregate);
+        }
+    }
+
+    private Plan convertToMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
+        return MultiDistinctFunctionStrategy.rewrite(aggregate);
+    }
+
+    private Plan splitDistinctAgg(LogicalAggregate<? extends Plan> aggregate) {
         Set<AggregateFunction> aggFuncs = aggregate.getAggregateFunctions();
         // 需要保证1.只有一个count(distinct)函数
         Set<AggregateFunction> distinctAggFuncs = new HashSet<>();
@@ -136,7 +151,6 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         if (distinctAggFuncs.size() != 1) {
             return null;
         }
-
         // 并不是所有的都能拆分, other function里面如果有一些不能拆分的函数,就不拆
         // 这里先实现一下,然后后续再考虑一下什么函数可以拆分.
         for (AggregateFunction aggFunc : otherFunctions) {
@@ -145,19 +159,6 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
             }
         }
 
-        if (shouldUseMultiDistinct(aggregate)) {
-            return convertToMultiDistinct(aggregate);
-        } else {
-            return splitDistinctAgg(aggregate, distinctAggFuncs, otherFunctions);
-        }
-    }
-
-    private Plan convertToMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
-        return MultiDistinctFunctionStrategy.rewrite(aggregate);
-    }
-
-    private Plan splitDistinctAgg(LogicalAggregate<? extends Plan> aggregate, Set<AggregateFunction> distinctAggFuncs,
-            Set<AggregateFunction> otherFunctions) {
         // 先构造下面进行去重的AGG
         // group by key为group by key + distinct key
         Set<Expression> groupByKeys = ImmutableSet.<Expression>builder()
