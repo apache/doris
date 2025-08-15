@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
@@ -189,6 +190,9 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
         RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
         auto column_ptr = input_block.get_by_position(result_column_id)
                                   .column->convert_to_full_column_if_const();
+        if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
+        }
         mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
     }
     DCHECK(mutable_block.rows() == rows);
