@@ -218,6 +218,9 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
     query_context->query_mem_tracker()->consume(1024L * 1024 * 4);
 
+    // adjust memlimit is larger than mem limit
+    query_context->resource_ctx()->memory_context()->set_adjusted_mem_limit(1024L * 1024 * 10);
+
     _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
@@ -239,10 +242,13 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty())
             << "paused queue should be empty, because the query will be resumed";
-    // The query does not have any revoalable tasks, it will be resumed and disable reserve memory logic
-    // to run directly.
-    ASSERT_EQ(query_context->resource_ctx()->task_controller()->is_enable_reserve_memory(), false)
+    // Query's memory usage + reserve size > adjusted memory size it will be resumed
+    // it's memlimit will be set to adjusted size.
+    ASSERT_EQ(query_context->resource_ctx()->task_controller()->is_enable_reserve_memory(), true)
             << "query should disable reserve memory";
+    // adjust memlimit is larger than workload group memlimit, so adjust memlimit is reset to workload group mem limit.
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->adjusted_mem_limit(),
+              wg->memory_limit());
 }
 
 // TWgSlotMemoryPolicy::FIXED
