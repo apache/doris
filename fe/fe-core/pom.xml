@@ -305,10 +305,6 @@ under the License.
             <groupId>javax.validation</groupId>
             <artifactId>validation-api</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.apache.kafka</groupId>
-            <artifactId>kafka-clients</artifactId>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/com.github.oshi/oshi-core -->
         <dependency>
             <groupId>com.github.oshi</groupId>

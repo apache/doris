@@ -302,7 +302,6 @@ under the License.
         <snakeyaml.version>2.0</snakeyaml.version>
         <validation-api.version>2.0.1.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
-        <kafka-clients.version>3.9.1</kafka-clients.version>
         <oshi-core.version>6.4.5</oshi-core.version>
         <xnio-nio.version>3.8.14.Final</xnio-nio.version>
         <javax.annotation-api.version>1.3.2</javax.annotation-api.version>
@@ -1127,13 +1126,6 @@ under the License.
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-1.2-api</artifactId>
                 <version>${log4j-1.2.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.kafka</groupId>
-                <artifactId>kafka-clients</artifactId>
-                <version>${kafka-clients.version}</version>
-                <!--routine load test use kafka-clients-->
-                <scope>test</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.github.oshi/oshi-core -->
             <dependency>
