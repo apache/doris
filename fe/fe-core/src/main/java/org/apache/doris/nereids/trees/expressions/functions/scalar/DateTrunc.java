@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -60,14 +59,14 @@ public class DateTrunc extends ScalarFunction
             throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
         } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
-            if (!LEGAL_TIME_UNIT.contains(((VarcharLiteral) getArgument(0)).getStringValue().toLowerCase())
-                    && !LEGAL_TIME_UNIT.contains(((VarcharLiteral) getArgument(1))
+            if (!LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(0)).getStringValue().toLowerCase())
+                    && !LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(1))
                     .getStringValue().toLowerCase())) {
                 throw new AnalysisException("date_trunc function time unit param only support argument is "
                         + String.join("|", LEGAL_TIME_UNIT));
             }
         } else {
-            final String constParam = ((VarcharLiteral) getArgument(firstArgIsStringLiteral ? 0 : 1))
+            final String constParam = ((StringLikeLiteral) getArgument(firstArgIsStringLiteral ? 0 : 1))
                     .getStringValue().toLowerCase();
             if (!LEGAL_TIME_UNIT.contains(constParam)) {
                 throw new AnalysisException("date_trunc function time unit param only support argument is "
@@ -95,9 +94,9 @@ public class DateTrunc extends ScalarFunction
                     .args(VarcharType.SYSTEM_DEFAULT, getArgument(1).getDataType());
         }
         boolean firstArgIsStringLiteral =
-                getArgument(0).isConstant() && getArgument(0) instanceof VarcharLiteral;
+                getArgument(0).isConstant() && getArgument(0) instanceof StringLikeLiteral;
         boolean secondArgIsStringLiteral =
-                getArgument(1).isConstant() && getArgument(1) instanceof VarcharLiteral;
+                getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
         if (firstArgIsStringLiteral && !secondArgIsStringLiteral) {
             return FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT);
@@ -105,7 +104,7 @@ public class DateTrunc extends ScalarFunction
             return FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT);
         } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
-            boolean timeUnitIsFirst = LEGAL_TIME_UNIT.contains(((VarcharLiteral) getArgument(0))
+            boolean timeUnitIsFirst = LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(0))
                     .getStringValue().toLowerCase());
             return timeUnitIsFirst ? FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT)
