@@ -27,6 +27,10 @@
 #include <immintrin.h>
 #endif
 
+#ifdef __ARM_FEATURE_SVE
+#include <arm_sve.h>
+#endif
+
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
@@ -286,6 +290,19 @@ private:
             _mm256_storeu_si256((__m256i*)dst, _mm256_max_epu8(xa, xb));
             src += 32;
             dst += 32;
+        }
+#elif defined(__ARM_FEATURE_SVE)
+        uint64_t byte_len = svcntb();
+        int loop = HLL_REGISTERS_COUNT / byte_len;
+        uint8_t* dst = _registers;
+        const uint8_t* src = other_registers;
+        svbool_t pg = svptrue_b8();
+        for (int i = 0; i < loop; i++) {
+            svuint8_t xa = svld1(pg, dst);
+            svuint8_t xb = svld1(pg, src);
+            svst1(pg, dst, svmax_u8_x(pg, xa, xb));
+            src += byte_len;
+            dst += byte_len;
         }
 #else
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
