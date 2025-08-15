@@ -41,6 +41,13 @@ suite("test_distinct_agg") {
 
     test {
         sql '''
+            select avg_weighted(distinct k1, k1) from test_distinct_agg_t
+        '''
+        exception "can't support multi distinct"
+    }
+
+    test {
+        sql '''
             select k5, k6, SUM(k3) AS k3 
             from ( 
                 select
