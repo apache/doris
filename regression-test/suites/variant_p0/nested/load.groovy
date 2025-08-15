@@ -26,7 +26,7 @@ suite("variant_nested_type_load", "p0"){
         sql """set describe_extend_variant_column = true"""
 
         // set disable_variant_flatten_nested = true to disable variant flatten nested which is default behavior
-        sql """ set disable_variant_flatten_nested = true """
+        sql """ set enable_variant_flatten_nested = false """
         test {
             sql """
                     CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -42,7 +42,7 @@ suite("variant_nested_type_load", "p0"){
         
 
         // set disable_variant_flatten_nested = false to enable variant flatten nested
-        sql """ set disable_variant_flatten_nested = false """
+        sql """ set enable_variant_flatten_nested = false """
         sql """
                     CREATE TABLE IF NOT EXISTS ${table_name} (
                         k bigint,
