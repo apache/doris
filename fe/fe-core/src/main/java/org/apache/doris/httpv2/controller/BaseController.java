@@ -333,10 +333,10 @@ public class BaseController {
     }
 
     protected String getCurrentFrontendURL() {
-        if (Config.enable_https) {
+        if (Config.enable_tls) {
             // this could be the result of redirection.
             return "https://" + NetUtils
-                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.https_port);
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);
         } else {
             return "http://" + NetUtils
                     .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);

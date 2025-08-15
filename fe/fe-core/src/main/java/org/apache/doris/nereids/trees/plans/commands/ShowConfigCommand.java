@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -45,7 +46,6 @@ import org.json.JSONArray;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -127,8 +127,7 @@ public class ShowConfigCommand extends Command implements NoForward {
             int httpPort = backend.getHttpPort();
             String urlString = String.format("http://%s:%d/api/show_config", host, httpPort);
             try {
-                URL url = new URL(urlString);
-                URLConnection urlConnection = url.openConnection();
+                URLConnection urlConnection = HttpURLUtil.getConnection(urlString);
                 urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
                 InputStream inputStream = urlConnection.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
@@ -137,7 +136,6 @@ public class ShowConfigCommand extends Command implements NoForward {
                     // line's format like [["k1","v1"], ["k2","v2"]]
                     JSONArray outer = new JSONArray(line);
                     for (int i = 0; i < outer.length(); ++i) {
-                        // [key, type, value, isMutable]
                         JSONArray inner = outer.getJSONArray(i);
                         if (matcher == null || matcher.match(inner.getString(0))) {
                             List<String> rows = Lists.newArrayList();

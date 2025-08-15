@@ -21,12 +21,44 @@
 #include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <memory>
 #include <string>
 #include <thread>
 
+#include "common/config.h"
 #include "gutil/strings/substitute.h"
 
 namespace doris {
+
+ThriftClientImpl::ThriftClientImpl(const std::string& ipaddress, int port)
+        : _ipaddress(ipaddress), _port(port) {
+    if (config::enable_tls) {
+        apache::thrift::transport::initializeOpenSSL();
+        auto ssl_factory = std::make_unique<apache::thrift::transport::TSSLSocketFactory>(
+                apache::thrift::transport::SSLProtocol::TLSv1_2);
+        ssl_factory->ciphers("ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
+        ssl_factory->loadCertificate(config::tls_certificate_path.c_str());
+        ssl_factory->loadPrivateKey(config::tls_private_key_path.c_str());
+        ssl_factory->loadTrustedCertificates(config::tls_ca_certificate_path.c_str());
+        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+            ssl_factory->authenticate(true);
+        } else if (config::tls_verify_mode == "verify_peer") {
+            ssl_factory->authenticate(true);
+        } else if (config::tls_verify_mode == "verify_none") {
+            // nothing
+        } else {
+            throw Status::RuntimeError(
+                    "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                    "verify_peer, verify_none",
+                    config::tls_verify_mode);
+        }
+        ssl_factory->authenticate(true);
+        ssl_factory->server(false);
+        _socket = ssl_factory->createSocket(ipaddress, port);
+    } else {
+        _socket = std::make_shared<apache::thrift::transport::TSocket>(ipaddress, port);
+    }
+}
 
 Status ThriftClientImpl::open() {
     try {

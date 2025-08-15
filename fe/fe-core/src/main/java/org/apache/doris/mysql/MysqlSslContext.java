@@ -48,11 +48,11 @@ public class MysqlSslContext {
     private SSLContext sslContext;
     private String protocol;
     private ByteBuffer serverAppData;
-    private static final String keyStoreFile = Config.mysql_ssl_default_server_certificate;
-    private static final String trustStoreFile = Config.mysql_ssl_default_ca_certificate;
-    private static final String caCertificatePassword = Config.mysql_ssl_default_ca_certificate_password;
-    private static final String serverCertificatePassword = Config.mysql_ssl_default_server_certificate_password;
-    private static final String trustStoreType = Config.ssl_trust_store_type;
+    private static final String keyStoreFile = Config.tls_certificate_p12_path;
+    private static final String trustStoreFile = Config.tls_ca_certificate_p12_path;
+    private static final String caCertificatePassword = Config.tls_private_key_password;
+    private static final String serverCertificatePassword = Config.tls_private_key_password;
+    private static final String trustStoreType = "PKCS12";
     private ByteBuffer serverNetData;
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;

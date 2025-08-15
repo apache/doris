@@ -191,7 +191,7 @@ public class RestBaseController extends BaseController {
         String uri = request.getRequestURI();
         String query = request.getQueryString();
         query = query == null ? "" : query;
-        String newUrl = "https://" + NetUtils.getHostPortInAccessibleFormat(serverName, Config.https_port) + uri + "?"
+        String newUrl = "https://" + NetUtils.getHostPortInAccessibleFormat(serverName, Config.http_port) + uri + "?"
                 + query;
         LOG.info("redirect to new url: {}", newUrl);
         RedirectView redirectView = new RedirectView(newUrl);

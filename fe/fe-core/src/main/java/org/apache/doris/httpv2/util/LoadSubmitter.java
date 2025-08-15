@@ -22,6 +22,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.rest.UploadAction;
 import org.apache.doris.system.Backend;
@@ -43,7 +44,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Type;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
@@ -88,8 +88,7 @@ public class LoadSubmitter {
 
             String hostPort = NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort());
             String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, hostPort, loadContext.db, loadContext.tbl);
-            URL loadUrl = new URL(loadUrlStr);
-            HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();
+            HttpURLConnection conn = HttpURLUtil.getConnection(loadUrlStr);
             conn.setRequestMethod("PUT");
             String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user),
                     loadContext.passwd);

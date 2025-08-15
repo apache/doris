@@ -227,11 +227,29 @@ int Network::init() {
 
     // Setup network thread
     // Optional setting
-    // FDBNetworkOption opt;
-    // fdb_network_set_option()
+    // FDB_NET_OPTION_TLS_CERT_BYTES=42, FDB_NET_OPTION_TLS_CERT_PATH=43,
+    // FDB_NET_OPTION_TLS_KEY_BYTES=45, FDB_NET_OPTION_TLS_KEY_PATH=46,
+    // FDB_NET_OPTION_TLS_VERIFY_PEERS=47, Check.Valid=1 Check.Expired=1
+    // FDB_NET_OPTION_TLS_CA_BYTES=52, FDB_NET_OPTION_TLS_CA_PATH=53,
+    // FDB_NET_OPTION_TLS_PASSWORD=54,
+    std::map<FDBNetworkOption, std::string> net_opts {
+            {FDB_NET_OPTION_TLS_CERT_PATH, config::tls_certificate_path},
+            {FDB_NET_OPTION_TLS_KEY_PATH, config::tls_private_key_path},
+            {FDB_NET_OPTION_TLS_CA_PATH, config::tls_ca_certificate_path},
+            {FDB_NET_OPTION_TLS_VERIFY_PEERS, config::tls_fdb_verify_peers},
+    };
+    for (auto& [o, v] : net_opts) {
+        err = fdb_network_set_option(o, (uint8_t*)v.data(), v.size());
+        if (!err) continue;
+        std::cout << "fdb_network_set_option error: " << fdb_get_error(err) << std::endl;
+        std::exit(-1);
+    }
+
     (void)opt_;
     // ATTN: Network can be configured only once,
     //       even if fdb_stop_network() is called successfully
+    //       this function returns OK even if there are wrong options passed in
+    //       e.g. wrong cert path
     err = fdb_setup_network(); // Must be called only once before any
                                // other functions of C-API
     if (err) {

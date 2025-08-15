@@ -595,6 +595,17 @@ DECLARE_mInt32(migration_task_timeout_secs);
 // timeout for try_lock migration lock
 DECLARE_Int64(migration_lock_timeout_ms);
 
+// tls enable flag
+DECLARE_mBool(enable_tls);
+// Path of certificate
+DECLARE_mString(tls_certificate_path);
+// Path of private key
+DECLARE_mString(tls_private_key_path);
+// Tls verify mode
+DECLARE_mString(tls_verify_mode);
+// Path of ca certificate
+DECLARE_mString(tls_ca_certificate_path);
+
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
 // Https enable flag

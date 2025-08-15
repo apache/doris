@@ -363,6 +363,30 @@ public class Config extends ConfigBase {
                     + "The connection is abandoned if the clock skew is larger than this value."})
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
+    @ConfField(mutable = false, description = {"是否开启TLS", "Enabled TLS"})
+    public static boolean enable_tls = false;
+
+    @ConfField(mutable = false, description = {"开启TLS时认证的粒度", "Authentication granularity when enabling TLS"})
+    public static String tls_verify_mode = "verify_peer";
+
+    @ConfField(mutable = false, description = {"证书路径, server以及client角色都会使用这个证书", ""})
+    public static String tls_certificate_path = "";
+
+    @ConfField(mutable = false, description = {"私钥路径", ""})
+    public static String tls_private_key_path = "";
+
+    @ConfField(mutable = false, description = {"私钥文件的密码", ""})
+    public static String tls_private_key_password = "";
+
+    @ConfField(mutable = false, description = {"CA 证书路径", ""})
+    public static String tls_ca_certificate_path = "";
+
+    @ConfField(mutable = false, description = {"p12证书路径, server以及client角色都会使用这个证书", ""})
+    public static String tls_certificate_p12_path = "";
+
+    @ConfField(mutable = false, description = {"p12 CA 证书路径", ""})
+    public static String tls_ca_certificate_p12_path = "";
+
     @ConfField(mutable = true, description = {"是否启用所有 http 接口的认证",
             "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;

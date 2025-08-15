@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "arrow/flight/sql/server.h"
+#include "common/config.h"
 #include "gutil/strings/split.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
 #include "service/arrow_flight/flight_sql_info.h"
@@ -116,9 +117,15 @@ Status FlightSqlServer::init(int port) {
     }
     _inited = true;
     arrow::flight::Location bind_location;
-    RETURN_DORIS_STATUS_IF_ERROR(
-            arrow::flight::Location::ForGrpcTcp(BackendOptions::get_service_bind_address(), port)
-                    .Value(&bind_location));
+    if (config::enable_tls) {
+        RETURN_DORIS_STATUS_IF_ERROR(arrow::flight::Location::ForGrpcTls(
+                                             BackendOptions::get_service_bind_address(), port)
+                                             .Value(&bind_location));
+    } else {
+        RETURN_DORIS_STATUS_IF_ERROR(arrow::flight::Location::ForGrpcTcp(
+                                             BackendOptions::get_service_bind_address(), port)
+                                             .Value(&bind_location));
+    }
     arrow::flight::FlightServerOptions flight_options(bind_location);
 
     // Not authenticated in BE flight server.
@@ -131,6 +138,32 @@ Status FlightSqlServer::init(int port) {
     flight_options.auth_handler = std::make_unique<arrow::flight::NoOpAuthHandler>();
     flight_options.middleware.push_back({"header-auth-server", _header_middleware});
     flight_options.middleware.push_back({"bearer-auth-server", _bearer_middleware});
+    if (config::enable_tls) {
+        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+            flight_options.verify_client = true;
+        } else if (config::tls_verify_mode == "verify_none" ||
+                   config::tls_verify_mode == "verify_peer") {
+            flight_options.verify_client = false;
+        } else {
+            return Status::RuntimeError(
+                    "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                    "verify_peer, verify_none",
+                    config::tls_verify_mode);
+        }
+        auto read_file = [](const std::string& path) {
+            std::ifstream file(path);
+            std::stringstream ss;
+            ss << file.rdbuf();
+            return ss.str();
+        };
+
+        arrow::flight::CertKeyPair cert_pair;
+        cert_pair.pem_cert = read_file(config::tls_certificate_path);
+        cert_pair.pem_key = read_file(config::tls_private_key_path);
+
+        flight_options.tls_certificates.push_back(cert_pair);
+        flight_options.root_certificates = read_file(config::tls_ca_certificate_path);
+    }
 
     RETURN_DORIS_STATUS_IF_ERROR(Init(flight_options));
     LOG(INFO) << "Arrow Flight Service bind to host: " << BackendOptions::get_service_bind_address()

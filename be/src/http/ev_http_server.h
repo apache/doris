@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <openssl/ssl.h>
+
 #include <memory>
 #include <mutex>
 #include <string>
@@ -65,6 +67,7 @@ private:
     HttpHandler* _find_handler(HttpRequest* req);
 
 private:
+    SSL_CTX* ssl_ctx;
     // input param
     std::string _host;
     int _port;

@@ -41,7 +41,7 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
             factory.addServerCustomizers(
                     server -> {
                         HttpConfiguration httpConfiguration = new HttpConfiguration();
-                        httpConfiguration.setSecurePort(Config.https_port);
+                        httpConfiguration.setSecurePort(Config.http_port);
                         httpConfiguration.setSecureScheme("https");
 
                         ServerConnector connector = new ServerConnector(server);

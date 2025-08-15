@@ -32,6 +32,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.IOException;
 
 /**
@@ -55,8 +56,27 @@ public class DorisFlightSqlService {
 
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
                 Location.forGrpcInsecure(FrontendOptions.getLocalHostAddress(), port), flightSessionsManager);
-        flightServer = FlightServer.builder(allocator, Location.forGrpcInsecure("0.0.0.0", port), producer)
-                .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager)).build();
+        try {
+            FlightServer.Builder builder =
+                    FlightServer.builder(allocator, Location.forGrpcInsecure("0.0.0.0", port), producer)
+                    .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager));
+            if (Config.enable_tls) {
+                builder.useTls(new File(Config.tls_certificate_path), new File(Config.tls_private_key_path));
+                if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
+                    builder.useMTlsClientVerification(new File(Config.tls_ca_certificate_path));
+                } else if (Config.tls_verify_mode.equals("verify_peer")) {
+                    // nothing
+                } else if (Config.tls_verify_mode.equals("verify_none")) {
+                    // nothing
+                } else {
+                    throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
+                            + ", verify_fail_if_no_peer_cert)");
+                }
+            }
+            flightServer = builder.build();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
         LOG.info("Arrow Flight SQL service is created, port: {}, arrow_flight_max_connections: {}，"
                         + "arrow_flight_token_alive_time_second: {}", port, Config.arrow_flight_max_connections,
                 Config.arrow_flight_token_alive_time_second);

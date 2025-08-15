@@ -134,18 +134,30 @@ public class HttpServer extends SpringBootServletInitializer {
     public void start() {
         Map<String, Object> properties = new HashMap<>();
         if (enableHttps) {
-            properties.put("server.http.port", port);
-            properties.put("server.port", httpsPort);
             // ssl config
             properties.put("server.ssl.key-store", keyStorePath);
             properties.put("server.ssl.key-store-password", keyStorePassword);
             properties.put("server.ssl.key-store-type", keyStoreType);
-            properties.put("server.ssl.keyalias", keyStoreAlias);
-            properties.put("server.ssl.enabled", enableHttps);
-        } else {
-            properties.put("server.port", port);
-            properties.put("server.ssl.enabled", enableHttps);
+            // properties.put("server.ssl.certificate", Config.tls_certificate_path);
+            // properties.put("server.ssl.certificate-private-key", Config.tls_private_key_path);
+            // properties.put("server.ssl.keyalias", keyStoreAlias);
+            if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
+                properties.put("server.ssl.client-auth", "NEED");
+            } else if (Config.tls_verify_mode.equals("verify_peer")) {
+                properties.put("server.ssl.client-auth", "WANT");
+            } else if (Config.tls_verify_mode.equals("verify_none")) {
+                properties.put("server.ssl.client-auth", "NONE");
+            } else {
+                throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
+                        + ", verify_fail_if_no_peer_cert)");
+            }
+            // properties.put("server.ssl.trust-certificate", Config.tls_ca_certificate_path);
+            properties.put("server.ssl.trust-store", Config.tls_ca_certificate_p12_path);
+            properties.put("server.ssl.trust-store-password", Config.tls_private_key_password);
+            properties.put("server.ssl.trust-store-type", "PKCS12");
         }
+        properties.put("server.port", port);
+        properties.put("server.ssl.enabled", enableHttps);
         if (FrontendOptions.isBindIPV6()) {
             properties.put("server.address", "::0");
         } else {

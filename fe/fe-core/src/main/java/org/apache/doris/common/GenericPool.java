@@ -28,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.TSSLTransportFactory;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
@@ -137,10 +138,31 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
                 LOG.debug("before create socket hostname={} key.port={} timeoutMs={}",
                         key.hostname, key.port, timeoutMs);
             }
+
+            TSocket clientSocket;
+            if (Config.enable_tls) { // new ImprovedTServerSocket(socketTransportArgs)
+                TSSLTransportFactory.TSSLTransportParameters sslParam =
+                        new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, false);
+                sslParam.setKeyStore(Config.tls_certificate_p12_path,
+                        Config.tls_private_key_password, "SunX509", "PKCS12");
+                sslParam.setTrustStore(Config.tls_ca_certificate_p12_path,
+                        Config.tls_private_key_password, "SunX509", "PKCS12");
+                try {
+                    LOG.info("Create Client Socket" + key.hostname + ":" + key.port);
+                    clientSocket = TSSLTransportFactory.getClientSocket(key.hostname, key.port, timeoutMs, sslParam);
+                } catch (TTransportException e) {
+                    throw new RuntimeException(e);
+                }
+            } else {
+                clientSocket = new TSocket(key.hostname, key.port, timeoutMs);
+            }
+
             TTransport transport = isNonBlockingIO
                     ? new TFramedTransport(new TSocket(key.hostname, key.port, timeoutMs))
-                    : new TSocket(key.hostname, key.port, timeoutMs);
-            transport.open();
+                    : clientSocket;
+            if (!Config.enable_tls) {
+                transport.open();
+            }
             TProtocol protocol = new TBinaryProtocol(transport);
             VALUE client = (VALUE) newInstance(className, protocol);
             return client;

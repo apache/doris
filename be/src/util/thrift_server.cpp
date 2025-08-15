@@ -28,9 +28,12 @@
 #include <thrift/server/TThreadedServer.h>
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TNonblockingServerSocket.h>
+#include <thrift/transport/TSSLServerSocket.h>
+#include <thrift/transport/TSSLSocket.h>
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransport.h>
+
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <condition_variable>
@@ -368,8 +371,31 @@ Status ThriftServer::start() {
     // logic in createContext is still accurate.
     apache::thrift::transport::TServerSocket* server_socket = nullptr;
 
+    if (config::enable_tls) {
+        auto ssl_factory = std::make_shared<apache::thrift::transport::TSSLSocketFactory>(
+                apache::thrift::transport::SSLProtocol::TLSv1_2);
+        ssl_factory->loadCertificate(config::tls_certificate_path.c_str());
+        ssl_factory->loadPrivateKey(config::tls_private_key_path.c_str());
+        ssl_factory->loadTrustedCertificates(config::tls_ca_certificate_path.c_str());
+        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+            ssl_factory->authenticate(true);
+        } else if (config::tls_verify_mode == "verify_peer") {
+            // nothing
+        } else if (config::tls_verify_mode == "verify_none") {
+            // nothing
+        } else {
+            throw Status::RuntimeError(
+                    "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                    "verify_peer, verify_none",
+                    config::tls_verify_mode);
+        }
+        ssl_factory->server(true);
+        server_socket = new apache::thrift::transport::TSSLServerSocket(
+                BackendOptions::get_service_bind_address_without_bracket(), _port, ssl_factory);
+    }
+
     switch (_server_type) {
-    case NON_BLOCKING:
+    case NON_BLOCKING: // SSL not supported
         socket = std::make_shared<ImprovedNonblockingServerSocket>(_port);
         if (transport_factory == nullptr) {
             transport_factory.reset(new apache::thrift::transport::TTransportFactory());
@@ -381,8 +407,11 @@ Status ThriftServer::start() {
         break;
 
     case THREAD_POOL:
-        fe_server_transport.reset(new apache::thrift::transport::TServerSocket(
-                BackendOptions::get_service_bind_address_without_bracket(), _port));
+        if (!server_socket) {
+            server_socket = new apache::thrift::transport::TServerSocket(
+                    BackendOptions::get_service_bind_address_without_bracket(), _port);
+        }
+        fe_server_transport.reset(server_socket);
 
         if (transport_factory == nullptr) {
             transport_factory = std::make_shared<ImprovedBufferedTransportFactory>();
@@ -393,8 +422,10 @@ Status ThriftServer::start() {
         break;
 
     case THREADED:
-        server_socket = new apache::thrift::transport::TServerSocket(
-                BackendOptions::get_service_bind_address_without_bracket(), _port);
+        if (!server_socket) {
+            server_socket = new apache::thrift::transport::TServerSocket(
+                    BackendOptions::get_service_bind_address_without_bracket(), _port);
+        }
         fe_server_transport.reset(server_socket);
         server_socket->setKeepAlive(true);
 

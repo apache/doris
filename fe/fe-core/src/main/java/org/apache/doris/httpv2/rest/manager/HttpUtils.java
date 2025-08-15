@@ -35,14 +35,25 @@ import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.ssl.SSLContexts;
 import org.apache.http.util.EntityUtils;
 
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyManagementException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.UnrecoverableKeyException;
+import java.security.cert.CertificateException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLContext;
+import javax.servlet.http.HttpServletRequest;
 
 /*
  * used to forward http requests from manager to be.
@@ -58,7 +69,7 @@ public class HttpUtils {
     }
 
     static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
-        StringBuilder url = new StringBuilder("http://")
+        StringBuilder url = new StringBuilder(Config.enable_tls ? "https://" : "http://")
                 .append(ipPort.first).append(":").append(ipPort.second).append(path);
         boolean isFirst = true;
         for (Map.Entry<String, String> entry : arguments.entrySet()) {
@@ -76,6 +87,9 @@ public class HttpUtils {
     }
 
     public static String doGet(String url, Map<String, String> headers, int timeoutMs) throws IOException {
+        if (Config.enable_tls && url.startsWith("http://")) {
+            url = "https://" + url.substring(7);
+        }
         HttpGet httpGet = new HttpGet(url);
         setRequestConfig(httpGet, headers, timeoutMs);
         return executeRequest(httpGet);
@@ -86,6 +100,9 @@ public class HttpUtils {
     }
 
     static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+        if (Config.enable_tls && url.startsWith("http://")) {
+            url = "https://" + url.substring(7);
+        }
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
             String jsonString = GsonUtils.GSON.toJson(body);
@@ -113,7 +130,35 @@ public class HttpUtils {
     }
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        CloseableHttpClient client = HttpClientBuilder.create().build();
+        SSLContext sslContext = null;
+        if (Config.enable_tls) {
+            KeyStore keyStore;
+            KeyStore trustStore;
+            try {
+                keyStore = KeyStore.getInstance("PKCS12");
+                trustStore = KeyStore.getInstance("PKCS12");
+                InputStream keyInput = new FileInputStream(Config.tls_certificate_p12_path);
+                keyStore.load(keyInput, Config.tls_private_key_password.toCharArray());
+                InputStream trustInput = new FileInputStream(Config.tls_ca_certificate_p12_path);
+                trustStore.load(trustInput, Config.tls_private_key_password.toCharArray());
+            } catch (KeyStoreException | CertificateException | NoSuchAlgorithmException e) {
+                throw new RuntimeException(e);
+            }
+
+            try {
+                sslContext = SSLContexts.custom().setProtocol("TLSv1.2").setKeyStoreType("PKCS12")
+                        .loadKeyMaterial(keyStore, Config.tls_private_key_password.toCharArray())
+                        .loadTrustMaterial(trustStore, null) // CA certificate
+                        .build();
+            } catch (NoSuchAlgorithmException | UnrecoverableKeyException | KeyStoreException
+                     | KeyManagementException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        CloseableHttpClient client = HttpClientBuilder.create()
+                .setSSLContext(sslContext)
+                .build();
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
     }
 

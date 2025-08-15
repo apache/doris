@@ -34,6 +34,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -43,7 +44,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
-import java.net.URL;
 import java.util.Map;
 import java.util.UUID;
 
@@ -134,8 +134,7 @@ public class CreateStageStmt extends DdlStmt implements NotFallbackInParser {
         try {
             String urlStr = "http://" + endpoint;
             // TODO: Server-Side Request Forgery Check is still need?
-            URL url = new URL(urlStr);
-            connection = (HttpURLConnection) url.openConnection();
+            connection = HttpURLUtil.getConnection(urlStr);
             connection.setConnectTimeout(10000);
             connection.connect();
         } catch (SocketTimeoutException e) {

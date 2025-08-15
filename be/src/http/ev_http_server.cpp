@@ -22,6 +22,8 @@
 #include <butil/fd_utility.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
+#include <event2/bufferevent.h>
+#include <event2/bufferevent_ssl.h>
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
@@ -35,6 +37,7 @@
 #include <memory>
 #include <sstream>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
@@ -43,6 +46,12 @@
 #include "http/http_status.h"
 #include "service/backend_options.h"
 #include "util/threadpool.h"
+// #include <event2/bufferevent_ssl.h>
+#include <event2/listener.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
+#include <iostream>
 
 struct event_base;
 struct evhttp;
@@ -81,6 +90,28 @@ static int on_connection(struct evhttp_request* req, void* param) {
     return 0;
 }
 
+static void init_ssl_library() {
+    signal(SIGPIPE, SIG_IGN);
+
+    SSL_library_init();
+    SSL_load_error_strings();
+    OpenSSL_add_all_algorithms();
+}
+
+/**
+ * This callback is responsible for creating a new SSL connection
+ * and wrapping it in an OpenSSL bufferevent.  This is the way
+ * we implement an https server instead of a plain old http server.
+ */
+static struct bufferevent* bevcb(struct event_base* base, void* arg) {
+    struct bufferevent* r;
+    auto* ctx = (SSL_CTX*)arg;
+
+    r = bufferevent_openssl_socket_new(base, -1, SSL_new(ctx), BUFFEREVENT_SSL_ACCEPTING,
+                                       BEV_OPT_CLOSE_ON_FREE);
+    return r;
+}
+
 EvHttpServer::EvHttpServer(int port, int num_workers)
         : _port(port), _num_workers(num_workers), _real_port(0) {
     _host = BackendOptions::get_service_bind_address();
@@ -108,6 +139,12 @@ EvHttpServer::~EvHttpServer() {
     }
 }
 
+#define CHECK_OPENSSL_ERR(cond, msg)                                                            \
+    if (!(cond)) {                                                                              \
+        LOG(ERROR) << (msg) << ": " << ERR_error_string(ERR_get_error(), nullptr) << std::endl; \
+        exit(1);                                                                                \
+    }
+
 void EvHttpServer::start() {
     _started = true;
     // bind to
@@ -117,6 +154,40 @@ void EvHttpServer::start() {
                               .set_min_threads(_num_workers)
                               .set_max_threads(_num_workers)
                               .build(&_workers));
+    if (config::enable_tls) {
+        init_ssl_library();
+
+        ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+        CHECK_OPENSSL_ERR(ssl_ctx, "SSL_CTX_new failed");
+        // only allowed TLSv1.2, v1.3
+        SSL_CTX_set_options(ssl_ctx, SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE |
+                                             SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
+
+        CHECK_OPENSSL_ERR(
+                SSL_CTX_use_certificate_file(ssl_ctx, config::tls_certificate_path.c_str(),
+                                             SSL_FILETYPE_PEM) == 1,
+                "Load server cert failed");
+        CHECK_OPENSSL_ERR(SSL_CTX_use_PrivateKey_file(ssl_ctx, config::tls_private_key_path.c_str(),
+                                                      SSL_FILETYPE_PEM) == 1,
+                          "Load server key failed");
+        CHECK_OPENSSL_ERR(SSL_CTX_check_private_key(ssl_ctx) == 1, "Check server key failed");
+
+        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+        } else if (config::tls_verify_mode == "verify_peer") {
+            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, nullptr);
+        } else if (config::tls_verify_mode == "verify_none") {
+            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
+        } else {
+            throw Status::RuntimeError(
+                    "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                    "verify_peer, verify_none",
+                    config::tls_verify_mode);
+        }
+
+        SSL_CTX_load_verify_locations(ssl_ctx, config::tls_ca_certificate_path.c_str(),
+                                      nullptr); // load CA certificate
+    }
     for (int i = 0; i < _num_workers; ++i) {
         auto status = _workers->submit_func([this, i]() {
             std::shared_ptr<event_base> base;
@@ -132,6 +203,8 @@ void EvHttpServer::start() {
 
             auto res = evhttp_accept_socket(http.get(), _server_fd);
             CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
+
+            if (config::enable_tls) evhttp_set_bevcb(http.get(), bevcb, ssl_ctx);
 
             evhttp_set_newreqcb(http.get(), on_connection, this);
             evhttp_set_gencb(http.get(), on_request, this);
@@ -152,6 +225,7 @@ void EvHttpServer::stop() {
     _workers->shutdown();
     _event_bases.clear();
     close(_server_fd);
+    if (config::enable_tls) SSL_CTX_free(ssl_ctx);
     _started = false;
 }
 

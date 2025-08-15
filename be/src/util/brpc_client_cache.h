@@ -188,8 +188,7 @@ public:
         // new one stub and insert into map
         auto stub = get_new_client_no_cache(host_port);
         if (stub != nullptr) {
-            _stub_map.try_emplace_l(
-                    host_port, [&stub](const auto& v) { stub = v.second; }, stub);
+            _stub_map.try_emplace_l(host_port, [&stub](const auto& v) { stub = v.second; }, stub);
         }
         return stub;
     }
@@ -212,6 +211,23 @@ public:
                                                const std::string& connection_type = "",
                                                const std::string& connection_group = "") {
         brpc::ChannelOptions options;
+        if (config::enable_tls) {
+            options.mutable_ssl_options()->client_cert.certificate = config::tls_certificate_path;
+            options.mutable_ssl_options()->client_cert.private_key = config::tls_private_key_path;
+            if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+                options.mutable_ssl_options()->verify.verify_depth = 2;
+            } else if (config::tls_verify_mode == "verify_peer") {
+                // nothing
+            } else if (config::tls_verify_mode == "verify_none") {
+                // nothing
+            } else {
+                throw Status::RuntimeError(
+                        "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                        "verify_peer, verify_none",
+                        config::tls_verify_mode);
+            }
+            options.mutable_ssl_options()->verify.ca_file_path = config::tls_ca_certificate_path;
+        }
         if (protocol != "") {
             options.protocol = protocol;
         } else if (_protocol != "") {

@@ -25,13 +25,18 @@ import org.apache.doris.thrift.TNetworkAddress;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
-import io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLException;
 
 public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
@@ -45,12 +50,43 @@ public class BackendServiceClient {
 
     public BackendServiceClient(TNetworkAddress address, Executor executor) {
         this.address = address;
-        channel = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
+
+        NettyChannelBuilder builder = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
                 .executor(executor).keepAliveTime(Config.grpc_keep_alive_second, TimeUnit.SECONDS)
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .keepAliveWithoutCalls(true)
-                .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
-                .usePlaintext().build();
+                .maxInboundMessageSize(Config.grpc_max_message_size_bytes).enableRetry()
+                .maxRetryAttempts(MAX_RETRY_NUM);
+        if (Config.enable_tls) {
+            File caFile = new File(Config.tls_ca_certificate_path);
+            File clientCertFile = new File(Config.tls_certificate_path);
+            File clientKeyFile = new File(Config.tls_private_key_path);
+            SslContext sslContext;
+
+            try {
+                SslContextBuilder sslBuilder = io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts.forClient()
+                        .trustManager(caFile)
+                        .keyManager(clientCertFile, clientKeyFile);
+                if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
+                    sslBuilder.clientAuth(ClientAuth.REQUIRE);
+                } else if (Config.tls_verify_mode.equals("verify_peer")) {
+                    sslBuilder.clientAuth(ClientAuth.OPTIONAL);
+                } else if (Config.tls_verify_mode.equals("verify_none")) {
+                    sslBuilder.clientAuth(ClientAuth.NONE);
+                } else {
+                    throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
+                            + ", verify_fail_if_no_peer_cert)");
+                }
+                sslContext = sslBuilder.build();
+            } catch (SSLException e) {
+                throw new RuntimeException(e);
+            }
+            builder.sslContext(sslContext);
+        } else {
+            builder.usePlaintext();
+        }
+
+        channel = builder.build();
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
         // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException

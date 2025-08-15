@@ -254,6 +254,20 @@ CONF_mBool(enable_tablet_job_check, "true");
 // If no IP match this rule, a random IP is used (usually it is the IP binded to hostname).
 CONF_String(priority_networks, "");
 
+// TLS options
+// tls enable flag
+CONF_Bool(enable_tls, "false");
+// Path of certificate
+CONF_String(tls_certificate_path, "");
+// Path of private key
+CONF_String(tls_private_key_path, "");
+// Tls verify mode
+CONF_String(tls_verify_mode, "verify_peer");
+// Path of ca certificate
+CONF_String(tls_ca_certificate_path, "");
+// one of: Check.Valid=1 Check.Valid=0 Check.Expired=1 Check.Expired=0
+CONF_String(tls_fdb_verify_peers, "Check.Valid=1");
+
 CONF_Bool(enable_cluster_name_check, "false");
 
 // http scheme in S3Client to use. E.g. http or https

@@ -81,10 +81,23 @@ Status BRpcService::start(int port, int num_threads) {
     }
     options.idle_timeout_sec = config::brpc_idle_timeout_sec;
 
-    if (config::enable_https) {
-        auto sslOptions = options.mutable_ssl_options();
-        sslOptions->default_cert.certificate = config::ssl_certificate_path;
-        sslOptions->default_cert.private_key = config::ssl_private_key_path;
+    if (config::enable_tls) {
+        options.mutable_ssl_options()->default_cert.certificate = config::tls_certificate_path;
+        options.mutable_ssl_options()->default_cert.private_key = config::tls_private_key_path;
+        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+            options.mutable_ssl_options()->verify.verify_depth = 2;
+        } else if (config::tls_verify_mode == "verify_peer") {
+            // nothing
+        } else if (config::tls_verify_mode == "verify_none") {
+            // nothing
+        } else {
+            return Status::RuntimeError(
+                    "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                    "verify_peer, verify_none",
+                    config::tls_verify_mode);
+        }
+        options.mutable_ssl_options()->verify.ca_file_path = config::tls_ca_certificate_path;
+        options.mutable_ssl_options()->alpns = "h2";
     }
 
     options.has_builtin_services = config::enable_brpc_builtin_services;

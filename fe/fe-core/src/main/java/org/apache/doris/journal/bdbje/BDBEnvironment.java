@@ -43,6 +43,7 @@ import com.sleepycat.je.rep.NodeType;
 import com.sleepycat.je.rep.RepInternal;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.ReplicationConfig;
+import com.sleepycat.je.rep.ReplicationSSLConfig;
 import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.StateChangeListener;
 import com.sleepycat.je.rep.util.DbResetRepGroup;
@@ -110,6 +111,22 @@ public class BDBEnvironment {
 
         // set replication config
         replicationConfig = new ReplicationConfig();
+
+        if (Config.enable_tls) {
+            ReplicationSSLConfig sslConfig = new ReplicationSSLConfig();
+            sslConfig.setSSLKeyStore(Config.tls_certificate_p12_path);
+            sslConfig.setSSLKeyStorePassword(Config.tls_private_key_password);
+            sslConfig.setSSLKeyStoreType("PKCS12");
+            sslConfig.setSSLTrustStore(Config.tls_ca_certificate_p12_path);
+            sslConfig.setSSLCipherSuites("TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384");
+            sslConfig.setSSLProtocols("TLSv1.2,TLSv1.3");
+            sslConfig.setSSLTrustStoreType("PKCS12");
+            sslConfig.setSSLTrustStorePassword(Config.tls_private_key_password);
+            sslConfig.setSSLAuthenticator("mirror");
+            sslConfig.setSSLHostVerifier("mirror");
+            replicationConfig.setRepNetConfig(sslConfig);
+        }
+
         replicationConfig.setNodeName(selfNodeName);
         replicationConfig.setNodeHostPort(selfNodeHostPort);
         replicationConfig.setHelperHosts(helperHostPort);
@@ -231,7 +248,7 @@ public class BDBEnvironment {
             LOG.info("addresses is empty");
             return null;
         }
-        return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses);
+        return new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, addresses, replicationConfig.getRepNetConfig());
     }
 
     // Return a handle to the epochDB

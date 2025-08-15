@@ -353,6 +353,52 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
         return Status::InternalError("fail to set CURLOPT_URL");
     }
+    if (config::enable_tls) {
+        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert" ||
+            config::tls_verify_mode == "verify_peer") {
+            code = curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 1L);
+            if (code != CURLE_OK) {
+                LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYPEER, msg=" << _to_errmsg(code);
+                return Status::InternalError("fail to set CURLOPT_CAINFO");
+            }
+            code = curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 1L);
+            if (code != CURLE_OK) {
+                LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYHOST, msg=" << _to_errmsg(code);
+                return Status::InternalError("fail to set CURLOPT_CAINFO");
+            }
+        } else if (config::tls_verify_mode == "verify_none") {
+            code = curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
+            if (code != CURLE_OK) {
+                LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYPEER, msg=" << _to_errmsg(code);
+                return Status::InternalError("fail to set CURLOPT_CAINFO");
+            }
+            code = curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
+            if (code != CURLE_OK) {
+                LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYHOST, msg=" << _to_errmsg(code);
+                return Status::InternalError("fail to set CURLOPT_CAINFO");
+            }
+        } else {
+            return Status::RuntimeError(
+                    "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                    "verify_peer, verify_none",
+                    config::tls_verify_mode);
+        }
+        code = curl_easy_setopt(_curl, CURLOPT_CAINFO, config::tls_ca_certificate_path.c_str());
+        if (code != CURLE_OK) {
+            LOG(WARNING) << "fail to set CURLOPT_CAINFO, msg=" << _to_errmsg(code);
+            return Status::InternalError("fail to set CURLOPT_CAINFO");
+        }
+        code = curl_easy_setopt(_curl, CURLOPT_SSLCERT, config::tls_certificate_path.c_str());
+        if (code != CURLE_OK) {
+            LOG(WARNING) << "fail to set CURLOPT_SSLCERT, msg=" << _to_errmsg(code);
+            return Status::InternalError("fail to set CURLOPT_SSLCERT");
+        }
+        code = curl_easy_setopt(_curl, CURLOPT_SSLKEY, config::tls_private_key_path.c_str());
+        if (code != CURLE_OK) {
+            LOG(WARNING) << "fail to set CURLOPT_SSLKEY, msg=" << _to_errmsg(code);
+            return Status::InternalError("fail to set CURLOPT_SSLKEY");
+        }
+    }
 
 #ifndef BE_TEST
     set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
@@ -418,6 +464,7 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     if (VLOG_DEBUG_IS_ON) {
         VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url();
     }
+
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
@@ -431,6 +478,7 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
         VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url()
                    << " done";
     }
+
     return Status::OK();
 }
 

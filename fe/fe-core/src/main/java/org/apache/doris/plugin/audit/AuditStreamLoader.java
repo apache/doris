@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.apache.logging.log4j.LogManager;
@@ -31,7 +32,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.Calendar;
 import java.util.stream.Collectors;
 
@@ -56,8 +56,7 @@ public class AuditStreamLoader {
     }
 
     private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
-        URL url = new URL(urlStr);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        HttpURLConnection conn = HttpURLUtil.getConnection(urlStr);
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
         conn.setRequestProperty("token", clusterToken);

@@ -32,6 +32,7 @@ import org.apache.thrift.server.TThreadPoolServer;
 import org.apache.thrift.server.TThreadedSelectorServer;
 import org.apache.thrift.transport.TNonblockingServerSocket;
 import org.apache.thrift.transport.TNonblockingSocket;
+import org.apache.thrift.transport.TSSLTransportFactory;
 import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransportException;
@@ -110,8 +111,35 @@ public class ThriftServer {
                     .backlog(Config.thrift_backlog_num);
         }
 
-        TServer.Args args = new TServer.Args(new ImprovedTServerSocket(socketTransportArgs)).protocolFactory(
-                new TBinaryProtocol.Factory()).processor(processor);
+        TServerSocket serverTransport;
+        if (Config.enable_tls) { // new ImprovedTServerSocket(socketTransportArgs)
+            TSSLTransportFactory.TSSLTransportParameters sslParam =
+                    new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, false);
+            sslParam.setKeyStore(Config.tls_certificate_p12_path, Config.tls_private_key_password,
+                    "SunX509", "PKCS12");
+            sslParam.setTrustStore(Config.tls_ca_certificate_p12_path, Config.tls_private_key_password,
+                    "SunX509", "PKCS12");
+            if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
+                sslParam.requireClientAuth(true);
+            } else if (Config.tls_verify_mode.equals("verify_peer")) {
+                // nothing
+            } else if (Config.tls_verify_mode.equals("verify_none")) {
+                // nothing
+            } else {
+                throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
+                    + ", verify_fail_if_no_peer_cert)");
+            }
+            try {
+                serverTransport = TSSLTransportFactory.getServerSocket(port, 0,
+                        new InetSocketAddress("0.0.0.0", port).getAddress(), sslParam);
+            } catch (TTransportException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            serverTransport = new ImprovedTServerSocket(socketTransportArgs);
+        }
+        TServer.Args args = new TServer.Args(serverTransport).protocolFactory(
+            new TBinaryProtocol.Factory()).processor(processor);
         server = new TSimpleServer(args);
     }
 
@@ -155,7 +183,27 @@ public class ThriftServer {
                     .backlog(Config.thrift_backlog_num);
         }
 
-        TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(new ImprovedTServerSocket(socketTransportArgs))
+        TServerSocket serverTransport;
+        if (Config.enable_tls) { // new ImprovedTServerSocket(socketTransportArgs)
+            boolean clientAuth = true; // TODO: from config
+            TSSLTransportFactory.TSSLTransportParameters sslParam =
+                    new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, clientAuth);
+            sslParam.setKeyStore(Config.tls_certificate_p12_path, Config.tls_private_key_password,
+                    "SunX509", "PKCS12");
+            sslParam.setTrustStore(Config.tls_ca_certificate_p12_path, Config.tls_private_key_password,
+                    "SunX509", "PKCS12");
+            try {
+                LOG.info("TThreadPoolServer Socket" + port);
+                serverTransport = TSSLTransportFactory.getServerSocket(port, 0,
+                    new InetSocketAddress("0.0.0.0", port).getAddress(), sslParam);
+            } catch (TTransportException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            serverTransport = new ImprovedTServerSocket(socketTransportArgs);
+        }
+
+        TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(serverTransport)
                 .protocolFactory(new TBinaryProtocol.Factory())
                 .processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
