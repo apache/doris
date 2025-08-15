@@ -34,20 +34,15 @@ TEST_F(EsScrollParserTest, TestTimezonePatternMatching) {
     RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
 
     std::vector<std::string> valid_timezone_formats = {
-        "2025-05-23T20:56:52.052+0900",
-        "2025-05-23T20:56:52.052-0500",
-        "2025-05-23T20:56:52.052+08:00",
-        "2025-05-23T20:56:52.052-04:30",
-        "2025-05-23T20:56:52.052Z",
-        "2022-08-08T12:10:10.151Z",
-        "2022-08-08T12:10:10+0900",
-        "2022-08-08T12:10:10-0500"
-    };
+            "2025-05-23T20:56:52.052+0900",  "2025-05-23T20:56:52.052-0500",
+            "2025-05-23T20:56:52.052+08:00", "2025-05-23T20:56:52.052-04:30",
+            "2025-05-23T20:56:52.052Z",      "2022-08-08T12:10:10.151Z",
+            "2022-08-08T12:10:10+0900",      "2022-08-08T12:10:10-0500"};
 
     for (const auto& datetime_str : valid_timezone_formats) {
         re2::StringPiece timezone_value;
         bool matched = time_zone_pattern.Match(datetime_str, 0, datetime_str.size(),
-                                             RE2::UNANCHORED, &timezone_value, 1);
+                                               RE2::UNANCHORED, &timezone_value, 1);
         EXPECT_TRUE(matched) << "Failed to match timezone in: " << datetime_str;
 
         std::string timezone = timezone_value.as_string();
@@ -57,9 +52,9 @@ TEST_F(EsScrollParserTest, TestTimezonePatternMatching) {
             EXPECT_EQ(timezone, "Z");
         } else {
             EXPECT_TRUE(timezone[0] == '+' || timezone[0] == '-')
-                << "Invalid timezone sign in: " << timezone;
+                    << "Invalid timezone sign in: " << timezone;
             EXPECT_TRUE(timezone.length() == 4 || timezone.length() == 5)
-                << "Invalid timezone length in: " << timezone;
+                    << "Invalid timezone length in: " << timezone;
         }
     }
 }
@@ -68,16 +63,13 @@ TEST_F(EsScrollParserTest, TestInvalidTimezonePatterns) {
     RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
 
     std::vector<std::string> invalid_formats = {
-        "2025-05-23T20:56:52.052",
-        "2025-05-23T20:56:52.052+9",
-        "2025-05-23T20:56:52.052+090",
-        "2025-05-23T20:56:52.052+9:00"
-    };
+            "2025-05-23T20:56:52.052", "2025-05-23T20:56:52.052+9", "2025-05-23T20:56:52.052+090",
+            "2025-05-23T20:56:52.052+9:00"};
 
     for (const auto& datetime_str : invalid_formats) {
         re2::StringPiece timezone_value;
         bool matched = time_zone_pattern.Match(datetime_str, 0, datetime_str.size(),
-                                             RE2::UNANCHORED, &timezone_value, 1);
+                                               RE2::UNANCHORED, &timezone_value, 1);
         if (matched) {
             std::string timezone = timezone_value.as_string();
             EXPECT_TRUE(timezone.empty()) << "Should not capture timezone from: " << datetime_str;
@@ -92,7 +84,7 @@ TEST_F(EsScrollParserTest, TestBugScenarioTimezoneFormat) {
 
     re2::StringPiece timezone_value;
     bool matched = time_zone_pattern.Match(problematic_format, 0, problematic_format.size(),
-                                         RE2::UNANCHORED, &timezone_value, 1);
+                                           RE2::UNANCHORED, &timezone_value, 1);
 
     EXPECT_TRUE(matched) << "Failed to match the bug scenario format: " << problematic_format;
 
