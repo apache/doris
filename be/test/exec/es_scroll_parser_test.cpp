@@ -55,7 +55,8 @@ TEST_F(EsScrollParserTest, TestTimezonePatternMatching) {
                     << "Invalid timezone sign in: " << timezone;
             // Valid timezone lengths: 5 for +0900, 6 for +08:00
             EXPECT_TRUE(timezone.length() == 5 || timezone.length() == 6)
-                    << "Invalid timezone length in: " << timezone << " (length: " << timezone.length() << ")";
+                    << "Invalid timezone length in: " << timezone
+                    << " (length: " << timezone.length() << ")";
         }
     }
 }
