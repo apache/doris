@@ -118,7 +118,7 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     return need_flush - _queue_mem_usage - _flush_mem_usage;
 }
 
-void MemTableMemoryLimiter::handle_memtable_flush() {
+void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_check) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     do {
@@ -141,6 +141,10 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             if (st == std::cv_status::timeout) {
                 LOG(INFO) << "timeout when waiting for memory hard limit end, try again";
             }
+        }
+        if (cancel_check && cancel_check()) {
+            LOG(INFO) << "cancelled when waiting for memtable flush";
+            return;
         }
         first = false;
         int64_t need_flush = _need_flush();

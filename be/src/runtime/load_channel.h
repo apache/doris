@@ -68,6 +68,8 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
+    bool is_cancelled() const { return _cancelled.load(); }
+
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
 
@@ -107,6 +109,7 @@ private:
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
+    std::atomic<bool> _cancelled {false};
 
     QueryThreadContext _query_thread_context;
 
