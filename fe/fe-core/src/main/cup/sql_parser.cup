@@ -2456,10 +2456,6 @@ recover_stmt ::=
     {:
         RESULT = new RecoverDbStmt(dbName, dbId, alias);
     :}
-    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName
-    {:
-        RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias);
-    :}
     ;
 
 opt_agg_type ::=
