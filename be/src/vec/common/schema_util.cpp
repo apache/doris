@@ -248,10 +248,64 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
     return result;
 }
 
-void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-                                  TabletSchemaSPtr& common_schema, bool update_sparse_column,
-                                  int32_t variant_col_unique_id,
-                                  std::set<PathInData>* path_set = nullptr) {
+// check if two paths which same prefix have different structure
+static bool has_different_structure_in_same_path(const PathInData::Parts& lhs,
+                                                 const PathInData::Parts& rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false; // different size means different structure
+    }
+    // Since we group by path string, lhs and rhs must have the same size and keys
+    // We only need to check if they have different nested structure
+    for (size_t i = 0; i < lhs.size(); ++i) {
+        if (lhs[i] != rhs[i]) {
+            VLOG_DEBUG << fmt::format(
+                    "Check different structure: {} vs {}, lhs[i].is_nested: {}, rhs[i].is_nested: "
+                    "{}",
+                    lhs[i].key, rhs[i].key, lhs[i].is_nested, rhs[i].is_nested);
+            return true;
+        }
+    }
+    return false;
+}
+
+Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
+    // Group paths by their string representation to reduce comparisons
+    std::unordered_map<std::string, std::vector<size_t>> path_groups;
+
+    for (size_t i = 0; i < tuple_paths.size(); ++i) {
+        // same path should have same structure, so we group them by path
+        path_groups[tuple_paths[i].get_path()].push_back(i);
+        // print part of tuple_paths[i]
+        VLOG_DEBUG << "tuple_paths[i]: " << tuple_paths[i].get_path();
+    }
+
+    // Only compare paths within the same group
+    for (const auto& [path_str, indices] : path_groups) {
+        if (indices.size() <= 1) {
+            continue; // No conflicts possible
+        }
+
+        // Compare all pairs within this group
+        for (size_t i = 0; i < indices.size(); ++i) {
+            for (size_t j = 0; j < i; ++j) {
+                if (has_different_structure_in_same_path(tuple_paths[indices[i]].get_parts(),
+                                                         tuple_paths[indices[j]].get_parts())) {
+                    return Status::DataQualityError(
+                            "Ambiguous paths: {} vs {} with different nested part {} vs {}",
+                            tuple_paths[indices[i]].get_path(), tuple_paths[indices[j]].get_path(),
+                            tuple_paths[indices[i]].has_nested_part(),
+                            tuple_paths[indices[j]].has_nested_part());
+                }
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
+                                    TabletSchemaSPtr& common_schema, bool update_sparse_column,
+                                    int32_t variant_col_unique_id,
+                                    std::set<PathInData>* path_set = nullptr) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
     CHECK(common_schema.use_count() == 1);
@@ -302,13 +356,18 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
             path_set->insert(tuple_paths[i]);
         }
     }
+    return Status::OK();
 }
 
-void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                std::set<PathInData>* path_set) {
+Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  std::set<PathInData>* path_set) {
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
+
+    // Collect all paths first to enable batch checking
+    std::vector<PathInData> all_paths;
+
     for (const TabletSchemaSPtr& schema : schemas) {
         for (const TabletColumnPtr& col : schema->columns()) {
             // Get subcolumns of this variant
@@ -316,9 +375,14 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                 col->parent_unique_id() == variant_col_unique_id) {
                 subcolumns_types[*col->path_info_ptr()].push_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
+                all_paths.push_back(*col->path_info_ptr());
             }
         }
     }
+
+    // Batch check for conflicts
+    RETURN_IF_ERROR(check_variant_has_no_ambiguous_paths(all_paths));
+
     for (const TabletSchemaSPtr& schema : schemas) {
         if (schema->field_index(variant_col_unique_id) == -1) {
             // maybe dropped
@@ -336,13 +400,13 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
             }
         }
     }
-    update_least_schema_internal(subcolumns_types, common_schema, false, variant_col_unique_id,
-                                 path_set);
+    return update_least_schema_internal(subcolumns_types, common_schema, false,
+                                        variant_col_unique_id, path_set);
 }
 
-void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
-                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                const std::set<PathInData>& path_set) {
+Status update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
+                                  TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
+                                  const std::set<PathInData>& path_set) {
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
@@ -361,7 +425,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
             }
         }
     }
-    update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id);
+    return update_least_schema_internal(subcolumns_types, common_schema, true,
+                                        variant_col_unique_id);
 }
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
@@ -416,7 +481,6 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                const TabletSchemaSPtr& base_schema, TabletSchemaSPtr& output_schema,
                                bool check_schema_size) {
     std::vector<int32_t> variant_column_unique_id;
-
     // Construct a schema excluding the extracted columns and gather unique identifiers for variants.
     // Ensure that the output schema also excludes these extracted columns. This approach prevents
     // duplicated paths following the update_least_common_schema process.
@@ -463,9 +527,9 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         std::set<PathInData> path_set;
         // 1. cast extracted column to common type
         // path set is used to record the paths of those sparse columns that have been merged into the extracted columns, eg: v:b
-        update_least_common_schema(schemas, output_schema, unique_id, &path_set);
+        RETURN_IF_ERROR(update_least_common_schema(schemas, output_schema, unique_id, &path_set));
         // 2. cast sparse column to common type, exclude the columns from the path set
-        update_least_sparse_column(schemas, output_schema, unique_id, path_set);
+        RETURN_IF_ERROR(update_least_sparse_column(schemas, output_schema, unique_id, path_set));
     }
 
     inherit_column_attributes(output_schema);

@@ -244,10 +244,7 @@ suite("cast") {
         exception "cannot cast"
     }
     // datetime
-    test {
-        sql """select cast(k11 as time) ct from test order by ct;"""
-        exception "cannot cast"
-    }
+    sql """select cast(k11 as time) ct from test order by ct;"""
 
     sql "select cast(1 as signed)"
     sql "select cast(1 as signed int)"

@@ -20,13 +20,18 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
@@ -40,11 +45,15 @@ import java.util.Set;
  * GROUP BY ClientIP
  */
 public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
+    private static final ImmutableSet<Class<? extends Expression>> supportedFunctions
+            = ImmutableSet.of(Add.class, Subtract.class, Multiply.class, Divide.class);
+
     @Override
     public Rule build() {
         return logicalAggregate()
                 .when(agg -> agg.getGroupByExpressions().size() > 1
-                        && ExpressionUtils.allMatch(agg.getGroupByExpressions(), this::isBinaryArithmeticSlot))
+                        && ExpressionUtils.allMatch(agg.getGroupByExpressions(),
+                        SimplifyAggGroupBy::isBinaryArithmeticSlot))
                 .then(agg -> {
                     List<Expression> groupByExpressions = agg.getGroupByExpressions();
                     ImmutableSet.Builder<Expression> inputSlots
@@ -61,11 +70,15 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
                 .toRule(RuleType.SIMPLIFY_AGG_GROUP_BY);
     }
 
-    private boolean isBinaryArithmeticSlot(TreeNode<Expression> expr) {
+    @VisibleForTesting
+    protected static boolean isBinaryArithmeticSlot(TreeNode<Expression> expr) {
         if (expr instanceof Slot) {
             return true;
         }
         if (!(expr instanceof BinaryArithmetic)) {
+            return false;
+        }
+        if (!supportedFunctions.contains(expr.getClass())) {
             return false;
         }
         return ExpressionUtils.isSlotOrCastOnSlot(expr.child(0)).isPresent() && expr.child(1) instanceof Literal

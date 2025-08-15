@@ -1176,7 +1176,7 @@ suite('test_ms_api', 'p0, docker') {
                     log.info("add two observer fe failed test http cli result: ${body} ${respCode}".toString())
                     def json = parseJson(body)
                     assertTrue(json.code.equalsIgnoreCase("INVALID_ARGUMENT"))
-                    assertTrue(json.msg.contains("cluster is SQL type, but not set master and follower node, master count=0 follower count=0 so sql cluster can't get a Master node"))
+                    assertTrue(json.msg.contains("cluster is SQL type, must have only one master node, now master count: 0"))
             }
 
             def ip4 = "162.0.0.4"
@@ -1202,7 +1202,7 @@ suite('test_ms_api', 'p0, docker') {
                     // failed, due to two master node
                     // if force_change_to_multi_follower_mode == false, check type not changed, FE_MASTER
                     log.info("add some fe failed nodes http cli result: ${body} ${respCode} ${json}".toString())
-                    assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
+                    assertTrue(json.code.equalsIgnoreCase("INVALID_ARGUMENT"))
                     assertTrue(json.msg.contains("instance invalid, cant modify, plz check"))
             }
 
@@ -1228,7 +1228,7 @@ suite('test_ms_api', 'p0, docker') {
                 respCode, body ->
                     def json = parseJson(body)
                     log.info("drop all fe nodes failed http cli result: ${body} ${respCode} ${json}".toString())
-                    assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
+                    assertTrue(json.code.equalsIgnoreCase("INVALID_ARGUMENT"))
                     assertTrue(json.msg.contains("instance invalid, cant modify, plz check")) 
             }
 
@@ -1396,7 +1396,7 @@ suite('test_ms_api', 'p0, docker') {
             respCode, body ->
                 def json = parseJson(body)
                 log.info("drop fe observer node http cli result: ${body} ${respCode} ${json}".toString())
-                assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
+                assertTrue(json.code.equalsIgnoreCase("INVALID_ARGUMENT"))
                 assertTrue(json.msg.contains("drop fe node not in safe time, try later"))
         }
 

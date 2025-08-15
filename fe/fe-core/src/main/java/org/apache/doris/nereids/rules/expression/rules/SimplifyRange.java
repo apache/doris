@@ -46,7 +46,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
+import com.google.common.collect.TreeRangeSet;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -157,18 +159,18 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         @Override
         public ValueDesc visitAnd(And and, ExpressionRewriteContext context) {
             return simplify(context, and, ExpressionUtils.extractConjunction(and),
-                    ValueDesc::intersect, ExpressionUtils::and);
+                    ValueDesc::intersect, ExpressionUtils::and, true);
         }
 
         @Override
         public ValueDesc visitOr(Or or, ExpressionRewriteContext context) {
             return simplify(context, or, ExpressionUtils.extractDisjunction(or),
-                    ValueDesc::union, ExpressionUtils::or);
+                    ValueDesc::union, ExpressionUtils::or, false);
         }
 
         private ValueDesc simplify(ExpressionRewriteContext context,
                 Expression originExpr, List<Expression> predicates,
-                BinaryOperator<ValueDesc> op, BinaryOperator<Expression> exprOp) {
+                BinaryOperator<ValueDesc> op, BinaryOperator<Expression> exprOp, boolean isAnd) {
 
             Multimap<Expression, ValueDesc> groupByReference
                     = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
@@ -181,7 +183,9 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             List<ValueDesc> valuePerRefs = Lists.newArrayList();
             for (Entry<Expression, Collection<ValueDesc>> referenceValues : groupByReference.asMap().entrySet()) {
                 List<ValueDesc> valuePerReference = (List) referenceValues.getValue();
-
+                if (!isAnd) {
+                    valuePerReference = unionDiscreteAndRange(context, referenceValues.getKey(), valuePerReference);
+                }
                 // merge per reference
                 ValueDesc simplifiedValue = valuePerReference.get(0);
                 for (int i = 1; i < valuePerReference.size(); i++) {
@@ -198,6 +202,30 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             // use UnknownValue to wrap different references
             return new UnknownValue(context, originExpr, valuePerRefs, exprOp);
         }
+    }
+
+    /** merge discrete and ranges only, no merge other value desc */
+    public static List<ValueDesc> unionDiscreteAndRange(ExpressionRewriteContext context,
+            Expression reference, List<ValueDesc> valueDescs) {
+        List<ValueDesc> result = Lists.newArrayListWithExpectedSize(valueDescs.size());
+
+        // for (a >= 8 and a < 9) or (a >=12 and a < 13) or (a >=13 and a < 14) can convert to
+        // (a >= 8 and a < 9) or (a >=12 and a < 14)
+        RangeSet<Literal> rangeSet = TreeRangeSet.create();
+        for (ValueDesc valueDesc : valueDescs) {
+            if (valueDesc instanceof RangeValue) {
+                Range<Literal> range = ((RangeValue) valueDesc).range;
+                rangeSet.add(range);
+            } else {
+                result.add(valueDesc);
+            }
+        }
+        for (Range<Literal> range : rangeSet.asRanges()) {
+            RangeValue rangeValue = new RangeValue(context, reference, RangeValue.toExpression(range, reference));
+            rangeValue.range = range;
+            result.add(rangeValue);
+        }
+        return result;
     }
 
     private abstract static class ValueDesc {
@@ -357,7 +385,9 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                 if (range.isConnected(o.range)) {
                     RangeValue rangeValue = new RangeValue(context, reference, originExpr);
                     rangeValue.range = range.intersection(o.range);
-                    return rangeValue;
+                    if (!rangeValue.range.isEmpty()) {
+                        return rangeValue;
+                    }
                 }
                 return new EmptyValue(context, reference, originExpr);
             }
@@ -372,6 +402,10 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
         @Override
         public Expression toExpression() {
+            return toExpression(this.range, this.reference);
+        }
+
+        public static Expression toExpression(Range<Literal> range, Expression reference) {
             List<Expression> result = Lists.newArrayList();
             if (range.hasLowerBound()) {
                 if (range.lowerBoundType() == BoundType.CLOSED) {

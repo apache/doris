@@ -21,7 +21,7 @@ suite("test_warm_up_cluster_empty") {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][3]
+         return jobStateResult[0]
     }
     def table = "customer"
 
@@ -55,7 +55,7 @@ suite("test_warm_up_cluster_empty") {
     println("the brpc port is " + brpcPortList);
 
     for (unique_id : beUniqueIdList) {
-        resp = get_cluster.call(unique_id);
+        def resp = get_cluster.call(unique_id);
         for (cluster : resp) {
             if (cluster.type == "COMPUTE") {
                 drop_cluster.call(cluster.cluster_name, cluster.cluster_id);

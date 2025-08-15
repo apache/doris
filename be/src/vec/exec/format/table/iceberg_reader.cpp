@@ -120,32 +120,9 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
     }
     RETURN_IF_ERROR(_expand_block_if_need(block));
 
-    // To support iceberg schema evolution. We change the column name in block to
-    // make it match with the column name in parquet file before reading data. and
-    // Set the name back to table column name before return this block.
-    if (_has_schema_change) {
-        for (int i = 0; i < block->columns(); i++) {
-            ColumnWithTypeAndName& col = block->get_by_position(i);
-            auto iter = _table_col_to_file_col.find(col.name);
-            if (iter != _table_col_to_file_col.end()) {
-                col.name = iter->second;
-            }
-        }
-        block->initialize_index_by_name();
-    }
-
+    RETURN_IF_ERROR(TableSchemaChangeHelper::get_next_block_before(block));
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
-    // Set the name back to table column name before return this block.
-    if (_has_schema_change) {
-        for (int i = 0; i < block->columns(); i++) {
-            ColumnWithTypeAndName& col = block->get_by_position(i);
-            auto iter = _file_col_to_table_col.find(col.name);
-            if (iter != _file_col_to_table_col.end()) {
-                col.name = iter->second;
-            }
-        }
-        block->initialize_index_by_name();
-    }
+    RETURN_IF_ERROR(TableSchemaChangeHelper::get_next_block_after(block));
 
     if (_equality_delete_impl != nullptr) {
         RETURN_IF_ERROR(_equality_delete_impl->filter_data_block(block));
@@ -228,8 +205,9 @@ Status IcebergTableReader::_equality_delete_base(
                                                         not_in_file_col_names, nullptr, {}, nullptr,
                                                         nullptr, nullptr, nullptr, nullptr, false));
         } else if (auto* orc_reader = typeid_cast<OrcReader*>(delete_reader.get())) {
-            RETURN_IF_ERROR(orc_reader->init_reader(&equality_delete_col_names, nullptr, {}, false,
-                                                    {}, {}, nullptr, nullptr));
+            RETURN_IF_ERROR(orc_reader->init_reader(&equality_delete_col_names,
+                                                    not_in_file_col_names, nullptr, {}, false, {},
+                                                    {}, nullptr, nullptr));
         } else {
             return Status::InternalError("Unsupported format of delete file");
         }
@@ -439,60 +417,6 @@ void IcebergTableReader::_sort_delete_rows(std::vector<std::vector<int64_t>*>& d
     }
 }
 
-/*
- * Generate _all_required_col_names and _not_in_file_col_names.
- *
- * _all_required_col_names is all the columns required by user sql.
- * If the column name has been modified after the data file was written,
- * put the old name in data file to _all_required_col_names.
- *
- * _not_in_file_col_names is all the columns required by user sql but not in the data file.
- * e.g. New columns added after this data file was written.
- * The columns added with names used by old dropped columns should consider as a missing column,
- * which should be in _not_in_file_col_names.
- */
-void IcebergTableReader::_gen_file_col_names() {
-    _all_required_col_names.clear();
-    _not_in_file_col_names.clear();
-    for (int i = 0; i < _file_col_names.size(); ++i) {
-        auto name = _file_col_names[i];
-        auto iter = _table_col_to_file_col.find(name);
-        if (iter == _table_col_to_file_col.end()) {
-            // If the user creates the iceberg table, directly append the parquet file that already exists,
-            // there is no 'iceberg.schema' field in the footer of parquet, the '_table_col_to_file_col' may be empty.
-            // Because we are ignoring case, so, it is converted to lowercase here
-            auto name_low = to_lower(name);
-            _all_required_col_names.emplace_back(name_low);
-            if (_has_iceberg_schema) {
-                _not_in_file_col_names.emplace_back(name);
-            } else {
-                _table_col_to_file_col.emplace(name, name_low);
-                _file_col_to_table_col.emplace(name_low, name);
-                if (name != name_low) {
-                    _has_schema_change = true;
-                }
-            }
-        } else {
-            _all_required_col_names.emplace_back(iter->second);
-        }
-    }
-}
-
-/*
- * Generate _new_colname_to_value_range, by replacing the column name in
- * _colname_to_value_range with column name in data file.
- */
-void IcebergTableReader::_gen_new_colname_to_value_range() {
-    for (auto it = _colname_to_value_range->begin(); it != _colname_to_value_range->end(); it++) {
-        auto iter = _table_col_to_file_col.find(it->first);
-        if (iter == _table_col_to_file_col.end()) {
-            _new_colname_to_value_range.emplace(it->first, it->second);
-        } else {
-            _new_colname_to_value_range.emplace(iter->second, it->second);
-        }
-    }
-}
-
 void IcebergTableReader::_gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
                                                          size_t read_rows,
                                                          bool file_path_column_dictionary_coded) {
@@ -538,13 +462,9 @@ Status IcebergParquetReader::init_reader(
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _file_format = Fileformat::PARQUET;
     ParquetReader* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
-    _col_id_name_map = col_id_name_map;
-    _file_col_names = file_col_names;
-    _colname_to_value_range = colname_to_value_range;
-    FieldDescriptor field_desc = parquet_reader->get_file_metadata_schema();
-    RETURN_IF_ERROR(_gen_col_name_maps(field_desc));
-    _gen_file_col_names();
-    _gen_new_colname_to_value_range();
+    RETURN_IF_ERROR(TableSchemaChangeHelper::init_schema_info(file_col_names, col_id_name_map,
+                                                              colname_to_value_range));
+
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
     parquet_reader->iceberg_sanitize(_all_required_col_names);
     RETURN_IF_ERROR(init_row_filters(_range, _io_ctx));
@@ -611,18 +531,14 @@ Status IcebergOrcReader::init_reader(
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
     _file_format = Fileformat::ORC;
     auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
-    _col_id_name_map = col_id_name_map;
-    _file_col_names = file_col_names;
-    _colname_to_value_range = colname_to_value_range;
-
-    RETURN_IF_ERROR(_gen_col_name_maps(orc_reader));
-    _gen_file_col_names();
-    _gen_new_colname_to_value_range();
+    RETURN_IF_ERROR(TableSchemaChangeHelper::init_schema_info(file_col_names, col_id_name_map,
+                                                              colname_to_value_range));
     orc_reader->set_table_col_to_file_col(_table_col_to_file_col);
     RETURN_IF_ERROR(init_row_filters(_range, _io_ctx));
-    return orc_reader->init_reader(&_all_required_col_names, &_new_colname_to_value_range,
-                                   conjuncts, false, tuple_descriptor, row_descriptor,
-                                   not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+    return orc_reader->init_reader(&_all_required_col_names, _not_in_file_col_names,
+                                   &_new_colname_to_value_range, conjuncts, false, tuple_descriptor,
+                                   row_descriptor, not_single_slot_filter_conjuncts,
+                                   slot_id_to_filter_conjuncts);
 }
 
 Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
@@ -630,8 +546,9 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
     OrcReader orc_delete_reader(_profile, _state, _params, *delete_range,
                                 READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx);
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    RETURN_IF_ERROR(orc_delete_reader.init_reader(&delete_file_col_names, &colname_to_value_range,
-                                                  {}, false, {}, {}, nullptr, nullptr));
+    RETURN_IF_ERROR(orc_delete_reader.init_reader(&delete_file_col_names, {},
+                                                  &colname_to_value_range, {}, false, {}, {},
+                                                  nullptr, nullptr));
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -652,61 +569,36 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
     return Status::OK();
 }
 
-/*
- * To support schema evolution, Iceberg write the column id to column name map to
- * parquet file key_value_metadata.
- * This function is to compare the table schema from FE (_col_id_name_map) with
- * the schema in key_value_metadata for the current parquet file and generate two maps
- * for future use:
- * 1. table column name to parquet column name.
- * 2. parquet column name to table column name.
- * For example, parquet file has a column 'col1',
- * after this file was written, iceberg changed the column name to 'col1_new'.
- * The two maps would contain:
- * 1. col1_new -> col1
- * 2. col1 -> col1_new
- */
-Status IcebergParquetReader::_gen_col_name_maps(const FieldDescriptor& field_desc) {
+// To support schema evolution, Iceberg write the column id to column name map to parquet file key_value_metadata.
+Status IcebergParquetReader::get_file_col_id_to_name(
+        bool& exist_schema, std::map<int32_t, std::string>& file_col_id_to_name) {
+    auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
+    FieldDescriptor field_desc = parquet_reader->get_file_metadata_schema();
+
     if (field_desc.has_parquet_field_id()) {
-        for (const auto& pair : _col_id_name_map) {
-            auto name_slice = field_desc.get_column_name_from_field_id(pair.first);
-            if (name_slice.get_size() == 0) {
-                _has_schema_change = true;
-            } else {
-                auto name_string = name_slice.to_string();
-                _table_col_to_file_col.emplace(pair.second, name_string);
-                _file_col_to_table_col.emplace(name_string, pair.second);
-                if (name_string != pair.second) {
-                    _has_schema_change = true;
-                }
-            }
-        }
+        file_col_id_to_name = field_desc.get_field_id_name_map();
+    } else {
+        //For early iceberg version, it doesn't write any schema information to Parquet file.
+        exist_schema = false;
     }
+
     return Status::OK();
 }
 
-Status IcebergOrcReader::_gen_col_name_maps(OrcReader* orc_reader) {
-    std::vector<std::string> col_names;
-    std::vector<uint64_t> col_ids;
-    RETURN_IF_ERROR(
-            orc_reader->get_schema_col_name_attribute(&col_names, &col_ids, ICEBERG_ORC_ATTRIBUTE));
-    _has_iceberg_schema = true;
-    _table_col_to_file_col.clear();
-    _file_col_to_table_col.clear();
-    for (size_t i = 0; i < col_ids.size(); i++) {
-        auto col_id = col_ids[i];
-        auto& file_col_name = col_names[i];
+//To support schema evolution, Iceberg write the column id to orc file attribute.
+Status IcebergOrcReader::get_file_col_id_to_name(
+        bool& exist_schema, std::map<int32_t, std::string>& file_col_id_to_name) {
+    auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
 
-        if (_col_id_name_map.find(col_id) == _col_id_name_map.end()) {
-            _has_schema_change = true;
-            continue;
-        }
-        auto& table_col_name = _col_id_name_map[col_id];
-        _table_col_to_file_col.emplace(table_col_name, file_col_name);
-        _file_col_to_table_col.emplace(file_col_name, table_col_name);
-        if (table_col_name != file_col_name) {
-            _has_schema_change = true;
-        }
+    std::vector<std::string> col_names;
+    std::vector<int32_t> col_ids;
+    RETURN_IF_ERROR(orc_reader->get_schema_col_name_attribute(
+            &col_names, &col_ids, ICEBERG_ORC_ATTRIBUTE, &exist_schema));
+    if (!exist_schema) {
+        return Status::OK();
+    }
+    for (auto i = 0; i < col_names.size(); i++) {
+        file_col_id_to_name.emplace(col_ids[i], std::move(col_names[i]));
     }
     return Status::OK();
 }

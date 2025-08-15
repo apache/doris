@@ -58,10 +58,6 @@ public:
     size_t bytes_appended() const override { return _bytes_appended; }
     State state() const override { return _state; }
 
-    FileCacheAllocatorBuilder* cache_builder() const override {
-        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
-    }
-
     const std::vector<ObjectCompleteMultiPart>& completed_parts() const { return _completed_parts; }
 
     const std::string& key() const { return _obj_storage_path_opts.key; }
@@ -103,8 +99,6 @@ private:
     size_t _bytes_appended = 0;
 
     std::shared_ptr<FileBuffer> _pending_buf;
-    std::unique_ptr<FileCacheAllocatorBuilder>
-            _cache_builder; // nullptr if disable write file cache
 
     // S3 committer will start multipart uploading all files on BE side,
     // and then complete multipart upload these files on FE side.

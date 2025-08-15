@@ -18,10 +18,16 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_warm_up_tables") {
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][3]
+         return jobStateResult[0]
     }
     def getTablesFromShowCommand = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
@@ -236,5 +242,6 @@ suite("test_warm_up_tables") {
                 }
             }
             assertTrue(flag)
+    }
     }
 }

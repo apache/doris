@@ -124,12 +124,12 @@ inline void format_ipv4(const unsigned char* src, char*& dst, uint8_t mask_tail_
  */
 template <typename T, typename EOFfunction>
     requires(std::is_same<typename std::remove_cv<T>::type, char>::value)
-inline bool parse_ipv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t first_octet = -1) {
+inline bool parse_ipv4(T*& src, EOFfunction eof, unsigned char* dst, int32_t first_octet = -1) {
     if (src == nullptr || first_octet > IPV4_MAX_OCTET_VALUE) {
         return false;
     }
 
-    int64_t result = 0;
+    UInt32 result = 0;
     int offset = (IPV4_BINARY_LENGTH - 1) * IPV4_OCTET_BITS;
     if (first_octet >= 0) {
         result |= first_octet << offset;
@@ -141,7 +141,7 @@ inline bool parse_ipv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t fir
             return false;
         }
 
-        int64_t value = 0;
+        UInt32 value = 0;
         size_t len = 0;
         while (is_numeric_ascii(*src) && len <= 3) {
             value = value * DECIMAL_BASE + (*src - '0');

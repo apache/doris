@@ -74,18 +74,12 @@ suite("test_decimal256_cast") {
         select k1, cast(v1 as decimalv3(76, 0)) from cast_to_dec256 order by k1, v1;
     """
 
-    test {
-        sql """
-            select /*+SET_VAR(enable_fold_constant_by_be = true) */cast(cast("12345678.000000000000000000000000000000001" as decimalv3(76, 60)) as float);
-        """
-        exception "Arithmetic overflow"
-    }
-    test {
-        sql """
-            select /*+SET_VAR(enable_fold_constant_by_be = false) */cast(cast("12345678.000000000000000000000000000000001" as decimalv3(76, 60)) as float);
-        """
-        exception "Arithmetic overflow"
-    }
+     qt_decimal256_cast_to_float1 """
+         select /*+SET_VAR(enable_fold_constant_by_be = true) */cast(cast("12345678.000000000000000000000000000000001" as decimalv3(76, 60)) as float);
+     """
+     qt_decimal256_cast_to_float2 """
+         select /*+SET_VAR(enable_fold_constant_by_be = false) */cast(cast("12345678.000000000000000000000000000000001" as decimalv3(76, 60)) as float);
+     """
 
     sql """
         drop table  if exists dec256cast_to_float;
@@ -100,16 +94,64 @@ suite("test_decimal256_cast") {
     );
     """
     sql """
-        insert into dec256cast_to_float values  (1, "12345678.000000000000000000000000000000001");
+        insert into dec256cast_to_float values 
+            (1, "12345678.000000000000000000000000000000001"),
+            (2, "9999999999999999.999999999999999999999999999999999999999999999999999999999999"),
+            (3, "0.000000250794773934844880991039000000000000000000000000000000"),
+            (4, "0.999999999999999999999999999999999999999999999999999999999999");
     """
+    
+    qt_decimal256_cast_to_float3 """
+        select k1, cast(v1 as float) from dec256cast_to_float order by 1;
+    """
+    qt_decimal256_cast_to_double_1 """
+        select k1, cast(v1 as double) from dec256cast_to_float order by 1;
+    """
+
     test {
-        sql """
-            select cast(v1 as float) from dec256cast_to_float;
-        """
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("1000000000000000000000000000000000000000000000000000000000000000000000.111111" as decimalv3(76, 6)) as float);"""
         exception "Arithmetic overflow"
     }
-    qt_decimal256_cast_to_double_1 """
-        select cast(v1 as double) from dec256cast_to_float;
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("1000000000000000000000000000000000000000000000000000000000000000000000.111111" as decimalv3(76, 6)) as float);"""
+        exception "Arithmetic overflow"
+    }
+
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("9999999999999999999999999999999999999999999999999999999999999999999999.999999" as decimalv3(76, 6)) as float);"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("9999999999999999999999999999999999999999999999999999999999999999999999.999999" as decimalv3(76, 6)) as float);"""
+        exception "Arithmetic overflow"
+    }
+
+    sql "drop table if exists dec256cast_to_float_overflow"
+    sql """
+    create table dec256cast_to_float_overflow (
+        k1 int,
+        v1 decimalv3(76, 6)
+    ) distributed by hash(k1)
+    properties (
+        'replication_num' = '1'
+    );
     """
+    sql """
+        insert into dec256cast_to_float_overflow values  (1, "1000000000000000000000000000000000000000000000000000000000000000000000.111111");
+    """
+    test {
+        sql "select cast(v1 as float) from dec256cast_to_float_overflow;"
+        exception "Arithmetic overflow"
+    }
+    sql """
+        truncate table dec256cast_to_float_overflow;
+    """
+    sql """
+        insert into dec256cast_to_float_overflow values  (1, "9999999999999999999999999999999999999999999999999999999999999999999999.999999");
+    """
+    test {
+        sql "select cast(v1 as float) from dec256cast_to_float_overflow;"
+        exception "Arithmetic overflow"
+    }
 
 }

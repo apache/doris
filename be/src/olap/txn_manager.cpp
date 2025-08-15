@@ -549,7 +549,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             std::vector<segment_v2::SegmentSharedPtr> segments;
             RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
             RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
-                    rowset->rowset_id(), segments, tablet_txn_info->delete_bitmap));
+                    rowset->tablet_schema(), rowset->rowset_id(), segments,
+                    tablet_txn_info->delete_bitmap));
         }
 
         RETURN_IF_ERROR(

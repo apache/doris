@@ -457,13 +457,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
         Table table = getTableNullable(tableName);
         if (table != null) {
-            if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().unregisterMTMV((MTMV) table);
-            }
             this.nameToTable.remove(tableName);
             this.idToTable.remove(table.getId());
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
             table.markDropped();
+            // will check mtmv if exist by markDrop, so unregisterMTMV() need after markDropped()
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().unregisterMTMV((MTMV) table);
+            }
         }
     }
 
