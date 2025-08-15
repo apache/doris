@@ -946,30 +946,6 @@ under the License.
             </resource>
         </resources>
         <plugins>
-            <!--aspectj-->
-            <plugin>
-                <groupId>dev.aspectj</groupId>
-                <artifactId>aspectj-maven-plugin</artifactId>
-                <version>1.13.1</version>
-                <executions>
-                    <execution>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>compile</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <forceAjcCompile>true</forceAjcCompile>
-                    <sources/>
-                    <weaveDirectories>
-                        <weaveDirectory>${project.build.directory}/classes</weaveDirectory>
-                    </weaveDirectories>
-                    <source>${maven.compiler.source}</source>
-                    <target>${maven.compiler.target}</target>
-                    <complianceLevel>${maven.compiler.target}</complianceLevel>
-                </configuration>
-            </plugin>
             <!--jcup-->
             <plugin>
                 <groupId>net.sourceforge.czt.dev</groupId>

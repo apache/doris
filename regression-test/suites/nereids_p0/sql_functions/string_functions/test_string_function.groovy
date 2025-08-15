@@ -214,4 +214,31 @@ suite("test_string_function") {
     qt_sub_replace_utf8_sql9 " select sub_replace('你好世界','大家',4);"
     qt_sub_replace_utf8_sql10 " select sub_replace('你好世界','大家',-1);"
 
+
+
+    sql """
+        DROP TABLE IF EXISTS strings_LOCATE_test
+    """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS strings_LOCATE_test (
+        id int,
+        str VARCHAR
+        )
+        DISTRIBUTED BY HASH(str) BUCKETS 2
+        PROPERTIES (
+        "replication_num"="1"
+        );
+    """
+
+    sql """
+        insert into strings_LOCATE_test values(1,"123456789"),(2,"1234567890"),(3,null),(4,"abcabc"),(5,"789");
+    """
+
+
+    qt_sql "SELECT id ,  LOCATE('78', str , 2) FROM strings_LOCATE_test order by id;"
+
+
+
+
 }
