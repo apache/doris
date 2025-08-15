@@ -152,36 +152,6 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 
-Status CloudTablet::merge_rowsets_schema() {
-    // Find the rowset with the max version
-    auto max_version_rowset =
-            std::max_element(
-                    _rs_version_map.begin(), _rs_version_map.end(),
-                    [](const auto& a, const auto& b) {
-                        return !a.second->tablet_schema()
-                                       ? true
-                                       : (!b.second->tablet_schema()
-                                                  ? false
-                                                  : a.second->tablet_schema()->schema_version() <
-                                                            b.second->tablet_schema()
-                                                                    ->schema_version());
-                    })
-                    ->second;
-    TabletSchemaSPtr max_version_schema = max_version_rowset->tablet_schema();
-    // If the schema has variant columns, perform a merge to create a wide tablet schema
-    if (max_version_schema->num_variant_columns() > 0) {
-        std::vector<TabletSchemaSPtr> schemas;
-        std::transform(_rs_version_map.begin(), _rs_version_map.end(), std::back_inserter(schemas),
-                       [](const auto& rs_meta) { return rs_meta.second->tablet_schema(); });
-        // Merge the collected schemas to obtain the least common schema
-        RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
-                                                                         max_version_schema));
-        VLOG_DEBUG << "dump schema: " << max_version_schema->dump_full_schema();
-        _merged_tablet_schema = max_version_schema;
-    }
-    return Status::OK();
-}
-
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
 Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* stats) {
@@ -260,11 +230,6 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
         clear_cache();
     }
     return st;
-}
-
-TabletSchemaSPtr CloudTablet::merged_tablet_schema() const {
-    std::shared_lock rlock(_meta_lock);
-    return _merged_tablet_schema;
 }
 
 void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
@@ -1203,13 +1168,6 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
         RETURN_IF_ERROR(check_rowid_conversion(output_rowset, *location_map));
     }
     int64_t t5 = MonotonicMicros();
-    if (missed_rows) {
-        DCHECK_EQ(missed_rows->size(), missed_rows_size);
-        if (missed_rows->size() != missed_rows_size) {
-            LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
-                         << " after: " << missed_rows->size();
-        }
-    }
 
     // 3. store delete bitmap
     auto st = _engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,

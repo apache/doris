@@ -947,7 +947,6 @@ nonterminal Boolean opt_force;
 nonterminal Boolean opt_cached;
 nonterminal IndexDef.IndexType opt_index_type;
 
-nonterminal ShowAlterStmt.AlterType opt_alter_type;
 nonterminal Boolean opt_builtin;
 nonterminal ExplainOptions opt_explain_options;
 
@@ -2440,40 +2439,14 @@ ident_or_star ::=
 
 // Drop statement
 drop_stmt ::=
-    /* Table */
-    KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
-    {:
-        RESULT = new DropTableStmt(ifExists, name, force);
-    :}
     /* User */
-    | KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
+    KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
     {:
         RESULT = new DropUserStmt(ifExists, userId);
-    :}
-    /* View */
-    | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
-    {:
-        RESULT = new DropTableStmt(ifExists, name, true, false);
     :}
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
-    :}
-    | KW_DROP KW_WORKLOAD KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
-    {:
-        RESULT = new DropWorkloadSchedPolicyStmt(ifExists, policyName);
-    :}
-    | KW_DROP KW_INVERTED KW_INDEX KW_ANALYZER opt_if_exists:ifExists ident:policyName
-    {:
-        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.ANALYZER, policyName);
-    :}
-    | KW_DROP KW_INVERTED KW_INDEX KW_TOKENIZER opt_if_exists:ifExists ident:policyName
-    {:
-        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKENIZER, policyName);
-    :}
-    | KW_DROP KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_exists:ifExists ident:policyName
-    {:
-        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKEN_FILTER, policyName);
     :}
     ;
 
@@ -2482,10 +2455,6 @@ recover_stmt ::=
     KW_RECOVER KW_DATABASE ident:dbName opt_id:dbId opt_alias:alias
     {:
         RESULT = new RecoverDbStmt(dbName, dbId, alias);
-    :}
-    | KW_RECOVER KW_TABLE table_name:dbTblName opt_id:tableId opt_alias:alias
-    {:
-        RESULT = new RecoverTableStmt(dbTblName, tableId, alias);
     :}
     | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName
     {:
@@ -3368,15 +3337,6 @@ show_param ::=
     {:
         RESULT = new ShowProcedureStmt();
     :}
-    /* Show alter table statement: used to show process of alter table statement */
-    | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
-    :}
-    | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
-    {:
-        RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
     ;
 
 opt_tmp ::=
@@ -3518,21 +3478,6 @@ opt_id ::=
     :}
     ;
 
-opt_alter_type ::=
-    KW_ROLLUP
-    {:
-        RESULT = ShowAlterStmt.AlterType.ROLLUP;
-    :}
-    | KW_MATERIALIZED KW_VIEW
-    {:
-        RESULT =  ShowAlterStmt.AlterType.ROLLUP;
-    :}
-    | KW_COLUMN
-    {:
-        RESULT = ShowAlterStmt.AlterType.COLUMN;
-    :}
-    ;
-
 opt_builtin ::=
     {:
         RESULT = false;
@@ -3581,13 +3526,6 @@ job_id_list ::=
     | LPAREN integer_list:list RPAREN
     {:
         RESULT = list;
-    :}
-    ;
-
-cancel_param ::=
-    KW_LOAD opt_db:db opt_wild_where
-    {:
-        RESULT = new CancelLoadStmt(db, parser.where);
     :}
     ;
 
@@ -5928,11 +5866,6 @@ admin_stmt ::=
     KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
-    :}
-    // deprecated
-    | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
-    {:
-        RESULT = new DiagnoseTabletStmt(tabletId);
     :}
     ;
 

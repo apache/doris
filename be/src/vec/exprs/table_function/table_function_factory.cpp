@@ -28,7 +28,6 @@
 #include "vec/exprs/table_function/udf_table_function.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_bitmap.h"
-#include "vec/exprs/table_function/vexplode_json_array.h"
 #include "vec/exprs/table_function/vexplode_json_object.h"
 #include "vec/exprs/table_function/vexplode_map.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
@@ -45,22 +44,11 @@ struct TableFunctionCreator {
     std::unique_ptr<TableFunction> operator()() { return TableFunctionType::create_unique(); }
 };
 
-template <typename DataImpl>
-struct VExplodeJsonArrayCreator {
-    std::unique_ptr<TableFunction> operator()() {
-        return VExplodeJsonArrayTableFunction<DataImpl>::create_unique();
-    }
-};
-
 const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
         TableFunctionFactory::_function_map {
                 {"explode_variant_array", TableFunctionCreator<VExplodeV2TableFunction>()},
                 {"explode_split", TableFunctionCreator<VExplodeSplitTableFunction>()},
                 {"explode_numbers", TableFunctionCreator<VExplodeNumbersTableFunction>()},
-                {"explode_json_array_int", VExplodeJsonArrayCreator<ParsedDataInt>()},
-                {"explode_json_array_double", VExplodeJsonArrayCreator<ParsedDataDouble>()},
-                {"explode_json_array_string", VExplodeJsonArrayCreator<ParsedDataString>()},
-                {"explode_json_array_json", VExplodeJsonArrayCreator<ParsedDataJSON>()},
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},

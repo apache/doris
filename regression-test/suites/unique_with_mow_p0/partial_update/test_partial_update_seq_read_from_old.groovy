@@ -44,6 +44,7 @@ suite('test_partial_update_seq_read_from_old') {
             "light_schema_change" = "true",
             "enable_unique_key_skip_bitmap_column" = "true",
             "function_column.sequence_col" = "v1",
+            "enable_mow_light_delete" = "false",
             "store_row_column" = "${use_row_store}"); """
 
         sql "insert into ${tableName} values(1,1000,1,1,1,1);"

@@ -125,6 +125,17 @@ public:
         return get_partition_versions(txn, partition_ids, versions, versionstamps, snapshot_);
     }
 
+    // Get the partition versions from the given partition_ids.
+    // If the partition id is not found, it will be set to 1 in the versions map.
+    TxnErrorCode get_partition_versions(Transaction* txn, const std::vector<int64_t>& partition_ids,
+                                        std::unordered_map<int64_t, int64_t>* versions,
+                                        int64_t* last_pending_txn_id, bool snapshot);
+    TxnErrorCode get_partition_versions(Transaction* txn, const std::vector<int64_t>& partition_ids,
+                                        std::unordered_map<int64_t, int64_t>* versions,
+                                        int64_t* last_pending_txn_id) {
+        return get_partition_versions(txn, partition_ids, versions, last_pending_txn_id, snapshot_);
+    }
+
     // Get the tablet load stats for the given tablet
     //
     // If the `tablet_stats` is not nullptr, it will be filled with the deserialized TabletStatsPB.
@@ -225,6 +236,20 @@ public:
                                   std::vector<RowsetMetaCloudPB>* rowset_metas) {
         return get_rowset_metas(txn, tablet_id, start_version, end_version, rowset_metas,
                                 snapshot_);
+    }
+
+    // Get the load rowset meta for the given tablet_id and version.
+    TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot);
+    TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot);
+    TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta) {
+        return get_load_rowset_meta(tablet_id, version, rowset_meta, snapshot_);
+    }
+    TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta) {
+        return get_load_rowset_meta(txn, tablet_id, version, rowset_meta, snapshot_);
     }
 
     // Get the tablet meta keys.
