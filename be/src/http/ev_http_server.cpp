@@ -151,12 +151,12 @@ void EvHttpServer::stop() {
     }
     _workers->shutdown();
     _event_bases.clear();
-    close(_server_fd);
     _started = false;
 }
 
 void EvHttpServer::join() {
     _workers->join();
+    close(_server_fd);
 }
 
 Status EvHttpServer::_bind() {
