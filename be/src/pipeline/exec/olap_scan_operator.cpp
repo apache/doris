@@ -457,7 +457,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
         }
-        LOG_INFO("ParallelScan enabled. Created {} scanners", scanners->size());
+
         return Status::OK();
     }
 
@@ -509,8 +509,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
-        LOG_INFO("ParallelScan disabled. Created {} scanners, num of scan ranges {}",
-                 scanners->size(), _scan_ranges.size());
     }
     _tablets.clear();
     _read_sources.clear();
