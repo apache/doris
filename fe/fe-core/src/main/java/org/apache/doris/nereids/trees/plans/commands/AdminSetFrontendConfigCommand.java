@@ -39,7 +39,7 @@ import java.util.Map;
 /**
  * admin set frontend config ("key" = "value");
  */
-public class AdminSetFrontendConfigCommand extends Command implements ForwardWithSync {
+public class AdminSetFrontendConfigCommand extends Command implements Redirect {
     private boolean applyToAll;
     private NodeType type;
     private Map<String, String> configs;
@@ -111,10 +111,6 @@ public class AdminSetFrontendConfigCommand extends Command implements ForwardWit
         return configs;
     }
 
-    public RedirectStatus getRedirectStatus() {
-        return redirectStatus;
-    }
-
     /**
      * getLocalSetStmt
      */
@@ -124,5 +120,10 @@ public class AdminSetFrontendConfigCommand extends Command implements ForwardWit
                 keyArr[0].toString(), configs.get(keyArr[0].toString()));
 
         return new OriginStatement(sql, originStmt.idx);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return redirectStatus;
     }
 }
