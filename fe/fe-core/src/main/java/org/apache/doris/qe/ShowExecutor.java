@@ -17,16 +17,13 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
-import org.apache.doris.system.Diagnoser;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -50,11 +47,8 @@ public class ShowExecutor {
     }
 
     public ShowResultSet execute() throws AnalysisException {
-        checkStmtSupported();
         if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof DiagnoseTabletStmt) {
-            handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowIndexPolicyStmt) {
             handleShowIndexPolicy();
         } else {
@@ -128,28 +122,8 @@ public class ShowExecutor {
         }
     }
 
-    private void handleAdminDiagnoseTablet() {
-        DiagnoseTabletStmt showStmt = (DiagnoseTabletStmt) stmt;
-        List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
-        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
-        resultSet = new ShowResultSet(showMetaData, resultRowSet);
-    }
-
-
     public void handleShowIndexPolicy() throws AnalysisException {
         ShowIndexPolicyStmt showStmt = (ShowIndexPolicyStmt) stmt;
         resultSet = Env.getCurrentEnv().getIndexPolicyMgr().showIndexPolicy(showStmt);
-    }
-
-    private void checkStmtSupported() throws AnalysisException {
-        // check stmt has been supported in cloud mode
-        if (Config.isNotCloudMode()) {
-            return;
-        }
-
-        if (stmt instanceof DiagnoseTabletStmt) {
-            LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
-            throw new AnalysisException("Unsupported operation");
-        }
     }
 }

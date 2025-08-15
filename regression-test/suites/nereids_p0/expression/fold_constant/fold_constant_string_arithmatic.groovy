@@ -447,6 +447,10 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select locate('안녕', '哈哈こんにち안녕하세', 6)")
     testFoldConst("select locate('하세', '哈哈こんにち안녕하세', 9)")
     testFoldConst("select locate('세', '哈哈こんにち안녕하세', 11)")
+    testFoldConst("select locate('', '', 1)")
+    testFoldConst("select locate('', '你好世界', 1)")
+    testFoldConst("select locate('', '你好世界', 5)")
+
 
     // lower
     testFoldConst("select lower('AbC123')")
