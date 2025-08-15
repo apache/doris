@@ -220,7 +220,7 @@ suite("test_array_export", "export") {
             create_test_table.call(tableName)
 
             def resultCount = sql "select count(*) from ${tableName}"
-            currentTotalRows = resultCount[0][0]
+            def currentTotalRows = resultCount[0][0]
 
             def label = UUID.randomUUID().toString().replaceAll("-", "")
             select_out_file(tableName, hdfsDataDir + "/" + label + "/export-data", "csv", brokerName, hdfsUser, hdfsPasswd)
