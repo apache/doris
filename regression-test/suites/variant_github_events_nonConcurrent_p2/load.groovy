@@ -104,11 +104,9 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 
     // BUILD INDEX
-    try {
+    test {
         sql """ BUILD INDEX idx_var ON  github_events"""
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("The idx_var index can not be built on the v column, because it is a variant type column"))
+        exception "The idx_var index can not be built on the v column, because it is a variant type column"
     }
 
     // // add bloom filter at the end of loading data
