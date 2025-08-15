@@ -556,8 +556,6 @@ public class BindExpression implements AnalysisRuleFactory {
             conjunct = TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType.INSTANCE);
             boundConjuncts.add(conjunct);
         }
-        checkIfOutputAliasNameDuplicatedForGroupBy(boundConjuncts.build(),
-                child instanceof LogicalProject ? ((LogicalProject<?>) child).getOutputs() : child.getOutput());
         return new LogicalHaving<>(boundConjuncts.build(), child);
     }
 
@@ -1119,9 +1117,6 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         List<List<Expression>> boundGroupingSets = boundGroupingSetsBuilder.build();
         List<NamedExpression> nullableOutput = PlanUtils.adjustNullableForRepeat(boundGroupingSets, boundRepeatOutput);
-        for (List<Expression> groupingSet : boundGroupingSets) {
-            checkIfOutputAliasNameDuplicatedForGroupBy(groupingSet, nullableOutput);
-        }
 
         // check all GroupingScalarFunction inputSlots must be from groupingExprs
         Set<Slot> groupingExprs = boundGroupingSets.stream()
@@ -1228,7 +1223,6 @@ public class BindExpression implements AnalysisRuleFactory {
             boundGroupByBuilder.add(bindWithOrdinal(key, analyzer, boundAggOutput));
         }
         List<Expression> boundGroupBy = boundGroupByBuilder.build();
-        checkIfOutputAliasNameDuplicatedForGroupBy(boundGroupBy, boundAggOutput);
         return boundGroupBy;
     }
 
@@ -1340,31 +1334,6 @@ public class BindExpression implements AnalysisRuleFactory {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
         return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
-    }
-
-    private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,
-            List<? extends NamedExpression> output) {
-        // if group_by_and_having_use_alias_first=true, we should fall back to original planner until we
-        // support the session variable.
-        if (output.stream().noneMatch(Alias.class::isInstance)) {
-            return;
-        }
-        List<Alias> aliasList = ExpressionUtils.filter(output, Alias.class);
-
-        List<NamedExpression> exprAliasList =
-                ExpressionUtils.collectAll(expressions, NamedExpression.class::isInstance);
-
-        boolean isGroupByContainAlias = false;
-        for (NamedExpression ne : exprAliasList) {
-            for (Alias alias : aliasList) {
-                if (!alias.getExprId().equals(ne.getExprId()) && alias.getName().equalsIgnoreCase(ne.getName())) {
-                    isGroupByContainAlias = true;
-                }
-            }
-            if (isGroupByContainAlias) {
-                break;
-            }
-        }
     }
 
     private boolean isAggregateFunction(UnboundFunction unboundFunction, FunctionRegistry functionRegistry) {
