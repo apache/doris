@@ -364,7 +364,9 @@ public:
         }
         auto* cast_state = reinterpret_cast<CastState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        DCHECK(cast_state != nullptr) << "Function context for function '" << get_name();
+        if (cast_state == nullptr) {
+            return create_cast_function(context);
+        }
         return cast_state->cast_function;
     }
 
