@@ -114,9 +114,9 @@ Status CloudSnapshotMgr::commit_snapshot(int64_t tablet_id) {
     return Status::OK();
 }
 
-Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id) {
+Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id, bool is_completed) {
     SCOPED_ATTACH_TASK(_mem_tracker);
-    RETURN_IF_ERROR(_engine.meta_mgr().finish_restore_job(tablet_id));
+    RETURN_IF_ERROR(_engine.meta_mgr().finish_restore_job(tablet_id, is_completed));
     LOG(INFO) << "success to release snapshot. [tablet_id=" << tablet_id << "]";
     return Status::OK();
 }

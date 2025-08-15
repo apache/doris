@@ -1454,17 +1454,20 @@ void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskReque
 
     LOG(INFO) << "get release snapshot task. signature=" << req.signature;
 
-    Status status =
-            engine.cloud_snapshot_mgr().release_snapshot(release_snapshot_request.tablet_id);
+    Status status = engine.cloud_snapshot_mgr().release_snapshot(
+            release_snapshot_request.tablet_id, release_snapshot_request.is_job_completed);
+
     if (!status.ok()) {
         LOG_WARNING("failed to release snapshot")
                 .tag("signature", req.signature)
                 .tag("tablet_id", release_snapshot_request.tablet_id)
+                .tag("is_job_completed", release_snapshot_request.is_job_completed)
                 .error(status);
     } else {
         LOG_INFO("successfully release snapshot")
                 .tag("signature", req.signature)
-                .tag("tablet_id", release_snapshot_request.tablet_id);
+                .tag("tablet_id", release_snapshot_request.tablet_id)
+                .tag("is_job_completed", release_snapshot_request.is_job_completed);
     }
 
     TFinishTaskRequest finish_task_request;

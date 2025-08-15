@@ -357,13 +357,13 @@ public class BrokerFileGroup {
 
     public NereidsBrokerFileGroup toNereidsBrokerFileGroup() throws UserException {
         Expression deleteCondition = getDeleteCondition() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSqlWithoutTbl()).get(0)
                 : null;
         Expression precedingFilter = getPrecedingFilterExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().toSqlWithoutTbl()).get(0)
                 : null;
         Expression whereExpr = getWhereExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
                 : null;
         List<NereidsImportColumnDesc> importColumnDescs = null;
         if (columnExprList != null && !columnExprList.isEmpty()) {

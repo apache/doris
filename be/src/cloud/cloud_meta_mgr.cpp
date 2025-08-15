@@ -42,7 +42,6 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
-#include "cloud/schema_cloud_dictionary_cache.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -445,49 +444,6 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
     return Status::RpcError("failed to {}: rpc timeout, last msg={}", op_name, error_msg);
 }
 
-Status fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
-                             const SchemaCloudDictionary& dict) {
-    std::unordered_map<int32_t, ColumnPB*> unique_id_map;
-    //init map
-    for (ColumnPB& column : *out->mutable_tablet_schema()->mutable_column()) {
-        unique_id_map[column.unique_id()] = &column;
-    }
-    // column info
-    for (int i = 0; i < in.schema_dict_key_list().column_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().column_dict_key_list(i);
-        if (dict.column_dict().find(dict_key) == dict.column_dict().end()) {
-            return Status::NotFound("Not found entry {}", dict_key);
-        }
-        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
-        ColumnPB& to_add = *out->mutable_tablet_schema()->add_column();
-        to_add = dict_val;
-        VLOG_DEBUG << "fill dict column " << dict_val.ShortDebugString();
-    }
-
-    // index info
-    for (int i = 0; i < in.schema_dict_key_list().index_info_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().index_info_dict_key_list(i);
-        if (dict.index_dict().find(dict_key) == dict.index_dict().end()) {
-            return Status::NotFound("Not found entry {}", dict_key);
-        }
-        const doris::TabletIndexPB& dict_val = dict.index_dict().at(dict_key);
-        *out->mutable_tablet_schema()->add_index() = dict_val;
-        VLOG_DEBUG << "fill dict index " << dict_val.ShortDebugString();
-    }
-
-    // sparse column info
-    for (int i = 0; i < in.schema_dict_key_list().sparse_column_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().sparse_column_dict_key_list(i);
-        if (dict.column_dict().find(dict_key) == dict.column_dict().end()) {
-            return Status::NotFound("Not found entry {}", dict_key);
-        }
-        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
-        *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
-        VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
-    }
-    return Status::OK();
-}
-
 } // namespace
 
 Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta) {
@@ -562,10 +518,6 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             req.set_cumulative_point(tablet->cumulative_layer_point());
         }
         req.set_end_version(-1);
-        // backend side use schema dict in cache if enable cloud schema dict cache
-        req.set_schema_op(config::variant_use_cloud_schema_dict_cache
-                                  ? GetRowsetRequest::NO_DICT
-                                  : GetRowsetRequest::RETURN_DICT);
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
         auto start = std::chrono::steady_clock::now();
         stub->get_rowset(&cntl, &req, &resp, nullptr);
@@ -766,30 +718,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                     existed_rowset->rowset_id().to_string() == cloud_rs_meta_pb.rowset_id_v2()) {
                     continue; // Same rowset, skip it
                 }
-                RowsetMetaPB meta_pb;
-                // Check if the rowset meta contains a schema dictionary key list.
-                if (cloud_rs_meta_pb.has_schema_dict_key_list() && !resp.has_schema_dict()) {
-                    // Use the locally cached dictionary.
-                    RowsetMetaCloudPB copied_cloud_rs_meta_pb = cloud_rs_meta_pb;
-                    CloudStorageEngine& engine =
-                            ExecEnv::GetInstance()->storage_engine().to_cloud();
-                    {
-                        wlock.unlock();
-                        RETURN_IF_ERROR(
-                                engine.get_schema_cloud_dictionary_cache()
-                                        .replace_dict_keys_to_schema(cloud_rs_meta_pb.index_id(),
-                                                                     &copied_cloud_rs_meta_pb));
-                        wlock.lock();
-                    }
-                    meta_pb = cloud_rowset_meta_to_doris(copied_cloud_rs_meta_pb);
-                } else {
-                    // Otherwise, use the schema dictionary from the response (if available).
-                    meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
-                    if (resp.has_schema_dict()) {
-                        RETURN_IF_ERROR(fill_schema_with_dict(cloud_rs_meta_pb, &meta_pb,
-                                                              resp.schema_dict()));
-                    }
-                }
+                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
                 auto rs_meta = std::make_shared<RowsetMeta>();
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;
@@ -809,9 +738,6 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
                                     options.warmup_delta_data);
-                if (options.merge_schema) {
-                    RETURN_IF_ERROR(tablet->merge_rowsets_schema());
-                }
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
@@ -1051,21 +977,6 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
-    // Replace schema dictionary keys based on the rowset's index ID to maintain schema consistency.
-    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
-    // if not enable dict cache, then directly return true to avoid refresh
-    Status replaced_st =
-            config::variant_use_cloud_schema_dict_cache
-                    ? engine.get_schema_cloud_dictionary_cache().replace_schema_to_dict_keys(
-                              rs_meta_pb.index_id(), req.mutable_rowset_meta())
-                    : Status::OK();
-    // if the replaced_st is not ok and alse not NotFound, then we need to just return the replaced_st
-    VLOG_DEBUG << "replace schema to dict keys, replaced_st: " << replaced_st.to_string()
-               << ", replaced_st.is<ErrorCode::NOT_FOUND>(): "
-               << replaced_st.is<ErrorCode::NOT_FOUND>();
-    if (!replaced_st.ok() && !replaced_st.is<ErrorCode::NOT_FOUND>()) {
-        return replaced_st;
-    }
     Status st = retry_rpc("commit rowset", req, &resp, &MetaService_Stub::commit_rowset);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
@@ -1076,14 +987,6 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
         }
         return Status::AlreadyExist("failed to commit rowset: {}", resp.status().msg());
     }
-    // If dictionary replacement fails, it may indicate that the local schema dictionary is outdated.
-    // Refreshing the dictionary here ensures that the rowset metadata is updated with the latest schema definitions,
-    // which is critical for maintaining consistency between the rowset and its corresponding schema.
-    if (replaced_st.is<ErrorCode::NOT_FOUND>()) {
-        RETURN_IF_ERROR(
-                engine.get_schema_cloud_dictionary_cache().refresh_dict(rs_meta_pb.index_id()));
-    }
-
     int64_t timeout_ms = -1;
     // if the `job_id` is not empty, it means this rowset was produced by a compaction job.
     if (config::enable_compaction_delay_commit_for_warm_up && !job_id.empty()) {
@@ -1266,12 +1169,14 @@ Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
     return retry_rpc("commit restore job", req, &resp, &MetaService_Stub::commit_restore_job);
 }
 
-Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id) {
-    VLOG_DEBUG << "finish restore job, tablet_id: " << tablet_id;
+Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_completed) {
+    VLOG_DEBUG << "finish restore job, tablet_id: " << tablet_id
+               << ", is_completed: " << is_completed;
     RestoreJobRequest req;
     RestoreJobResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_id);
+    req.set_is_completed(is_completed);
 
     return retry_rpc("finish restore job", req, &resp, &MetaService_Stub::finish_restore_job);
 }
@@ -1682,34 +1587,6 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
         }
     }
     return total_inverted_index_size;
-}
-
-Status CloudMetaMgr::get_schema_dict(int64_t index_id,
-                                     std::shared_ptr<SchemaCloudDictionary>* schema_dict) {
-    VLOG_DEBUG << "Sending GetSchemaDictRequest, index_id: " << index_id;
-
-    // Create the request and response objects.
-    GetSchemaDictRequest req;
-    GetSchemaDictResponse resp;
-    req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_index_id(index_id);
-
-    // Invoke RPC via the retry_rpc helper function.
-    // It will call the MetaService_Stub::get_schema_dict method.
-    Status st = retry_rpc("get schema dict", req, &resp, &MetaService_Stub::get_schema_dict);
-    if (!st.ok()) {
-        return st;
-    }
-
-    // Optionally, additional checking of the response status can be done here.
-    // For example, if the returned status code indicates a parsing or not found error,
-    // you may return an error accordingly.
-
-    // Copy the retrieved schema dictionary from the response.
-    *schema_dict = std::make_shared<SchemaCloudDictionary>();
-    (*schema_dict)->Swap(resp.mutable_schema_dict());
-    VLOG_DEBUG << "Successfully obtained schema dict, index_id: " << index_id;
-    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

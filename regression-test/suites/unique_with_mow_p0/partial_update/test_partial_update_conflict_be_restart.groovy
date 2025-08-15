@@ -30,7 +30,6 @@ import org.apache.http.protocol.HttpContext
 import org.apache.http.HttpRequest
 import org.apache.http.impl.client.LaxRedirectStrategy
 import org.apache.http.client.methods.RequestBuilder
-import org.apache.http.entity.StringEntity
 import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 import org.apache.doris.regression.suite.ClusterOptions
@@ -69,9 +68,9 @@ suite("test_partial_update_conflict_be_restart", 'docker') {
             log.info("http_stream execute 2pc: ${command}")
 
             def process = command.execute()
-            code = process.waitFor()
-            out = process.text
-            json2pc = parseJson(out)
+            def code = process.waitFor()
+            def out = process.text
+            def json2pc = parseJson(out)
             log.info("http_stream 2pc result: ${out}".toString())
             assertEquals(code, 0)
             assertEquals("success", json2pc.status.toLowerCase())

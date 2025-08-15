@@ -363,6 +363,34 @@ TxnErrorCode MetaReader::get_partition_versions(
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode MetaReader::get_partition_versions(Transaction* txn,
+                                                const std::vector<int64_t>& partition_ids,
+                                                std::unordered_map<int64_t, int64_t>* versions,
+                                                int64_t* last_pending_txn_id, bool snapshot) {
+    std::unordered_map<int64_t, VersionPB> version_pb_map;
+    TxnErrorCode err =
+            get_partition_versions(txn, partition_ids, &version_pb_map, nullptr, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    for (int64_t partition_id : partition_ids) {
+        auto it = version_pb_map.find(partition_id);
+        if (it == version_pb_map.end()) {
+            versions->emplace(partition_id, 1);
+        } else {
+            const VersionPB& version_pb = it->second;
+            int64_t version = version_pb.version();
+            versions->emplace(partition_id, version);
+            if (last_pending_txn_id && version_pb.pending_txn_ids_size() > 0) {
+                *last_pending_txn_id = version_pb.pending_txn_ids(0);
+            }
+        }
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::get_rowset_metas(int64_t tablet_id, int64_t start_version,
                                           int64_t end_version,
                                           std::vector<RowsetMetaCloudPB>* rowset_metas,
@@ -468,6 +496,25 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
     }
 
     return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                              RowsetMetaCloudPB* rowset_meta, bool snapshot) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_load_rowset_meta(txn.get(), tablet_id, version, rowset_meta, snapshot);
+}
+
+TxnErrorCode MetaReader::get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                              RowsetMetaCloudPB* rowset_meta, bool snapshot) {
+    std::string load_rowset_key =
+            versioned::meta_rowset_load_key({instance_id_, tablet_id, version});
+    Versionstamp versionstamp;
+    return versioned::document_get(txn, load_rowset_key, snapshot_version_, rowset_meta,
+                                   &versionstamp, snapshot);
 }
 
 TxnErrorCode MetaReader::get_tablet_indexes(

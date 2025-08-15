@@ -222,7 +222,8 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
             add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
             type_changed = true;
         } else {
-            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable));
+            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable,
+                                                     info.precision, info.scale));
         }
     } else {
         if (least_common_type_dim != from_dim) {
@@ -1640,9 +1641,8 @@ struct Prefix {
 bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
     PrimitiveType base_type_id = least_common_type.get_base_type_id();
     const DataTypePtr& type = least_common_type.get();
-    // check if it is empty nested json array, then skip
-    if (base_type_id == PrimitiveType::TYPE_VARIANT) {
-        DCHECK(type->equals(*ColumnVariant::NESTED_TYPE));
+    if (type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+        // check if it is empty nested json array, then skip
         FieldWithDataType field;
         get(row, field);
         if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
@@ -1673,8 +1673,10 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
     if (root->data.is_null_at(nrow)) {
         return false;
     }
-    if (root->data.least_common_type.get_base_type_id() == PrimitiveType::TYPE_VARIANT) {
-        // nested field
+
+    // for top level array we should also use field to check if it is empty
+    if (root->data.least_common_type.get_type_id() == PrimitiveType::TYPE_ARRAY) {
+        // nested field which field is Array
         return !root->data.is_empty_nested(nrow);
     }
     for (const auto& subcolumn : subcolumns) {

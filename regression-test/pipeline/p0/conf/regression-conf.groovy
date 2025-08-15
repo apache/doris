@@ -78,7 +78,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "cloud," +
     "cloud_p0," +
-    "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
     "plsql_p0," + // plsql is not developped any more, add by sk
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line

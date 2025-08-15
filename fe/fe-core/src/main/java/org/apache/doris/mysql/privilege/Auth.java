@@ -18,7 +18,6 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.alter.AlterUserOpType;
-import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
@@ -1043,10 +1042,6 @@ public class Auth implements Writable {
 
     public void createRole(String role, boolean ignoreIfExists, String comment) throws DdlException {
         createRoleInternal(role, ignoreIfExists, comment, false);
-    }
-
-    public void alterRole(AlterRoleStmt stmt) throws DdlException {
-        alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }
 
     public void alterRole(String role, String comment) throws DdlException {

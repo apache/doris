@@ -17,30 +17,19 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.HelpStmt;
-import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.proc.ProcNodeInterface;
-import org.apache.doris.common.proc.RollupProcDir;
-import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
-import org.apache.doris.system.Diagnoser;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Objects;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -58,13 +47,8 @@ public class ShowExecutor {
     }
 
     public ShowResultSet execute() throws AnalysisException {
-        checkStmtSupported();
         if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowAlterStmt) {
-            handleShowAlter();
-        } else if (stmt instanceof DiagnoseTabletStmt) {
-            handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowIndexPolicyStmt) {
             handleShowIndexPolicy();
         } else {
@@ -78,30 +62,6 @@ public class ShowExecutor {
     private void handleEmtpy() {
         // Only success
         resultSet = new ShowResultSet(stmt.getMetaData(), EMPTY_SET);
-    }
-
-    /***
-     * get resultRowSet by function
-     * @param function
-     * @return
-     */
-    private List<List<String>> getResultRowSetByFunction(Function function) {
-        if (Objects.isNull(function)) {
-            return Lists.newArrayList();
-        }
-        List<List<String>> resultRowSet = Lists.newArrayList();
-        List<String> resultRow = Lists.newArrayList();
-        resultRow.add(function.signatureString());
-        resultRow.add(function.toSql(false));
-        resultRowSet.add(resultRow);
-        return resultRowSet;
-    }
-
-    public boolean isShowTablesCaseSensitive() {
-        if (GlobalVariable.lowerCaseTableNames == 0) {
-            return CaseSensibility.TABLE.getCaseSensibility();
-        }
-        return false;
     }
 
     // Handle help statement.
@@ -162,47 +122,8 @@ public class ShowExecutor {
         }
     }
 
-    // Show alter statement.
-    private void handleShowAlter() throws AnalysisException {
-        ShowAlterStmt showStmt = (ShowAlterStmt) stmt;
-        ProcNodeInterface procNodeI = showStmt.getNode();
-        Preconditions.checkNotNull(procNodeI);
-        List<List<String>> rows;
-        // Only SchemaChangeProc support where/order by/limit syntax
-        if (procNodeI instanceof SchemaChangeProcDir) {
-            rows = ((SchemaChangeProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
-        } else if (procNodeI instanceof RollupProcDir) {
-            rows = ((RollupProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
-        } else {
-            rows = procNodeI.fetchResult().getRows();
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleAdminDiagnoseTablet() {
-        DiagnoseTabletStmt showStmt = (DiagnoseTabletStmt) stmt;
-        List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
-        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
-        resultSet = new ShowResultSet(showMetaData, resultRowSet);
-    }
-
-
     public void handleShowIndexPolicy() throws AnalysisException {
         ShowIndexPolicyStmt showStmt = (ShowIndexPolicyStmt) stmt;
         resultSet = Env.getCurrentEnv().getIndexPolicyMgr().showIndexPolicy(showStmt);
-    }
-
-    private void checkStmtSupported() throws AnalysisException {
-        // check stmt has been supported in cloud mode
-        if (Config.isNotCloudMode()) {
-            return;
-        }
-
-        if (stmt instanceof DiagnoseTabletStmt) {
-            LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
-            throw new AnalysisException("Unsupported operation");
-        }
     }
 }
