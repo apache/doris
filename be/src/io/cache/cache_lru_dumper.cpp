@@ -292,10 +292,10 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
     return Status::OK();
 }
 
-void CacheLRUDumper::dump_queue(const std::string& queue_name) {
+void CacheLRUDumper::dump_queue(const std::string& queue_name, bool force) {
     FileCacheType type = string_to_cache_type(queue_name);
-    if (_recorder->get_lru_queue_update_cnt_from_last_dump(type) >
-        config::file_cache_background_lru_dump_update_cnt_threshold) {
+    if (force || _recorder->get_lru_queue_update_cnt_from_last_dump(type) >
+                         config::file_cache_background_lru_dump_update_cnt_threshold) {
         LRUQueue& queue = _recorder->get_shadow_queue(type);
         do_dump_queue(queue, queue_name);
         _recorder->reset_lru_queue_update_cnt_from_last_dump(type);
