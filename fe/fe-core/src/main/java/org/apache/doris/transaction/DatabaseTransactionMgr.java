@@ -2264,6 +2264,10 @@ public class DatabaseTransactionMgr {
                             }
                             replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
                             if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("{}.{}, index {} first loaded, set reported to false.",
+                                            db.getName(), table.getName(), index.getId());
+                                }
                                 index.setRowCountReported(false);
                             }
                             long beId = replica.getBackendIdWithoutException();

@@ -17,30 +17,32 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.nereids.exceptions.MustFallbackException;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 /**
- * all Nereids' unsupported command
+ * use to process empty statement: ""
  */
-public class UnsupportedCommand extends Command implements NoForward {
+public class EmptyCommand extends Command {
+    public EmptyCommand() {
+        super(PlanType.EMPTY_COMMAND);
+    }
 
-    public static UnsupportedCommand INSTANCE = new UnsupportedCommand();
-
-    public UnsupportedCommand() {
-        super(PlanType.UNSUPPORTED_COMMAND);
+    @Override
+    public StmtType stmtType() {
+        return StmtType.OTHER;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        throw new MustFallbackException("unsupported command");
+       // do nothing
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitUnsupportedCommand(this, context);
+        return visitor.visitEmptyCommand(this, context);
     }
 }

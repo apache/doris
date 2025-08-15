@@ -514,7 +514,6 @@ set(DORIS_LINK_LIBS
     Common
     Exec
     Exprs
-    Gutil
     IO
     Olap
     Runtime
@@ -774,7 +773,6 @@ add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/olap)
