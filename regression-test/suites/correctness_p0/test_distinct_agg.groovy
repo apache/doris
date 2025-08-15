@@ -43,7 +43,7 @@ suite("test_distinct_agg") {
         sql '''
             select avg_weighted(distinct k1, k1) from test_distinct_agg_t
         '''
-        exception "can't support multi distinct"
+        exception "cannot process more than one child in aggregate distinct function"
     }
 
     test {
