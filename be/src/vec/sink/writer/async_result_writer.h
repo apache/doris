@@ -79,6 +79,8 @@ public:
     bool thread_done() const {
         return !_future || _future->wait_for(std::chrono::seconds(0)) == std::future_status::ready;
     }
+    size_t data_queue_size() const { return _data_queue.size(); }
+    bool eos() const { return _eos; }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
