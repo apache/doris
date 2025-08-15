@@ -708,16 +708,14 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     if (reader == nullptr) {
         return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
     }
-    ColumnIterator* it;
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // use _column_reader_cache to get variant subcolumn(path column) reader
         RETURN_IF_ERROR(
                 assert_cast<VariantColumnReader*>(reader.get())
-                        ->new_iterator(&it, &tablet_column, opt, _column_reader_cache.get()));
+                        ->new_iterator(iter, &tablet_column, opt, _column_reader_cache.get()));
     } else {
-        RETURN_IF_ERROR(reader->new_iterator(&it, &tablet_column, opt));
+        RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
     }
-    iter->reset(it);
 
     if (config::enable_column_type_check && !tablet_column.has_path_info() &&
         tablet_column.type() != reader->get_meta_type()) {
