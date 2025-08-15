@@ -208,6 +208,8 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed2) {
 
 // TWgSlotMemoryPolicy::NONE
 // query_ctx->workload_group()->exceed_limit() == true
+// query limit > workload group limit
+// query's limit will be set to workload group limit
 TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
     WorkloadGroupInfo wg_info {
             .id = 1, .memory_limit = 1024L * 1024, .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
@@ -221,7 +223,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
         ASSERT_EQ(_wg_manager->_paused_queries_list[wg].size(), 1)
-                << "pasued queue should not be empty";
+                << "paused queue should not be empty";
     }
 
     wg->refresh_memory_usage();
@@ -231,10 +233,16 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
     // Query was not cancelled, because the query's limit is bigger than the wg's limit and the wg's policy is NONE.
     ASSERT_FALSE(query_context->is_cancelled());
-    ASSERT_GT(query_context->resource_ctx()->memory_context()->mem_limit(), wg->memory_limit());
+    // Its limit == workload group's limit
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), wg->memory_limit());
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
-    ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
+    ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty())
+            << "paused queue should be empty, because the query will be resumed";
+    // The query does not have any revoalable tasks, it will be resumed and disable reserve memory logic
+    // to run directly.
+    ASSERT_EQ(query_context->resource_ctx()->task_controller()->is_enable_reserve_memory(), false)
+            << "query should disable reserve memory";
 }
 
 // TWgSlotMemoryPolicy::FIXED
