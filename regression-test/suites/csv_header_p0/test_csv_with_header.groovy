@@ -59,7 +59,7 @@ suite("test_csv_with_header") {
     }
 
     def check_import_result = {checklabel, testTable4, expected_rows->
-        max_try_secs = 100000
+        def max_try_secs = 100000
         while(max_try_secs--) {
             def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {

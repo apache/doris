@@ -43,7 +43,7 @@ suite('test_ingestion_load_with_partition', 'p0') {
                     "properties": {}
                 }"""
 
-        resultFileNames = []    
+        def resultFileNames = []    
 
         httpTest {
             endpoint context.config.feHttpAddress

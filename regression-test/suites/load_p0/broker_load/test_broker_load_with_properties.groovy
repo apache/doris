@@ -74,7 +74,7 @@ suite("test_broker_load_with_properties", "load_p0") {
     }
 
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
             result = sql "show load where label = '${checklabel}'"
             log.info("result: ${result}")
