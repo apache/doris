@@ -25,7 +25,7 @@ suite("test_physical_translator") {
     sql 'SET disable_nereids_rules=PRUNE_EMPTY_PARTITION'
     sql "drop table if exists ${tbl} force"
     sql "create table ${tbl} (a int, b int) properties('replication_num' = '1')"
-    sql "insert into ${tbl} values(1, 10), (2, 20)"
+    sql "insert into ${tbl} values(1, 10), (200, 300)"
 
     def sql1 = """
         SELECT a, x as k1,  x as k2 FROM (SELECT a, random(100) as x FROM ${tbl}) t
@@ -38,7 +38,7 @@ suite("test_physical_translator") {
     }
 
     def sql2 = """
-        select * from (select a + 2 as x from ${tbl} where a > 5 limit 1)s where x > 5 and x < 100
+        select * from (select a + 2 as x from ${tbl} where b > 10 limit 100)s where x > 5 and x < 10000
     """
 
     explainAndOrderResult "continue_filter", sql2
