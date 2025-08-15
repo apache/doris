@@ -247,11 +247,11 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
                                         ->get_data()
                                         .data();
-        auto* __restrict null_map = const_cast<uint8_t*>(nullable->get_null_map_data().data());
+        const NullMap& null_map = nullable->get_null_map_data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
-        memset(null_map, 0, rows);
+        nullable->fill_false_to_nullmap(rows);
     } else if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();

@@ -42,6 +42,8 @@ public:
 
     Field get_top_value() override;
 
+    void _do_filter(Block* block);
+
 private:
     Status _prepare_sort_descs(Block* block);
 

@@ -140,13 +140,15 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
                 nullable_column->insert_many_defaults(row_size);
             } else {
                 if (!src_column.type->is_nullable()) {
-                    output_columns[cur_col] = std::move(*vectorized::make_nullable(src)).mutate();
+                    nullable_column->get_nested_column().insert_range_from(*src_column.column, 0,
+                                                                           row_size);
+                    nullable_column->push_false_to_nullmap(row_size);
                 } else {
-                    output_columns[cur_col] = std::move(*src).mutate();
+                    nullable_column->insert_range_from(*src_column.column, 0, row_size);
                 }
             }
         } else {
-            output_columns[cur_col] = std::move(*src).mutate();
+            output_columns[cur_col]->insert_range_from(*src_column.column, 0, row_size);
         }
         cur_col++;
     }

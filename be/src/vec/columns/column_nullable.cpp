@@ -181,7 +181,7 @@ void ColumnNullable::insert_data(const char* pos, size_t length) {
         _need_update_has_null = false;
     } else {
         get_nested_column().insert_data(pos, length);
-        _push_false_to_nullmap(1);
+        push_false_to_nullmap(1);
     }
 }
 
@@ -189,7 +189,7 @@ void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
     auto not_null_count = 0;
     for (size_t i = 0; i != num; ++i) {
         if (strings[i].data == nullptr) {
-            _push_false_to_nullmap(not_null_count);
+            push_false_to_nullmap(not_null_count);
             not_null_count = 0;
             get_null_map_data().push_back(1);
             _has_null = true;
@@ -198,7 +198,7 @@ void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
         }
     }
     if (not_null_count) {
-        _push_false_to_nullmap(not_null_count);
+        push_false_to_nullmap(not_null_count);
     }
     nested_column->insert_many_strings(strings, num);
 }
@@ -309,7 +309,7 @@ void ColumnNullable::insert_indices_from_not_has_null(const IColumn& src,
     const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
                                             indices_end);
-    _push_false_to_nullmap(indices_end - indices_begin);
+    push_false_to_nullmap(indices_end - indices_begin);
 }
 
 void ColumnNullable::insert(const Field& x) {
@@ -320,7 +320,7 @@ void ColumnNullable::insert(const Field& x) {
         _need_update_has_null = false;
     } else {
         get_nested_column().insert(x);
-        _push_false_to_nullmap(1);
+        push_false_to_nullmap(1);
     }
 }
 
@@ -341,9 +341,9 @@ void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
                                              size_t end) const {
     auto& res_column = assert_cast<ColumnNullable&>(*res);
     auto res_nested_column = res_column.get_nested_column_ptr();
-    this->get_nested_column().append_data_by_selector(res_nested_column, selector, begin, end);
+    get_nested_column().append_data_by_selector(res_nested_column, selector, begin, end);
     auto res_null_map = res_column.get_null_map_column_ptr();
-    this->get_null_map_column().append_data_by_selector(res_null_map, selector, begin, end);
+    get_null_map_column().append_data_by_selector(res_null_map, selector, begin, end);
 }
 
 void ColumnNullable::pop_back(size_t n) {
@@ -523,7 +523,7 @@ void ColumnNullable::get_permutation(bool reverse, size_t limit, int null_direct
 
 void ColumnNullable::reserve(size_t n) {
     get_nested_column().reserve(n);
-    get_null_map_data(false).reserve(n);
+    get_null_map_data().reserve(n);
 }
 
 void ColumnNullable::resize(size_t n) {
