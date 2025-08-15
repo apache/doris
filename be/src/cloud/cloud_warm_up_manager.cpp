@@ -522,10 +522,10 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
                   << ", skipping rowset=" << rs_meta.rowset_id().to_string();
         return;
     }
-    Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, !cache_hit);
+    Status st = _do_warm_up_rowset(rs_meta, replicas, !cache_hit);
     if (cache_hit && !st.ok() && st.is<ErrorCode::TABLE_NOT_FOUND>()) {
         replicas = get_replica_info(rs_meta.tablet_id(), true, cache_hit);
-        st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, true);
+        st = _do_warm_up_rowset(rs_meta, replicas, true);
     }
     if (!st.ok()) {
         LOG(WARNING) << "Failed to warm up rowset, tablet_id=" << rs_meta.tablet_id()
