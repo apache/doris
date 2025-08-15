@@ -72,8 +72,6 @@ protected:
 
         config::spill_in_paused_queue_timeout_ms = 2000;
         doris::ExecEnv::GetInstance()->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-
-        std::cout << "ss1" << std::endl;
     }
     void TearDown() override {
         _wg_manager.reset();
@@ -83,7 +81,6 @@ protected:
         EXPECT_EQ(system("rm -rf ./wg_test_run"), 0);
         config::spill_in_paused_queue_timeout_ms = _spill_in_paused_queue_timeout_ms;
         doris::ExecEnv::GetInstance()->set_memtable_memory_limiter(nullptr);
-        std::cout << "tearDown" << std::endl;
     }
 
 private:
