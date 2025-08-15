@@ -25,7 +25,6 @@ suite("test_es_datetime_type_conversion", "p0,external,es,external_docker,extern
         sql """drop catalog if exists test_es_datetime_fix_7;"""
         sql """drop catalog if exists test_es_datetime_fix_8;"""
 
-        // Create ES catalog for testing datetime type conversion fix
         sql """create catalog if not exists test_es_datetime_fix_7 properties(
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_7_port",
@@ -72,13 +71,13 @@ suite("test_es_datetime_type_conversion", "p0,external,es,external_docker,extern
         def test_datetime_timezone_format_fix = { catalog_name ->
             sql """switch ${catalog_name}"""
 
-            // Test 1: select * should work after fix
+            // Test 1: select * should work after fix for existing data
             try {
-                executeWithRetry("""select * from test1 where test1='string1' limit 1""", "datetime_select_all_with_timezone", 30)
-                logger.info("select * with datetime timezone format - SUCCESS")
+                executeWithRetry("""select * from test1 where test1='string1' limit 1""", "datetime_select_all_existing", 30)
+                logger.info("select * with existing datetime data - SUCCESS")
             } catch (Exception e) {
                 if (e.getMessage().contains("Expected value of type") && e.getMessage().contains("DATETIMEV2") && e.getMessage().contains("Varchar/Char")) {
-                    throw new RuntimeException("BUG NOT FIXED: select * still fails with datetime timezone format: " + e.getMessage())
+                    throw new RuntimeException("BUG NOT FIXED: select * still fails with existing datetime format: " + e.getMessage())
                 } else {
                     throw e
                 }
@@ -89,10 +88,46 @@ suite("test_es_datetime_type_conversion", "p0,external,es,external_docker,extern
             logger.info("select individual datetime field - SUCCESS")
 
             // Test 3: Multiple fields including datetime should work
-            executeWithRetry("""select test1, test6, test7, test8 from test1 where test1='string1' limit 1""", "datetime_multiple_fields_with_timezone", 30)
+            executeWithRetry("""select test1, test6, test7, test8 from test1 where test1='string1' limit 1""", "datetime_multiple_fields", 30)
             logger.info("select multiple datetime fields - SUCCESS")
-        }
 
+            // Test 4: Test existing timezone formats (backward compatibility)
+            try {
+                executeWithRetry("""select test1, test8, test10 from test1 where test1='string1' limit 1""", "datetime_timezone_z_format", 30)
+                logger.info("select datetime fields with Z timezone format - SUCCESS")
+            } catch (Exception e) {
+                if (e.getMessage().contains("Expected value of type") && e.getMessage().contains("DATETIMEV2") && e.getMessage().contains("Varchar/Char")) {
+                    throw new RuntimeException("BUG NOT FIXED: Z timezone format parsing still fails: " + e.getMessage())
+                } else {
+                    throw e
+                }
+            }
+
+            // Test 5: Test specific timezone formats that the fix addresses
+            try {
+                executeWithRetry("""select test1, test11, test12 from test1 where test1='string1' limit 1""", "datetime_timezone_no_colon_format", 30)
+                logger.info("select datetime fields with timezone format without colon - SUCCESS")
+            } catch (Exception e) {
+                if (e.getMessage().contains("Expected value of type") && e.getMessage().contains("DATETIMEV2") && e.getMessage().contains("Varchar/Char")) {
+                    throw new RuntimeException("BUG NOT FIXED: Timezone format without colon parsing still fails: " + e.getMessage())
+                } else {
+                    throw e
+                }
+            }
+            // Test 6: Comprehensive select * test to ensure all datetime fields work together
+            try {
+                executeWithRetry("""select * from test1 limit 1""", "datetime_comprehensive_select_all", 30)
+                logger.info("Comprehensive select * test - SUCCESS")
+            } catch (Exception e) {
+                if (e.getMessage().contains("Expected value of type") && e.getMessage().contains("DATETIMEV2") && e.getMessage().contains("Varchar/Char")) {
+                    throw new RuntimeException("BUG NOT FIXED: Comprehensive select * still fails with datetime parsing: " + e.getMessage())
+                } else {
+                    throw e
+                }
+            }
+
+
+        }
         test_datetime_timezone_format_fix("test_es_datetime_fix_7")
         test_datetime_timezone_format_fix("test_es_datetime_fix_8")
 
