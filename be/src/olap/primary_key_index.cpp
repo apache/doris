@@ -19,6 +19,7 @@
 
 #include <butil/time.h>
 #include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
 
 #include <utility>
 
@@ -26,13 +27,13 @@
 #include "common/config.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/types.h"
 
 namespace doris {
-
 static bvar::Adder<size_t> g_primary_key_index_memory_bytes("doris_primary_key_index_memory_bytes");
 
 Status PrimaryKeyIndexBuilder::init() {
@@ -116,9 +117,14 @@ Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
                                                        column_index_meta.bloom_filter_index());
     RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false,
                                          pk_index_load_stats));
-    std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
-    RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter, pk_index_load_stats));
-    RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));
+    Slice bf_data;
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(bf_index_reader.file_reader()->read_at(0, bf_data, &bytes_read));
+    DCHECK_EQ(bf_data.get_size(), bytes_read);
+    RETURN_IF_ERROR(
+            segment_v2::BloomFilter::create(bf_index_reader.algorithm(), &_bf, bf_data.get_size()));
+    RETURN_IF_ERROR(
+            (*_bf).init(bf_data.get_data(), bf_data.get_size(), bf_index_reader.hash_strategy()));
     segment_v2::g_pk_total_bloom_filter_num << 1;
     segment_v2::g_pk_total_bloom_filter_total_bytes << _bf->size();
     segment_v2::g_pk_read_bloom_filter_num << 1;
