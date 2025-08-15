@@ -522,18 +522,29 @@ TEST_F(CloudIndexChangeCompactionTest, basic_compaction_test) {
     ASSERT_FALSE(cloud_cumu_compaction.is_index_change_compaction());
 
     // test get_output_schema
+    Status ret;
     cloud_base_compaction._input_rowsets.push_back(rowset_ptr);
-    reinterpret_cast<CloudCompactionMixin*>(&cloud_base_compaction)->build_basic_info();
+    reinterpret_cast<CloudCompactionMixin*>(&cloud_base_compaction)
+            ->_enable_vertical_compact_variant_subcolumns = false;
+    ret = reinterpret_cast<CloudCompactionMixin*>(&cloud_base_compaction)->build_basic_info();
     ASSERT_TRUE(cloud_base_compaction.get_output_schema() == tablet_schema1);
+    ASSERT_TRUE(ret.ok());
 
     cloud_cumu_compaction._input_rowsets.push_back(rowset_ptr);
-    reinterpret_cast<CloudCompactionMixin*>(&cloud_cumu_compaction)->build_basic_info();
+    reinterpret_cast<CloudCompactionMixin*>(&cloud_cumu_compaction)
+            ->_enable_vertical_compact_variant_subcolumns = false;
+    ret = reinterpret_cast<CloudCompactionMixin*>(&cloud_cumu_compaction)->build_basic_info();
     ASSERT_TRUE(cloud_cumu_compaction.get_output_schema() == tablet_schema1);
+    ASSERT_TRUE(ret.ok());
 
     cloud_index_change_compaction._input_rowsets.push_back(rowset_ptr);
-    reinterpret_cast<CloudCompactionMixin*>(&cloud_index_change_compaction)->build_basic_info();
+    reinterpret_cast<CloudCompactionMixin*>(&cloud_index_change_compaction)
+            ->_enable_vertical_compact_variant_subcolumns = false;
+    ret = reinterpret_cast<CloudCompactionMixin*>(&cloud_index_change_compaction)
+                  ->build_basic_info();
     ASSERT_TRUE(cloud_index_change_compaction.get_output_schema() != tablet_schema1);
     ASSERT_TRUE(cloud_index_change_compaction.get_output_schema() == tablet_schema2);
+    ASSERT_TRUE(ret.ok());
 
     // test delete predicate
     cloud_index_change_compaction._input_rowsets.clear();
