@@ -40,7 +40,7 @@ Status IcebergSysTableJniReader::init_reader(
     }
     std::map<std::string, std::string> params;
     // "," is not in base64
-    params["serialized_tasks"] = join(_meta_scan_range.serialized_splits, ",");
+    params["serialized_splits"] = join(_meta_scan_range.serialized_splits, ",");
     params["required_fields"] = join(required_fields, ",");
     params["required_types"] = join(required_types, "#");
     params["time_zone"] = _state->timezone();
