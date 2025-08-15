@@ -215,7 +215,7 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
         }
     }
 
-    if (keys_to_update && !is_top_array) {
+    if (keys_to_update && !(is_top_array && ctx.has_nested_in_flatten)) {
         fillMissedValuesInArrays(ctx);
     }
 }
@@ -247,7 +247,7 @@ void JSONDataParser<ParserImpl>::handleExistingPath(std::pair<PathInData::Parts,
     auto& path_array = path_data.second;
     // For top_array structure we no need to check cur array size equals ctx.current_size
     // because we do not need to maintain the association information between Nested in array
-    if (!ctx.is_top_array) {
+    if (!(ctx.is_top_array && ctx.has_nested_in_flatten)) {
         assert(path_array.size() == ctx.current_size);
     }
     // If current element of array is part of Nested,
@@ -278,7 +278,7 @@ void JSONDataParser<ParserImpl>::handleNewPath(UInt128 hash, const PathInData::P
 
     // For top_array structure we no need to resize array
     // because we no need to fill default values for maintaining the association information between Nested in array
-    if (!ctx.is_top_array) {
+    if (!(ctx.is_top_array && ctx.has_nested_in_flatten)) {
         path_array.resize(ctx.current_size);
     }
 
