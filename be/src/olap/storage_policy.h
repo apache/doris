@@ -104,6 +104,8 @@ void put_storage_resource(int64_t resource_id, StorageResource resource, int64_t
 
 void delete_storage_resource(int64_t resource_id);
 
+void clear_storage_resource();
+
 // return [id, version] of all resources
 std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids();
 
