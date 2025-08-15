@@ -2120,6 +2120,20 @@ public class SchemaChangeHandler extends AlterHandler {
                         throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
                     }
 
+                    for (Column column : olapTable.getBaseSchema()) {
+                        if (!column.getType().isVariantType()) {
+                            continue;
+                        }
+                        // variant type column can not support for building index
+                        for (String indexColumn : index.getColumns()) {
+                            if (column.getName().equalsIgnoreCase(indexColumn)) {
+                                throw new DdlException("BUILD INDEX operation failed: The "
+                                        + indexDef.getIndexName() + " index can not be built on the "
+                                        + indexColumn + " column, because it is a variant type column.");
+                            }
+                        }
+                    }
+
                     if (indexDef.getPartitionNames().isEmpty()) {
                         indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                     } else {

@@ -631,7 +631,7 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
     using CppNativeType = CppType;
     using ColumnItemType = HyperLogLog;
     using DataType = vectorized::DataTypeHLL;
-    using ColumnType = vectorized::ColumnString;
+    using ColumnType = vectorized::ColumnHLL;
     using NearestFieldType = HyperLogLog;
     using AvgNearestFieldType = HyperLogLog;
     using AvgNearestFieldType256 = HyperLogLog;

@@ -15,15 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.annotation;
+package org.apache.doris.nereids.trees.expressions.functions.generator;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
-
-// You can use this annotation when throw exception the program will exit.
-@Target(ElementType.METHOD)
-@Retention(RetentionPolicy.RUNTIME)
-public @interface NoException {
+/**
+ * interface for all functions need to be rewritten.
+ */
+public interface RewriteWhenAnalyze {
+    TableGeneratingFunction rewrite();
 }

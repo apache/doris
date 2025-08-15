@@ -1662,10 +1662,6 @@ create_stmt ::=
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index);
     :}
-    | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
-    {:
-        RESULT = new AlterRoleStmt(role, comment);
-    :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
@@ -2455,10 +2451,6 @@ recover_stmt ::=
     KW_RECOVER KW_DATABASE ident:dbName opt_id:dbId opt_alias:alias
     {:
         RESULT = new RecoverDbStmt(dbName, dbId, alias);
-    :}
-    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName
-    {:
-        RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias);
     :}
     ;
 
