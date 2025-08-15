@@ -15,15 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
+package org.apache.doris.datasource.credentials;
 
 import java.util.Map;
 
-@Deprecated
-public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
+/**
+ * Interface for future FileIO-based credential extraction.
+ * This interface is designed to be compatible with Iceberg/Paimon FileIO
+ */
+public interface CredentialExtractor {
+    // AWS credential property keys for backend
+    String BACKEND_AWS_ACCESS_KEY = "AWS_ACCESS_KEY";
+    String BACKEND_AWS_SECRET_KEY = "AWS_SECRET_KEY";
+    String BACKEND_AWS_TOKEN = "AWS_TOKEN";
+    String BACKEND_AWS_ENDPOINT = "AWS_ENDPOINT";
+    String BACKEND_AWS_REGION = "AWS_REGION";
 
-    public PaimonHMSExternalCatalog(long catalogId, String name, String resource,
-            Map<String, String> props, String comment) {
-        super(catalogId, name, resource, props, comment);
-    }
+    /**
+     * Extract credentials from a generic properties map.
+     *
+     * @param properties properties map from any source (FileIO, Table IO, etc.)
+     * @return extracted credentials as backend properties
+     */
+    Map<String, String> extractCredentials(Map<String, String> properties);
 }

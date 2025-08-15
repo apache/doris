@@ -140,4 +140,11 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
         hadoopStorageConfig.set("fs.obs.secret.key", secretKey);
         hadoopStorageConfig.set("fs.obs.endpoint", endpoint);
     }
+
+    protected void setEndpointIfPossible() {
+        super.setEndpointIfPossible();
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Property obs.endpoint is required.");
+        }
+    }
 }

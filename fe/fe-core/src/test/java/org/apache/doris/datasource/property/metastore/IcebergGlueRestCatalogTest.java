@@ -30,60 +30,21 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.io.CloseableIterable;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-@Disabled("Disabled until fill ak/sk")
-public class RestCatalogTest {
+@Disabled("set your AWS access key, secret key and account ID before running the test")
+public class IcebergGlueRestCatalogTest {
 
-    // set your AWS access key and secret key
-    private String ak = "";
-    private String sk = "";
-
-    @BeforeEach
-    protected void initCatalog() {
-    }
-
-    private Catalog initGlueRestCatalog() {
-        Map<String, String> options = Maps.newHashMap();
-        options.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_REST);
-        options.put(CatalogProperties.URI, "https://glue.ap-east-1.amazonaws.com/iceberg");
-        options.put(CatalogProperties.WAREHOUSE_LOCATION, "169698404049:s3tablescatalog/s3-table-bucket-hk-glue-test");
-        // remove this endpoint prop, or, add https://
-        options.put(S3FileIOProperties.ENDPOINT, "https://s3.ap-east-1.amazonaws.com");
-        // must set:
-        // software.amazon.awssdk.core.exception.SdkClientException: Unable to load region from any of the providers in
-        // the chain software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain@627ff1b8:
-        // [software.amazon.awssdk.regions.providers.SystemSettingsRegionProvider@67d32a54:
-        // Unable to load region from system settings. Region must be specified either via environment variable
-        // (AWS_REGION) or  system property (aws.region).,
-        // software.amazon.awssdk.regions.providers.AwsProfileRegionProvider@2792b416: No region provided in profile:
-        // default, software.amazon.awssdk.regions.providers.InstanceProfileRegionProvider@5cff6b74:
-        // Unable to contact EC2 metadata service.]
-        options.put(AwsClientProperties.CLIENT_REGION, "ap-east-1");
-        // Forbidden: {"message":"Missing Authentication Token"}
-        options.put("rest.sigv4-enabled", "true");
-        // Forbidden: {"message":"Credential should be scoped to correct service: 'glue'. "}
-        options.put("rest.signing-name", "glue");
-        //  Forbidden: {"message":"The security token included in the request is invalid."}
-        options.put("rest.access-key-id", ak);
-        // Forbidden: {"message":"The request signature we calculated does not match the signature you provided.
-        // Check your AWS Secret Access Key and signing method. Consult the service documentation for details."}
-        options.put("rest.secret-access-key", sk);
-        // same as AwsClientProperties.CLIENT_REGION, "ap-east-1"
-        options.put("rest.signing-region", "ap-east-1");
-        // options.put("iceberg.catalog.warehouse", "<accountid>:s3tablescatalog/<table-bucket-name>");
-        // 4. Build iceberg catalog
-        Configuration conf = new Configuration();
-        return CatalogUtil.buildIcebergCatalog("glue_test", options, conf);
-    }
+    private String awsAk = "";
+    private String awsSk = "";
+    private String awsAccountId = "";
 
     @Test
-    public void testGlueRestCatalog() {
-        Catalog glueRestCatalog = initGlueRestCatalog();
+    public void testIcebergGlueRestCatalog() {
+        Catalog glueRestCatalog = initIcebergGlueRestCatalog();
         SupportsNamespaces nsCatalog = (SupportsNamespaces) glueRestCatalog;
         // List namespaces and assert
         nsCatalog.listNamespaces(Namespace.empty()).forEach(namespace1 -> {
@@ -108,5 +69,40 @@ public class RestCatalogTest {
                 });
             });
         });
+    }
+
+    private Catalog initIcebergGlueRestCatalog() {
+        Map<String, String> options = Maps.newHashMap();
+        options.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_REST);
+        options.put(CatalogProperties.URI, "https://glue.ap-east-1.amazonaws.com/iceberg");
+        options.put(CatalogProperties.WAREHOUSE_LOCATION,
+                awsAccountId + ":s3tablescatalog/s3-table-bucket-hk-glue-test");
+        // remove this endpoint prop, or, add https://
+        options.put(S3FileIOProperties.ENDPOINT, "https://s3.ap-east-1.amazonaws.com");
+        // must set:
+        // software.amazon.awssdk.core.exception.SdkClientException: Unable to load region from any of the providers in
+        // the chain software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain@627ff1b8:
+        // [software.amazon.awssdk.regions.providers.SystemSettingsRegionProvider@67d32a54:
+        // Unable to load region from system settings. Region must be specified either via environment variable
+        // (AWS_REGION) or  system property (aws.region).,
+        // software.amazon.awssdk.regions.providers.AwsProfileRegionProvider@2792b416: No region provided in profile:
+        // default, software.amazon.awssdk.regions.providers.InstanceProfileRegionProvider@5cff6b74:
+        // Unable to contact EC2 metadata service.]
+        options.put(AwsClientProperties.CLIENT_REGION, "ap-east-1");
+        // Forbidden: {"message":"Missing Authentication Token"}
+        options.put("rest.sigv4-enabled", "true");
+        // Forbidden: {"message":"Credential should be scoped to correct service: 'glue'. "}
+        options.put("rest.signing-name", "glue");
+        //  Forbidden: {"message":"The security token included in the request is invalid."}
+        options.put("rest.access-key-id", awsAk);
+        // Forbidden: {"message":"The request signature we calculated does not match the signature you provided.
+        // Check your AWS Secret Access Key and signing method. Consult the service documentation for details."}
+        options.put("rest.secret-access-key", awsSk);
+        // same as AwsClientProperties.CLIENT_REGION, "ap-east-1"
+        options.put("rest.signing-region", "ap-east-1");
+        // options.put("iceberg.catalog.warehouse", "<accountid>:s3tablescatalog/<table-bucket-name>");
+        // 4. Build iceberg catalog
+        Configuration conf = new Configuration();
+        return CatalogUtil.buildIcebergCatalog("glue_test", options, conf);
     }
 }

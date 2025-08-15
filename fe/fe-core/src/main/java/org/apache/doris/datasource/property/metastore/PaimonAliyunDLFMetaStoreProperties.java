@@ -105,7 +105,6 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
         return CatalogFactory.createCatalog(catalogContext);
     }
 
-
     @Override
     protected void appendCustomCatalogOptions() {
         catalogOptions.set("metastore.client.class", ProxyMetaStoreClient.class.getName());

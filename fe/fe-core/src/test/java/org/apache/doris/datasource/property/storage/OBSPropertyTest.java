@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
@@ -36,18 +37,20 @@ public class OBSPropertyTest {
         origProps.put("obs.access_key", "myOBSAccessKey");
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Invalid endpoint format: https://obs.example.com");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Invalid endpoint: https://obs.example.com", () -> StorageProperties.createAll(origProps));
 
         // Test creation without additional properties
         origProps = new HashMap<>();
-        origProps.put("obs.endpoint", "https://obs.example.com");
+        origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
-
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Property obs.access_key is required.");
+        // allow both access_key and secret_key to be empty for anonymous access
+        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createAll(origProps));
         origProps.put("obs.access_key", "myOBSAccessKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Property obs.secret_key is required.");
+        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+                () -> StorageProperties.createAll(origProps));
         origProps.put("obs.secret_key", "myOBSSecretKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Invalid endpoint format: https://obs.example.com");
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
         origProps.put("obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com");
@@ -95,48 +98,51 @@ public class OBSPropertyTest {
     @Test
     public void testGetRegion() throws UserException {
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
-        origProps.put("obs.access_key", "myCOSAccessKey");
-        origProps.put("obs.secret_key", "myCOSSecretKey");
+        origProps.put("obs.access_key", "myOBSAccessKey");
+        origProps.put("obs.secret_key", "myOBSSecretKey");
         OBSProperties obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
         Assertions.assertEquals("cn-north-4", obsProperties.getRegion());
-        Assertions.assertEquals("myCOSAccessKey", obsProperties.getAccessKey());
-        Assertions.assertEquals("myCOSSecretKey", obsProperties.getSecretKey());
+        Assertions.assertEquals("myOBSAccessKey", obsProperties.getAccessKey());
+        Assertions.assertEquals("myOBSSecretKey", obsProperties.getSecretKey());
         Assertions.assertEquals("obs.cn-north-4.myhuaweicloud.com", obsProperties.getEndpoint());
     }
 
     @Test
     public void testGetRegionWithDefault() throws UserException {
         origProps.put("uri", "https://examplebucket-1250000000.obs.cn-north-4.myhuaweicloud.com/test/file.txt");
-        origProps.put("obs.access_key", "myCOSAccessKey");
-        origProps.put("obs.secret_key", "myCOSSecretKey");
+        origProps.put("obs.access_key", "myOBSAccessKey");
+        origProps.put("obs.secret_key", "myOBSSecretKey");
         OBSProperties obsProperties = (OBSProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-north-4", obsProperties.getRegion());
-        Assertions.assertEquals("myCOSAccessKey", obsProperties.getAccessKey());
-        Assertions.assertEquals("myCOSSecretKey", obsProperties.getSecretKey());
+        Assertions.assertEquals("myOBSAccessKey", obsProperties.getAccessKey());
+        Assertions.assertEquals("myOBSSecretKey", obsProperties.getSecretKey());
         Assertions.assertEquals("obs.cn-north-4.myhuaweicloud.com", obsProperties.getEndpoint());
-        Map<String, String> cosNoEndpointProps = new HashMap<>();
-        cosNoEndpointProps.put("obs.access_key", "myCOSAccessKey");
-        cosNoEndpointProps.put("obs.secret_key", "myCOSSecretKey");
-        cosNoEndpointProps.put("obs.region", "ap-beijing");
-        cosNoEndpointProps.put("uri", "s3://examplebucket-1250000000/myhuaweicloud.com/test/file.txt");
+        Map<String, String> obsNoEndpointProps = new HashMap<>();
+        obsNoEndpointProps.put("obs.access_key", "myOBSAccessKey");
+        obsNoEndpointProps.put("obs.secret_key", "myOBSSecretKey");
+        obsNoEndpointProps.put("obs.region", "ap-beijing");
+        obsNoEndpointProps.put("uri", "s3://examplebucket-1250000000/myhuaweicloud.com/test/file.txt");
         //not support
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(cosNoEndpointProps), "Property cos.endpoint is required.");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Property obs.endpoint is required.", () -> StorageProperties.createPrimary(obsNoEndpointProps));
     }
 
     @Test
     public void testmissingAccessKey() {
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
-        origProps.put("obs.secret_key", "myCOSSecretKey");
-        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+        origProps.put("obs.secret_key", "myOBSSecretKey");
+        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+                () -> StorageProperties.createPrimary(origProps));
     }
 
     @Test
     public void testMissingSecretKey() {
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
-        origProps.put("obs.access_key", "myCOSAccessKey");
-        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+        origProps.put("obs.access_key", "myOBSAccessKey");
+        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+                () -> StorageProperties.createPrimary(origProps));
     }
 
     private static String obsAccessKey = "";
