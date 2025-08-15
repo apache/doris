@@ -27,7 +27,6 @@
 #include <string_view>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 
 namespace doris {
 
@@ -104,7 +103,7 @@ private:
     std::condition_variable _high_prior_condv;
     std::deque<std::unique_ptr<TAgentTaskRequest>> _high_prior_queue;
 
-    std::vector<scoped_refptr<Thread>> _workers;
+    std::vector<std::shared_ptr<Thread>> _workers;
 
     std::function<void(const TAgentTaskRequest&)> _callback;
 };
@@ -125,7 +124,7 @@ public:
 
 private:
     std::string _name;
-    scoped_refptr<Thread> _thread;
+    std::shared_ptr<Thread> _thread;
 
     std::mutex _mtx;
     std::condition_variable _condv;

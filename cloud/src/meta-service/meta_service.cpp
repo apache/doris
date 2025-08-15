@@ -2994,21 +2994,21 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             txn.reset(nullptr);
         };
 
+        auto tablet_stats = response->add_tablet_stats();
         if (!is_versioned_read) {
             if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
                   idx.has_partition_id() && i.has_tablet_id())) {
                 get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
                 if (code != MetaServiceCode::OK) return;
             }
-            auto tablet_stats = response->add_tablet_stats();
             internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
             if (code != MetaServiceCode::OK) {
                 response->clear_tablet_stats();
                 break;
             }
         } else {
-            TxnErrorCode err = reader.get_tablet_merged_stats(
-                    idx.tablet_id(), response->add_tablet_stats(), nullptr);
+            TxnErrorCode err =
+                    reader.get_tablet_merged_stats(idx.tablet_id(), tablet_stats, nullptr);
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
                 msg = fmt::format("failed to get versioned tablet stats, err={}, tablet_id={}", err,
