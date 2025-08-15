@@ -75,7 +75,6 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
@@ -544,62 +543,66 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return db;
     }
 
-    @LogException
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get table name request: {}", params);
-        }
-        TGetTablesResult result = new TGetTablesResult();
-        List<String> tablesResult = Lists.newArrayList();
-        result.setTables(tablesResult);
-        PatternMatcher matcher = null;
-        if (params.isSetPattern()) {
-            try {
-                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
-            } catch (PatternMatcherException e) {
-                throw new TException("Pattern is in bad format: " + params.getPattern());
+        try {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get table name request: {}", params);
             }
-        }
-
-        // database privs should be checked in analysis phrase
-        UserIdentity currentUser;
-        if (params.isSetCurrentUserIdent()) {
-            currentUser = UserIdentity.fromThrift(params.current_user_ident);
-        } else {
-            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
-        }
-        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
-                : params.catalog;
-        String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
-        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog: " + catalog))
-                .getDbNullable(dbName);
-
-        if (db != null) {
-            Set<String> tableNames;
-            try {
-                tableNames = db.getTableNamesOrEmptyWithLock();
-                for (String tableName : tableNames) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("get table: {}, wait to check", tableName);
-                    }
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(currentUser, catalogName, dbName, tableName,
-                                    PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                    if (matcher != null && !matcher.match(tableName)) {
-                        continue;
-                    }
-                    tablesResult.add(tableName);
+            TGetTablesResult result = new TGetTablesResult();
+            List<String> tablesResult = Lists.newArrayList();
+            result.setTables(tablesResult);
+            PatternMatcher matcher = null;
+            if (params.isSetPattern()) {
+                try {
+                    matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
+                            CaseSensibility.TABLE.getCaseSensibility());
+                } catch (PatternMatcherException e) {
+                    throw new TException("Pattern is in bad format: " + params.getPattern());
                 }
-            } catch (Exception e) {
-                LOG.warn("failed to get table names for db {} in catalog {}", params.db, catalogName, e);
             }
+
+            // database privs should be checked in analysis phrase
+            UserIdentity currentUser;
+            if (params.isSetCurrentUserIdent()) {
+                currentUser = UserIdentity.fromThrift(params.current_user_ident);
+            } else {
+                currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+            }
+            String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
+                    : params.catalog;
+            String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
+            DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog: " + catalog))
+                    .getDbNullable(dbName);
+
+            if (db != null) {
+                Set<String> tableNames;
+                try {
+                    tableNames = db.getTableNamesOrEmptyWithLock();
+                    for (String tableName : tableNames) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("get table: {}, wait to check", tableName);
+                        }
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(currentUser, catalogName, dbName, tableName,
+                                        PrivPredicate.SHOW)) {
+                            continue;
+                        }
+                        if (matcher != null && !matcher.match(tableName)) {
+                            continue;
+                        }
+                        tablesResult.add(tableName);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("failed to get table names for db {} in catalog {}", params.db, catalogName, e);
+                }
+            }
+            return result;
+        } catch (Throwable e) {
+            LOG.warn(e);
+            throw e;
         }
-        return result;
     }
 
     @Override

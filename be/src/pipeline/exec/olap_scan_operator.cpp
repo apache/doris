@@ -540,7 +540,6 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             // Remote tablet still in-flight.
             return Status::OK();
         }
-        DCHECK(_cloud_tablet_future.valid() && _cloud_tablet_future.get().ok());
         COUNTER_UPDATE(_sync_rowset_timer, _sync_cloud_tablets_watcher.elapsed_time());
         auto total_rowsets = std::accumulate(
                 _tablets.cbegin(), _tablets.cend(), 0LL,
