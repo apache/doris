@@ -219,7 +219,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
 
     Status close_st = Status::OK();
     if (!_closed) {
-        _start_close = true;
+        _try_to_close = true;
         close_st = close(st);
         _closed = true;
     }
@@ -258,7 +258,7 @@ void AsyncResultWriter::force_close(Status s) {
     // TODO(gabriel): This is a light blocking operation. However, this should be removed in future.
     _future->wait();
     if (!_closed) {
-        _start_close = true;
+        _try_to_close = true;
         WARN_IF_ERROR(close(s), "");
         _closed = true;
     }

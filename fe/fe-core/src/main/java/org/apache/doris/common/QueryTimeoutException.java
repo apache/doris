@@ -17,4 +17,8 @@
 
 package org.apache.doris.common;
 
-public class QueryTimeoutException extends Exception {}
+public class QueryTimeoutException extends Exception {
+    public QueryTimeoutException() {
+        super("query timeout");
+    }
+}
