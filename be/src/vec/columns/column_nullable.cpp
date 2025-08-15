@@ -346,12 +346,6 @@ void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
     this->get_null_map_column().append_data_by_selector(res_null_map, selector, begin, end);
 }
 
-void ColumnNullable::insert_range_from_not_nullable(const IColumn& src, size_t start,
-                                                    size_t length) {
-    get_nested_column().insert_range_from(src, start, length);
-    _push_false_to_nullmap(length);
-}
-
 void ColumnNullable::pop_back(size_t n) {
     get_nested_column().pop_back(n);
     get_null_map_column().pop_back(n);
