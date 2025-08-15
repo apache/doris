@@ -125,6 +125,9 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
     }
 
     private Plan rewrite(LogicalAggregate<? extends Plan> aggregate) {
+        if (aggregate.distinctFuncNum() == 0) {
+            return null;
+        }
         if (shouldUseMultiDistinct(aggregate)) {
             return convertToMultiDistinct(aggregate);
         } else {
