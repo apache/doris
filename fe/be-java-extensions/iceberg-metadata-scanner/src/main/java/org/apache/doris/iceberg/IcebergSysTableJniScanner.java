@@ -100,9 +100,6 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     @Override
     protected int getNext() throws IOException {
-        if (reader == null || scanTasks == null) {
-            return 0;
-        }
         int rows = 0;
         while ((reader.hasNext() || scanTasks.hasNext()) && rows < getBatchSize()) {
             if (!reader.hasNext()) {
