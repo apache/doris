@@ -130,6 +130,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
         const bool is_repeat_slot = p._all_slot_ids.contains(slot_id);
         const bool is_set_null_slot = !p._slot_id_set_list[repeat_id_idx].contains(slot_id);
         const auto row_size = src_column.column->size();
+        vectorized::ColumnPtr src = src_column.column;
         if (is_repeat_slot) {
             DCHECK(p._output_slots[cur_col]->is_nullable());
             auto* nullable_column =
@@ -139,14 +140,13 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
                 nullable_column->insert_many_defaults(row_size);
             } else {
                 if (!src_column.type->is_nullable()) {
-                    nullable_column->insert_range_from_not_nullable(*src_column.column, 0,
-                                                                    row_size);
+                    output_columns[cur_col] = std::move(*vectorized::make_nullable(src)).mutate();
                 } else {
-                    nullable_column->insert_range_from(*src_column.column, 0, row_size);
+                    output_columns[cur_col] = std::move(*src).mutate();
                 }
             }
         } else {
-            output_columns[cur_col]->insert_range_from(*src_column.column, 0, row_size);
+            output_columns[cur_col] = std::move(*src).mutate();
         }
         cur_col++;
     }
