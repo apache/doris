@@ -226,6 +226,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     Literal l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
                     statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
                 }
+            } else {
+                // Invalidate the old PrepareExecuteBuffer from last statement.
+                if (!ctx.isProxy()) {
+                    ctx.setPrepareExecuteBuffer(null);
+                }
             }
             ExecuteCommand executeStmt = new ExecuteCommand(String.valueOf(stmtId), prepareCommand, statementContext);
             // TODO set real origin statement

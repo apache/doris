@@ -251,6 +251,7 @@ public class StmtExecutor {
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     public static final String NULL_VALUE_FOR_LOAD = "\\N";
+    private final int maxPlaceholderCount = 65536;
     private ConnectContext context;
     private final StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -632,12 +633,12 @@ public class StmtExecutor {
         }
     }
 
-    public void checkBlockRules() throws AnalysisException {
+    public void checkBlockRules() {
         checkBlockRulesByRegex(originStmt);
         checkBlockRulesByScan(planner);
     }
 
-    public void checkBlockRulesByRegex(OriginStatement originStmt) throws AnalysisException {
+    public void checkBlockRulesByRegex(OriginStatement originStmt) {
         if (originStmt == null) {
             return;
         }
@@ -645,7 +646,7 @@ public class StmtExecutor {
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
     }
 
-    public void checkBlockRulesByScan(Planner planner) throws AnalysisException {
+    public void checkBlockRulesByScan(Planner planner) {
         if (planner == null) {
             return;
         }
@@ -2555,6 +2556,9 @@ public class StmtExecutor {
 
     private void handlePrepareStmt() throws Exception {
         List<String> labels = ((PrepareStmt) prepareStmt).getColLabelsOfPlaceHolders();
+        if (labels.size() >= maxPlaceholderCount) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_PS_MANY_PARAM);
+        }
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",

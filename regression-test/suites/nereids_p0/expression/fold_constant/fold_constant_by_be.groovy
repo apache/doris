@@ -49,7 +49,11 @@ suite("fold_constant_by_be") {
     log.info("result: {}, {}", res1, res2)
     assertEquals(res1[0][0], res2[0][0])
 
-    qt_sql "explain select sleep(sign(1)*100);"
+    explain {
+        sql "select sleep(sign(1)*100);"
+        contains "sleep(100)"
+    }
+
     sql 'set query_timeout=12;'
     qt_sql "select sleep(sign(1)*10);"
 
@@ -58,4 +62,13 @@ suite("fold_constant_by_be") {
         contains "varchar(3)"
     }
 
+    sql 'set enable_fold_constant_by_be=true;'
+    explain {
+         sql "select IS_IPV4_MAPPED(NULLABLE(INET6_ATON('192.168.1.1')));"
+         contains "192.168.1.1"
+    }
+    explain {
+         sql "select IS_IPV4_MAPPED(NULLABLE(ipv6_string_to_num_or_default('192.168.1.1')));"
+         contains "192.168.1.1"
+    }
 }

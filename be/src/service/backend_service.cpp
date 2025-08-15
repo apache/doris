@@ -580,8 +580,8 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         }
         if (segments.size() > 1) {
             // calculate delete bitmap between segments
-            status = local_tablet->calc_delete_bitmap_between_segments(rowset, segments,
-                                                                       delete_bitmap);
+            status = local_tablet->calc_delete_bitmap_between_segments(
+                    rowset->tablet_schema(), rowset, segments, delete_bitmap);
             if (!status) {
                 LOG(WARNING) << "failed to calculate delete bitmap"
                              << ". tablet_id: " << local_tablet->tablet_id()

@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.exceptions.DoNotFallbackException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -226,7 +227,7 @@ public class SqlBlockRuleMgr implements Writable {
     /**
      * Match SQL according to rules.
      **/
-    public void matchSql(String originSql, String sqlHash, String user) throws AnalysisException {
+    public void matchSql(String originSql, String sqlHash, String user) {
         if (Config.sql_block_rule_ignore_admin && (Auth.ROOT_USER.equals(user) || Auth.ADMIN_USER.equals(user))) {
             return;
         }
@@ -251,16 +252,18 @@ public class SqlBlockRuleMgr implements Writable {
         }
     }
 
-    private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
+    private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) {
         if (rule.getEnable()) {
             if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
                     && rule.getSqlHash().equals(sqlHash)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
+                throw new DoNotFallbackException("sql match hash sql block rule: "
+                        + rule.getName());
             } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
                     && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+                throw new DoNotFallbackException("sql match regex sql block rule: "
+                        + rule.getName());
             }
         }
     }
@@ -268,8 +271,7 @@ public class SqlBlockRuleMgr implements Writable {
     /**
      * Check number whether legal by user.
      **/
-    public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
-            throws AnalysisException {
+    public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user) {
         if (ConnectContext.get().getSessionVariable().internalSession) {
             return;
         }
@@ -293,8 +295,7 @@ public class SqlBlockRuleMgr implements Writable {
     /**
      * Check number whether legal by SqlBlockRule.
      **/
-    private void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality)
-            throws AnalysisException {
+    private void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality) {
         if (rule.getPartitionNum() == 0 && rule.getTabletNum() == 0 && rule.getCardinality() == 0) {
             return;
         } else if (rule.getEnable()) {
@@ -303,15 +304,15 @@ public class SqlBlockRuleMgr implements Writable {
                     && rule.getCardinality() < cardinality)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 if (rule.getPartitionNum() < partitionNum && rule.getPartitionNum() != 0) {
-                    throw new AnalysisException(
+                    throw new DoNotFallbackException(
                             "sql hits sql block rule: " + rule.getName() + ", reach partition_num : "
                                     + rule.getPartitionNum());
                 } else if (rule.getTabletNum() < tabletNum && rule.getTabletNum() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : "
-                            + rule.getTabletNum());
+                    throw new DoNotFallbackException("sql hits sql block rule: " + rule.getName()
+                            + ", reach tablet_num : " + rule.getTabletNum());
                 } else if (rule.getCardinality() < cardinality && rule.getCardinality() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : "
-                            + rule.getCardinality());
+                    throw new DoNotFallbackException("sql hits sql block rule: " + rule.getName()
+                            + ", reach cardinality : " + rule.getCardinality());
                 }
             }
         }

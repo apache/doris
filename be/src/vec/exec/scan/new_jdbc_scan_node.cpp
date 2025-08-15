@@ -44,6 +44,7 @@ NewJdbcScanNode::NewJdbcScanNode(ObjectPool* pool, const TPlanNode& tnode,
           _query_string(tnode.jdbc_scan_node.query_string),
           _table_type(tnode.jdbc_scan_node.table_type) {
     _output_tuple_id = tnode.jdbc_scan_node.tuple_id;
+    _is_tvf = tnode.jdbc_scan_node.__isset.is_tvf ? tnode.jdbc_scan_node.is_tvf : false;
 }
 
 std::string NewJdbcScanNode::get_name() {
@@ -65,9 +66,9 @@ Status NewJdbcScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    std::unique_ptr<NewJdbcScanner> scanner =
-            NewJdbcScanner::create_unique(_state, this, _limit_per_scanner, _tuple_id,
-                                          _query_string, _table_type, _state->runtime_profile());
+    std::unique_ptr<NewJdbcScanner> scanner = NewJdbcScanner::create_unique(
+            _state, this, _limit_per_scanner, _tuple_id, _query_string, _table_type, _is_tvf,
+            _state->runtime_profile());
     RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
     scanners->push_back(std::move(scanner));
     return Status::OK();

@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.ViewIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
@@ -40,10 +40,10 @@ import java.util.Optional;
 
 /** LogicalView */
 public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
-    private final View view;
+    private final ViewIf view;
 
     /** LogicalView */
-    public LogicalView(View view, BODY body) {
+    public LogicalView(ViewIf view, BODY body) {
         super(PlanType.LOGICAL_VIEW, Optional.empty(), Optional.empty(), body);
         this.view = Objects.requireNonNull(view, "catalog can not be null");
         if (!(body instanceof LogicalPlan)) {
@@ -73,11 +73,7 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
         return view.getName();
     }
 
-    public String getViewString() {
-        return view.getInlineViewDef();
-    }
-
-    public View getView() {
+    public ViewIf getView() {
         return view;
     }
 

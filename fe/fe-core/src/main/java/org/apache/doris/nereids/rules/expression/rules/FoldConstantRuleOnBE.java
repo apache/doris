@@ -40,6 +40,8 @@ import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -230,8 +232,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
-        // Skip from_base64 function to avoid incorrect binary data processing during constant folding
-        if (expr instanceof FromBase64) {
+        // Skip those function to avoid incorrect binary data processing during constant folding
+        if (expr instanceof FromBase64 || expr instanceof Ipv6StringToNumOrNull
+                || expr instanceof Ipv6StringToNumOrDefault) {
             return true;
         }
 

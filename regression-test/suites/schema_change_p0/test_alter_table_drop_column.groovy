@@ -171,7 +171,7 @@ suite("test_alter_table_drop_column") {
     test {
         sql """alter table ${dupTableName} drop COLUMN siteid;"""
         // check exception message contains
-        exception "Distribution column[siteid] cannot be dropped"
+        exception "Could not drop distribution column: siteid"
     }
 
     sql "DROP TABLE IF EXISTS ${dupTableName} FORCE"

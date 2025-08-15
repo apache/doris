@@ -485,7 +485,8 @@ public:
                                       RowsetWriter* rowset_writer);
 
     Status calc_delete_bitmap_between_segments(
-            RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            TabletSchemaSPtr schema, RowsetSharedPtr rowset,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
     Status read_columns_by_plan(TabletSchemaSPtr tablet_schema, std::vector<uint32_t> cids_to_read,
                                 const PartialUpdateReadPlan& read_plan,

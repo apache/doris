@@ -328,7 +328,7 @@ suite("test_multi_partition_key", "p0") {
     assertEquals("FINISHED", getAlterColumnFinalState("test_multi_column_drop_partition_column"))
     test {
         sql "ALTER TABLE test_multi_column_drop_partition_column DROP COLUMN k1"
-        exception "Partition column[k1] cannot be dropped"
+        exception "Could not drop distribution column: k1"
     }
     sql "insert into test_multi_column_drop_partition_column " +
             "values(100, 0, 0, 0, 0, '2000-01-01 00:00:00', 0.001, -0.001, 0.001)"
