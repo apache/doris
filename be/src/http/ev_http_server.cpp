@@ -155,7 +155,9 @@ void EvHttpServer::stop() {
     _started = false;
 }
 
-void EvHttpServer::join() {}
+void EvHttpServer::join() {
+    _workers->join();
+}
 
 Status EvHttpServer::_bind() {
     butil::EndPoint point;
