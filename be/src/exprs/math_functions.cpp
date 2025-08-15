@@ -171,4 +171,33 @@ bool MathFunctions::handle_parse_result(int8_t dest_base, int64_t* num,
     return true;
 }
 
+// bankers_round is a rounding function that rounds to the nearest even number
+// when the fractional part is exactly 0.5.
+// This is also known as "round half to even" or "bankers' rounding".
+double MathFunctions::bankers_round(double value) {
+    double int_part;
+    double frac_part = modf(value, &int_part);
+    
+    if (frac_part < 0.5) {
+        return int_part;
+    } else if (frac_part > 0.5) {
+        return int_part + 1.0;
+    } else {
+        // If the fractional part is exactly 0.5, round to the nearest even integer.
+        // If int_part is even, return it; if odd, return int_part + 1.0.
+        // This ensures that we round to the nearest even number.
+        return (fmod(int_part, 2.0) == 0.0) ? int_part : int_part + 1.0;
+    }
+}
+
+double MathFunctions::bankers_round(double value, int64_t dec) {
+    if (dec == 0) {
+        return bankers_round(value);
+    }
+    
+    double factor = pow(10.0, dec);
+    double scaled_value = value * factor;
+    return bankers_round(scaled_value) / factor;
+}
+
 } // namespace doris

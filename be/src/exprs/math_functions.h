@@ -53,6 +53,10 @@ public:
     static bool handle_parse_result(int8_t dest_base, int64_t* num,
                                     StringParser::ParseResult parse_res);
 
+    // Banker's rounding implementation (round to nearest even)
+    static double bankers_round(double value);
+    static double bankers_round(double value, int64_t dec);
+    
     static constexpr int32_t MIN_BASE = 2;
     static constexpr int32_t MAX_BASE = 36;
 };
