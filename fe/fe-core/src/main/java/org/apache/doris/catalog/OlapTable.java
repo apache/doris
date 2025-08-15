@@ -2001,11 +2001,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
         tempPartitions.unsetPartitionInfo();
 
-        // Initialize transient state not present in persisted meta.
-        if (partitionCreationFutures == null) {
-            partitionCreationFutures = new ConcurrentHashMap<>();
-        }
-
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
