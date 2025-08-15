@@ -30,7 +30,9 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.Profile;
@@ -39,6 +41,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
@@ -54,7 +57,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.net.UnknownHostException;
@@ -62,6 +67,7 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class StmtExecutorTest {
     private ConnectContext ctx;
@@ -800,5 +806,93 @@ public class StmtExecutorTest {
         executor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testSendTextResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
+        OriginStatement stmt = new OriginStatement("", 1);
+
+        List<List<String>> rows = Lists.newArrayList();
+        List<String> row1 = Lists.newArrayList();
+        row1.add(null);
+        row1.add("row1");
+        List<String> row2 = Lists.newArrayList();
+        row2.add("1234");
+        row2.add("row2");
+        rows.add(row1);
+        rows.add(row2);
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column());
+        columns.add(new Column());
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
+        AtomicInteger i = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            byte[] expected0 = new byte[]{-5, 4, 114, 111, 119, 49};
+            byte[] expected1 = new byte[]{4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
+            ByteBuffer buffer = invocation.getArgument(0);
+            if (i.get() == 0) {
+                Assertions.assertArrayEquals(expected0, buffer.array());
+                i.getAndIncrement();
+            } else if (i.get() == 1) {
+                Assertions.assertArrayEquals(expected1, buffer.array());
+                i.getAndIncrement();
+            }
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
+        executor.sendTextResultRow(resultSet);
+    }
+
+    @Test
+    public void testSendBinaryResultRow() throws IOException {
+        ConnectContext mockCtx = Mockito.mock(ConnectContext.class);
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(mockCtx.getConnectType()).thenReturn(ConnectType.MYSQL);
+        Mockito.when(mockCtx.getMysqlChannel()).thenReturn(channel);
+        MysqlSerializer mysqlSerializer = MysqlSerializer.newInstance();
+        Mockito.when(channel.getSerializer()).thenReturn(mysqlSerializer);
+        SessionVariable sessionVariable = VariableMgr.newSessionVariable();
+        Mockito.when(mockCtx.getSessionVariable()).thenReturn(sessionVariable);
+        OriginStatement stmt = new OriginStatement("", 1);
+
+        List<List<String>> rows = Lists.newArrayList();
+        List<String> row1 = Lists.newArrayList();
+        row1.add(null);
+        row1.add("2025-01-01 01:02:03");
+        List<String> row2 = Lists.newArrayList();
+        row2.add("1234");
+        row2.add("2025-01-01 01:02:03.123456");
+        rows.add(row1);
+        rows.add(row2);
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column("col1", PrimitiveType.BIGINT));
+        columns.add(new Column("col2", PrimitiveType.DATETIMEV2));
+        ResultSet resultSet = new CommonResultSet(new CommonResultSetMetaData(columns), rows);
+        AtomicInteger i = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            byte[] expected0 = new byte[]{0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
+            byte[] expected1 = new byte[]{0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3, 64, -30, 1, 0};
+            ByteBuffer buffer = invocation.getArgument(0);
+            if (i.get() == 0) {
+                Assertions.assertArrayEquals(expected0, buffer.array());
+                i.getAndIncrement();
+            } else if (i.get() == 1) {
+                Assertions.assertArrayEquals(expected1, buffer.array());
+                i.getAndIncrement();
+            }
+            return null;
+        }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
+
+        StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
+        executor.sendBinaryResultRow(resultSet);
     }
 }
