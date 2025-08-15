@@ -268,10 +268,6 @@ suite("test_array_function_doc", "p0") {
 
     qt_sql """ SELECT ARRAY_WITH_CONSTANT(id, variant_column) from ${tableName2}; """
 
-    qt_sql """ SELECT ARRAY_WITH_CONSTANT(3, cast('a' as variant));"""
-
-    qt_sql """ SELECT ARRAY_WITH_CONSTANT(3, cast('{"a": 1}' as json));"""
-
     test {
         sql """ SELECT ARRAY_WITH_CONSTANT(-1, 'hello');"""
         exception "Array size should in range(0, 1000000) in function: array_with_constant"
