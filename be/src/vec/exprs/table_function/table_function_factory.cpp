@@ -33,7 +33,6 @@
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
 #include "vec/exprs/table_function/vexplode_v2.h"
-#include "vec/exprs/table_function/vposexplode.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -52,7 +51,7 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
-                {"posexplode", TableFunctionCreator<VPosExplodeTableFunction> {}},
+                {"posexplode", TableFunctionCreator<VExplodeV2TableFunction> {}},
                 {"explode", TableFunctionCreator<VExplodeV2TableFunction> {}},
                 {"explode_variant_array_old", TableFunctionCreator<VExplodeTableFunction>()},
                 {"explode_old", TableFunctionCreator<VExplodeTableFunction> {}}};
@@ -82,6 +81,10 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
             *fn = pool->add(fn_iterator->second().release());
             if (is_outer) {
                 (*fn)->set_outer();
+            }
+
+            if (fn_name_real_temp == "posexplode") {
+                static_cast<VExplodeV2TableFunction*>(*fn)->set_generate_row_index(true);
             }
 
             return Status::OK();
