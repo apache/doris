@@ -38,7 +38,7 @@
 #include "util/mem_info.h"
 
 namespace brpc {
-
+DECLARE_bool(usercode_in_pthread);
 DECLARE_uint64(max_body_size);
 DECLARE_int64(socket_max_unwritten_bytes);
 
@@ -48,6 +48,9 @@ namespace doris {
 
 BRpcService::BRpcService(ExecEnv* exec_env) : _exec_env(exec_env), _server(new brpc::Server()) {
     // Set config
+    if (config::brpc_usercode_in_pthread) {
+        brpc::FLAGS_usercode_in_pthread = true;
+    }
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;
     brpc::FLAGS_socket_max_unwritten_bytes =
             config::brpc_socket_max_unwritten_bytes != -1

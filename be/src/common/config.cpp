@@ -48,6 +48,7 @@
 
 namespace doris::config {
 
+DEFINE_mBool(brpc_usercode_in_pthread, "false");
 // Dir of custom config file
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 
