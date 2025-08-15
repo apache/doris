@@ -45,6 +45,12 @@
       "test10": {
         "type": "date"
       },
+      "test11": {
+        "type": "date"
+      },
+      "test12": {
+        "type": "date"
+      },
       "c_bool": {
         "type": "boolean"
       },
