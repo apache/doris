@@ -62,7 +62,7 @@ suite("test_cloud_mow_correctness_inject", "nonConcurrent") {
         delete_bitmap_lock_expiration_seconds : 10,
         calculate_delete_bitmap_task_timeout_seconds : 2,
         mow_calculate_delete_bitmap_retry_times : 3,
-        enable_schema_change_retry_in_cloud_mode : false // turn off to shorten the test's time consumption
+        enable_schema_change_retry : false // turn off to shorten the test's time consumption
     ]
 
     setFeConfigTemporary(customFeConfig) {

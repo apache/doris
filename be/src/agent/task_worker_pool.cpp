@@ -1480,15 +1480,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
         auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
-        S3ClientConf conf {
-                .endpoint {},
-                .region {},
-                .ak = std::move(new_s3_conf.client_conf.ak),
-                .sk = std::move(new_s3_conf.client_conf.sk),
-                .token = std::move(new_s3_conf.client_conf.token),
-                .bucket {},
-                .provider = new_s3_conf.client_conf.provider,
-        };
+        S3ClientConf conf = std::move(new_s3_conf.client_conf);
         st = client->reset(conf);
         fs = std::move(existed_fs);
     }
@@ -1496,7 +1488,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     if (!st.ok()) {
         LOG(WARNING) << "update s3 resource failed: " << st;
     } else {
-        LOG_INFO("successfully update hdfs resource")
+        LOG_INFO("successfully update s3 resource")
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name);
         put_storage_resource(param.id, {std::move(fs)}, param.version);

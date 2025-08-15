@@ -73,6 +73,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
 
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
+    sql """ set enable_variant_flatten_nested = true """ 
     table_name = "github_events"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (

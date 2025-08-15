@@ -297,6 +297,7 @@ class Suite implements GroovyInterceptable {
     // more explaination can see example file: demo_p0/docker_action.groovy
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
+            logger.info("do not run the docker suite {}, because regression config excludeDockerTest=true", name)
             return
         }
 
@@ -314,9 +315,13 @@ class Suite implements GroovyInterceptable {
             }
         } else {
             if (options.cloudMode == true && context.config.runMode == RunMode.NOT_CLOUD) {
+                logger.info("do not run the docker suite {}, because the suite's ClusterOptions.cloudMode=true "
+                    + "but regression test is local mode", name)
                 return
             }
             if (options.cloudMode == false && context.config.runMode == RunMode.CLOUD) {
+                logger.info("do not run the docker suite {}, because the suite's ClusterOptions.cloudMode=false "
+                    + "but regression test is cloud mode", name)
                 return
             }
             dockerImpl(options, options.cloudMode, actionSupplier)
@@ -2062,6 +2067,7 @@ class Suite implements GroovyInterceptable {
         AS ${mv_sql}
         """
         waitingMVTaskFinishedByMvName(db, table_name, mv_name)
+        sql """sync;"""
     }
 
     def create_async_mv = { db, mv_name, mv_sql ->
@@ -2077,6 +2083,8 @@ class Suite implements GroovyInterceptable {
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
         sql "analyze table ${db}.${mv_name} with sync;"
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
     }
 
     def create_async_partition_mv = { db, mv_name, mv_sql, partition_col ->
@@ -2093,6 +2101,8 @@ class Suite implements GroovyInterceptable {
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
         sql "analyze table ${db}.${mv_name} with sync;"
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
     }
 
     // mv not part in rewrite process
@@ -2153,6 +2163,8 @@ class Suite implements GroovyInterceptable {
                                is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
             mv_rewrite_success_without_check_chosen(query_sql, mv_name, sync_cbo_rewrite)
@@ -2179,6 +2191,8 @@ class Suite implements GroovyInterceptable {
                                    is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
             mv_rewrite_all_success_without_check_chosen(query_sql, mv_names, sync_cbo_rewrite)
@@ -2223,6 +2237,8 @@ class Suite implements GroovyInterceptable {
                                    is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!is_partition_statistics_ready) {
             // If partition statistics is no ready, degrade to without check cbo chosen
             mv_rewrite_any_success_without_check_chosen(query_sql, mv_names, sync_cbo_rewrite)
@@ -2264,6 +2280,8 @@ class Suite implements GroovyInterceptable {
     void mv_rewrite_all_success_without_check_chosen(query_sql, mv_names,
                                                         sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()){
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -2303,6 +2321,8 @@ class Suite implements GroovyInterceptable {
     void mv_rewrite_any_success_without_check_chosen(query_sql, mv_names,
                                                      sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -2341,6 +2361,8 @@ class Suite implements GroovyInterceptable {
     void mv_rewrite_success_without_check_chosen(query_sql, mv_name,
                                                  sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -2363,6 +2385,8 @@ class Suite implements GroovyInterceptable {
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     void mv_rewrite_fail(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -2380,6 +2404,8 @@ class Suite implements GroovyInterceptable {
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     void mv_rewrite_all_fail(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -2417,6 +2443,8 @@ class Suite implements GroovyInterceptable {
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     void mv_rewrite_any_fail (query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         if (!sync_cbo_rewrite) {
             explain {
                 sql("${query_sql}")
@@ -2460,6 +2488,8 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         mv_rewrite_success(query_sql, mv_name, true)
     }
 
@@ -2476,6 +2506,8 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         mv_rewrite_success_without_check_chosen(query_sql, mv_name, true)
     }
 
@@ -2493,6 +2525,8 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
         mv_rewrite_fail(query_sql, mv_name, true)
     }
 
@@ -2508,6 +2542,8 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
+        // force meta sync to avoid stale meta data on follower fe
+        sql """sync;"""
     }
 
     def token = context.config.metaServiceToken

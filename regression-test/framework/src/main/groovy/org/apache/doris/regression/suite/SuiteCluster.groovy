@@ -119,6 +119,7 @@ class ListHeader {
 
 class ServerNode {
 
+    // all node index start from 1, not 0
     int index
     String host
     int httpPort
@@ -355,8 +356,8 @@ class SuiteCluster {
         if (!options.beMetaServiceEndpoint) {
             cmd += ['--no-be-metaservice-endpoint']
         }
-        if (!options.beClusterId) {
-            cmd += ['--no-be-cluster-id']
+        if (options.beClusterId) {
+            cmd += ['--be-cluster-id']
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
@@ -558,48 +559,57 @@ class SuiteCluster {
     int START_WAIT_TIMEOUT = 120
     int STOP_WAIT_TIMEOUT = 60
 
+    // indices start from 1, not 0
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
         runFrontendsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then start all backends
     void startBackends(int... indices) {
         runBackendsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
         runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
         runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
+    // indices start from 1, not 0
     // if not specific fe indices, then restart all frontends
     void restartFrontends(int... indices) {
         runFrontendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then restart all backends
     void restartBackends(int... indices) {
         runBackendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific ms indices, then restart all ms
     void restartMs(int... indices) {
         runMsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific recycler indices, then restart all recyclers
     void restartRecyclers(int... indices) {
         runRecyclerCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // indices start from 1, not 0
     // if not specific fe indices, then drop all frontends
     void dropFrontends(boolean clean, int... indices) {
         def cmd = 'down'
@@ -609,6 +619,7 @@ class SuiteCluster {
         runFrontendsCmd(60, cmd, indices)
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then decommission all backends
     void decommissionBackends(boolean clean, int... indices) {
         def cmd = 'down'
@@ -618,6 +629,7 @@ class SuiteCluster {
         runBackendsCmd(300, cmd, indices)
     }
 
+    // indices start from 1, not 0
     // if not specific be indices, then drop force all backends
     void dropForceBackends(boolean clean, int... indices) {
         def cmd = 'down --drop-force'
@@ -627,6 +639,7 @@ class SuiteCluster {
         runBackendsCmd(60, cmd, indices)
     }
 
+    // index start from 1, not 0
     void checkFeIsAlive(int index, boolean isAlive) {
         def fe = getFeByIndex(index)
         assert fe != null : 'frontend with index ' + index + ' not exists!'
@@ -634,6 +647,7 @@ class SuiteCluster {
                 : 'frontend with index ' + index + ' dead')
     }
 
+    // index start from 1, not 0
     void checkBeIsAlive(int index, boolean isAlive) {
         def be = getBeByIndex(index)
         assert be != null : 'backend with index ' + index + ' not exists!'
@@ -641,6 +655,7 @@ class SuiteCluster {
                 : 'backend with index ' + index + ' dead')
     }
 
+    // index start from 1, not 0
     void checkFeIsExists(int index, boolean isExists) {
         def fe = getFeByIndex(index)
         if (isExists) {
@@ -650,6 +665,7 @@ class SuiteCluster {
         }
     }
 
+    // index start from 1, not 0
     void checkBeIsExists(int index, boolean isExists) {
         def be = getBeByIndex(index)
         if (isExists) {
@@ -669,21 +685,25 @@ class SuiteCluster {
         Thread.sleep(7000)
     }
 
+    // indices start from 1, not 0
     private void runFrontendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --fe-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)
     }
 
+    // indices start from 1, not 0
     private void runBackendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --be-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)
     }
 
+    // indices start from 1, not 0
     private void runMsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --ms-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)
     }
 
+    // indices start from 1, not 0
     private void runRecyclerCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --recycle-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)

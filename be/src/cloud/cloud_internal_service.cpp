@@ -82,6 +82,12 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
             return;
         }
         CloudTabletSPtr tablet = std::move(res.value());
+        auto st = tablet->sync_rowsets();
+        if (!st) {
+            // just log failed, try it best
+            LOG(WARNING) << "failed to sync rowsets: " << tablet_id
+                         << " err msg: " << st.to_string();
+        }
         auto rowsets = tablet->get_snapshot_rowset();
         std::for_each(rowsets.cbegin(), rowsets.cend(), [&](const RowsetSharedPtr& rowset) {
             std::string rowset_id = rowset->rowset_id().to_string();
@@ -165,7 +171,10 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             continue;
         }
         int64_t tablet_id = rs_meta.tablet_id();
-        auto res = _engine.tablet_mgr().get_tablet(tablet_id);
+        auto res = _engine.tablet_mgr().get_tablet(tablet_id, /* warmup_data = */ false,
+                                                   /* sync_delete_bitmap = */ true,
+                                                   /* sync_stats = */ nullptr,
+                                                   /* local_only = */ true);
         if (!res.has_value()) {
             LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
             continue;
