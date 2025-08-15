@@ -163,7 +163,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     private List<TupleDescriptor> intermediateOutputTupleDescList = Lists.newArrayList();
     private List<List<Expr>> intermediateProjectListList = Lists.newArrayList();
 
-    protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
+    protected PlanNode(PlanNodeId id, List<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
