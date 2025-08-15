@@ -70,6 +70,10 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
         }
     }
 
+    // in 'process block' we check _eos first and _data_queue second so here
+    // in the lock. must modify the _eos after change _data_queue to make sure
+    // not lead the logic error in multi thread
+    _eos = eos;
     if (!_future || _future->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         // Need to start a new thread
         _promise = std::make_shared<std::promise<Status>>();
@@ -91,10 +95,6 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
                     task_lock.reset();
                 }));
     }
-    // in 'process block' we check _eos first and _data_queue second so here
-    // in the lock. must modify the _eos after change _data_queue to make sure
-    // not lead the logic error in multi thread
-    _eos = eos;
 
     return Status::OK();
 }
