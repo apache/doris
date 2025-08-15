@@ -19,6 +19,10 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
+
+#include <cstdlib>
+
+#include "common/config.h"
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif
@@ -210,8 +214,8 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
           _input_buf_size(INPUT_CHUNK),
           _input_buf_pos(0),
           _input_buf_limit(0),
-          _output_buf(new uint8_t[OUTPUT_CHUNK]),
-          _output_buf_size(OUTPUT_CHUNK),
+          _output_buf(new uint8_t[config::enable_csv_reader_buffer_fuzzy_mode ? 1 : OUTPUT_CHUNK]),
+          _output_buf_size(config::enable_csv_reader_buffer_fuzzy_mode ? 1 : OUTPUT_CHUNK),
           _output_buf_pos(0),
           _output_buf_limit(0),
           _file_eof(false),
@@ -292,6 +296,10 @@ void NewPlainTextLineReader::extend_output_buf() {
     size_t capacity = _output_buf_size - _output_buf_limit;
     // we want at least 1024 bytes capacity left
     size_t target = std::max<size_t>(1024, capacity + _more_output_bytes);
+    size_t random_size = std::rand() & 1023;
+    if (config::enable_csv_reader_buffer_fuzzy_mode) [[unlikely]] {
+        target = random_size + capacity;
+    }
 
     do {
         // 1. if left capacity is enough, return;
@@ -311,7 +319,11 @@ void NewPlainTextLineReader::extend_output_buf() {
 
         // 3. extend buf size to meet the target
         while (_output_buf_size - output_buf_read_remaining() < target) {
-            _output_buf_size = _output_buf_size * 2;
+            if (config::enable_csv_reader_buffer_fuzzy_mode) [[unlikely]] {
+                _output_buf_size = _output_buf_size + random_size;
+            } else {
+                _output_buf_size = _output_buf_size * 2;
+            }
         }
 
         auto* new_output_buf = new uint8_t[_output_buf_size];
