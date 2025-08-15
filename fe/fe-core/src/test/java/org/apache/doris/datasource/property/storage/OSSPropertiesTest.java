@@ -63,10 +63,10 @@ public class OSSPropertiesTest {
         origProps.put("oss.secret_key", "myOSSSecretKey");
         origProps.put("oss.endpoint", "oss-cn-beijing-internal.aliyuncs.com");
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
-        origProps.put("connection.maximum", "88");
-        origProps.put("connection.request.timeout", "100");
-        origProps.put("connection.timeout", "1000");
-        origProps.put("use_path_style", "true");
+        origProps.put("oss.connection.maximum", "88");
+        origProps.put("oss.connection.request.timeout", "100");
+        origProps.put("oss.connection.timeout", "1000");
+        origProps.put("oss.use_path_style", "true");
         origProps.put("test_non_storage_param", "6000");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
         Map<String, String> s3Props;
@@ -90,7 +90,7 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("100", s3Props.get("AWS_REQUEST_TIMEOUT_MS"));
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
-        origProps.remove("use_path_style");
+        origProps.remove("oss.use_path_style");
         ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
         s3Props = ossProperties.generateBackendS3Configuration();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
