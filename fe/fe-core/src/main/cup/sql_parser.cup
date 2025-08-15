@@ -2448,18 +2448,6 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, ifExists, tableName, false)));
     :}
-    | KW_DROP KW_INVERTED KW_INDEX KW_ANALYZER opt_if_exists:ifExists ident:policyName
-    {:
-        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.ANALYZER, policyName);
-    :}
-    | KW_DROP KW_INVERTED KW_INDEX KW_TOKENIZER opt_if_exists:ifExists ident:policyName
-    {:
-        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKENIZER, policyName);
-    :}
-    | KW_DROP KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_exists:ifExists ident:policyName
-    {:
-        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKEN_FILTER, policyName);
-    :}
     ;
 
 // Recover statement
@@ -3348,10 +3336,6 @@ show_param ::=
     procedure_or_function KW_STATUS opt_wild_where
     {:
         RESULT = new ShowProcedureStmt();
-    :}
-    | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
-    {:
-        RESULT = new DiagnoseTabletStmt(tabletId);
     :}
     ;
 
@@ -5882,11 +5866,6 @@ admin_stmt ::=
     KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
-    :}
-    // deprecated
-    | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
-    {:
-        RESULT = new DiagnoseTabletStmt(tabletId);
     :}
     ;
 
