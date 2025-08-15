@@ -2376,8 +2376,28 @@ public class Coordinator implements CoordInterface {
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
+        if (params.isSetLoadedRows() && jobId != -1) {
+            if (params.isSetFragmentInstanceReports()) {
+                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
+                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
+                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
+                }
+            } else {
+                Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            }
+        }
+
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
         if (ctx == null || !ctx.updatePipelineStatus(params)) {
+            LOG.debug("Fragment {} is not done, ignore report status: {}",
+                    params.getFragmentId(), params.toString());
             return;
         }
 
@@ -2442,24 +2462,6 @@ public class Coordinator implements CoordInterface {
                         DebugUtil.printId(queryId), ctx.fragmentId);
             }
             fragmentsDoneLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-        }
-
-        if (params.isSetLoadedRows() && jobId != -1) {
-            if (params.isSetFragmentInstanceReports()) {
-                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
-                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
-                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
-                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
-                }
-            } else {
-                Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
-            }
         }
     }
 
