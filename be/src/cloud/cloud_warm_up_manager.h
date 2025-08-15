@@ -80,7 +80,7 @@ private:
     void handle_jobs();
 
     Status _do_warm_up_rowset(RowsetMeta& rs_meta, std::vector<TReplicaInfo>& replicas,
-                              int64_t sync_wait_timeout_ms, bool skip_existence_check);
+                              bool skip_existence_check);
 
     std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id, bool bypass_cache,
                                                bool& cache_hit);
