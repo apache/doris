@@ -321,6 +321,10 @@ private:
     const char* name;
 };
 
+struct CastState {
+    PreparedFunctionPtr cast_function = nullptr;
+};
+
 class FunctionCast final : public IFunctionBase {
 public:
     FunctionCast(const char* name_, DataTypes argument_types_, DataTypePtr return_type_)
@@ -331,13 +335,37 @@ public:
     const DataTypes& get_argument_types() const override { return argument_types; }
     const DataTypePtr& get_return_type() const override { return return_type; }
 
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+        std::shared_ptr<CastState> state = std::make_shared<CastState>();
+
+        state->cast_function = create_cast_function(context);
+
+        context->set_function_state(scope, state);
+
+        return Status::OK();
+    }
+
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
                                 uint32_t /*result*/) const override {
-        return std::make_shared<PreparedFunctionCast>(
-                CastWrapper::prepare_unpack_dictionaries(context, get_argument_types()[0],
-                                                         get_return_type()),
-                name);
+        if (context == nullptr) {
+            /// TODO: remove this in the future.
+            /*
+            At present, we have such a code.
+            auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
+                    "CAST", arguments, return_type);
+            RETURN_IF_ERROR(
+                    func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+            */
+            return create_cast_function(nullptr);
+        }
+        auto* cast_state = reinterpret_cast<CastState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        DCHECK(cast_state != nullptr) << "Function context for function '" << get_name();
+        return cast_state->cast_function;
     }
 
     String get_name() const override { return name; }
@@ -345,6 +373,13 @@ public:
     bool is_use_default_implementation_for_constants() const override { return true; }
 
 private:
+    PreparedFunctionPtr create_cast_function(FunctionContext* context) const {
+        return std::make_shared<PreparedFunctionCast>(
+                CastWrapper::prepare_unpack_dictionaries(context, get_argument_types()[0],
+                                                         get_return_type()),
+                name);
+    }
+
     const char* name = nullptr;
 
     DataTypes argument_types;
