@@ -115,7 +115,7 @@ import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -2663,7 +2663,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         materializeNode.setIdxs(materialize.getlazyTableIdxs());
 
         List<Boolean> rowStoreFlags = new ArrayList<>();
-        for (CatalogRelation relation : materialize.getRelations()) {
+        for (Relation relation : materialize.getRelations()) {
             rowStoreFlags.add(shouldUseRowStore(relation));
         }
         materializeNode.setRowStoreFlags(rowStoreFlags);
@@ -2677,7 +2677,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputPlanFragment;
     }
 
-    private boolean shouldUseRowStore(CatalogRelation rel) {
+    private boolean shouldUseRowStore(Relation rel) {
         boolean useRowStore = false;
         if (rel instanceof PhysicalOlapScan) {
             OlapTable olapTable = ((PhysicalOlapScan) rel).getTable();

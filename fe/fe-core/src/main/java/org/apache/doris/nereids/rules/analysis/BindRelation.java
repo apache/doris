@@ -371,7 +371,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Optional<TableValuedFunction> tvf = table.getSysTableFunction(
                 qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
         if (tvf.isPresent()) {
-            return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get()));
+            return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get(), ImmutableList.of()));
         }
         return Optional.empty();
     }
