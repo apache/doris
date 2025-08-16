@@ -139,10 +139,10 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_difference_String "select array_difference(kastr) from $nullable_tb order by id"
         order_qt_sql_array_difference_String_notnull "select array_difference(kastr) from $not_nullable_tb order by id"
 
-        order_qt_sql_array_difference_DatetimeV2 "select array_difference(kadtmv2) from $nullable_tb order by id"
-        order_qt_sql_array_difference_DatetimeV2_notnull "select array_difference(kadtmv2) from $not_nullable_tb order by id"
-        order_qt_sql_array_difference_DateV2 "select array_difference(kadtv2) from $nullable_tb order by id"
-        order_qt_sql_array_difference_DateV2_notnull "select array_difference(kadtv2) from $not_nullable_tb order by id"
+        // order_qt_sql_array_difference_DatetimeV2 "select array_difference(kadtmv2) from $nullable_tb order by id"
+        // order_qt_sql_array_difference_DatetimeV2_notnull "select array_difference(kadtmv2) from $not_nullable_tb order by id"
+        // order_qt_sql_array_difference_DateV2 "select array_difference(kadtv2) from $nullable_tb order by id"
+        // order_qt_sql_array_difference_DateV2_notnull "select array_difference(kadtv2) from $not_nullable_tb order by id"
 
         // array_distinct
         order_qt_sql_array_distinct_Double "select array_distinct(kadbl) from $nullable_tb order by id"

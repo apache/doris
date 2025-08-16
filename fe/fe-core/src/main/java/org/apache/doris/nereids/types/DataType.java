@@ -703,6 +703,14 @@ public abstract class DataType {
     }
 
     /**
+     * whether the element type in array can be calculated in array function
+     * @return true if the element type can be calculated
+     */
+    public boolean canBeCalculatedInArray() {
+        return isNumericType() || isBooleanType() || isStringLikeType() || isNullType();
+    }
+
+    /**
      * whether the param dataType is same-like type for nested in complex type
      *  same-like type means: string-like, date-like, number type
      */
