@@ -18,11 +18,7 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.blockrule.SqlBlockRule;
@@ -106,7 +102,6 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.StringReader;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
@@ -215,11 +210,6 @@ public abstract class TestWithFeService {
         return statementContext;
     }
 
-    protected  <T extends StatementBase> T createStmt(String showSql)
-            throws Exception {
-        return (T) parseAndAnalyzeStmt(showSql, connectContext);
-    }
-
     protected CascadesContext createCascadesContext(String sql) {
         StatementContext statementCtx = createStatementCtx(sql);
         return MemoTestUtils.createCascadesContext(statementCtx, sql);
@@ -286,31 +276,25 @@ public abstract class TestWithFeService {
         return ctx;
     }
 
-    // Parse an origin stmt and analyze it. Return a StatementBase instance.
-    protected StatementBase parseAndAnalyzeStmt(String originStmt) throws Exception {
-        return parseAndAnalyzeStmt(originStmt, connectContext);
+    protected LogicalPlan parseStmt(String originStmt) throws Exception {
+        return parseStmt(originStmt, connectContext);
     }
 
     // Parse an origin stmt and analyze it. Return a StatementBase instance.
-    protected StatementBase parseAndAnalyzeStmt(String originStmt, ConnectContext ctx) throws Exception {
+    protected LogicalPlan parseStmt(String originStmt, ConnectContext ctx) throws Exception {
         System.out.println("begin to parse stmt: " + originStmt);
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        StatementBase statementBase = null;
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan statementBase = null;
         try {
-            List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
-            statementBase = stmts.get(0);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            System.err.println("parse failed: " + errorMessage);
-            if (errorMessage == null) {
+            statementBase = parser.parseSingle(originStmt);
+        } catch (Exception e) {
+            System.err.println("parse failed: " + e.getMessage());
+            if (e.getMessage() == null) {
                 throw e;
             } else {
-                throw new AnalysisException(errorMessage, e);
+                throw new AnalysisException(e.getMessage(), e);
             }
         }
-        statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
-        statementBase.analyze();
         return statementBase;
     }
 
@@ -643,7 +627,7 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            createTables(enableNerieds, sql);
+            createTables(sql);
         } catch (Exception e) {
             e.printStackTrace();
             throw e;
@@ -688,29 +672,18 @@ public abstract class TestWithFeService {
     }
 
     public void createTables(String... sqls) throws Exception {
-        createTables(true, sqls);
+        createTablesAndReturnPlans(sqls);
     }
 
-    public void createTables(boolean enableNereids, String... sqls) throws Exception {
-        createTablesAndReturnPlans(enableNereids, sqls);
-    }
-
-    public List<LogicalPlan> createTablesAndReturnPlans(boolean enableNereids, String... sqls) throws Exception {
+    public List<LogicalPlan> createTablesAndReturnPlans(String... sqls) throws Exception {
         List<LogicalPlan> logicalPlans = new ArrayList<>();
-        if (enableNereids) {
-            for (String sql : sqls) {
-                NereidsParser nereidsParser = new NereidsParser();
-                LogicalPlan parsed = nereidsParser.parseSingle(sql);
-                logicalPlans.add(parsed);
-                StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-                if (parsed instanceof CreateTableCommand) {
-                    ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
-                }
-            }
-        } else {
-            for (String sql : sqls) {
-                CreateTableStmt stmt = (CreateTableStmt) parseAndAnalyzeStmt(sql);
-                Env.getCurrentEnv().createTable(stmt);
+        for (String sql : sqls) {
+            NereidsParser nereidsParser = new NereidsParser();
+            LogicalPlan parsed = nereidsParser.parseSingle(sql);
+            logicalPlans.add(parsed);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+            if (parsed instanceof CreateTableCommand) {
+                ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
             }
         }
         updateReplicaPathHash();
@@ -844,14 +817,6 @@ public abstract class TestWithFeService {
         if (parsed instanceof GrantTablePrivilegeCommand) {
             ((GrantTablePrivilegeCommand) parsed).run(connectContext, stmtExecutor);
         }
-    }
-
-    protected void addRollup(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().alterTable(alterTableStmt);
-        // waiting alter job state: finished AND table state: normal
-        checkAlterJob();
-        Thread.sleep(100);
     }
 
     protected void alterTableSync(String sql) throws Exception {
