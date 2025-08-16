@@ -19,6 +19,7 @@
 
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
 #include <limits.h>
 #include <sys/types.h>
 
@@ -391,6 +392,9 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     // Process definition levels (indicates null values)
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
     _def_levels.resize(origin_size + parsed_values);
+    DCHECK_LE(origin_size, _def_levels.size())
+            << "origin_size: " << origin_size << ", _def_levels.size(): " << _def_levels.size()
+            << ", parsed_values: " << parsed_values;
     if (has_def_level) {
         _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
     } else {
