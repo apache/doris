@@ -68,6 +68,7 @@ import java.util.List;
  */
 public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveContext> implements CustomRewriter {
 
+    // when deepDerive is true, even nodes already have stats, we still derive them.
     private final boolean deepDerive;
 
     /**
