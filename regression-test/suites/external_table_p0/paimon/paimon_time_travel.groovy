@@ -271,7 +271,7 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
         }
 
     } finally {
-         sql """drop catalog if exists ${catalog_name}"""
+         // sql """drop catalog if exists ${catalog_name}"""
     }
 }
 
