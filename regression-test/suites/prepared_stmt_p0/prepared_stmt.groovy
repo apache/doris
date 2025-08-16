@@ -313,6 +313,12 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read = prepareStatement("""SELECT 1, null, [{'id': 1, 'name' : 'doris'}, {'id': 2, 'name': 'apache'}, null], null""")
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select24 stmt_read
+
+        // test date_trunc
+        stmt_read = prepareStatement "select date_trunc (? , ?)"
+        stmt_read.setString(1, "2025-08-15 11:22:33")
+        stmt_read.setString(2, "DAY")
+        qe_select25 stmt_read
     }
 
     // test stmtId overflow
