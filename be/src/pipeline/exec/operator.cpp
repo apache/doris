@@ -743,9 +743,10 @@ std::string AsyncWriterSink<Writer, Parent>::debug_string(int indentation_level)
     fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
     fmt::format_to(debug_string_buffer,
                    ", _try_to_close: {}, closed: {}, thread_done: {}, data_queue_size: {}, eos: "
-                   "{}, thread_submitted: {}",
+                   "{}, thread_submitted: {}, status: {}",
                    _writer->try_to_close(), _writer->closed(), _writer->thread_done(),
-                   _writer->data_queue_size(), _writer->eos(), _writer->thread_submitted());
+                   _writer->data_queue_size(), _writer->eos(), _writer->thread_submitted(),
+                   _writer->get_writer_status().to_string());
     return fmt::to_string(debug_string_buffer);
 }
 

@@ -96,6 +96,10 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
                     task_lock.reset();
                 }));
     }
+    if ((_eos && _data_queue.empty()) || !_writer_status.ok()) {
+        _data_queue.clear();
+        _set_ready_to_finish();
+    }
 
     return Status::OK();
 }
