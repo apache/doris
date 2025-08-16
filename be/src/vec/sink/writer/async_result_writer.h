@@ -76,6 +76,7 @@ public:
     void set_low_memory_mode();
     bool try_to_close() const { return _try_to_close; }
     bool closed() const { return _closed; }
+    bool thread_submitted() const { return _thread_submitted; }
     bool thread_done() const {
         return !_future || _future->wait_for(std::chrono::seconds(0)) == std::future_status::ready;
     }
@@ -107,6 +108,7 @@ private:
     std::future<Status> _placeholder;
     std::atomic_bool _try_to_close = false;
     std::atomic_bool _closed = false;
+    std::atomic_bool _thread_submitted = false;
     // Default value is ok
     AtomicStatus _writer_status;
     std::atomic_bool _eos = false;

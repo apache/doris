@@ -80,6 +80,7 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
         *_future = _promise->get_future();
         DCHECK(_future->wait_for(std::chrono::seconds(0)) != std::future_status::ready);
         DCHECK(_operator_profile);
+        _thread_submitted = true;
         auto task_ctx = state->get_task_execution_context();
         RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
                 [this, state, operator_profile = _operator_profile, task_ctx,
@@ -158,12 +159,13 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
 
         //1) wait scan operator write data
         {
-            std::unique_lock l(_m);
+            std::lock_guard l(_m);
             // When the query is cancelled, _writer_status may be set to error status in force_close method.
             // When the BE process is exit gracefully, the fragment mgr's thread pool will be shutdown,
             // and the async thread will be exit.
             if (!_eos && _data_queue.empty() && _writer_status.ok() &&
                 !ExecEnv::GetInstance()->fragment_mgr()->shutting_down()) {
+                _thread_submitted = false;
                 // No block available.
                 return Status::OK();
             }
@@ -183,7 +185,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
         auto block = _get_block_from_queue();
         auto status = write(state, *block);
         if (!status.ok()) [[unlikely]] {
-            std::unique_lock l(_m);
+            std::lock_guard l(_m);
             _writer_status.update(status);
             if (_is_finished()) {
                 _dependency->set_ready();
@@ -233,6 +235,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
     }
     // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
     _set_ready_to_finish();
+    _thread_submitted = false;
     return Status::OK();
 }
 
