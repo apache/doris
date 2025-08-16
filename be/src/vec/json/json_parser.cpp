@@ -291,7 +291,7 @@ void JSONDataParser<ParserImpl>::handleNewPath(UInt128 hash, const PathInData::P
             // If newly added element is part of the Nested then
             // resize its elements to keep correct sizes of Nested arrays.
             for (size_t j = 0; j < ctx.current_size; ++j) {
-                path_array[j] = Field::create_field<TYPE_ARRAY>(Array(current_nested_sizes[j]));
+                path_array[j] = Array(current_nested_sizes[j]);
             }
         }
         if (current_nested_sizes.size() == ctx.current_size) {
