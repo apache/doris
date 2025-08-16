@@ -62,10 +62,10 @@ public class OBSPropertyTest {
         origProps.put("obs.access_key", "myOBSAccessKey");
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
-        origProps.put("connection.maximum", "88");
-        origProps.put("connection.request.timeout", "100");
-        origProps.put("connection.timeout", "1000");
-        origProps.put("use_path_style", "true");
+        origProps.put("obs.connection.maximum", "88");
+        origProps.put("obs.connection.request.timeout", "100");
+        origProps.put("obs.connection.timeout", "1000");
+        origProps.put("obs.use_path_style", "true");
         origProps.put("test_non_storage_param", "test_non_storage_value");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
         OBSProperties obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
@@ -88,7 +88,7 @@ public class OBSPropertyTest {
         Assertions.assertEquals("100", s3Props.get("AWS_REQUEST_TIMEOUT_MS"));
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
-        origProps.remove("use_path_style");
+        origProps.remove("obs.use_path_style");
         obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
         s3Props = obsProperties.getBackendConfigProperties();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
