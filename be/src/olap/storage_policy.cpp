@@ -128,6 +128,11 @@ void delete_storage_resource(int64_t resource_id) {
     s_storage_resource_mgr.map.erase(id_str);
 }
 
+void clear_storage_resource() {
+    std::lock_guard lock(s_storage_resource_mgr.mtx);
+    s_storage_resource_mgr.map.clear();
+}
+
 std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids() {
     std::vector<std::pair<std::string, int64_t>> res;
     res.reserve(s_storage_resource_mgr.map.size());
