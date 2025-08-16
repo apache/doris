@@ -173,9 +173,11 @@ Status OlapScanner::init() {
                                                 olap_scan_node.schema_version);
             cached_schema = SchemaCache::instance()->get_schema(schema_key);
         }
-        if (cached_schema) {
+        if (cached_schema && cached_schema->num_virtual_columns() == 0) {
             tablet_schema = cached_schema;
         } else {
+            // If schema is not cached or cached schema has virtual columns,
+            // we need to create a new TabletSchema.
             tablet_schema = std::make_shared<TabletSchema>();
             tablet_schema->copy_from(*tablet->tablet_schema());
             if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
@@ -239,7 +241,9 @@ Status OlapScanner::init() {
                                   read_columns_to_string(tablet_schema, _return_columns));
     }
 
-    if (!cached_schema && !schema_key.empty()) {
+    // Add newly created tablet schema to schema cache if it does not have virtual columns.
+    if (cached_schema == nullptr && !schema_key.empty() &&
+        tablet_schema->num_virtual_columns() == 0) {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
