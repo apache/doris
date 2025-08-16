@@ -2716,7 +2716,7 @@ void Tablet::gc_binlogs(int64_t version) {
             wait_for_deleted_binlog_files.emplace_back(segment_file_path);
 
             // index files
-            if (tablet_schema()->has_inverted_index()) {
+            if (tablet_schema()->has_extra_index()) {
                 if (tablet_schema()->get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {
                     for (const auto& index : tablet_schema()->inverted_indexes()) {

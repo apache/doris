@@ -248,7 +248,7 @@ TEST_F(IndexBuilderTest, DropIndexTest) {
     }
 
     // 6. Verify index exists before dropping
-    EXPECT_TRUE(_tablet_schema->has_inverted_index());
+    EXPECT_TRUE(_tablet_schema->has_extra_index());
     EXPECT_TRUE(_tablet_schema->has_inverted_index_with_index_id(1));
 
     // 7. Prepare index for dropping
