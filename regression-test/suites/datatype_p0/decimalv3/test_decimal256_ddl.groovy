@@ -83,7 +83,7 @@ suite("test_decimal256_ddl") {
 
 
     sql """
-        create materialized view ${table1}mv as select id, sum(dcl1), min(dcl2), max(dcl3) from ${table1} group by id;
+        create materialized view ${table1}mv as select id, sum(dcl1), min(dcl2), max(dcl3), sum(dcl1 * dcl2) from ${table1} group by id;
     """
 
 
@@ -104,7 +104,7 @@ suite("test_decimal256_ddl") {
     """
 
     order_qt_agg """
-        select sum(dcl1), min(dcl2), max(dcl3) from ${table1} group by id
+        select sum(dcl1), min(dcl2), max(dcl3), sum(dcl1 * dcl2) from ${table1} group by id
     """
 
     sql "drop table if exists ${table1} force"
