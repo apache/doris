@@ -2676,7 +2676,7 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 Status SegmentIterator::_construct_compound_expr_context() {
     auto inverted_index_context = std::make_shared<vectorized::InvertedIndexContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
-            _common_expr_inverted_index_status);
+            _common_expr_inverted_index_status, _score_runtime);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
@@ -2861,13 +2861,15 @@ void SegmentIterator::_prepare_score_column_materialization() {
 
     vectorized::IColumn::MutablePtr result_column;
     auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
-    if (_score_runtime->get_limit() > 0 && _common_expr_ctxs_push_down.empty()) {
+    if (_score_runtime->get_limit() > 0 && _col_predicates.empty() &&
+        _common_expr_ctxs_push_down.empty()) {
         OrderType order_type = _score_runtime->is_asc() ? OrderType::ASC : OrderType::DESC;
         _index_query_context->collection_similarity->get_topn_bm25_scores(
                 &_row_bitmap, result_column, result_row_ids, order_type,
                 _score_runtime->get_limit());
     } else {
-        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "Score runtime is not supported");
+        _index_query_context->collection_similarity->get_bm25_scores(&_row_bitmap, result_column,
+                                                                     result_row_ids);
     }
     const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
     auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();

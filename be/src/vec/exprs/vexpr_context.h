@@ -40,6 +40,9 @@ class RuntimeState;
 
 namespace doris::vectorized {
 
+class ScoreRuntime;
+using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
+
 class InvertedIndexContext {
 public:
     InvertedIndexContext(
@@ -47,11 +50,13 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type_vec,
             std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
-                    common_expr_inverted_index_status)
+                    common_expr_inverted_index_status,
+            ScoreRuntimeSPtr score_runtime)
             : _col_ids(col_ids),
               _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
-              _expr_inverted_index_status(common_expr_inverted_index_status) {}
+              _expr_inverted_index_status(common_expr_inverted_index_status),
+              _score_runtime(std::move(score_runtime)) {}
 
     segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
@@ -123,6 +128,8 @@ public:
         }
     }
 
+    ScoreRuntimeSPtr get_score_runtime() const { return _score_runtime; }
+
 private:
     // A reference to a vector of column IDs for the current expression's output columns.
     const std::vector<ColumnId>& _col_ids;
@@ -143,6 +150,8 @@ private:
     // A reference to a map of common expressions to their inverted index evaluation status.
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
             _expr_inverted_index_status;
+
+    ScoreRuntimeSPtr _score_runtime;
 };
 
 class VExprContext {
