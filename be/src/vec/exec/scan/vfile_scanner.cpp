@@ -1186,10 +1186,18 @@ void VFileScanner::try_stop() {
 
 void VFileScanner::_collect_profile_before_close() {
     VScanner::_collect_profile_before_close();
-    if (config::enable_file_cache && _state->query_options().enable_file_cache &&
-        _profile != nullptr) {
-        io::FileCacheProfileReporter cache_profile(_profile);
-        cache_profile.update(_file_cache_statistics.get());
+    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
+        if (_profile != nullptr) {
+            io::FileCacheProfileReporter cache_profile(_profile);
+            cache_profile.update(_file_cache_statistics.get());
+        }
+
+        if (_query_statistics) {
+            _query_statistics->add_scan_bytes_from_local_storage(
+                    _file_cache_statistics->bytes_read_from_local);
+            _query_statistics->add_scan_bytes_from_remote_storage(
+                    _file_cache_statistics->bytes_read_from_remote);
+        }
     }
 
     if (_cur_reader != nullptr) {
