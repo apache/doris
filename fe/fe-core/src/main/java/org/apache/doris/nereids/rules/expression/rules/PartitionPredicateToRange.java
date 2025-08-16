@@ -199,7 +199,7 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression right = lessThanEqual.right();
         if (left instanceof SlotReference && right instanceof Literal) {
             if (slotIds.contains(((SlotReference) left).getExprId().asInt())) {
-                NullLiteral nullLiteral = new NullLiteral(right.getDataType());
+                NullLiteral nullLiteral = new NullLiteral(right.getDataType()); // Refrain : why NULL?
                 Literal literal = (Literal) right;
                 return toRangeSet((SlotReference) left, nullLiteral, BoundType.OPEN, literal, BoundType.CLOSED);
             }
