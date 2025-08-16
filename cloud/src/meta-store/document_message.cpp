@@ -103,6 +103,9 @@ struct MessageSplitDescriptor {
                    config::split_rowset_meta_pb_size < msg.ByteSizeLong();
         } else if constexpr (std::is_same_v<Message, SplitSingleMessagePB>) {
             return true;
+        } else if constexpr (std::is_same_v<Message, TabletSchemaCloudPB>) {
+            return config::enable_split_tablet_schema_pb &&
+                   config::split_tablet_schema_pb_size < msg.ByteSizeLong();
         }
         return false;
     }
@@ -112,6 +115,8 @@ struct MessageSplitDescriptor {
             return {RowsetMetaCloudPB::kSegmentsKeyBoundsFieldNumber};
         } else if constexpr (std::is_same_v<Message, SplitSingleMessagePB>) {
             return {SplitSingleMessagePB::kSegmentKeyBoundsFieldNumber};
+        } else if constexpr (std::is_same_v<Message, TabletSchemaCloudPB>) {
+            return {TabletSchemaCloudPB::kColumnFieldNumber};
         }
         return {};
     }
@@ -256,6 +261,7 @@ bool document_put(Transaction* txn, std::string_view key, google::protobuf::Mess
 
     const SplitMethodDescriptor split_messages[] = {
             {RowsetMetaCloudPB::descriptor(), &document_put_split_fields<RowsetMetaCloudPB>},
+            {TabletSchemaCloudPB::descriptor(), &document_put_split_fields<TabletSchemaCloudPB>},
             // Add more split messages here as needed ...
             {SplitSingleMessagePB::descriptor(), &document_put_split_fields<SplitSingleMessagePB>},
     };
@@ -423,6 +429,7 @@ static TxnErrorCode document_get_split_fields_if_exists(T* t, std::string_view k
 
     const SplitMessageDescriptor split_messages[] = {
             {RowsetMetaCloudPB::descriptor(), &document_get_split_fields<T, RowsetMetaCloudPB>},
+            {TabletSchemaCloudPB::descriptor(), &document_get_split_fields<T, TabletSchemaCloudPB>},
             // Add more split messages here as needed ...
             {SplitSingleMessagePB::descriptor(),
              &document_get_split_fields<T, SplitSingleMessagePB>}};
@@ -601,6 +608,8 @@ static bool document_put_with_encoded_key(Transaction* txn, std::string_view key
     const SplitMethodDescriptor split_messages[] = {
             {RowsetMetaCloudPB::descriptor(),
              &versioned_document_put_split_fields<RowsetMetaCloudPB>},
+            {TabletSchemaCloudPB::descriptor(),
+             &versioned_document_put_split_fields<TabletSchemaCloudPB>},
             // Add more split messages here as needed ...
             {SplitSingleMessagePB::descriptor(),
              &versioned_document_put_split_fields<SplitSingleMessagePB>},
