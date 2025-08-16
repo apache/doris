@@ -44,7 +44,9 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
+#include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
@@ -194,6 +196,12 @@ int Checker::start() {
 
             if (config::enable_mow_job_key_check) {
                 if (int ret = checker->do_mow_job_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_tablet_stats_key_check) {
+                if (int ret = checker->do_tablet_stats_key_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -1756,6 +1764,244 @@ int InstanceChecker::do_mow_job_key_check() {
         begin = it->next_begin_key(); // Update to next smallest key for iteration
     } while (it->more() && !stopped());
     return 0;
+}
+
+int InstanceChecker::do_tablet_stats_key_check() {
+    int ret = 0;
+
+    int64_t nums_leak = 0;
+    int64_t nums_loss = 0;
+
+    std::string tablet_key_begin = meta_tablet_key({instance_id_, 0, 0, 0, 0});
+    std::string tablet_key_end = meta_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
+    // inverted check tablet exists
+    ret = scan_and_handle_kv(
+            tablet_key_begin, tablet_key_end, [&](std::string_view key, std::string_view value) {
+                std::string_view k1 = key;
+                k1.remove_prefix(1);
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+                decode_key(&k1, &out);
+                // 0x01 "meta" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}
+                auto table_id = std::get<int64_t>(std::get<0>(out[3]));
+                auto index_id = std::get<int64_t>(std::get<0>(out[4]));
+                auto partition_id = std::get<int64_t>(std::get<0>(out[5]));
+                auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+                std::string tablet_stats_key = stats_tablet_key(
+                        {instance_id_, table_id, index_id, partition_id, tablet_id});
+                int ret = key_exist(txn_kv_.get(), tablet_stats_key);
+                if (ret == 1) {
+                    nums_loss++;
+                    // clang-format off
+                    LOG(WARNING) << "stats tablet key's tablet key loss,"
+                                 << " stats tablet key=" << hex(tablet_stats_key)
+                                 << " meta tablet key=" << hex(key);
+                    // clang-format on
+                    return 1;
+                } else if (ret == -1) {
+                    LOG(WARNING) << "failed to check key exists, key=" << hex(tablet_stats_key);
+                    return -1;
+                }
+                return 0;
+            });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to inverted check if stats tablet key exists";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "stats_tablet_key loss, nums_loss=" << nums_loss;
+        return 1;
+    }
+
+    std::string tablet_stats_key_begin = stats_tablet_key({instance_id_, 0, 0, 0, 0});
+    std::string tablet_stats_key_end = stats_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
+    // check tablet exists
+    ret = scan_and_handle_kv(
+            tablet_stats_key_begin, tablet_stats_key_end,
+            [&](std::string_view key, std::string_view value) {
+                std::string_view k1 = key;
+                k1.remove_prefix(1);
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+                decode_key(&k1, &out);
+                // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}
+                auto table_id = std::get<int64_t>(std::get<0>(out[3]));
+                auto index_id = std::get<int64_t>(std::get<0>(out[4]));
+                auto partition_id = std::get<int64_t>(std::get<0>(out[5]));
+                auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+                std::string tablet_key = meta_tablet_key(
+                        {instance_id_, table_id, index_id, partition_id, tablet_id});
+                int ret = key_exist(txn_kv_.get(), tablet_key);
+                if (ret == 1) {
+                    nums_leak++;
+                    // clang-format off
+                    LOG(WARNING) << "stats tablet key's tablet key leak,"
+                                 << " stats tablet key=" << hex(key)
+                                 << " meta tablet key=" << hex(tablet_key);
+                    // clang-format on
+                    return 1;
+                } else if (ret == -1) {
+                    LOG(WARNING) << "failed to check key exists, key=" << hex(tablet_key);
+                    return -1;
+                }
+                return 0;
+            });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to check if stats tablet key exists";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "stats_tablet_key leaked, nums_leak=" << nums_leak;
+        return 1;
+    }
+
+    tablet_stats_key_begin = stats_tablet_key({instance_id_, 0, 0, 0, 0});
+    tablet_stats_key_end = stats_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
+    // check if key is normal
+    ret = check_stats_tablet_key(tablet_stats_key_begin, tablet_stats_key_end);
+    if (ret == -1) {
+        LOG(WARNING) << "failed to check if stats tablet key exists";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "stats_tablet_key is abnormal";
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_stats_tablet_key(std::string& start_key, const std::string& end_key) {
+    return scan_and_handle_kv(
+            start_key, end_key, [&](std::string_view key, std::string_view value) -> int {
+                TabletStatsPB tablet_stats_pb;
+                std::string_view k1 = key;
+                k1.remove_prefix(1);
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+                decode_key(&k1, &out);
+                // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}
+                auto tablet_id = std::get<int64_t>(std::get<0>(out[6]));
+                std::unique_ptr<Transaction> txn;
+                TxnErrorCode err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    LOG_WARNING("failed to recycle tablet ")
+                            .tag("tablet id", tablet_id)
+                            .tag("instance_id", instance_id_)
+                            .tag("reason", "failed to create txn");
+                    return -1;
+                }
+                std::string tablet_idx_key = meta_tablet_idx_key({instance_id_, tablet_id});
+                std::string tablet_idx_val;
+                TabletIndexPB tablet_idx;
+                err = txn->get(tablet_idx_key, &tablet_idx_val);
+                if (err != TxnErrorCode::TXN_OK) {
+                    // clang-format off
+                    LOG(WARNING) << "failed to get tablet index key,"
+                                 << " key=" << hex(tablet_idx_key)
+                                 << " code=" << err;
+                    // clang-format on
+                    return -1;
+                }
+                tablet_idx.ParseFromString(tablet_idx_val);
+                MetaServiceCode code = MetaServiceCode::OK;
+                std::string msg;
+                internal_get_tablet_stats(code, msg, txn.get(), instance_id_, tablet_idx,
+                                          tablet_stats_pb);
+                if (code != MetaServiceCode::OK) {
+                    // clang-format off
+                    LOG(WARNING) << "failed to get tablet stats,"
+                                 << " code=" << code 
+                                 << " msg=" << msg;
+                    // clang-format on
+                    return -1;
+                }
+
+                GetRowsetResponse resp;
+                // get rowsets in tablet
+                internal_get_rowset(txn.get(), 0, std::numeric_limits<int64_t>::max() - 1,
+                                    instance_id_, tablet_id, code, msg, &resp);
+                if (code != MetaServiceCode::OK) {
+                    LOG_WARNING("failed to get rowsets of tablet when check stats tablet key")
+                            .tag("tablet id", tablet_id)
+                            .tag("msg", msg)
+                            .tag("code", code)
+                            .tag("instance id", instance_id_);
+                    return -1;
+                }
+                int64_t num_rows = 0;
+                int64_t num_rowsets = 0;
+                int64_t num_segments = 0;
+                int64_t total_data_size = 0;
+                for (const auto& rs_meta : resp.rowset_meta()) {
+                    num_rows += rs_meta.num_rows();
+                    num_rowsets++;
+                    num_segments += rs_meta.num_segments();
+                    total_data_size += rs_meta.total_disk_size();
+                }
+                bool check_res = true;
+                if (tablet_stats_pb.data_size() != total_data_size) {
+                    check_res = false;
+                    // clang-format off
+                    LOG(WARNING) << " tablet_stats_pb's data size is not same with all rowset total data size,"
+                                 << " tablet_stats_pb's data size=" << tablet_stats_pb.data_size()
+                                 << " all rowset total data size=" << total_data_size
+                                 << " stats tablet meta=" << tablet_stats_pb.ShortDebugString();
+                    // clang-format on
+                } else if (tablet_stats_pb.num_rows() != num_rows) {
+                    check_res = false;
+                    // clang-format off
+                    LOG(WARNING) << " tablet_stats_pb's num_rows is not same with all rowset total num_rows,"
+                                 << " tablet_stats_pb's num_rows=" << tablet_stats_pb.num_rows()
+                                 << " all rowset total num_rows=" << num_rows
+                                 << " stats tablet meta=" << tablet_stats_pb.ShortDebugString();
+                    // clang-format on
+                } else if (tablet_stats_pb.num_rowsets() != num_rowsets) {
+                    check_res = false;
+                    // clang-format off
+                    LOG(WARNING) << " tablet_stats_pb's num_rowsets is not same with all rowset nums,"
+                                 << " tablet_stats_pb's num_rowsets=" << tablet_stats_pb.num_rowsets()
+                                 << " all rowset nums=" << num_rowsets
+                                 << " stats tablet meta=" << tablet_stats_pb.ShortDebugString();
+                    // clang-format on
+                } else if (tablet_stats_pb.num_segments() != num_segments) {
+                    check_res = false;
+                    // clang-format off
+                    LOG(WARNING) << " tablet_stats_pb's num_segments is not same with all rowset total num_segments,"
+                                 << " tablet_stats_pb's num_segments=" << tablet_stats_pb.num_segments()
+                                 << " all rowset total num_segments=" << num_segments
+                                 << " stats tablet meta=" << tablet_stats_pb.ShortDebugString();
+                    // clang-format on
+                }
+
+                return check_res == false;
+            });
+}
+
+int InstanceChecker::scan_and_handle_kv(
+        std::string& start_key, const std::string& end_key,
+        std::function<int(std::string_view, std::string_view)> handle_kv) {
+    std::unique_ptr<Transaction> txn;
+    int ret = -1;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn";
+        return -1;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        err = txn->get(start_key, end_key, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get tablet idx, ret=" << err;
+            return -1;
+        }
+
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+
+            if ((ret = std::max(ret, handle_kv(k, v))) == -1) {
+                return -1;
+            }
+            if (!it->has_next()) {
+                start_key = k;
+            }
+        }
+        start_key = it->next_begin_key();
+    } while (it->more() && !stopped());
+    return ret;
 }
 
 } // namespace doris::cloud
