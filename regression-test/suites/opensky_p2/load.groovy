@@ -46,6 +46,7 @@ suite("load"){
             file """${getS3Url() + '/regression/clickhouse/opensky/' + sourceFile}"""
 
             time 0 
+            retryIfHttpError true
 
             // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 
