@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
-import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.rules.expression.check.CheckAndRemoveUselessCast;
 import org.apache.doris.nereids.rules.expression.rules.ConcatWsMultiArrayToOne;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
@@ -69,7 +69,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
                 JsonFunctionRewrite.INSTANCE,
-                CheckCast.INSTANCE
+                CheckAndRemoveUselessCast.INSTANCE
             )
     );
 
