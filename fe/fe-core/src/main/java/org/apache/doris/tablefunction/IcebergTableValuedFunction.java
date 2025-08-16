@@ -31,12 +31,10 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.FileScanTask;
@@ -48,6 +46,8 @@ import org.apache.iceberg.util.SerializationUtil;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 /**
  * The class of table valued function for iceberg metadata.
@@ -135,8 +135,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
-        List<TMetaScanRange> scanRanges = Lists.newArrayList();
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         CloseableIterable<FileScanTask> tasks;
         try {
             tasks = preExecutionAuthenticator.execute(() -> {
@@ -145,17 +144,15 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));
         }
-        for (FileScanTask task : tasks) {
-            TMetaScanRange metaScanRange = new TMetaScanRange();
-            metaScanRange.setMetadataType(TMetadataType.ICEBERG);
-            // set iceberg metadata params
-            TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
-            icebergMetadataParams.setHadoopProps(hadoopProps);
-            icebergMetadataParams.setSerializedTask(SerializationUtil.serializeToBase64(task));
-            metaScanRange.setIcebergParams(icebergMetadataParams);
-            scanRanges.add(metaScanRange);
-        }
-        return scanRanges;
+
+        TMetaScanRange tMetaScanRange = new TMetaScanRange();
+        tMetaScanRange.setMetadataType(TMetadataType.ICEBERG);
+        tMetaScanRange.setHadoopProps(hadoopProps);
+        tMetaScanRange.setSerializedTable(SerializationUtil.serializeToBase64(sysTable));
+        tMetaScanRange.setSerializedSplits(StreamSupport.stream(tasks.spliterator(), false)
+                .map(SerializationUtil::serializeToBase64)
+                .collect(Collectors.toList()));
+        return tMetaScanRange;
     }
 
     @Override
