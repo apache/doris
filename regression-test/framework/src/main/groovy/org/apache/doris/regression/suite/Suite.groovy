@@ -1398,6 +1398,46 @@ class Suite implements GroovyInterceptable {
         runAction(new HttpCliAction(context), actionSupplier)
     }
 
+    /**
+     * Check if HTTP authentication is enabled on the frontend
+     */
+    boolean isHttpAuthEnabled() {
+        try {
+            def result = sql("SHOW FRONTEND CONFIG LIKE '%enable_all_http_auth%'")
+            if (result.size() > 0) {
+                return result[0][1].toString().toLowerCase() == 'true'
+            }
+            return false
+        } catch (Exception e) {
+            logger.warn("Failed to check enable_all_http_auth config: ${e.message}")
+            return false
+        }
+    }
+
+    /**
+     * HTTP GET with automatic authentication based on config
+     */
+    Object httpGet(String url, boolean isJson = false, boolean printText = true) {
+        if (isHttpAuthEnabled()) {
+            return Http.GET(url, isJson, printText, context.config.feHttpUser, context.config.feHttpPassword)
+        } else {
+            // For backward compatibility, still provide basic auth for tests that expect it
+            return Http.GET(url, isJson, printText, context.config.feHttpUser, context.config.feHttpPassword)
+        }
+    }
+
+    /**
+     * HTTP POST with automatic authentication based on config
+     */
+    Object httpPost(String url, Object data = null, boolean isJson = false) {
+        if (isHttpAuthEnabled()) {
+            return Http.POST(url, data, isJson, context.config.feHttpUser, context.config.feHttpPassword)
+        } else {
+            // For backward compatibility, still provide basic auth for tests that expect it
+            return Http.POST(url, data, isJson, context.config.feHttpUser, context.config.feHttpPassword)
+        }
+    }
+
     void runAction(SuiteAction action, Closure actionSupplier) {
         actionSupplier.setDelegate(action)
         actionSupplier.setResolveStrategy(Closure.DELEGATE_FIRST)
