@@ -37,6 +37,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,37 +46,46 @@ import java.util.Optional;
 public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation, BlockFuncDepsPropagation {
 
     private final TableValuedFunction function;
+    private final ImmutableList<Slot> operativeSlots;
 
-    public PhysicalTVFRelation(RelationId id, TableValuedFunction function, LogicalProperties logicalProperties) {
+    public PhysicalTVFRelation(RelationId id, TableValuedFunction function, Collection<Slot> operativeSlots,
+            LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_TVF_RELATION, Optional.empty(), logicalProperties);
+        this.operativeSlots = ImmutableList.copyOf(operativeSlots);
         this.function = Objects.requireNonNull(function, "function can not be null");
     }
 
-    public PhysicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
+    public PhysicalTVFRelation(RelationId id, TableValuedFunction function, Collection<Slot> operativeSlots,
+            Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
         super(id, PlanType.PHYSICAL_TVF_RELATION, groupExpression,
                 logicalProperties, physicalProperties, statistics);
+        this.operativeSlots = ImmutableList.copyOf(operativeSlots);
         this.function = Objects.requireNonNull(function, "function can not be null");
     }
 
     @Override
     public PhysicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalTVFRelation(relationId, function, groupExpression, getLogicalProperties(),
+        return new PhysicalTVFRelation(relationId, function, operativeSlots, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalTVFRelation(relationId, function, groupExpression,
+        return new PhysicalTVFRelation(relationId, function, operativeSlots, groupExpression,
                 logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalTVFRelation(relationId, function, Optional.empty(),
+        return new PhysicalTVFRelation(relationId, function, operativeSlots, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics);
+    }
+
+    public List<Slot> getOperativeSlots() {
+        return operativeSlots;
     }
 
     @Override
@@ -90,7 +100,7 @@ public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation
             return false;
         }
         PhysicalTVFRelation that = (PhysicalTVFRelation) o;
-        return Objects.equals(function, that.function);
+        return Objects.equals(function, that.function) && Objects.equals(operativeSlots, that.operativeSlots);
     }
 
     @Override
