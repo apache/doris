@@ -146,6 +146,7 @@ private:
         std::vector<Field> values;
         bool enable_flatten_nested = false;
         bool has_nested_in_flatten = false;
+        bool is_top_array = false;
     };
     using PathPartsWithArray = std::pair<PathInData::Parts, Array>;
     using PathToArray = phmap::flat_hash_map<UInt128, PathPartsWithArray, UInt128TrivialHash>;
@@ -156,11 +157,19 @@ private:
         PathToArray arrays_by_path;
         KeyToSizes nested_sizes_by_key;
         bool has_nested_in_flatten = false;
+        bool is_top_array = false;
     };
     void traverse(const Element& element, ParseContext& ctx);
     void traverseObject(const JSONObject& object, ParseContext& ctx);
     void traverseArray(const JSONArray& array, ParseContext& ctx);
     void traverseArrayElement(const Element& element, ParseArrayContext& ctx);
+    void checkAmbiguousStructure(const ParseArrayContext& ctx,
+                                 const std::vector<PathInData::Parts>& paths);
+    void handleExistingPath(std::pair<PathInData::Parts, Array>& path_data,
+                            const PathInData::Parts& path, Field& value, ParseArrayContext& ctx,
+                            size_t& keys_to_update);
+    void handleNewPath(UInt128 hash, const PathInData::Parts& path, Field& value,
+                       ParseArrayContext& ctx);
     static void fillMissedValuesInArrays(ParseArrayContext& ctx);
     static bool tryInsertDefaultFromNested(ParseArrayContext& ctx, const PathInData::Parts& path,
                                            Array& array);
