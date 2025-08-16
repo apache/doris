@@ -8,14 +8,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalOlapScan[fn_test]
 --PhysicalResultSink
 ----NestedLoopJoin[CROSS_JOIN]
-------hashAgg[DISTINCT_GLOBAL]
---------hashAgg[DISTINCT_LOCAL]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------hashAgg[DISTINCT_GLOBAL]
---------hashAgg[DISTINCT_LOCAL]
-----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[GLOBAL]
+----------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[GLOBAL]
+--------hashAgg[GLOBAL]
+----------PhysicalCteConsumer ( cteId=CTEId#0 )
 

@@ -22,6 +22,9 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.implementation.SplitAgg;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 
 import com.google.common.collect.ImmutableList;
 
@@ -68,6 +71,9 @@ public class OptimizeGroupExpressionJob extends Job {
         return ImmutableList.<Rule>builder()
                 .addAll(getJoinRules())
                 .addAll(getMvRules())
+                .addAll(SplitAgg.INSTANCE.buildRules())
+                .addAll(SplitAggMultiPhase.INSTANCE.buildRules())
+                .addAll(SplitAggMultiPhaseWithoutGbyKey.INSTANCE.buildRules())
                 .build();
     }
 

@@ -66,7 +66,7 @@ with_pk_col
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
 ----PhysicalOlapScan[pkt]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
@@ -226,7 +226,7 @@ with_pk_col
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
 ----PhysicalOlapScan[pkt]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalOlapScan[fkt]
 
 -- !res --
