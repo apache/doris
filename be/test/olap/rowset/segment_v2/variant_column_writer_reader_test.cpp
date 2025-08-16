@@ -2300,4 +2300,180 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter_nullable) {
     EXPECT_TRUE(stats.bytes_read > 0);
 }
 
+TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
+    auto fill_string_column_with_test_data =
+            [&](auto& column_string, int size,
+                std::unordered_map<int, std::string>* inserted_jsonstr,
+                schema_util::PathToNoneNullValues* path_with_size) {
+                for (int i = 0; i < size; ++i) {
+                    std::string jsonstr;
+                    if (i % 2 == 0) {
+                        jsonstr = R"({"b" : 3})";
+                        (*path_with_size)["b"] += 1;
+                    } else {
+                        jsonstr = R"({"b" : {"c" : 5}})";
+                        (*path_with_size)["b.c"] += 1;
+                    }
+                    inserted_jsonstr->emplace(i, jsonstr);
+                    column_string->insert_data(jsonstr.c_str(), jsonstr.size());
+                }
+            };
+
+    auto fill_object_column_with_test_data =
+            [&](auto& column_object, int size,
+                std::unordered_map<int, std::string>* inserted_jsonstr,
+                schema_util::PathToNoneNullValues* path_with_size) {
+                auto type_string = std::make_shared<vectorized::DataTypeString>();
+                auto column = type_string->create_column();
+                auto* column_string = assert_cast<ColumnString*>(column.get());
+                fill_string_column_with_test_data(column_string, size, inserted_jsonstr,
+                                                  path_with_size);
+                vectorized::ParseConfig config;
+                config.enable_flatten_nested = false;
+                parse_json_to_variant(*column_object, *column_string, config);
+            };
+
+    // 1. create tablet_schema
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1");
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    tablet_meta->_tablet_id = 10000;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. create file_writer
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    // 4. create column_writer
+    SegmentFooterPB footer;
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.rowset_ctx->tablet_schema = _tablet_schema;
+    TabletColumn column = _tablet_schema->column(0);
+    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+
+    std::unique_ptr<ColumnWriter> writer;
+    EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
+    EXPECT_TRUE(writer->init().ok());
+    EXPECT_TRUE(assert_cast<VariantColumnWriter*>(writer.get()) != nullptr);
+
+    // 5. write data
+    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto block = _tablet_schema->create_block();
+    auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
+    schema_util::PathToNoneNullValues path_with_size;
+    std::unordered_map<int, std::string> inserted_jsonstr;
+    fill_object_column_with_test_data(column_object, 1000, &inserted_jsonstr, &path_with_size);
+
+    olap_data_convertor->add_column_data_convertor(column);
+    olap_data_convertor->set_source_content(&block, 0, 1000);
+    auto [result, accessor] = olap_data_convertor->convert_column_data(0);
+    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(accessor != nullptr);
+    EXPECT_TRUE(writer->append(accessor->get_nullmap(), accessor->get_data(), 1000).ok());
+    st = writer->finish();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_data();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_ordinal_index();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_zone_map();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(1000);
+
+    // 6. check footer
+    EXPECT_EQ(footer.columns_size(), 4);
+    auto column_meta = footer.columns(0);
+    EXPECT_EQ(column_meta.type(), (int)FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    for (int i = 1; i < footer.columns_size() - 1; ++i) {
+        auto column_met = footer.columns(i);
+        check_column_meta(column_met, path_with_size);
+    }
+    check_sparse_column_meta(footer.columns(footer.columns_size() - 1), path_with_size);
+
+    // 7. check variant reader
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(file_path, &file_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    ColumnReaderOptions read_opts;
+    read_opts.tablet_schema = _tablet_schema;
+    std::unique_ptr<ColumnReader> column_reader;
+    st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+    EXPECT_TRUE(variant_column_reader != nullptr);
+
+    const auto* subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("b"));
+    EXPECT_TRUE(subcolumn_reader != nullptr);
+    subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("b.c"));
+    EXPECT_TRUE(subcolumn_reader != nullptr);
+
+    TabletColumn parent_column = _tablet_schema->column(0);
+    StorageReadOptions storage_read_opts;
+
+    storage_read_opts.tablet_schema = _tablet_schema;
+
+    TabletColumn subcolumn;
+    subcolumn.set_name(parent_column.name_lower_case() + ".b");
+    subcolumn.set_type((FieldType)(int)footer.columns(1).type());
+    subcolumn.set_parent_unique_id(parent_column.unique_id());
+    subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".b"));
+    subcolumn.set_variant_max_subcolumns_count(parent_column.variant_max_subcolumns_count());
+    subcolumn.set_is_nullable(true);
+    _tablet_schema->append_column(subcolumn);
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    ColumnIteratorUPtr hierarchical_it;
+    st = variant_column_reader->new_iterator(&hierarchical_it, &subcolumn, &storage_read_opts);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(dynamic_cast<HierarchicalDataIterator*>(hierarchical_it.get()) != nullptr);
+
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_CHECKSUM;
+    ColumnIteratorUPtr it;
+    st = variant_column_reader->new_iterator(&it, &subcolumn, &storage_read_opts);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(dynamic_cast<FileColumnIterator*>(it.get()) != nullptr);
+    ColumnIteratorOptions column_iter_opts;
+    OlapReaderStatistics stats;
+    column_iter_opts.stats = &stats;
+    column_iter_opts.file_reader = file_reader.get();
+    st = it->init(column_iter_opts);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    auto column_type = DataTypeFactory::instance().create_data_type(subcolumn, true);
+    auto read_column = column_type->create_column();
+    size_t nrows = 1000;
+    st = it->seek_to_ordinal(0);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = it->next_batch(&nrows, read_column);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(stats.bytes_read > 0);
+
+    for (int row = 0; row < 1000; ++row) {
+        const std::string& value = column_type->to_string(*read_column, row);
+        if (row % 2 == 0) {
+            EXPECT_EQ(value, "3");
+        }
+    }
+}
+
 } // namespace doris
