@@ -1019,6 +1019,9 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select split_part('abc', ':', -1)")
     testFoldConst("select split_part('abc', ':', 0)")
     testFoldConst("select split_part('abc', ':', 1)")
+    testFoldConst("select split_part('abc', '::', -1)")
+    testFoldConst("select split_part('abc', '::', 0)")
+    testFoldConst("select split_part('abc', '::', 1)")
 
     // starts_with
     testFoldConst("select starts_with('hello world','hello')")
