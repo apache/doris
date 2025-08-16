@@ -489,6 +489,9 @@ public:
     }
     bool has_inverted_index_with_index_id(int64_t index_id) const;
 
+    //check whether current schema has ngram/inverted index
+    bool has_expected_index_with_index_id(int64_t index_id) const;
+
     void update_index(const TabletColumn& column, const IndexType& index_type,
                       std::vector<TabletIndex>&& indexes);
 
