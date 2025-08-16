@@ -31,5 +31,6 @@ suite("test_cast_function") {
     qt_sql_to_small """ select cast('1212.31' as smallint);""" 
     qt_sql_to_int """ select cast('1212.31' as int);""" 
     qt_sql_to_big """ select cast('1212.31' as bigint);""" 
+    qt_sql_to_struct """ select cast('{"a":1,"b":"1","c":"1"}' as struct<a:int, b:int, c:varchar(5), d:varchar(5)>) """
 }
 
