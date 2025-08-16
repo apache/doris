@@ -2260,7 +2260,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = Lists.newArrayList();
-            params.addAll(visit(ctx.expression(), Expression.class));
+            params.addAll(visit(ctx.funcExpression(), Expression.class));
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
 
