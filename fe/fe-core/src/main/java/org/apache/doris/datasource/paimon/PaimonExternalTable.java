@@ -60,6 +60,7 @@ import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypeRoot;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -261,6 +262,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                         PaimonUtil.paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
                         -1);
                 PaimonUtil.updatePaimonColumnUniqueId(column, field);
+                if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                    column.setWithTZExtraInfo();
+                }
                 dorisColumns.add(column);
                 if (partitionColumnNames.contains(field.name())) {
                     partitionColumns.add(column);

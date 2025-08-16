@@ -55,6 +55,9 @@ suite("test_iceberg_write_timestamp_ntz", "p0,external,iceberg,external_docker,e
         sql "set time_zone = 'Asia/Shanghai'"
         qt_timestamp_ntz """select * from t_ntz_doris;"""
         qt_timestamp_tz  """select * from t_tz_doris;"""
+        // test Extra column in desc result
+        qt_desc01 """desc t_ntz_doris"""
+        qt_desc02 """desc t_tz_doris"""
 
         sql "set time_zone = 'Europe/Tirane'"
         qt_timestamp_ntz2 """select * from t_ntz_doris;"""
