@@ -74,7 +74,8 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
                     "tablet_id={}",
                     version_range.to_string(), _tablet_meta->max_version().second, tablet_id());
             return ResultError(Status::Error<VERSION_ALREADY_MERGED, false>(
-                    "missed versions is empty, version_range={}, max_version={}, tablet_id={}",
+                    "versions are already compacted, version_range={}, max_version={}, "
+                    "tablet_id={}",
                     version_range.to_string(), _tablet_meta->max_version().second, tablet_id()));
         }
         LOG(WARNING) << fmt::format("missed version for version_range={}, tablet_id={}, st={}",
