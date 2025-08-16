@@ -74,13 +74,16 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
     // in the lock. must modify the _eos after change _data_queue to make sure
     // not lead the logic error in multi thread
     _eos = eos;
+    auto submitted = false;
     if (!_future || _future->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        DCHECK(!_thread_submitted);
         // Need to start a new thread
         _promise = std::make_shared<std::promise<Status>>();
         *_future = _promise->get_future();
         DCHECK(_future->wait_for(std::chrono::seconds(0)) != std::future_status::ready);
         DCHECK(_operator_profile);
         _thread_submitted = true;
+        submitted = true;
         auto task_ctx = state->get_task_execution_context();
         RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
                 [this, state, operator_profile = _operator_profile, task_ctx,
@@ -96,7 +99,7 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
                     task_lock.reset();
                 }));
     }
-    if ((_eos && _data_queue.empty()) || !_writer_status.ok()) {
+    if (!submitted && ((_eos && _data_queue.empty()) || !_writer_status.ok())) {
         _data_queue.clear();
         _set_ready_to_finish();
     }
