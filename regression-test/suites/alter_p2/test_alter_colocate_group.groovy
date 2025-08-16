@@ -126,6 +126,7 @@ suite ("test_alter_colocate_group") {
         for (def group : groups) {
             allocMap[group[1]] = group[4]
         }
+        log.info("allocMap: ${allocMap}")
 
         assertEquals("tag.location.default: ${replicaNum}".toString(), allocMap[groupName])
     }
@@ -134,12 +135,14 @@ suite ("test_alter_colocate_group") {
         def result = sql """ show create table ${tableName} """
         def createTbl = result[0][1].toString()
         assertTrue(createTbl.indexOf("\"replication_allocation\" = \"tag.location.default: ${replicaNum}\"") > 0)
+        log.info("createTbl: ${createTbl}")
         if (hasDynamicPart) {
             assertTrue(createTbl.indexOf(
                     "\"dynamic_partition.replication_allocation\" = \"tag.location.default: ${replicaNum}\"") > 0)
         }
 
         result = sql """ show partitions from ${tableName} """
+        log.info("result: ${result}")
         assertTrue(result.size() > 0)
         for (int i = 0; i < result.size(); i++) {
             assertEquals("${replicaNum}".toString(), result[i][9].toString())
