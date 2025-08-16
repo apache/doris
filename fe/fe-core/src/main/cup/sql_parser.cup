@@ -1220,11 +1220,7 @@ stmt ::=
     ;
 
 refresh_stmt ::=
-    KW_REFRESH KW_TABLE table_name:tbl
-    {:
-        RESULT = new RefreshTableStmt(tbl);
-    :}
-    | KW_REFRESH KW_DATABASE ident:db opt_properties:properties
+    KW_REFRESH KW_DATABASE ident:db opt_properties:properties
     {:
         RESULT = new RefreshDbStmt(db, properties);
     :}
