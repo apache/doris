@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -696,25 +698,26 @@ public class PaimonScanNode extends FileQueryScanNode {
      */
     private Table getProcessedTable() throws UserException {
         Table baseTable = source.getPaimonTable();
-
-        if (scanParams != null) {
-            if (getScanParams() != null && getQueryTableSnapshot() != null) {
-                throw new UserException("Can not specify scan params and table snapshot at same time.");
-            }
-            if (scanParams.incrementalRead()) {
+        if (getScanParams() != null && getQueryTableSnapshot() != null) {
+            throw new UserException("Can not specify scan params and table snapshot at same time.");
+        }
+        TableScanParams theScanParams = getScanParams();
+        if (theScanParams != null) {
+            if (theScanParams.incrementalRead()) {
                 return baseTable.copy(getIncrReadParams());
             }
 
-            if (scanParams.isBranch()) {
-                return PaimonUtil.buildBranchTable(source, baseTable, PaimonUtil.extractBranchOrTagName(scanParams));
+            if (theScanParams.isBranch()) {
+                return PaimonUtil.getTableByBranch(source, baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
             }
-            if (scanParams.isTag()) {
-                return PaimonUtil.buildTagTable(baseTable, PaimonUtil.extractBranchOrTagName(scanParams));
+            if (theScanParams.isTag()) {
+                return PaimonUtil.getTableByTag(baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
             }
         }
 
-        if (tableSnapshot != null) {
-            return PaimonUtil.buildSnapshotTable(baseTable, tableSnapshot);
+        TableSnapshot theTableSnapshot = getQueryTableSnapshot();
+        if (theTableSnapshot != null) {
+            return PaimonUtil.getTableBySnapshot(baseTable, theTableSnapshot);
         }
 
         return baseTable;

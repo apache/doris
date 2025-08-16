@@ -502,7 +502,7 @@ public class PaimonUtil {
      * @return a Table instance configured for the specified time travel query
      * @throws UserException if snapshot configuration is invalid
      */
-    public static Table buildSnapshotTable(Table baseTable, TableSnapshot tableSnapshot)
+    public static Table getTableBySnapshot(Table baseTable, TableSnapshot tableSnapshot)
             throws UserException {
         final String value = tableSnapshot.getValue();
         final TableSnapshot.VersionType type = tableSnapshot.getType();
@@ -511,14 +511,14 @@ public class PaimonUtil {
         switch (type) {
             case TIME:
                 return isDigital
-                        ? buildSnapshotTimestampMillisTable(baseTable, value)
-                        : buildSnapshotTimestampTable(baseTable, value);
+                        ? getTableBySnapshotTimestampMillis(baseTable, value)
+                        : getTableBySnapshotTime(baseTable, value);
 
             case VERSION:
                 if (isDigital) {
-                    return buildSnapshotIdTable(baseTable, value);
+                    return getTableBySnapshotId(baseTable, value);
                 }
-                return buildTagTable(baseTable, value);
+                return getTableByTag(baseTable, value);
 
             default:
                 throw new UserException(String.format("Unsupported version type: %s", type));
@@ -532,7 +532,7 @@ public class PaimonUtil {
      * @param snapshotId the snapshot ID as a string
      * @return a Table instance configured to read from the specified snapshot ID
      */
-    public static Table buildSnapshotIdTable(Table baseTable, String snapshotId) {
+    private static Table getTableBySnapshotId(Table baseTable, String snapshotId) {
         Map<String, String> options = new HashMap<>(
                 PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS.size() + 3);
 
@@ -553,7 +553,7 @@ public class PaimonUtil {
      * @param timestampStr the timestamp as a string
      * @return a Table instance configured to read from the specified timestamp
      */
-    public static Table buildSnapshotTimestampTable(Table baseTable, String timestampStr) {
+    private static Table getTableBySnapshotTime(Table baseTable, String timestampStr) {
         Map<String, String> options = new HashMap<>(
                 PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
 
@@ -574,7 +574,7 @@ public class PaimonUtil {
      * @param timestampStr the timestamp in milliseconds as a string
      * @return a Table instance configured to read from the specified timestamp
      */
-    public static Table buildSnapshotTimestampMillisTable(Table baseTable, String timestampStr) {
+    private static Table getTableBySnapshotTimestampMillis(Table baseTable, String timestampStr) {
         Map<String, String> options = new HashMap<>(
                 PAIMON_FROM_TIMESTAMP_CONFLICT_OPTIONS.size() + 3);
 
@@ -619,7 +619,7 @@ public class PaimonUtil {
      * @return a Table instance configured to read from the specified branch
      * @throws UserException if branch does not exist
      */
-    public static Table buildBranchTable(PaimonSource source, Table baseTable, String branchName) throws UserException {
+    public static Table getTableByBranch(PaimonSource source, Table baseTable, String branchName) throws UserException {
 
         if (!checkBranchExists(baseTable, branchName)) {
             throw new UserException(String.format("Branch '%s' does not exist", branchName));
@@ -638,7 +638,7 @@ public class PaimonUtil {
      * @return a Table instance configured to read from the specified tag
      * @throws UserException if tag does not exist
      */
-    public static Table buildTagTable(Table baseTable, String tagName) throws UserException {
+    public static Table getTableByTag(Table baseTable, String tagName) throws UserException {
         if (!checkTagsExists(baseTable, tagName)) {
             throw new UserException(String.format("Tag '%s' does not exist", tagName));
         }
