@@ -101,5 +101,7 @@ DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
 
 DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
+DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
