@@ -3323,14 +3323,6 @@ show_stmt ::=
     :}
     ;
 
-show_param ::=
-    /* routine */
-    procedure_or_function KW_STATUS opt_wild_where
-    {:
-        RESULT = new ShowProcedureStmt();
-    :}
-    ;
-
 opt_tmp ::=
     /* empty */
     {:
