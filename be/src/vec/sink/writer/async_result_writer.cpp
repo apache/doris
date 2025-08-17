@@ -78,7 +78,6 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
         // Need to start a new thread
         _promise = std::make_shared<std::promise<Status>>();
         *_future = _promise->get_future();
-        DCHECK(_future->wait_for(std::chrono::seconds(0)) != std::future_status::ready);
         DCHECK(_operator_profile);
         _thread_submitted = true;
         _last_submitted = true;
@@ -92,9 +91,7 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
                     if (task_lock == nullptr) {
                         return;
                     }
-                    DCHECK(_future->wait_for(std::chrono::seconds(0)) != std::future_status::ready);
                     p->set_value(this->process_block(state, operator_profile));
-                    DCHECK(_future->wait_for(std::chrono::seconds(0)) == std::future_status::ready);
                     task_lock.reset();
                 }));
     } else {
