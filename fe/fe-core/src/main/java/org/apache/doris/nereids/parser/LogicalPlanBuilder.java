@@ -8471,8 +8471,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitWarmUpSelect(DorisParser.WarmUpSelectContext ctx) {
         LogicalPlan relation;
         if (ctx.warmUpSingleTableRef() == null) {
-            relation = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                    ImmutableList.of(new Alias(Literal.of(0))));
+            throw new AnalysisException("WARM UP SELECT requires a table reference to warm up.");
         } else {
             relation = visitWarmUpSingleTableRef(ctx.warmUpSingleTableRef());
         }

@@ -22,9 +22,6 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 
-import java.util.HashMap;
-import java.util.Map;
-
 /**
  * BlackholeSink is currently used in "warm up select" SQL statements to preload file block caches into tables.
  * It is planned as a terminal sink (like /dev/null),
@@ -32,32 +29,15 @@ import java.util.Map;
  */
 public class BlackholeSink extends DataSink {
     private final PlanNodeId exchNodeId;
-    private boolean enableCacheMetrics = true;
-    private Map<String, String> properties = new HashMap<>();
 
     public BlackholeSink(PlanNodeId exchNodeId) {
         this.exchNodeId = exchNodeId;
-    }
-
-    public BlackholeSink(PlanNodeId exchNodeId, boolean enableCacheMetrics) {
-        this.exchNodeId = exchNodeId;
-        this.enableCacheMetrics = enableCacheMetrics;
-    }
-
-    public BlackholeSink(PlanNodeId exchNodeId, boolean enableCacheMetrics, Map<String, String> properties) {
-        this.exchNodeId = exchNodeId;
-        this.enableCacheMetrics = enableCacheMetrics;
-        this.properties = properties != null ? new HashMap<>(properties) : new HashMap<>();
     }
 
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(prefix).append("BLACKHOLE SINK\n");
-        strBuilder.append(prefix).append("  Cache Metrics: ").append(enableCacheMetrics).append("\n");
-        if (!properties.isEmpty()) {
-            strBuilder.append(prefix).append("  Properties: ").append(properties).append("\n");
-        }
         return strBuilder.toString();
     }
 
@@ -67,26 +47,6 @@ public class BlackholeSink extends DataSink {
         TBlackholeSink tBlackholeSink = new TBlackholeSink();
         result.setBlackholeSink(tBlackholeSink);
         return result;
-    }
-
-    public boolean isEnableCacheMetrics() {
-        return enableCacheMetrics;
-    }
-
-    public void setEnableCacheMetrics(boolean enableCacheMetrics) {
-        this.enableCacheMetrics = enableCacheMetrics;
-    }
-
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    public void setProperties(Map<String, String> properties) {
-        this.properties = properties != null ? new HashMap<>(properties) : new HashMap<>();
-    }
-
-    public void addProperty(String key, String value) {
-        this.properties.put(key, value);
     }
 
     public PlanNodeId getExchNodeId() {
