@@ -1331,7 +1331,7 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
     if (request->action() != RestoreJobRequest::PREPARE) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid action, expected PREPARE but got " +
-                RestoreJobRequest::Action_Name(request->action());
+              RestoreJobRequest::Action_Name(request->action());
         return;
     }
 
@@ -1519,7 +1519,7 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
     if (request->action() != RestoreJobRequest::COMMIT) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid action, expected COMMIT but got " +
-                RestoreJobRequest::Action_Name(request->action());
+              RestoreJobRequest::Action_Name(request->action());
         return;
     }
 
@@ -1864,7 +1864,7 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
         request->action() != RestoreJobRequest::ABORT) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid action, expected COMPLETE or ABORT but got " +
-                RestoreJobRequest::Action_Name(request->action());
+              RestoreJobRequest::Action_Name(request->action());
         return;
     }
 
