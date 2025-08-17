@@ -20,6 +20,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -55,9 +56,41 @@ AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,
     }
 }
 
+AggregateFunctionPtr create_aggregate_function_regr_count(const std::string& name,
+                                                          const DataTypes& argument_types,
+                                                          const bool result_is_nullable,
+                                                          const AggregateFunctionAttr& attr) {
+    bool y_nullable_input = argument_types[0]->is_nullable();
+    bool x_nullable_input = argument_types[1]->is_nullable();
+    if (y_nullable_input) {
+        if (x_nullable_input) {
+            return creator_without_type::create_ignore_nullable<
+                    AggregateFunctionRegrCount<true, true>>(argument_types, result_is_nullable,
+                                                            attr);
+        } else {
+            return creator_without_type::create_ignore_nullable<
+                    AggregateFunctionRegrCount<true, false>>(argument_types, result_is_nullable,
+                                                             attr);
+        }
+    } else {
+        if (x_nullable_input) {
+            return creator_without_type::create_ignore_nullable<
+                    AggregateFunctionRegrCount<false, true>>(argument_types, result_is_nullable,
+                                                             attr);
+        } else {
+            return creator_without_type::create_ignore_nullable<
+                    AggregateFunctionRegrCount<false, false>>(argument_types, result_is_nullable,
+                                                              attr);
+        }
+    }
+}
+
 void register_aggregate_function_regr_union(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("regr_slope", create_aggregate_function_regr<RegrSlopeFunc>);
     factory.register_function_both("regr_intercept",
                                    create_aggregate_function_regr<RegrInterceptFunc>);
+    factory.register_function_both("regr_avgx", create_aggregate_function_regr<RegrAvgxFunc>);
+    factory.register_function_both("regr_avgy", create_aggregate_function_regr<RegrAvgyFunc>);
+    factory.register_function_both("regr_count", create_aggregate_function_regr_count);
 }
 } // namespace doris::vectorized
