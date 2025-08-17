@@ -1776,18 +1776,19 @@ int InstanceChecker::do_restore_job_check() {
     using namespace std::chrono;
     auto start_time = steady_clock::now();
     DORIS_CLOUD_DEFER {
-            g_bvar_checker_restore_job_prepared_state.put(instance_id_, num_prepared);
-            g_bvar_checker_restore_job_committed_state.put(instance_id_, num_committed);
-            g_bvar_checker_restore_job_dropped_state.put(instance_id_, num_dropped);
-            g_bvar_checker_restore_job_completed_state.put(instance_id_, num_completed);
-            g_bvar_checker_restore_job_recycling_state.put(instance_id_, num_recycling);
-            g_bvar_checker_restore_job_cost_many_time.put(instance_id_, num_cost_many_time);
-            auto cost_ms = duration_cast<std::chrono::milliseconds>(steady_clock::now() - start_time).count();
-            LOG(INFO) << "check instance restore jobs finished, cost=" << cost_ms
-                      << "ms. instance_id=" << instance_id_ << " num_prepared=" << num_prepared
-                      << " num_committed=" << num_committed << " num_dropped=" << num_dropped
-                      << " num_completed=" << num_completed << " num_recycling=" << num_recycling
-                      << " num_cost_many_time=" << num_cost_many_time;
+        g_bvar_checker_restore_job_prepared_state.put(instance_id_, num_prepared);
+        g_bvar_checker_restore_job_committed_state.put(instance_id_, num_committed);
+        g_bvar_checker_restore_job_dropped_state.put(instance_id_, num_dropped);
+        g_bvar_checker_restore_job_completed_state.put(instance_id_, num_completed);
+        g_bvar_checker_restore_job_recycling_state.put(instance_id_, num_recycling);
+        g_bvar_checker_restore_job_cost_many_time.put(instance_id_, num_cost_many_time);
+        auto cost_ms =
+                duration_cast<std::chrono::milliseconds>(steady_clock::now() - start_time).count();
+        LOG(INFO) << "check instance restore jobs finished, cost=" << cost_ms
+                  << "ms. instance_id=" << instance_id_ << " num_prepared=" << num_prepared
+                  << " num_committed=" << num_committed << " num_dropped=" << num_dropped
+                  << " num_completed=" << num_completed << " num_recycling=" << num_recycling
+                  << " num_cost_many_time=" << num_cost_many_time;
     };
 
     LOG_INFO("begin to check restore jobs").tag("instance_id", instance_id_);
@@ -1800,7 +1801,7 @@ int InstanceChecker::do_restore_job_check() {
     job_restore_tablet_key(restore_job_key_info1, &end);
     std::unique_ptr<RangeGetIterator> it;
     do {
-        std::unique_ptr <Transaction> txn;
+        std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to create txn";
@@ -1823,23 +1824,23 @@ int InstanceChecker::do_restore_job_check() {
             }
 
             switch (restore_job_pb.state()) {
-                case RestoreJobCloudPB::PREPARED:
-                    ++num_prepared;
-                    break;
-                case RestoreJobCloudPB::COMMITTED:
-                    ++num_committed;
-                    break;
-                case RestoreJobCloudPB::DROPPED:
-                    ++num_dropped;
-                    break;
-                case RestoreJobCloudPB::COMPLETED:
-                    ++num_completed;
-                    break;
-                case RestoreJobCloudPB::RECYCLING:
-                    ++num_recycling;
-                    break;
-                default:
-                    break;
+            case RestoreJobCloudPB::PREPARED:
+                ++num_prepared;
+                break;
+            case RestoreJobCloudPB::COMMITTED:
+                ++num_committed;
+                break;
+            case RestoreJobCloudPB::DROPPED:
+                ++num_dropped;
+                break;
+            case RestoreJobCloudPB::COMPLETED:
+                ++num_completed;
+                break;
+            case RestoreJobCloudPB::RECYCLING:
+                ++num_recycling;
+                break;
+            default:
+                break;
             }
 
             int64_t current_time = ::time(nullptr);

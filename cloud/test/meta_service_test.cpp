@@ -10607,7 +10607,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         // empty action
         meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        ASSERT_EQ(res.status().msg(), "invalid action");
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
         req.set_action(RestoreJobRequest::PREPARE);
 
         // empty tablet id
@@ -10621,6 +10621,13 @@ TEST(MetaServiceTest, RestoreJobTest) {
         meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_EQ(res.status().msg(), "no tablet meta");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
         req.Clear();
         res.Clear();
     }
@@ -10719,13 +10726,20 @@ TEST(MetaServiceTest, RestoreJobTest) {
         // empty action
         meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        ASSERT_EQ(res.status().msg(), "invalid action");
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
         req.set_action(RestoreJobRequest::COMMIT);
 
         // empty tablet_id
         meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_EQ(res.status().msg(), "empty tablet_id");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
         req.Clear();
         res.Clear();
     }
@@ -10897,13 +10911,20 @@ TEST(MetaServiceTest, RestoreJobTest) {
         // empty action
         meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        ASSERT_EQ(res.status().msg(), "invalid action");
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
         req.set_action(RestoreJobRequest::COMPLETE);
 
         // empty tablet_id
         meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_EQ(res.status().msg(), "empty tablet_id");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
         req.Clear();
         res.Clear();
     }

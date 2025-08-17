@@ -1330,7 +1330,8 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
     RPC_PREPROCESS(prepare_restore_job);
     if (request->action() != RestoreJobRequest::PREPARE) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invalid action";
+        msg = "invalid action, expected PREPARE but got " +
+                RestoreJobRequest::Action_Name(request->action());
         return;
     }
 
@@ -1517,7 +1518,8 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
     RPC_PREPROCESS(commit_restore_job);
     if (request->action() != RestoreJobRequest::COMMIT) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invalid action";
+        msg = "invalid action, expected COMMIT but got " +
+                RestoreJobRequest::Action_Name(request->action());
         return;
     }
 
@@ -1861,7 +1863,8 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
     if (request->action() != RestoreJobRequest::COMPLETE &&
         request->action() != RestoreJobRequest::ABORT) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invalid action";
+        msg = "invalid action, expected COMPLETE or ABORT but got " +
+                RestoreJobRequest::Action_Name(request->action());
         return;
     }
 
@@ -1945,8 +1948,8 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
             return;
         }
         if (request->action() == RestoreJobRequest::ABORT &&
-                (restore_job_pb.state() != RestoreJobCloudPB::PREPARED &&
-                 restore_job_pb.state() != RestoreJobCloudPB::COMMITTED)) {
+            (restore_job_pb.state() != RestoreJobCloudPB::PREPARED &&
+             restore_job_pb.state() != RestoreJobCloudPB::COMMITTED)) {
             // Only allow PREPARED/COMMITTED -> DROPPED
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = fmt::format("restore tablet {} in invalid state to abort, state: {}",
