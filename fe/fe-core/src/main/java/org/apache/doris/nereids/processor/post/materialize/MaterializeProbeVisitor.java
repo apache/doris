@@ -26,7 +26,6 @@ import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisit
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
@@ -104,11 +103,14 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         return true;
     }
 
-    boolean checkTvfRelationTableSupportedType(PhysicalTVFRelation tvfRelation) {
+    boolean checkTVFRelationTableSupportedType(PhysicalTVFRelation tvfRelation) {
         Map<String, String> properties = tvfRelation.getFunction().getTVFProperties().getMap();
+        String functionName = tvfRelation.getFunction().getName();
 
-        if (tvfRelation.getFunction() instanceof Local) {
-            if (properties.containsKey("format") && properties.get("format").equals("parquet")) {
+        if (functionName.equals("local") || functionName.equals("s3") || functionName.equals("hdfs")) {
+            if (properties.containsKey("format")
+                    && (properties.get("format").equalsIgnoreCase("parquet")
+                    || properties.get("format").equalsIgnoreCase("orc"))) {
                 return true;
             }
         }
@@ -142,7 +144,7 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
-        if (checkTvfRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
+        if (checkTVFRelationTableSupportedType(tvfRelation) && tvfRelation.getOutput().contains(context.slot)
                 && !tvfRelation.getOperativeSlots().contains(context.slot)) {
             // lazy materialize slot must be a passive slot
             if (context.slot.getOriginalColumn().isPresent()) {

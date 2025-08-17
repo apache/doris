@@ -45,8 +45,8 @@ import java.util.Optional;
 /** PhysicalTableValuedFunctionRelation */
 public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation, BlockFuncDepsPropagation {
 
-    private final TableValuedFunction function;
-    private final ImmutableList<Slot> operativeSlots;
+    protected final TableValuedFunction function;
+    protected final ImmutableList<Slot> operativeSlots;
 
     public PhysicalTVFRelation(RelationId id, TableValuedFunction function, Collection<Slot> operativeSlots,
             LogicalProperties logicalProperties) {
@@ -113,7 +113,8 @@ public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation
         return Utils.toSqlString("PhysicalTVFRelation",
                 "qualified", Utils.qualifiedName(ImmutableList.of(), function.getTable().getName()),
                 "output", getOutput(),
-                "function", function.toSql()
+                "function", function.toSql(),
+                "operativeSlots", operativeSlots
         );
     }
 

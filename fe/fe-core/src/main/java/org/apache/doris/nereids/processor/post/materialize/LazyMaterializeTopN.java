@@ -34,10 +34,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -127,19 +127,20 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             } else if (relation instanceof PhysicalTVFRelation) {
                 PhysicalTVFRelation tvfRelation = (PhysicalTVFRelation) relation;
 
-                // Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL + tvfRelation.getFunction().getName(),
-                //         Type.STRING, false, null, false,
-                //         "", tvfRelation.getFunction().getName() + ".global_row_id");
-                SlotReference rowIdSlot = new SlotReference(
-                        Column.GLOBAL_ROWID_COL + tvfRelation.getFunction().getName(), StringType.INSTANCE);
+                Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL + tvfRelation.getFunction().getName(),
+                        Type.STRING, false, null, false,
+                        "", tvfRelation.getFunction().getName() + ".global_row_id");
 
-                // SlotReference rowIdSlot = SlotReference.fromColumn(threadStatementContext.getNextExprId(),
-                //         catalogRelation.getTable(), rowIdCol, catalogRelation.getQualifier());
+                SlotReference rowIdSlot = SlotReference.fromColumn(threadStatementContext.getNextExprId(),
+                        tvfRelation.getFunction().getTable(), rowIdCol, ImmutableList.of());
                 result = result.accept(new LazySlotPruning(),
                         new LazySlotPruning.Context((PhysicalTVFRelation) relation,
                                 rowIdSlot, relationToLazySlotMap.get(relation)));
                 relationToRowId.put(tvfRelation, rowIdSlot);
                 rowIdSet.add(rowIdSlot);
+            } else {
+                // should not reach here.
+                throw new RuntimeException("LazyMaterializeTopN not support this relation." + relation);
             }
         }
 

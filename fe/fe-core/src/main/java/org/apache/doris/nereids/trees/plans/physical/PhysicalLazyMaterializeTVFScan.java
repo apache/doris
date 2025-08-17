@@ -17,15 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
- wrapper for FileScan used for lazy materialization
+ wrapper for PhysicalTVFRelation used for lazy materialization
  */
 public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
     private PhysicalTVFRelation scan;
@@ -69,5 +76,33 @@ public class PhysicalLazyMaterializeTVFScan extends PhysicalTVFRelation {
         }
         sb.append("]");
         return sb.toString();
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitPhysicalTVFRelation(this, context);
+    }
+
+    @Override
+    public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+            Statistics statistics) {
+        PhysicalTVFRelation tvfRelation = new PhysicalTVFRelation(relationId, function, operativeSlots,
+                Optional.empty(), getLogicalProperties(), physicalProperties, statistics);
+        return new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots);
+    }
+
+    @Override
+    public PhysicalLazyMaterializeTVFScan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        PhysicalTVFRelation tvfRelation = new PhysicalTVFRelation(relationId, function, operativeSlots,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics);
+        return new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots);
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        PhysicalTVFRelation tvfRelation = new PhysicalTVFRelation(relationId, function, operativeSlots,
+                groupExpression, logicalProperties.get(), physicalProperties, statistics);
+        return new PhysicalLazyMaterializeTVFScan(tvfRelation, rowId, lazySlots);
     }
 }
