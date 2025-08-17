@@ -98,8 +98,6 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
                     DCHECK(_future->wait_for(std::chrono::seconds(0)) == std::future_status::ready);
                     task_lock.reset();
                 }));
-    } else if (!_thread_submitted) {
-        DCHECK(false);
     } else {
         _last_submitted = false;
     }
