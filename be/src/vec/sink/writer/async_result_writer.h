@@ -74,14 +74,9 @@ public:
     Status get_writer_status() { return _writer_status.status(); }
 
     void set_low_memory_mode();
-    bool try_to_close() const { return _try_to_close; }
     bool closed() const { return _closed; }
     bool thread_submitted() const { return _thread_submitted; }
-    bool last_submitted() const { return _last_submitted; }
     int thread_quit_point() const { return _thread_quit_point; }
-    bool thread_done() const {
-        return !_future || _future->wait_for(std::chrono::seconds(0)) == std::future_status::ready;
-    }
     size_t data_queue_size() const { return _data_queue.size(); }
     bool eos() const { return _eos; }
 
@@ -108,10 +103,8 @@ private:
     std::shared_ptr<std::promise<Status>> _promise = nullptr;
     std::future<Status>* _future;
     std::future<Status> _placeholder;
-    std::atomic_bool _try_to_close = false;
     std::atomic_bool _closed = false;
     std::atomic_bool _thread_submitted = false;
-    std::atomic_bool _last_submitted = false;
     std::atomic<int> _thread_quit_point = 0;
     // Default value is ok
     AtomicStatus _writer_status;

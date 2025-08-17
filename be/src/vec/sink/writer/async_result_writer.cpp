@@ -80,7 +80,6 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
         *_future = _promise->get_future();
         DCHECK(_operator_profile);
         _thread_submitted = true;
-        _last_submitted = true;
         _thread_quit_point = 0;
         auto task_ctx = state->get_task_execution_context();
         RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
@@ -94,8 +93,6 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
                     p->set_value(this->process_block(state, operator_profile));
                     task_lock.reset();
                 }));
-    } else {
-        _last_submitted = false;
     }
 
     return Status::OK();
@@ -223,7 +220,6 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
 
     Status close_st = Status::OK();
     if (!_closed) {
-        _try_to_close = true;
         close_st = close(st);
         _closed = true;
     }
@@ -264,7 +260,6 @@ void AsyncResultWriter::force_close(Status s) {
     // TODO(gabriel): This is a light blocking operation. However, this should be removed in future.
     _future->wait();
     if (!_closed) {
-        _try_to_close = true;
         WARN_IF_ERROR(close(s), "");
         _closed = true;
     }
