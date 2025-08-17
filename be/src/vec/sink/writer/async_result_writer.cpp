@@ -74,8 +74,7 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
     // in the lock. must modify the _eos after change _data_queue to make sure
     // not lead the logic error in multi thread
     _eos = eos;
-    if (!_future || _future->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        DCHECK(!_thread_submitted);
+    if (!_thread_submitted) {
         // Need to start a new thread
         _promise = std::make_shared<std::promise<Status>>();
         *_future = _promise->get_future();
