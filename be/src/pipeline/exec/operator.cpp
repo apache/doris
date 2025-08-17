@@ -741,12 +741,14 @@ template <typename Writer, typename Parent>
 std::string AsyncWriterSink<Writer, Parent>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
-    fmt::format_to(debug_string_buffer,
-                   ", _try_to_close: {}, closed: {}, thread_done: {}, data_queue_size: {}, eos: "
-                   "{}, thread_submitted: {}, status: {}",
-                   _writer->try_to_close(), _writer->closed(), _writer->thread_done(),
-                   _writer->data_queue_size(), _writer->eos(), _writer->thread_submitted(),
-                   _writer->get_writer_status().to_string());
+    fmt::format_to(
+            debug_string_buffer,
+            ", _try_to_close: {}, closed: {}, thread_done: {}, data_queue_size: {}, eos: "
+            "{}, thread_submitted: {}, status: {}, thread_quit_point: {}, last_submitted: {}",
+            _writer->try_to_close(), _writer->closed(), _writer->thread_done(),
+            _writer->data_queue_size(), _writer->eos(), _writer->thread_submitted(),
+            _writer->get_writer_status().to_string(), _writer->thread_quit_point(),
+            _writer->last_submitted());
     return fmt::to_string(debug_string_buffer);
 }
 

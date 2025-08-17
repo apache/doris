@@ -82,6 +82,8 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
         DCHECK(_future->wait_for(std::chrono::seconds(0)) != std::future_status::ready);
         DCHECK(_operator_profile);
         _thread_submitted = true;
+        _last_submitted = true;
+        _thread_quit_point = 0;
         auto task_ctx = state->get_task_execution_context();
         RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
                 [this, state, operator_profile = _operator_profile, task_ctx,
@@ -96,9 +98,10 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
                     DCHECK(_future->wait_for(std::chrono::seconds(0)) == std::future_status::ready);
                     task_lock.reset();
                 }));
-    } else if (!_thread_submitted && ((_eos && _data_queue.empty()) || !_writer_status.ok())) {
-        _data_queue.clear();
-        _set_ready_to_finish();
+    } else if (!_thread_submitted) {
+        DCHECK(false);
+    } else {
+        _last_submitted = false;
     }
 
     return Status::OK();
@@ -170,6 +173,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
             if (!_eos && _data_queue.empty() && _writer_status.ok() &&
                 !ExecEnv::GetInstance()->fragment_mgr()->shutting_down()) {
                 _thread_submitted = false;
+                _thread_quit_point = 1;
                 // No block available.
                 return Status::OK();
             }
@@ -240,6 +244,7 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
     // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
     _set_ready_to_finish();
     _thread_submitted = false;
+    _thread_quit_point = 2;
     return Status::OK();
 }
 
