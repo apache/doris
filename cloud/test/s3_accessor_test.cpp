@@ -23,7 +23,8 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
-#include <azure/storage/blobs/blob_options.hpp>
+//#include <azure/storage/blobs/blob_options.hpp>
+#include <azure/storage/blobs.hpp>
 #include <chrono>
 #include <unordered_set>
 

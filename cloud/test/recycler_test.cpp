@@ -4538,6 +4538,67 @@ TEST(CheckerTest, check_job_key) {
     ASSERT_EQ(checker.do_mow_job_key_check(), -1);
 }
 
+TEST(CheckerTest, do_restore_job_check) {
+    config::enable_restore_job_check = true;
+    std::string instance_id = "test_do_restore_job_check";
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    // Prepare test data: simulate restore jobs in different states
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    // Add a PREPARED restore job
+    RestoreJobCloudPB prepared_job;
+    prepared_job.set_tablet_id(10001);
+    prepared_job.set_state(RestoreJobCloudPB::PREPARED);
+    prepared_job.set_ctime_s(::time(nullptr) - 1800); // 30 minutes ago
+    std::string prepared_key;
+    job_restore_tablet_key({instance_id, prepared_job.tablet_id()}, &prepared_key);
+    txn->put(prepared_key, prepared_job.SerializeAsString());
+
+    // Add a COMMITTED restore job
+    RestoreJobCloudPB committed_job;
+    committed_job.set_tablet_id(10002);
+    committed_job.set_state(RestoreJobCloudPB::COMMITTED);
+    committed_job.set_ctime_s(::time(nullptr) - 7200); // 2 hours ago
+    std::string committed_key;
+    job_restore_tablet_key({instance_id, committed_job.tablet_id()}, &committed_key);
+    txn->put(committed_key, committed_job.SerializeAsString());
+
+    // Add a COMPLETED restore job
+    RestoreJobCloudPB completed_job;
+    completed_job.set_tablet_id(10003);
+    completed_job.set_state(RestoreJobCloudPB::COMPLETED);
+    completed_job.set_ctime_s(::time(nullptr) - 3600); // 1 hour ago
+    std::string completed_key;
+    job_restore_tablet_key({instance_id, completed_job.tablet_id()}, &completed_key);
+    txn->put(completed_key, completed_job.SerializeAsString());
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Run the check
+    ASSERT_EQ(checker.do_restore_job_check(), 0);
+}
+
 TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
