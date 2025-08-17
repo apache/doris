@@ -102,6 +102,7 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -1440,7 +1441,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         AggregateFunction aggregateFunction = (AggregateFunction) outputChild;
                         if (aggregateFunction.isDistinct()) {
                             List<Expression> aggChild = aggregateFunction.children();
-                            Preconditions.checkArgument(aggChild.size() == 1
+                            Preconditions.checkArgument(new HashSet<>(aggChild).size() == 1
                                             || aggregateFunction.getDistinctArguments().size() == 1,
                                     "cannot process more than one child in aggregate distinct function: "
                                             + aggregateFunction);
@@ -1612,7 +1613,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         AggregateFunction aggregateFunction = (AggregateFunction) expr;
                         if (aggregateFunction.isDistinct()) {
                             List<Expression> aggChild = aggregateFunction.children();
-                            Preconditions.checkArgument(aggChild.size() == 1
+                            Preconditions.checkArgument(new HashSet<>(aggChild).size() == 1
                                             || aggregateFunction.getDistinctArguments().size() == 1,
                                     "cannot process more than one child in aggregate distinct function: "
                                             + aggregateFunction);
@@ -2009,8 +2010,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             AggregateFunction aggregateFunction = (AggregateFunction) expr;
                             if (aggregateFunction.isDistinct()) {
                                 List<Expression> aggChild = aggregateFunction.children();
-                                Preconditions.checkArgument(aggChild.size() == 1
-                                                || aggregateFunction.getDistinctArguments().size() == 1,
+                                Preconditions.checkArgument(new HashSet<>(aggChild).size() == 1
+                                        || aggregateFunction.getDistinctArguments().size() == 1,
                                         "cannot process more than one child in aggregate distinct function: "
                                                 + aggregateFunction);
 
@@ -2064,7 +2065,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     AggregateFunction aggregateFunction = (AggregateFunction) expr;
                     if (aggregateFunction.isDistinct()) {
                         List<Expression> aggChild = aggregateFunction.children();
-                        Preconditions.checkArgument(aggChild.size() == 1
+                        Preconditions.checkArgument(new HashSet<>(aggChild).size() == 1
                                         || aggregateFunction.getDistinctArguments().size() == 1,
                                 "cannot process more than one child in aggregate distinct function: "
                                         + aggregateFunction);

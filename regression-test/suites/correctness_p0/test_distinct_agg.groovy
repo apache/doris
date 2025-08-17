@@ -39,12 +39,9 @@ suite("test_distinct_agg") {
             (1, '1234', 'A0', 'C0', '1', '2023-01-10 23:00:00');
     '''
 
-    test {
-        sql '''
+    qt_sql '''
             select avg_weighted(distinct k1, k1) from test_distinct_agg_t
         '''
-        exception "cannot process more than one child in aggregate distinct function"
-    }
 
     test {
         sql '''
