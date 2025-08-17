@@ -1258,6 +1258,9 @@ public class StmtExecutor {
         RowBatch batch;
         CoordInterface coordBase = null;
         boolean isBlackHoleClause = queryStmt.hasBlackHoleClause();
+        if (isBlackHoleClause && blackholeResultHandler == null) {
+            blackholeResultHandler = new BlackholeResultHandler();
+        }
         if (statementContext.isShortCircuitQuery()) {
             ShortCircuitQueryContext shortCircuitQueryContext =
                         statementContext.getShortCircuitQueryContext() != null
