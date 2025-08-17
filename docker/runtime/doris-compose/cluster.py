@@ -448,7 +448,6 @@ class Node(object):
         core_dump_dir = "/opt/apache-doris/core_dump"  # default
         if core_pattern.startswith("/"):
             # Extract directory part (everything before the filename)
-            import os.path
             core_dump_dir = os.path.dirname(core_pattern)
 
         volumes = [

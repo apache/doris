@@ -60,6 +60,10 @@ create_host_user
 
 # Setup core dump directory permissions for non-root users
 setup_core_dump() {
+    # Set fs.suid_dumpable to allow core dumps from setuid programs
+    echo 2 >/proc/sys/fs/suid_dumpable
+    # Set core pattern to save core dumps in the mounted directory
+    echo "/opt/apache-doris/core_dump/core-%e-%p-%t" >/proc/sys/kernel/core_pattern
     if [ ! -z ${HOST_USER} ]; then
         # Create core dump directory if it doesn't exist
         mkdir -p /opt/apache-doris/core_dump
