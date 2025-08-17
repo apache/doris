@@ -86,7 +86,7 @@ Status BlackholeSinkOperatorX::_process_block(RuntimeState* state, vectorized::B
         COUNTER_UPDATE(local_state._bytes_processed_timer, block->bytes());
     }
 
-    // The BLACKHOLE discard the data
+    // The BLACKHOLE discards the data
     // We don't write the block anywhere - it's effectively sent to /dev/null
     return Status::OK();
 }
@@ -166,11 +166,8 @@ Status BlackholeSinkOperatorX::_send_cache_metrics_batch(RuntimeState* state,
     MysqlRowBuffer<> row_buffer;
 
     // Push values for each column
-    row_buffer.push_bigint(local_state._scan_rows);                     // ScanRows
-    row_buffer.push_bigint(local_state._scan_bytes);                    // ScanBytes
-    row_buffer.push_bigint(local_state._scan_bytes_from_local_storage); // ScanBytesFromLocalStorage
-    row_buffer.push_bigint(
-            local_state._scan_bytes_from_remote_storage); // ScanBytesFromRemoteStorage
+    row_buffer.push_bigint(local_state._rows_processed);
+    row_buffer.push_bigint(local_state._bytes_processed);
 
     // Create the result batch
     auto result = std::make_shared<TFetchDataResult>();
