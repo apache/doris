@@ -42,7 +42,6 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -2475,7 +2474,6 @@ template void BlockFileCache::remove(FileBlockSPtr file_block,
 
 #include "common/compile_check_end.h"
 
-
 Status BlockFileCache::report_file_cache_inconsistency(std::vector<std::string>& results) {
     InconsistencyContext inconsistency_context;
     RETURN_IF_ERROR(check_file_cache_consistency(inconsistency_context));
@@ -2483,9 +2481,9 @@ Status BlockFileCache::report_file_cache_inconsistency(std::vector<std::string>&
     results.reserve(n);
     for (size_t i = 0; i < n; i++) {
         std::string result;
-        result += "File cahce info in manager:\n";
+        result += "File cache info in manager:\n";
         result += inconsistency_context.infos_in_manager[i].to_string();
-        result += "File cahce info in storage:\n";
+        result += "File cache info in storage:\n";
         result += inconsistency_context.infos_in_storage[i].to_string();
         result += inconsistency_context.types[i].to_string();
         result += "\n";

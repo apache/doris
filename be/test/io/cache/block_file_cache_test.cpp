@@ -1924,8 +1924,7 @@ TEST_F(BlockFileCacheTest, fix_tmp_file) {
             },
             &guard1);
     SyncPoint::CallbackGuard guard2;
-    sp->set_call_back(
-            "BlockFileCache::TmpFile2", [&](auto&&) { flag2 = true; }, &guard2);
+    sp->set_call_back("BlockFileCache::TmpFile2", [&](auto&&) { flag2 = true; }, &guard2);
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     auto holder = cache.get_or_set(key, 100, 1, context); /// Add range [9, 9]
@@ -5360,6 +5359,8 @@ TEST_F(BlockFileCacheTest, check_file_cache_consistency) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     io::CacheContext cache_context;
+    ReadStatistics rstats;
+    cache_context.stats = &rstats;
     cache_context.cache_type = io::FileCacheType::TTL;
     cache_context.query_id = query_id;
     cache_context.expiration_time = 0;
@@ -5446,33 +5447,28 @@ TEST_F(BlockFileCacheTest, check_file_cache_consistency) {
     std::vector<std::string> results;
     Status status = mgr.report_file_cache_inconsistency(results);
     std::unordered_set<std::string> expected_results = {
-            "File cahce info in manager:\nHash: "
-            "62434304659ae12df53386481113dfe1\nExpiration Time: 0\nOffset: 0\nCache Type: "
-            "TTL\nFile cahce info in storage:\nHash: "
+            "File cache info in manager:\nHash: 62434304659ae12df53386481113dfe1\nExpiration Time: "
+            "0\nOffset: 0\nCache Type: ttl\nFile cache info in storage:\nHash: "
             "62434304659ae12df53386481113dfe1\nExpiration Time: " +
                     std::to_string(expiration_time) +
                     "\nOffset: 0\nCache Type: "
-                    "TTL\nInconsistency Reason: EXPIRATION_TIME_INCONSISTENT \n\n",
-            "File cahce info in manager:\nHash: "
-            "00000000000000000000000000000000\nExpiration Time: 0\nOffset: 0\nCache Type: "
-            "NORMAL\nFile cahce info in storage:\nHash: "
+                    "ttl\nInconsistency Reason: EXPIRATION_TIME_INCONSISTENT \n\n",
+            "File cache info in manager:\nHash: f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: "
+            "0\nOffset: 30\nCache Type: normal\nFile cache info in storage:\nHash: "
+            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 30\nCache Type: "
+            "normal\nInconsistency Reason: SIZE_INCONSISTENT \n\n",
+            "File cache info in manager:\nHash: f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: "
+            "0\nOffset: 40\nCache Type: index\nFile cache info in storage:\nHash: "
+            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 40\nCache Type: "
+            "normal\nInconsistency Reason: CACHE_TYPE_INCONSISTENT \n\n",
+            "File cache info in manager:\nHash: 00000000000000000000000000000000\nExpiration Time: "
+            "0\nOffset: 0\nCache Type: normal\nFile cache info in storage:\nHash: "
             "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 10\nCache Type: "
-            "NORMAL\nInconsistency Reason: NOT_LOADED \n\n",
-            "File cahce info in manager:\nHash: "
-            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 30\nCache Type: "
-            "NORMAL\nFile cahce info in storage:\nHash: "
-            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 30\nCache Type: "
-            "NORMAL\nInconsistency Reason: SIZE_INCONSISTENT \n\n",
-            "File cahce info in manager:\nHash: "
-            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 40\nCache Type: "
-            "INDEX\nFile cahce info in storage:\nHash: "
-            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 40\nCache Type: "
-            "NORMAL\nInconsistency Reason: CACHE_TYPE_INCONSISTENT \n\n",
-            "File cahce info in manager:\nHash: "
-            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 20\nCache Type: "
-            "NORMAL\nFile cahce info in storage:\nHash: "
+            "normal\nInconsistency Reason: NOT_LOADED \n\n",
+            "File cache info in manager:\nHash: f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: "
+            "0\nOffset: 20\nCache Type: normal\nFile cache info in storage:\nHash: "
             "00000000000000000000000000000000\nExpiration Time: 0\nOffset: 0\nCache Type: "
-            "NORMAL\nInconsistency Reason: MISSING_IN_STORAGE \n\n"};
+            "normal\nInconsistency Reason: MISSING_IN_STORAGE \n\n"};
     ASSERT_EQ(results.size(), expected_results.size());
     for (const auto& result : results) {
         ASSERT_TRUE(expected_results.contains(result));
