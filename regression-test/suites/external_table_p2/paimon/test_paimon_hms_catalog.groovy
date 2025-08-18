@@ -43,14 +43,10 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
         "order_qt_${prefix}" """
             SELECT * FROM external_test_table;
         """
-        if (!(prefix.contains("cos") )) {
-            // need put jars on BE
-             sql """set force_jni_scanner=true"""
-             "order_qt_${prefix}" """
-                SELECT * FROM external_test_table;
-            """
-        }
-
+         sql """set force_jni_scanner=true"""
+         "order_qt_${prefix}" """
+            SELECT * FROM external_test_table;
+        """
     }
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
