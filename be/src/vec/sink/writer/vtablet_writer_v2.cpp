@@ -613,6 +613,11 @@ Status VTabletWriterV2::close(Status exec_status) {
         status = _send_new_partition_batch();
     }
 
+    DBUG_EXECUTE_IF("VTabletWriterV2.close.sleep", {
+        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "VTabletWriterV2.close.sleep", "sleep_sec", 1);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+    });
     DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",
                     { status = Status::InternalError("load cancel"); });
     if (status.ok()) {

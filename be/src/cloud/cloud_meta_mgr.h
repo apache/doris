@@ -136,8 +136,6 @@ public:
 
     Status lease_tablet_job(const TabletJobInfoPB& job);
 
-    Status update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema);
-
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
                                 DeleteBitmap* delete_bitmap, int64_t txn_id = -1,
                                 bool is_explicit_txn = false, int64_t next_visible_version = -1);

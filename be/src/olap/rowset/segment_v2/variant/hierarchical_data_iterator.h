@@ -69,7 +69,7 @@ public:
 
     HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
 
-    static Status create(ColumnIterator** reader, int32_t col_uid, vectorized::PathInData path,
+    static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
                          const SubcolumnColumnMetaInfo::Node* target_node,
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
                          std::unique_ptr<SubstreamIterator>&& root_column_reader,

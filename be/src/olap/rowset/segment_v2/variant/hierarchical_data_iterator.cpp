@@ -36,7 +36,7 @@
 
 namespace doris::segment_v2 {
 
-Status HierarchicalDataIterator::create(ColumnIterator** reader, int32_t col_uid,
+Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
                                         vectorized::PathInData path,
                                         const SubcolumnColumnMetaInfo::Node* node,
                                         std::unique_ptr<SubstreamIterator>&& sparse_reader,
@@ -44,7 +44,7 @@ Status HierarchicalDataIterator::create(ColumnIterator** reader, int32_t col_uid
                                         ColumnReaderCache* column_reader_cache,
                                         OlapReaderStatistics* stats) {
     // None leave node need merge with root
-    auto* stream_iter = new HierarchicalDataIterator(path);
+    auto stream_iter = std::make_unique<HierarchicalDataIterator>(path);
     if (node != nullptr) {
         std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         vectorized::PathsInData leaves_paths;
@@ -62,7 +62,7 @@ Status HierarchicalDataIterator::create(ColumnIterator** reader, int32_t col_uid
     stream_iter->_root_reader = std::move(root_column_reader);
     // need read from sparse column if not null
     stream_iter->_sparse_column_reader = std::move(sparse_reader);
-    *reader = stream_iter;
+    *reader = std::move(stream_iter);
 
     return Status::OK();
 }
@@ -144,13 +144,11 @@ Status HierarchicalDataIterator::add_stream(int32_t col_uid,
         return Status::OK();
     }
     CHECK(node);
-    ColumnIterator* it;
+    ColumnIteratorUPtr it_ptr;
     std::shared_ptr<ColumnReader> column_reader;
     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(col_uid, node->path, &column_reader,
                                                                 stats, node));
-    RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
-    std::unique_ptr<ColumnIterator> it_ptr;
-    it_ptr.reset(it);
+    RETURN_IF_ERROR(column_reader->new_iterator(&it_ptr, nullptr));
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
                              node->data.file_column_type);
     bool added = _substream_reader.add(node->path, std::move(reader));
