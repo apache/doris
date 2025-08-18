@@ -37,6 +37,8 @@ suite("test_paimon_timestamp_with_time_zone", "p0,external,doris,external_docker
             );
         """
         sql """use `${catalog_name}`.`${db_name}`;"""
+        // test Extra column in desc result
+        qt_desc_table """desc t_ts_ntz"""
         
         def test_select_timestamp = {
             qt_select_timestamp """ select * from t_ts_ntz order by id; """

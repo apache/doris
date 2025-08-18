@@ -53,6 +53,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
@@ -1333,6 +1334,16 @@ public class StmtExecutor {
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime();
+        } catch (QueryTimeoutException e) {
+            // notify all be cancel running fragment
+            // in some case may block all fragment handle threads
+            // details see issue https://github.com/apache/doris/issues/16203
+            Status internalErrorSt = new Status(TStatusCode.TIMEOUT,
+                    "cancel fragment query_id:{} cause query timeout",
+                    DebugUtil.printId(context.queryId()));
+            LOG.warn(internalErrorSt.getErrorMsg());
+            coordBase.cancel(internalErrorSt);
+            throw e;
         } catch (Exception e) {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads
