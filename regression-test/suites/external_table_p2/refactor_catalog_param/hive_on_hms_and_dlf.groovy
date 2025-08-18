@@ -247,8 +247,8 @@ suite("new_params_hive_test", "p0,external,doris,external_docker,external_docker
     testQueryAndInsert(hms_properties + s3_region_param + s3_storage_properties, "hive_hms_s3_test_region", db_location)
     testQueryAndInsert(hms_properties + s3_region_param + s3_storage_properties_not_endpoint, "hive_hms_s3_test_region", db_location)
 
-    //testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop  + s3_storage_properties, "hive_hms_on_s3_kerberos_old",db_location)
-    //testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + s3_storage_properties, "hive_hms_on_s3_kerberos_new",db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop  + s3_storage_properties, "hive_hms_on_s3_kerberos_old",db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + s3_storage_properties, "hive_hms_on_s3_kerberos_new",db_location)
     db_location = "s3://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
     testQueryAndInsert(hms_properties + s3_storage_properties, "hive_hms_s3_test", db_location)
     //HDFS

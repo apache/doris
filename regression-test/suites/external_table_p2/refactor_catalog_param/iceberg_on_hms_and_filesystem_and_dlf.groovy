@@ -202,6 +202,7 @@ suite("iceberg_on_hms_and_filesystem", "p0,external,doris,external_docker,extern
                 "hive.metastore.client.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
                 "hive.metastore.service.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
                 "hive.metastore.sasl.enabled " = "true",
+                "hive.metastore.authentication.type"="kerberos",
                 "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
@@ -231,7 +232,7 @@ suite("iceberg_on_hms_and_filesystem", "p0,external,doris,external_docker,extern
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop+ warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
 
 
-    /*--------HMS on COS-----------*/
+   /*--------HMS on COS-----------*/
     warehouse = """
                    'warehouse' = 'cosn://${cos_parent_path}/iceberg-hms-cos-warehouse',
     """
@@ -261,7 +262,7 @@ suite("iceberg_on_hms_and_filesystem", "p0,external,doris,external_docker,extern
             + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
     testQueryAndInsert(iceberg_hms_type_prop + hms_prop
             + warehouse + s3_region_param + s3_storage_properties, "iceberg_hms_on_s3")
-    //kerberos
+    //kerberos Docker HMS c
     // testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop+ warehouse + s3_storage_properties, "iceberg_hms_on_s3_kerberos_old")
     // testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3_kerberos_new")
     warehouse = """
@@ -269,7 +270,7 @@ suite("iceberg_on_hms_and_filesystem", "p0,external,doris,external_docker,extern
       """
     testQueryAndInsert(iceberg_hms_type_prop + hms_prop
             + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
-    
+ 
     /*--------HMS on HDFS-----------*/
     warehouse = """
      'warehouse' = '${hdfs_parent_path}/iceberg-hms-hdfs-warehouse',
@@ -280,9 +281,9 @@ suite("iceberg_on_hms_and_filesystem", "p0,external,doris,external_docker,extern
      'warehouse' = 'hdfs://${externalEnvIp}:8520/iceberg-hms-hdfs-warehouse',
     """
     //old kerberos
-   //testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop_not_include_kerberos_prop+ warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
+   testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop_not_include_kerberos_prop+ warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
     //new  kerberos
-   // testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
      
 
     /*--------HMS END-----------*/
