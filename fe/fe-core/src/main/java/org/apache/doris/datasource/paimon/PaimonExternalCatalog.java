@@ -126,17 +126,6 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping) {
-        makeSureInitialized();
-        try {
-            return executionAuthenticator.execute(() -> catalog.getTable(Identifier.create(nameMapping
-                    .getRemoteDbName(), nameMapping.getRemoteTblName())));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon table:" + getName() + "." + nameMapping.getLocalDbName()
-                    + "." + nameMapping.getLocalTblName() + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
-        }
-    }
-
     public List<Partition> getPaimonPartitions(NameMapping nameMapping) {
         makeSureInitialized();
         try {
@@ -157,23 +146,34 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping, String queryType) {
-        return getPaimonSystemTable(nameMapping, null, queryType);
+    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping) {
+        return getPaimonTable(nameMapping, null, null);
     }
 
-    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping,
-                                                              String branch, String queryType) {
+    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping, String branch,
+            String queryType) {
         makeSureInitialized();
         try {
-            return executionAuthenticator.execute(() -> catalog.getTable(new Identifier(nameMapping.getRemoteDbName(),
-                    nameMapping.getRemoteTblName(), branch, queryType)));
+            Identifier identifier;
+            if (branch != null && queryType != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        branch, queryType);
+            } else if (branch != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        branch);
+            } else if (queryType != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        "main", queryType);
+            } else {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+            }
+            return executionAuthenticator.execute(() -> catalog.getTable(identifier));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon system table:" + getName() + "."
+            throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
                     + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
                     + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
-
 
     protected Catalog createCatalog() {
         try {
