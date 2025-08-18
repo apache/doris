@@ -370,6 +370,8 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     // 5. commit all writers
 
     for (auto* writer : need_wait_writers) {
+        PSlaveTabletNodes slave_nodes;
+
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
         _commit_txn(writer, req, res);
@@ -406,15 +408,9 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
 
 void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
                                  PTabletWriterAddBlockResult* res) {
-    PSlaveTabletNodes slave_nodes;
-    if (_write_single_replica) {
-        auto& nodes_map = req.slave_tablet_nodes();
-        auto it = nodes_map.find(writer->tablet_id());
-        if (it != nodes_map.end()) {
-            slave_nodes = it->second;
-        }
-    }
-    Status st = writer->commit_txn(slave_nodes);
+    Status st = writer->commit_txn(_write_single_replica
+                                           ? req.slave_tablet_nodes().at(writer->tablet_id())
+                                           : PSlaveTabletNodes {});
     if (st.ok()) [[likely]] {
         auto* tablet_vec = res->mutable_tablet_vec();
         PTabletInfo* tablet_info = tablet_vec->Add();
