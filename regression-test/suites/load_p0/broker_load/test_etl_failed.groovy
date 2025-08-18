@@ -66,8 +66,9 @@ suite("test_etl_failed", "load_p0") {
             break;
         }
         if (result[0][2].equals("CANCELLED")) {
-            logger.info("ErrorMsg: ",{result[0][7]});
-            if (result[0][7].contains("ETL_QUALITY_UNSATISFIED" ) && !result[0][13].contains("_load_error_log")) {
+            def reason = result[0][7]
+            logger.info("load failed, ErrorMsg:  $reason");
+            if (result[0][7] != null && result[0][7].contains("ETL_QUALITY_UNSATISFIED" ) && !result[0][13].contains("_load_error_log")) {
                 assertTrue(1 == 2, "etl should be failed")
                 break;
             }
