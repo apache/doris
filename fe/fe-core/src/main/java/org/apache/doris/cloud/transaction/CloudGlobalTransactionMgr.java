@@ -694,6 +694,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         TransactionState txnState = null;
         int retryTime = 0;
 
+        while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTxn.block")) {
+            try {
+                Thread.sleep(1000);
+                LOG.info("block commitTxn for transactionId: {}", transactionId);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+            }
+        }
+
         try {
             while (retryTime < Config.metaServiceRpcRetryTimes()) {
                 if (LOG.isDebugEnabled()) {
