@@ -249,6 +249,36 @@ Status MemTable::insert(const vectorized::Block* input_block,
     return Status::OK();
 }
 
+void MemTable::_aggregate_two_row_with_sequence_map(vectorized::MutableBlock& mutable_block,
+                                                    RowInBlock* src_row, RowInBlock* dst_row) {
+    const auto& seq_map = _tablet_schema->seq_col_idx_to_value_cols_idx();
+    for (const auto& it : seq_map) {
+        auto sequence = it.first;
+        auto* sequence_col_ptr = mutable_block.mutable_columns()[sequence].get();
+        auto res = sequence_col_ptr->compare_at(dst_row->_row_pos, src_row->_row_pos,
+                                                *sequence_col_ptr, -1);
+        if (res > 0) {
+            continue;
+        }
+        for (auto cid : it.second) {
+            if (cid < _num_columns) {
+                auto* col_ptr = mutable_block.mutable_columns()[cid].get();
+                _agg_functions[cid]->add(dst_row->agg_places(cid),
+                                         const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                         src_row->_row_pos, _arena);
+            }
+        }
+        if (sequence < _num_columns) {
+            _agg_functions[sequence]->add(
+                    dst_row->agg_places(sequence),
+                    const_cast<const doris::vectorized::IColumn**>(&sequence_col_ptr),
+                    src_row->_row_pos, _arena);
+            sequence_col_ptr->replace_column_data(*sequence_col_ptr, src_row->_row_pos,
+                                                  dst_row->_row_pos);
+        }
+    }
+}
+
 template <bool has_skip_bitmap_col>
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
                                            RowInBlock* src_row, RowInBlock* dst_row) {
@@ -509,7 +539,13 @@ void MemTable::_aggregate() {
                     _init_row_for_agg(prev_row, mutable_block);
                 }
                 _stat.merged_rows++;
-                _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row, prev_row);
+                if (_tablet_schema->has_seq_map()) {
+                    _aggregate_two_row_with_sequence_map(mutable_block, cur_row, prev_row);
+                } else {
+                    _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row,
+                                                                     prev_row);
+                }
+
                 // Clean up aggregation state of the merged row to avoid memory leak
                 if (cur_row) {
                     _clear_row_agg(cur_row);

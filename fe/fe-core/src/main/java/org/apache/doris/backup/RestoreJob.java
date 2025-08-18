@@ -1451,7 +1451,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.rowStorePageSize(),
                             localTbl.variantEnableFlattenNested(),
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
-                            localTbl.storageDictPageSize());
+                            localTbl.storageDictPageSize(),
+                            localTbl.getColumnSeqMapping());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
