@@ -465,7 +465,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
                           });
-            RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
+            RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
     }
