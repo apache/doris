@@ -766,7 +766,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
-                tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
+                tablet->add_rowsets(
+                        std::move(rowsets), version_overlap, wlock,
+                        warmup_delta_data || config::enable_warmup_immediately_on_new_rowset);
                 RETURN_IF_ERROR(tablet->merge_rowsets_schema());
             }
 
