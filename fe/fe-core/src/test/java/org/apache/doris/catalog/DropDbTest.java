@@ -112,7 +112,6 @@ public class DropDbTest {
         NereidsParser nereidsParser = new NereidsParser();
         RecoverDatabaseCommand command = (RecoverDatabaseCommand) nereidsParser.parseSingle(recoverDbSql);
         command.run(connectContext, null);
-        Env.getCurrentEnv().recoverDatabase(command.getDbName(), command.getDbId(), command.getNewDbName());
         db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
         Assert.assertEquals("test1", db.getFullName());
