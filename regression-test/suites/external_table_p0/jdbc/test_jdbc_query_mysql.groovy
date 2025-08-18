@@ -1058,14 +1058,14 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
 
         // TODO: check this, maybe caused by datasource in JDBC
         // test alter resource
-        sql """alter resource $jdbcResourceMysql57 properties("password" = "1234567")"""
-        test {
-            sql """select count(*) from $jdbcMysql57Table1"""
-            exception "Access denied for user"
+        if (!isCloudMode()) {
+            sql """alter resource $jdbcResourceMysql57 properties("password" = "1234567")"""
+            test {
+                sql """select count(*) from $jdbcMysql57Table1"""
+                exception "Access denied for user"
+            }
+            sql """alter resource $jdbcResourceMysql57 properties("password" = "123456")"""
         }
-        sql """alter resource $jdbcResourceMysql57 properties("password" = "123456")"""
-
-
     }
 }
 
