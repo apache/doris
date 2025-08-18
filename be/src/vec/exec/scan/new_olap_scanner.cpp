@@ -127,7 +127,6 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 }
 
 Status NewOlapScanner::init() {
-    _is_init = true;
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -237,6 +236,7 @@ Status NewOlapScanner::init() {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
+    _is_init = true;
     return Status::OK();
 }
 

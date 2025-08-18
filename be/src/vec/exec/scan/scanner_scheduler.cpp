@@ -315,8 +315,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     }
     // WorkloadGroup Policy will check cputime realtime, so that should update the counter
     // as soon as possible, could not update it on close.
-    scanner->update_scan_cpu_timer();
-    scanner->update_realtime_counters();
+    if (scanner->is_init()) {
+        scanner->update_scan_cpu_timer();
+        scanner->update_realtime_counters();
+    }
 
     if (eos) {
         scanner->mark_to_need_to_close();
