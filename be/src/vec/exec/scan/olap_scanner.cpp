@@ -424,7 +424,7 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.return_columns.push_back(index);
         }
         // expand the sequence column
-        if (tablet_schema->has_sequence_col()) {
+        if (tablet_schema->has_sequence_col() || tablet_schema->has_seq_map()) {
             bool has_replace_col = false;
             for (auto col : _return_columns) {
                 if (tablet_schema->column(col).aggregation() ==
@@ -434,9 +434,31 @@ Status OlapScanner::_init_tablet_reader_params(
                 }
             }
             if (auto sequence_col_idx = tablet_schema->sequence_col_idx();
-                has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                             sequence_col_idx) == _return_columns.end()) {
+                has_replace_col && tablet_schema->has_sequence_col() &&
+                std::find(_return_columns.begin(), _return_columns.end(), sequence_col_idx) ==
+                        _return_columns.end()) {
                 _tablet_reader_params.return_columns.push_back(sequence_col_idx);
+            }
+            if (has_replace_col) {
+                const auto& val_to_seq = tablet_schema->value_col_idx_to_seq_col_idx();
+                std::set<uint32_t> return_seq_columns;
+
+                for (auto col : _tablet_reader_params.return_columns) {
+                    // we need to add the necessary sequence column in _return_columns, and
+                    // Avoid adding the same seq column twice
+                    const auto val_iter = val_to_seq.find(col);
+                    if (val_iter != val_to_seq.end()) {
+                        auto seq = val_iter->second;
+                        if (std::find(_tablet_reader_params.return_columns.begin(),
+                                      _tablet_reader_params.return_columns.end(),
+                                      seq) == _tablet_reader_params.return_columns.end()) {
+                            return_seq_columns.insert(seq);
+                        }
+                    }
+                }
+                _tablet_reader_params.return_columns.insert(
+                        std::end(_tablet_reader_params.return_columns),
+                        std::begin(return_seq_columns), std::end(return_seq_columns));
             }
         }
     }
