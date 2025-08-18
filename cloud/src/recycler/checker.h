@@ -107,6 +107,9 @@ public:
 
     int do_mow_job_key_check();
 
+    int do_multi_version_index_key_check();
+    int do_multi_version_index_key_inverted_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -152,6 +155,14 @@ private:
     int check_inverted_index_file_storage_format_v2(int64_t tablet_id, const std::string& file_path,
                                                     const std::string& rowset_info,
                                                     RowsetIndexesFormatV2& rowset_index_cache_v2);
+
+    int check_multi_version_tablet_index_key();
+    int check_multi_version_partition_index_key();
+    int check_multi_version_index_index_key();
+
+    int inverted_check_multi_version_tablet_index_key();
+    int inverted_check_multi_version_partition_index_key();
+    int inverted_check_multi_version_index_index_key();
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;

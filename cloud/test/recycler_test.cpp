@@ -6178,4 +6178,394 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
                 << "TxnInfo for txn_id " << txn_id << " should be deleted";
     }
 }
+
+TEST(CheckerTest, check_multi_version_tablet_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "multi_version_check_test";
+    int64_t db_id = 1001;
+    int64_t table_id = 2001;
+    int64_t index_id = 3001;
+    int64_t partition_id = 4001;
+    int64_t tablet_id = 5001;
+
+    InstanceChecker checker(txn_kv, instance_id);
+
+    // Step 1: Create only tablet_index_key, expect check to fail
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create tablet_index_key
+        std::string tablet_index_key = versioned::tablet_index_key({instance_id, tablet_id});
+        txn->put(tablet_index_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because meta_tablet_key is missing
+        EXPECT_EQ(checker.check_multi_version_tablet_index_key(), -1);
+    }
+
+    // Step 2: Add meta_tablet_key, but still missing tablet_inverted_index_key
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create meta_tablet_key
+        std::string meta_tablet_key = versioned::meta_tablet_key({instance_id, tablet_id});
+        TabletMetaCloudPB tablet_meta;
+        tablet_meta.set_tablet_id(tablet_id);
+        txn->put(meta_tablet_key, tablet_meta.SerializeAsString());
+
+        // Create tablet_index_key to allow InstanceChecker to retrieve tablet's index info
+        TabletIndexPB tablet_idx;
+        tablet_idx.set_db_id(db_id);
+        tablet_idx.set_table_id(table_id);
+        tablet_idx.set_index_id(index_id);
+        tablet_idx.set_partition_id(partition_id);
+        tablet_idx.set_tablet_id(tablet_id);
+        std::string tablet_index_key = versioned::tablet_index_key({instance_id, tablet_id});
+        txn->put(tablet_index_key, tablet_idx.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should still fail because tablet_inverted_index_key is missing
+        EXPECT_EQ(checker.check_multi_version_tablet_index_key(), -1);
+    }
+
+    // Step 3: Add tablet_inverted_index_key, all keys are present, check should succeed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create tablet_inverted_index_key
+        std::string tablet_inverted_index_key = versioned::tablet_inverted_index_key(
+                {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+        txn->put(tablet_inverted_index_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should succeed, all required keys are created
+        EXPECT_EQ(checker.check_multi_version_tablet_index_key(), 0);
+    }
+}
+
+TEST(CheckerTest, inverted_check_multi_version_tablet_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "multi_version_inverted_check_test";
+    int64_t db_id = 1001;
+    int64_t table_id = 2001;
+    int64_t index_id = 3001;
+    int64_t partition_id = 4001;
+    int64_t tablet_id = 5001;
+
+    InstanceChecker checker(txn_kv, instance_id);
+
+    // Step 1: Create only meta_tablet_key, expect check to fail
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create meta_tablet_key
+        std::string meta_tablet_key = versioned::meta_tablet_key({instance_id, tablet_id});
+        TabletMetaCloudPB tablet_meta;
+        tablet_meta.set_tablet_id(tablet_id);
+        txn->put(meta_tablet_key, tablet_meta.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because tablet_index_key and tablet_inverted_index_key are missing
+        EXPECT_EQ(checker.inverted_check_multi_version_tablet_index_key(), -1);
+    }
+
+    // Step 2: Add tablet_index_key, but still missing tablet_inverted_index_key
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create tablet_index_key
+        std::string tablet_index_key = versioned::tablet_index_key({instance_id, tablet_id});
+
+        // Create meta_tablet_idx_key to allow InstanceChecker to retrieve tablet's index info
+        TabletIndexPB tablet_idx;
+        tablet_idx.set_db_id(db_id);
+        tablet_idx.set_table_id(table_id);
+        tablet_idx.set_index_id(index_id);
+        tablet_idx.set_partition_id(partition_id);
+        tablet_idx.set_tablet_id(tablet_id);
+
+        txn->put(tablet_index_key, tablet_idx.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because tablet_inverted_index_key is missing
+        EXPECT_EQ(checker.inverted_check_multi_version_tablet_index_key(), -1);
+    }
+
+    // Step 3: Add tablet_inverted_index_key, all keys are present, check should succeed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create tablet_inverted_index_key
+        std::string tablet_inverted_index_key = versioned::tablet_inverted_index_key(
+                {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+        txn->put(tablet_inverted_index_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should succeed, all required keys are created
+        EXPECT_EQ(checker.inverted_check_multi_version_tablet_index_key(), 0);
+    }
+}
+
+TEST(CheckerTest, check_multi_version_partition_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "multi_version_partition_check_test";
+    int64_t db_id = 1001;
+    int64_t table_id = 2001;
+    int64_t partition_id = 4001;
+
+    InstanceChecker checker(txn_kv, instance_id);
+
+    // Step 1: Create only partition_index_key, expect check to fail
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create partition_index_key
+        std::string partition_index_key =
+                versioned::partition_index_key({instance_id, partition_id});
+        PartitionIndexPB partition_index;
+        partition_index.set_db_id(db_id);
+        partition_index.set_table_id(table_id);
+        txn->put(partition_index_key, partition_index.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because meta_partition_key is missing
+        EXPECT_EQ(checker.check_multi_version_partition_index_key(), -1);
+    }
+
+    // Step 2: Add meta_partition_key, but still missing partition_inverted_index_key
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create meta_partition_key
+        std::string meta_partition_key = versioned::meta_partition_key({instance_id, partition_id});
+        txn->put(meta_partition_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should still fail because partition_inverted_index_key is missing
+        EXPECT_EQ(checker.check_multi_version_partition_index_key(), -1);
+    }
+
+    // Step 3: Add partition_inverted_index_key, all keys are present, check should succeed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create partition_inverted_index_key
+        std::string partition_inverted_index_key = versioned::partition_inverted_index_key(
+                {instance_id, db_id, table_id, partition_id});
+        txn->put(partition_inverted_index_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should succeed, all required keys are created
+        EXPECT_EQ(checker.check_multi_version_partition_index_key(), 0);
+    }
+}
+
+TEST(CheckerTest, inverted_check_multi_version_partition_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "multi_version_partition_inverted_check_test";
+    int64_t db_id = 1001;
+    int64_t table_id = 2001;
+    int64_t partition_id = 4001;
+
+    InstanceChecker checker(txn_kv, instance_id);
+
+    // Step 1: Create only meta_partition_key, expect check to fail
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create meta_partition_key
+        std::string meta_partition_key = versioned::meta_partition_key({instance_id, partition_id});
+        txn->put(meta_partition_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because partition_index_key and partition_inverted_index_key are missing
+        EXPECT_EQ(checker.inverted_check_multi_version_partition_index_key(), -1);
+    }
+
+    // Step 2: Add partition_index_key, but still missing partition_inverted_index_key
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create partition_index_key
+        std::string partition_index_key =
+                versioned::partition_index_key({instance_id, partition_id});
+        PartitionIndexPB partition_index;
+        partition_index.set_db_id(db_id);
+        partition_index.set_table_id(table_id);
+        txn->put(partition_index_key, partition_index.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because partition_inverted_index_key is missing
+        EXPECT_EQ(checker.inverted_check_multi_version_partition_index_key(), -1);
+    }
+
+    // Step 3: Add partition_inverted_index_key, all keys are present, check should succeed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create partition_inverted_index_key
+        std::string partition_inverted_index_key = versioned::partition_inverted_index_key(
+                {instance_id, db_id, table_id, partition_id});
+        txn->put(partition_inverted_index_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should succeed, all required keys are created
+        EXPECT_EQ(checker.inverted_check_multi_version_partition_index_key(), 0);
+    }
+}
+
+TEST(CheckerTest, check_multi_version_index_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "multi_version_index_check_test";
+    int64_t db_id = 1001;
+    int64_t table_id = 2001;
+    int64_t index_id = 3001;
+
+    InstanceChecker checker(txn_kv, instance_id);
+
+    // Step 1: Create only index_index_key, expect check to fail
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create index_index_key
+        std::string index_index_key = versioned::index_index_key({instance_id, index_id});
+        IndexIndexPB index_index;
+        index_index.set_db_id(db_id);
+        index_index.set_table_id(table_id);
+        txn->put(index_index_key, index_index.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because meta_index_key is missing
+        EXPECT_EQ(checker.check_multi_version_index_index_key(), -1);
+    }
+
+    // Step 2: Add meta_index_key, but still missing index_inverted_key
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create meta_index_key
+        std::string meta_index_key = versioned::meta_index_key({instance_id, index_id});
+        txn->put(meta_index_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should still fail because index_inverted_key is missing
+        EXPECT_EQ(checker.check_multi_version_index_index_key(), -1);
+    }
+
+    // Step 3: Add index_inverted_key, all keys are present, check should succeed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create index_inverted_key
+        std::string index_inverted_key =
+                versioned::index_inverted_key({instance_id, db_id, table_id, index_id});
+        txn->put(index_inverted_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should succeed, all required keys are created
+        EXPECT_EQ(checker.check_multi_version_index_index_key(), 0);
+    }
+}
+
+TEST(CheckerTest, inverted_check_multi_version_index_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "multi_version_index_inverted_check_test";
+    int64_t db_id = 1001;
+    int64_t table_id = 2001;
+    int64_t index_id = 3001;
+
+    InstanceChecker checker(txn_kv, instance_id);
+
+    // Step 1: Create only meta_index_key, expect check to fail
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create meta_index_key
+        std::string meta_index_key = versioned::meta_index_key({instance_id, index_id});
+        txn->put(meta_index_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because index_index_key and index_inverted_key are missing
+        EXPECT_EQ(checker.inverted_check_multi_version_index_index_key(), -1);
+    }
+
+    // Step 2: Add index_index_key, but still missing index_inverted_key
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create index_index_key
+        std::string index_index_key = versioned::index_index_key({instance_id, index_id});
+        IndexIndexPB index_index;
+        index_index.set_db_id(db_id);
+        index_index.set_table_id(table_id);
+        txn->put(index_index_key, index_index.SerializeAsString());
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should fail because index_inverted_key is missing
+        EXPECT_EQ(checker.inverted_check_multi_version_index_index_key(), -1);
+    }
+
+    // Step 3: Add index_inverted_key, all keys are present, check should succeed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create index_inverted_key
+        std::string index_inverted_key =
+                versioned::index_inverted_key({instance_id, db_id, table_id, index_id});
+        txn->put(index_inverted_key, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check should succeed, all required keys are created
+        EXPECT_EQ(checker.inverted_check_multi_version_index_index_key(), 0);
+    }
+}
+
 } // namespace doris::cloud

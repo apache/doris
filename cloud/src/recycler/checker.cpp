@@ -47,6 +47,7 @@
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "recycler/hdfs_accessor.h"
@@ -194,6 +195,15 @@ int Checker::start() {
 
             if (config::enable_mow_job_key_check) {
                 if (int ret = checker->do_mow_job_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_multi_version_index_key_check) {
+                if (int ret = checker->do_multi_version_index_key_check(); ret != 0) {
+                    success = false;
+                }
+                if (int ret = checker->do_multi_version_index_key_inverted_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -1754,6 +1764,512 @@ int InstanceChecker::do_mow_job_key_check() {
             }
         }
         begin = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return 0;
+}
+
+int InstanceChecker::do_multi_version_index_key_inverted_check() {
+    int ret = 0;
+    if (inverted_check_multi_version_tablet_index_key()) {
+        LOG(WARNING) << "inverted_check_multi_version_tablet_index_key failed";
+        ret = -1;
+    }
+
+    if (inverted_check_multi_version_partition_index_key()) {
+        LOG(WARNING) << "inverted_check_multi_version_partition_index_key failed";
+        ret = -1;
+    }
+
+    if (inverted_check_multi_version_index_index_key()) {
+        LOG(WARNING) << "inverted_check_multi_version_index_index_key failed";
+        ret = -1;
+    }
+
+    LOG(INFO) << "do_multi_version_index_key_inverted_check finished, ret=" << ret;
+    return ret;
+}
+
+int InstanceChecker::do_multi_version_index_key_check() {
+    int ret = 0;
+    if (check_multi_version_tablet_index_key()) {
+        LOG(WARNING) << "check_multi_version_tablet_index_key failed";
+        ret = -1;
+    }
+
+    if (check_multi_version_partition_index_key()) {
+        LOG(WARNING) << "check_multi_version_partition_index_key failed";
+        ret = -1;
+    }
+
+    if (check_multi_version_index_index_key()) {
+        LOG(WARNING) << "check_multi_version_index_index_key failed";
+        ret = -1;
+    }
+
+    LOG(INFO) << "do_multi_version_index_key_check finished, ret=" << ret;
+    return ret;
+}
+
+int InstanceChecker::check_multi_version_tablet_index_key() {
+    std::string tablet_index_key_begin = versioned::tablet_index_key({instance_id_, 0});
+    std::string tablet_index_key_end = versioned::tablet_index_key({instance_id_, INT64_MAX});
+
+    std::unique_ptr<RangeGetIterator> it;
+
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(tablet_index_key_begin, tablet_index_key_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get multi version tablet index key, err=" << err;
+            return -1;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x03 "index" ${instance_id} "tablet" ${tablet_id}
+            auto tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+            MetaReader meta_reader(instance_id_, txn_kv_.get());
+            TabletIndexPB tablet_idx;
+
+            // check if tablet meta and inverted index exist
+            std::string meta_tablet_key = versioned::meta_tablet_key({instance_id_, tablet_id});
+            int ret = key_exist(txn_kv_.get(), meta_tablet_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index key check fails] tablet meta not found for"
+                             << " instance_id=" << instance_id_ 
+                             << " tablet_id=" << tablet_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index key check fails] failed to check tablet meta for"
+                             << " instance_id=" << instance_id_ 
+                             << " tablet_id=" << tablet_id;
+                // clang-format on
+                return -1;
+            }
+
+            if (meta_reader.get_tablet_index(tablet_id, &tablet_idx, false) !=
+                TxnErrorCode::TXN_OK) {
+                // clang-format off
+                LOG(WARNING)
+                        << "[multi version index key check fails] failed to get tablet index for"
+                        << " instance_id=" << instance_id_ 
+                        << " tablet_id=" << tablet_id;
+                // clang-format on
+                return -1;
+            }
+
+            // check if tablet inverted index key exists
+            auto db_id = tablet_idx.db_id();
+            auto table_id = tablet_idx.table_id();
+            auto index_id = tablet_idx.index_id();
+            auto partition_id = tablet_idx.partition_id();
+
+            std::string tablet_inverted_index_key = versioned::tablet_inverted_index_key(
+                    {instance_id_, db_id, table_id, index_id, partition_id, tablet_id});
+            ret = key_exist(txn_kv_.get(), tablet_inverted_index_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING)<< "[multi version tablet index key check fails] tablet inverted index key not found for"
+                            << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                            << " table_id=" << table_id << " index_id=" << index_id 
+                            << " partition_id=" << partition_id << " tablet_id=" << tablet_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version tablet index key check fails] failed to check tablet inverted index key for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id
+                             << " table_id=" << table_id << " index_id=" << index_id
+                             << " partition_id=" << partition_id << " tablet_id=" << tablet_id;
+                // clang-format on
+                return -1;
+            }
+        }
+        tablet_index_key_begin = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return 0;
+}
+
+int InstanceChecker::check_multi_version_partition_index_key() {
+    std::string partition_index_key_begin = versioned::partition_index_key({instance_id_, 0});
+    std::string partition_index_key_end = versioned::partition_index_key({instance_id_, INT64_MAX});
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(partition_index_key_begin, partition_index_key_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get multi version partition index key, err=" << err;
+            return -1;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x03 "index" ${instance_id} "partition" ${partition_id}
+            auto partition_id = std::get<int64_t>(std::get<0>(out[3]));
+            MetaReader meta_reader(instance_id_, txn_kv_.get());
+
+            // check if meta partition key exists
+            std::string meta_partition_key =
+                    versioned::meta_partition_key({instance_id_, partition_id});
+            int ret = key_exist(txn_kv_.get(), meta_partition_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version partition index key check fails] partition index key not found for"
+                             << " instance_id" << instance_id_ 
+                             << " partition_id=" << partition_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version partition index key check fails] failed to check partition index key for"
+                             << " instance_id" << instance_id_ 
+                             << " partition_id=" << partition_id;
+                // clang-format on
+                return -1;
+            }
+
+            PartitionIndexPB partition_idx;
+            if (auto err = meta_reader.get_partition_index(partition_id, &partition_idx);
+                err != TxnErrorCode::TXN_OK) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index key inverted check fails] failed to get tablet index for"
+                             << " instance_id=" << instance_id_ 
+                             << " tablet_id=" << partition_id 
+                             << " err=" << err;
+                // clang-format on
+                return -1;
+            }
+
+            // check if partition inverted index key exists
+            auto db_id = partition_idx.db_id();
+            auto table_id = partition_idx.table_id();
+            std::string partition_inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id_, db_id, table_id, partition_id});
+            ret = key_exist(txn_kv_.get(), partition_inverted_index_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version partition index key inverted check fails] partition index key not found for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id
+                             << " partition_id=" << partition_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version partition index key inverted check fails] failed to check partition inverted index key for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id
+                             << " partition_id=" << partition_id;
+                // clang-format on
+                return -1;
+            }
+        }
+        partition_index_key_begin =
+                it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return 0;
+}
+
+int InstanceChecker::check_multi_version_index_index_key() {
+    std::string index_index_key_begin = versioned::index_index_key({instance_id_, 0});
+    std::string index_index_key_end = versioned::index_index_key({instance_id_, INT64_MAX});
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(index_index_key_begin, index_index_key_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get multi version index index key, err=" << err;
+            return -1;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x03 "index" ${instance_id} "index" ${index_id}
+            auto index_id = std::get<int64_t>(std::get<0>(out[3]));
+            MetaReader meta_reader(instance_id_, txn_kv_.get());
+
+            // check if meta partition key exists
+            std::string meta_index_key = versioned::meta_index_key({instance_id_, index_id});
+            int ret = key_exist(txn_kv_.get(), meta_index_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index index key check fails] index index key not found for"
+                             << " instance_id" << instance_id_ 
+                             << " index_id=" << index_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index index key check fails] failed to check index index key for"
+                             << " instance_id" << instance_id_ 
+                             << " index_id=" << index_id;
+                // clang-format on
+                return -1;
+            }
+
+            IndexIndexPB index_idx;
+            if (auto code = meta_reader.get_index_index(index_id, &index_idx);
+                code != TxnErrorCode::TXN_OK) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index index key check fails] failed to get index index for"
+                             << " instance_id=" << instance_id_ 
+                             << " index_id=" << index_id
+                             << " code=" << code;
+                // clang-format on
+                return -1;
+            }
+            // check if index inverted index key exists
+            auto db_id = index_idx.db_id();
+            auto table_id = index_idx.table_id();
+            std::string index_inverted_index_key =
+                    versioned::index_inverted_key({instance_id_, db_id, table_id, index_id});
+            ret = key_exist(txn_kv_.get(), index_inverted_index_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index index key check fails] index inverted index key not found for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id
+                             << " index_id=" << index_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index index key check fails] failed to check index inverted index key for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id
+                             << " index_id=" << index_id;
+                // clang-format on
+                return -1;
+            }
+        }
+        index_index_key_begin = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return 0;
+}
+
+int InstanceChecker::inverted_check_multi_version_tablet_index_key() {
+    std::string tablet_meta_key_begin = versioned::meta_tablet_key({instance_id_, 0});
+    std::string tablet_meta_key_end = versioned::meta_tablet_key({instance_id_, INT64_MAX});
+
+    std::unique_ptr<RangeGetIterator> it;
+
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(tablet_meta_key_begin, tablet_meta_key_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get multi version meta tablet key, err=" << err;
+            return -1;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x03 "meta" ${instance_id} "tablet" ${tablet_id} ${timestamp}
+            auto tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+            MetaReader meta_reader(instance_id_, txn_kv_.get());
+            TabletIndexPB tablet_idx;
+
+            // check if tablet meta and inverted index exist
+            if (auto err = meta_reader.get_tablet_index(tablet_id, &tablet_idx, false);
+                err != TxnErrorCode::TXN_OK) {
+                // clang-format off
+                LOG(WARNING) << "[multi version tablet index key inverted check fails] failed to get tablet index for"
+                             << " instance_id=" << instance_id_ 
+                             << " tablet_id=" << tablet_id 
+                             << " err=" << err;
+                // clang-format on
+                return -1;
+            }
+
+            // check if tablet inverted index key exists
+            auto db_id = tablet_idx.db_id();
+            auto table_id = tablet_idx.table_id();
+            auto index_id = tablet_idx.index_id();
+            auto partition_id = tablet_idx.partition_id();
+
+            std::string tablet_inverted_index_key = versioned::tablet_inverted_index_key(
+                    {instance_id_, db_id, table_id, index_id, partition_id, tablet_id});
+            int ret = key_exist(txn_kv_.get(), tablet_inverted_index_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version tablet index key inverted check fails] tablet index key not found for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id << " index_id=" << index_id 
+                             << " partition_id=" << partition_id << " tablet_id=" << tablet_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version tablet index key inverted check fails] failed to check tablet inverted index key for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id << " index_id=" << index_id 
+                             << " partition_id=" << partition_id << " tablet_id=" << tablet_id;
+                // clang-format on
+                return -1;
+            }
+        }
+        tablet_meta_key_begin = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return 0;
+}
+
+int InstanceChecker::inverted_check_multi_version_partition_index_key() {
+    std::string partition_meta_key_begin = versioned::meta_partition_key({instance_id_, 0});
+    std::string partition_meta_key_end = versioned::meta_partition_key({instance_id_, INT64_MAX});
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(partition_meta_key_begin, partition_meta_key_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get multi version meta partition key, err=" << err;
+            return -1;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x03 "meta" ${instance_id} "partition" ${partition_id} ${timestamp}
+            auto partition_id = std::get<int64_t>(std::get<0>(out[3]));
+            MetaReader meta_reader(instance_id_, txn_kv_.get());
+            PartitionIndexPB partition_idx;
+            if (meta_reader.get_partition_index(partition_id, &partition_idx) !=
+                TxnErrorCode::TXN_OK) {
+                // clang-format off
+                LOG(WARNING) << "[multi version partition index key inverted check fails] failed to get partition index for"
+                             << " instance_id=" << instance_id_ 
+                             << " partition_id=" << partition_id;
+                // clang-format on
+                return -1;
+            }
+
+            auto db_id = partition_idx.db_id();
+            auto table_id = partition_idx.table_id();
+            std::string partition_inverted_index_key = versioned::partition_inverted_index_key(
+                    {instance_id_, db_id, table_id, partition_id});
+            int ret = key_exist(txn_kv_.get(), partition_inverted_index_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version partition index key inverted check fails] partition index key not found for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id
+                             << " partition_id=" << partition_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version partition index key inverted check fails] failed to check partition inverted index key for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id
+                             << " partition_id=" << partition_id;
+                // clang-format on
+                return -1;
+            }
+        }
+        partition_meta_key_begin =
+                it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return 0;
+}
+int InstanceChecker::inverted_check_multi_version_index_index_key() {
+    std::string index_meta_key_begin = versioned::meta_index_key({instance_id_, 0});
+    std::string index_meta_key_end = versioned::meta_index_key({instance_id_, INT64_MAX});
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(index_meta_key_begin, index_meta_key_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get multi version meta index key, err=" << err;
+            return -1;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x03 "meta" ${instance_id} "index" ${index_id} ${timestamp}
+            auto index_id = std::get<int64_t>(std::get<0>(out[3]));
+            MetaReader meta_reader(instance_id_, txn_kv_.get());
+            IndexIndexPB index_idx;
+            if (meta_reader.get_index_index(index_id, &index_idx) != TxnErrorCode::TXN_OK) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index index key inverted check fails] failed to get index index for"
+                             << " instance_id=" << instance_id_ 
+                             << " index_id=" << index_id;
+                // clang-format on
+                return -1;
+            }
+            auto db_id = index_idx.db_id();
+            auto table_id = index_idx.table_id();
+            std::string index_inverted_index_key =
+                    versioned::index_inverted_key({instance_id_, db_id, table_id, index_id});
+            int ret = key_exist(txn_kv_.get(), index_inverted_index_key);
+            if (ret == 1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index index key inverted check fails] index index key not found for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id
+                             << " index_id=" << index_id;
+                // clang-format on
+                return -1;
+            } else if (ret == -1) {
+                // clang-format off
+                LOG(WARNING) << "[multi version index index key inverted check fails] failed to check index inverted index key for"
+                             << " instance_id=" << instance_id_ << " db_id=" << db_id 
+                             << " table_id=" << table_id
+                             << " index_id=" << index_id;
+                // clang-format on
+                return -1;
+            }
+        }
+        index_meta_key_begin = it->next_begin_key(); // Update to next smallest key for iteration
     } while (it->more() && !stopped());
     return 0;
 }
