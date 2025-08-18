@@ -685,8 +685,7 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
-DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
-
+DEFINE_mInt64(write_buffer_size_for_agg, "104857600");
 DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
