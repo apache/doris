@@ -46,11 +46,13 @@ bvar::PerSecond<bvar::Adder<uint64_t>> hdfs_read_througthput("hdfs_file_reader",
                                                              &hdfs_bytes_read_total);
 
 namespace {
+static FileHandleCache cache(config::max_hdfs_file_handle_cache_num, 16,
+                             config::max_hdfs_file_handle_cache_time_sec);
+// Delay remove from cache: do nothing here, let the cache eviction thread handle removal.
 
 Result<FileHandleCache::Accessor> get_file(const hdfsFS& fs, const Path& file, int64_t mtime,
                                            int64_t file_size) {
-    static FileHandleCache cache(config::max_hdfs_file_handle_cache_num, 16,
-                                 config::max_hdfs_file_handle_cache_time_sec);
+
     bool cache_hit;
     FileHandleCache::Accessor accessor;
     RETURN_IF_ERROR_RESULT(cache.get_file_handle(fs, file.native(), mtime, file_size, false,
@@ -117,7 +119,7 @@ Status HdfsFileReader::close() {
 
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
-    auto st =  read_at_impl_impl(offset, result, bytes_read, io_ctx);
+    auto st = read_at_impl_impl(offset, result, bytes_read, io_ctx);
     if (!st.ok()) {
         cache.remove_file_handle(_handle);
     }
@@ -126,7 +128,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
 #ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::read_at_impl_impl(size_t offset, Slice result, size_t* bytes_read,
-                                    const IOContext* /*io_ctx*/) {
+                                         const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
         return Status::InternalError("read closed file: {}", _path.native());
     }
@@ -183,7 +185,7 @@ Status HdfsFileReader::read_at_impl_impl(size_t offset, Slice result, size_t* by
 // The hedged read only support hdfsPread().
 // TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
 Status HdfsFileReader::read_at_impl_impl(size_t offset, Slice result, size_t* bytes_read,
-                                    const IOContext* /*io_ctx*/) {
+                                         const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
         return Status::InternalError("read closed file: ", _path.native());
     }
