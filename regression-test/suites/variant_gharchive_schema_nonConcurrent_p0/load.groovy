@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_variant_index_type_p2", "p2"){
+suite("test_variant_index_type_p0", "nonConcurrent"){
     // prepare test table
     def timeout = 300000
     def delta_time = 1000
@@ -84,7 +84,7 @@ suite("test_variant_index_type_p2", "p2"){
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
     int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 400
-    // int rand_subcolumns_count = 0;
+    // int rand_subcolumns_count = 11;
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -129,7 +129,7 @@ suite("test_variant_index_type_p2", "p2"){
     sql """ set enable_common_expr_pushdown = true """
     // filter by bloom filter
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
-    qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
+    qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by cast(v["payload"] as string) limit 10;"""
     sql """select * from github_events order by k limit 10"""
     qt_sql """select count()  from github_events where v["repo"]["name"] match 'xpressengine' """
     qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache';"""
@@ -161,7 +161,7 @@ suite("test_variant_index_type_p2", "p2"){
     sql """select v['payload']['commits'] from github_events2 order by k ;"""
     qt_sql """select count() from github_events2"""
     // query with inverted index
-    if (!enable_typed_paths_to_sparse) {
+    if (enable_typed_paths_to_sparse) {
         sql """ set enable_match_without_inverted_index = false """
     }
     qt_sql """select count()  from github_events2 where v["repo"]["name"] match 'xpressengine' """
@@ -192,7 +192,7 @@ suite("test_variant_index_type_p2", "p2"){
         """
     sql """insert into github_events3 select * from github_events order by k"""
     // query with inverted index
-    if (!enable_typed_paths_to_sparse) {
+    if (enable_typed_paths_to_sparse) {
         sql """ set enable_match_without_inverted_index = false """
     }
     qt_sql """select count()  from github_events3 where v["repo"]["name"] match 'xpressengine' """
