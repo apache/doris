@@ -281,7 +281,7 @@ TEST(JsonParserTest, TestHandleNewPathDirectCall) {
     doris::vectorized::Field value = std::move(array_data);
 
     // Create hash for the path
-    UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
+    wide::UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
 
     // Call handleNewPath directly
     // This should trigger the if (!nested_key.empty()) branch
@@ -318,7 +318,7 @@ TEST(JsonParserTest, TestHandleNewPathElseBranch) {
     doris::vectorized::Field value = std::move(array_data);
 
     // Create hash for the path
-    UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
+    wide::UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
 
     // First call to populate nested_sizes_by_key
     parser.handleNewPath(hash, path, value, ctx);
