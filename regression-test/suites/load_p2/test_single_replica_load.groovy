@@ -20,7 +20,10 @@
 // and modified by Doris.
 
 suite("test_single_replica_load", "p2, nonConcurrent") {
-    
+    if (isCloudMode()) {
+        return;
+    }
+
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -52,9 +55,7 @@ suite("test_single_replica_load", "p2, nonConcurrent") {
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
-        if (isCloudMode()) {
-            return;
-        }
+
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 k bigint,
