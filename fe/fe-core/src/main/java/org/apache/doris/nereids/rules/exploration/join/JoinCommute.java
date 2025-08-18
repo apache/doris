@@ -82,7 +82,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
                     }
 
-                    return newJoin;
+                    return JoinUtils.adjustJoinConjunctsNullable(newJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_COMMUTE);
     }
 

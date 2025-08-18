@@ -53,6 +53,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -483,5 +484,24 @@ public class JoinUtils {
                 .collect(Collectors.toSet());
         markSlots.retainAll(bottom.getOutputSet());
         return markSlots.isEmpty();
+    }
+
+    /**
+     * Use the children nullable property of the join to adjust the slot used by the join conjuncts.
+     * Such as 'a left join b left join c where b.condition > 1'
+     * if the join change to '(b left join c) right a where b.condition > 1',
+     * the nullable property of b.condition should be false
+     */
+    public static LogicalJoin<Plan, Plan> adjustJoinConjunctsNullable(LogicalJoin<Plan, Plan> join) {
+        Map<Slot, Slot> childSlotMap = new HashMap<>();
+        for (Plan child : join.children()) {
+            for (Slot slot : child.getOutput()) {
+                childSlotMap.put(slot, slot);
+            }
+        }
+        return join.withJoinConjuncts(
+                ExpressionUtils.replace(join.getHashJoinConjuncts(), childSlotMap),
+                ExpressionUtils.replace(join.getOtherJoinConjuncts(), childSlotMap),
+                join.getJoinReorderContext());
     }
 }
