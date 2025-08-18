@@ -244,15 +244,12 @@ suite("iceberg_on_hms_and_filesystem", "p0,external,doris,external_docker,extern
     warehouse = """
      'warehouse' = 'cos://${cos_parent_path}/iceberg-hms-cos-warehouse',
     """
-/*
     testQueryAndInsert(iceberg_hms_type_prop + hms_prop
             + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
-
-    
     //kerberos
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_old")
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_new")
-*/
+
 
 
     /*--------HMS on S3-----------*/
