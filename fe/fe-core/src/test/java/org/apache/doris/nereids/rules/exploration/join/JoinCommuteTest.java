@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -35,6 +38,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class JoinCommuteTest implements MemoPatternMatchSupported {
     @Test
@@ -77,7 +81,6 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
                 .getAllPlan().size());
     }
 
-
     @Test
     void testJoinConjunctNullableWhenCommute() {
         LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -87,14 +90,29 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .build();
         join = join.withJoinConjuncts(
-                ImmutableList.of(),
+                ImmutableList.of(new EqualTo(scan1.getOutput().get(0).withNullable(true),
+                        scan2.getOutput().get(0))),
                 ImmutableList.of(new GreaterThan(scan1.getOutput().get(0).withNullable(true),
                         scan2.getOutput().get(0))),
                 join.getJoinReorderContext());
 
         List<Plan> allPlan = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
                 .applyExploration(JoinCommute.BUSHY.build())
-                .getAllPlan();
+                .getAllPlan()
+                .stream()
+                .filter(plan -> plan instanceof LogicalJoin
+                        && ((LogicalJoin<?, ?>) plan).getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                .collect(Collectors.toList());
         Assertions.assertEquals(1, allPlan.size());
+        // the input slot of join conjuncts should be nullable false after commute
+        LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) allPlan.get(0);
+        for (Expression expr : newJoin.getHashJoinConjuncts()) {
+            expr.collectToSet(SlotReference.class::isInstance)
+                    .forEach(slot -> Assertions.assertFalse(((SlotReference) slot).nullable()));
+        }
+        for (Expression expr : newJoin.getOtherJoinConjuncts()) {
+            expr.collectToSet(SlotReference.class::isInstance)
+                    .forEach(slot -> Assertions.assertFalse(((SlotReference) slot).nullable()));
+        }
     }
 }

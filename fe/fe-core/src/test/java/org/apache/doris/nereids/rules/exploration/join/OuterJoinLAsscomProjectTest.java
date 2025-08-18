@@ -22,9 +22,14 @@ import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -36,6 +41,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
 
@@ -159,5 +166,55 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 .checkMemo(memo -> {
                     Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size());
                 });
+    }
+
+    @Test
+    public void testJoinConjunctNullableWhenLAssociate() {
+        List<Expression> bottomHashJoinConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
+        List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .build();
+        LogicalPlan bottomProject = new LogicalProject<>(
+                bottomJoin.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                bottomJoin);
+
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(bottomProject.getOutput().get(0), scan3.getOutput().get(0).withNullable(true)));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(bottomProject.getOutput().get(1), scan3.getOutput().get(1).withNullable(true)));
+        LogicalPlan topJoin = new LogicalPlanBuilder(bottomProject)
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .build();
+
+        LogicalPlan plan = new LogicalProject<>(
+                topJoin.getOutput().stream().map(NamedExpression.class::cast).collect(
+                        Collectors.toList()), topJoin);
+
+        List<Plan> allPlan = PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnOrigin()
+                .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
+                .getAllPlan();
+
+        Assertions.assertEquals(2, allPlan.size());
+        Set<LogicalJoin<Plan, Plan>> joinSet = allPlan.get(1).collect(LogicalJoin.class::isInstance);
+        for (LogicalJoin<Plan, Plan> newJoin : joinSet) {
+            Plan child0 = newJoin.child(0);
+            Plan child1 = newJoin.child(1);
+            if ((child0 instanceof LogicalOlapScan && ((LogicalOlapScan) child0).getTable().getName().equals("t3"))
+                    || (child1 instanceof LogicalOlapScan
+                    && ((LogicalOlapScan) child1).getTable().getName().equals("t3"))) {
+                for (Expression expr : newJoin.getHashJoinConjuncts()) {
+                    expr.collectToSet(SlotReference.class::isInstance)
+                            .forEach(slot -> Assertions.assertFalse(((SlotReference) slot).nullable()));
+                }
+                for (Expression expr : newJoin.getOtherJoinConjuncts()) {
+                    expr.collectToSet(SlotReference.class::isInstance)
+                            .forEach(slot -> Assertions.assertFalse(((SlotReference) slot).nullable()));
+                }
+            }
+        }
     }
 }
