@@ -91,29 +91,101 @@ Suite.metaClass.listOssObjectWithPrefix = { OSS client, String bucketName, Strin
 
 }
 
-// get file size in a specific directory
+/**
+ * 计算指定文件夹的总大小（递归计算所有文件）
+ * @param client OSS客户端实例
+ * @param bucketName OSS存储桶名称
+ * @param folder 文件夹路径前缀
+ * @return 文件夹总大小（字节）
+ */
 Suite.metaClass.calculateFolderLength = { OSS client, String bucketName, String folder ->
-    long size = 0L;
+    logger.info("[calculateFolderLength] 开始计算文件夹大小 - Bucket: ${bucketName}, Folder: ${folder}")
+    
+    long size = 0L;  // 累计文件大小
     ObjectListing objectListing = null;
-    do {
-        // The default value for MaxKey is 100, and the maximum value is 1000
-        logger.info("debug:" + folder)
-        ListObjectsRequest request = new ListObjectsRequest(bucketName).withPrefix(folder).withMaxKeys(1000);
-        if (objectListing != null) {
-            request.setMarker(objectListing.getNextMarker());
-        }
-        objectListing = client.listObjects(request);
-        List<OSSObjectSummary> sums = objectListing.getObjectSummaries();
-        for (OSSObjectSummary s : sums) {
-            logger.info("Object Key: ${s.getKey()}")
-            logger.info("Size: ${s.getSize()} bytes")
-            logger.info("Last Modified: ${s.getLastModified()}")
-            logger.info("Storage Class: ${s.getStorageClass()}")
-            logger.info("Owner: ${s.getOwner()?.getId()}")
-            logger.info("-------------------")
-            size += s.getSize();
-        }
-    } while (objectListing.isTruncated());
+    int pageCount = 0;  // 分页计数器
+    int totalObjects = 0;  // 总文件数量计数器
+    
+    try {
+        // 使用分页方式遍历所有对象，避免一次性加载过多数据
+        do {
+            pageCount++;
+            logger.info("[calculateFolderLength] 正在处理第 ${pageCount} 页数据...")
+            
+            // 创建列表对象请求，设置最大返回数量为1000（OSS限制的最大值）
+            ListObjectsRequest request = new ListObjectsRequest(bucketName)
+                .withPrefix(folder)
+                .withMaxKeys(1000);
+            
+            // 如果不是第一页，设置分页标记
+            if (objectListing != null) {
+                String nextMarker = objectListing.getNextMarker();
+                logger.info("[calculateFolderLength] 设置分页标记: ${nextMarker}")
+                request.setMarker(nextMarker);
+            }
+            
+            // 执行OSS请求获取对象列表
+            logger.info("[calculateFolderLength] 执行OSS listObjects请求...")
+            objectListing = client.listObjects(request);
+            
+            // 获取当前页的对象摘要列表
+            List<OSSObjectSummary> sums = objectListing.getObjectSummaries();
+            logger.info("[calculateFolderLength] 当前页找到 ${sums.size()} 个对象")
+            
+            // 如果当前页没有对象，记录警告信息
+            if (sums.isEmpty()) {
+                logger.warn("[calculateFolderLength] 第 ${pageCount} 页没有找到任何对象，但分页标记显示还有更多数据")
+            }
+            
+            // 遍历当前页的所有对象，累加大小
+            for (OSSObjectSummary s : sums) {
+                totalObjects++;
+                long objSize = s.getSize();
+                
+                // 详细记录每个对象的信息
+                logger.info("[calculateFolderLength] 对象 #${totalObjects}:")
+                logger.info("  - Key: ${s.getKey()}")
+                logger.info("  - Size: ${objSize} bytes (${String.format('%.2f', objSize / 1024.0 / 1024.0)} MB)")
+                logger.info("  - Last Modified: ${s.getLastModified()}")
+                logger.info("  - Storage Class: ${s.getStorageClass()}")
+                logger.info("  - Owner: ${s.getOwner()?.getId() ?: 'N/A'}")
+                logger.info("  - ETag: ${s.getETag()}")
+                
+                // 累加到总大小
+                size += objSize;
+                logger.info("  - 当前累计大小: ${size} bytes (${String.format('%.2f', size / 1024.0 / 1024.0)} MB)")
+                logger.info("-------------------")
+            }
+            
+            // 记录分页状态信息
+            logger.info("[calculateFolderLength] 第 ${pageCount} 页处理完成:")
+            logger.info("  - 本页对象数: ${sums.size()}")
+            logger.info("  - 累计对象数: ${totalObjects}")
+            logger.info("  - 当前累计大小: ${size} bytes")
+            logger.info("  - 是否还有更多页: ${objectListing.isTruncated()}")
+            logger.info("  - 下一页标记: ${objectListing.getNextMarker() ?: 'N/A'}")
+            
+        } while (objectListing.isTruncated()); // 继续处理下一页，直到所有数据处理完毕
+        
+        // 记录最终统计结果
+        logger.info("[calculateFolderLength] 文件夹大小计算完成:")
+        logger.info("  - 文件夹路径: ${folder}")
+        logger.info("  - 总页数: ${pageCount}")
+        logger.info("  - 总文件数: ${totalObjects}")
+        logger.info("  - 总大小: ${size} bytes")
+        logger.info("  - 总大小: ${String.format('%.2f', size / 1024.0 / 1024.0)} MB")
+        logger.info("  - 总大小: ${String.format('%.2f', size / 1024.0 / 1024.0 / 1024.0)} GB")
+        
+    } catch (Exception e) {
+        logger.error("[calculateFolderLength] 计算文件夹大小时发生异常:", e)
+        logger.error("  - Bucket: ${bucketName}")
+        logger.error("  - Folder: ${folder}")
+        logger.error("  - 已处理页数: ${pageCount}")
+        logger.error("  - 已处理对象数: ${totalObjects}")
+        logger.error("  - 当前累计大小: ${size} bytes")
+        throw e  // 重新抛出异常
+    }
+    
     return size;
 }
 
