@@ -24,6 +24,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
+#include "http/utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -313,7 +314,7 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
     std::string remote_url_prefix;
     {
         std::stringstream ss;
-        ss << "http://" << addr.host << ":" << addr.http_port << HTTP_REQUEST_PREFIX
+        ss << get_http_scheme() << addr.host << ":" << addr.http_port << HTTP_REQUEST_PREFIX
            << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << snapshot_path << "/"
            << _tablet->tablet_id() << "/" << _tablet->schema_hash() << "/";
         remote_url_prefix = ss.str();

@@ -60,6 +60,7 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/utils.h"
+#include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
@@ -119,7 +120,8 @@ std::string to_load_error_http_path(const std::string& file_name) {
         return file_name;
     }
     std::stringstream url;
-    url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
+    url << get_http_scheme()
+        << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
         << "/api/_load_error_log?"
         << "file=" << file_name;
     return url.str();
@@ -343,7 +345,7 @@ void FragmentMgr::stop() {
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
     std::stringstream url;
-    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+    url << get_http_scheme() << BackendOptions::get_localhost() << ":" << config::webserver_port
         << "/api/_download_load?"
         << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();

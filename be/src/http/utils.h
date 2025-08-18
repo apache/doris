@@ -28,6 +28,8 @@ namespace doris {
 
 struct AuthInfo;
 
+std::string get_http_scheme();
+
 std::string encode_basic_auth(const std::string& user, const std::string& passwd);
 // parse Basic authorization
 // return true, if request contain valid basic authorization.

@@ -453,8 +453,8 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             std::string remote_url_prefix;
             {
                 std::stringstream ss;
-                ss << "http://" << address << HTTP_REQUEST_PREFIX << HTTP_REQUEST_TOKEN_PARAM
-                   << token << HTTP_REQUEST_FILE_PARAM << remote_dir;
+                ss << get_http_scheme() << address << HTTP_REQUEST_PREFIX
+                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << remote_dir;
                 remote_url_prefix = ss.str();
             }
 

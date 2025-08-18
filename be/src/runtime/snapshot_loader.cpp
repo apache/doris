@@ -41,6 +41,7 @@
 #include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
+#include "http/utils.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -88,8 +89,9 @@ public:
         auto& remote_be_addr = remote_tablet_snapshot.remote_be_addr;
 
         // HEAD http://172.16.0.14:6781/api/_tablet/_download?token=e804dd27-86da-4072-af58-70724075d2a4&file=/home/ubuntu/doris_master/output/be/storage/snapshot/20230410102306.9.180/
-        _base_url = fmt::format("http://{}:{}/api/_tablet/_download?token={}&channel=ingest_binlog",
-                                remote_be_addr.hostname, remote_be_addr.port, token);
+        _base_url =
+                fmt::format("{}{}:{}/api/_tablet/_download?token={}&channel=ingest_binlog",
+                            get_http_scheme(), remote_be_addr.hostname, remote_be_addr.port, token);
     }
     ~SnapshotHttpDownloader() = default;
     SnapshotHttpDownloader(const SnapshotHttpDownloader&) = delete;

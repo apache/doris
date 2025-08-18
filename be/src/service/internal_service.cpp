@@ -68,6 +68,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
+#include "http/utils.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -1756,14 +1757,13 @@ void PInternalService::hand_shake(google::protobuf::RpcController* controller,
     response->mutable_status()->set_status_code(0);
 }
 
-constexpr char HttpProtocol[] = "http://";
 constexpr char DownloadApiPath[] = "/api/_tablet/_download?token=";
 constexpr char FileParam[] = "&file=";
 
 static std::string construct_url(const std::string& host_port, const std::string& token,
                                  const std::string& path) {
-    return fmt::format("{}{}{}{}{}{}", HttpProtocol, host_port, DownloadApiPath, token, FileParam,
-                       path);
+    return fmt::format("{}{}{}{}{}{}", get_http_scheme(), host_port, DownloadApiPath, token,
+                       FileParam, path);
 }
 
 static Status download_file_action(std::string& remote_file_url, std::string& local_file_path,

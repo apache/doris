@@ -241,8 +241,16 @@ bool load_size_smaller_than_wal_limit(int64_t content_length) {
     return (content_length < 0.8 * max_available_size);
 }
 
+std::string get_http_scheme() {
+    if (config::enable_tls) {
+        return "https://";
+    }
+    return "http://";
+}
+
 Status is_support_batch_download(const std::string& endpoint) {
-    std::string url = fmt::format("http://{}/api/_tablet/_batch_download?check=true", endpoint);
+    std::string url =
+            fmt::format("{}{}/api/_tablet/_batch_download?check=true", get_http_scheme(), endpoint);
     auto check_support_cb = [&url](HttpClient* client) {
         RETURN_IF_ERROR(client->init(url));
         client->set_timeout_ms(CHECK_SUPPORT_TIMEOUT * 1000);
@@ -257,8 +265,8 @@ Status list_remote_files_v2(const std::string& address, const std::string& token
                             const std::string& remote_dir,
                             std::vector<std::pair<std::string, size_t>>* file_info_list) {
     std::string remote_url =
-            fmt::format("http://{}/api/_tablet/_batch_download?token={}&dir={}&list=true", address,
-                        token, remote_dir);
+            fmt::format("{}{}/api/_tablet/_batch_download?token={}&dir={}&list=true",
+                        get_http_scheme(), address, token, remote_dir);
 
     std::string file_list_str;
     auto list_files_cb = [&](HttpClient* client) {
@@ -300,8 +308,8 @@ Status list_remote_files_v2(const std::string& address, const std::string& token
 Status download_files_v2(const std::string& address, const std::string& token,
                          const std::string& remote_dir, const std::string& local_dir,
                          const std::vector<std::pair<std::string, size_t>>& file_info_list) {
-    std::string remote_url = fmt::format("http://{}/api/_tablet/_batch_download?dir={}&token={}",
-                                         address, remote_dir, token);
+    std::string remote_url = fmt::format("{}{}/api/_tablet/_batch_download?dir={}&token={}",
+                                         get_http_scheme(), address, remote_dir, token);
 
     size_t batch_file_size = 0;
     std::unordered_set<std::string> expected_files;

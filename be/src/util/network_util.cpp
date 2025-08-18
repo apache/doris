@@ -36,6 +36,8 @@
 #include <chrono>
 #include <sstream>
 
+#include "http/utils.h"
+
 #ifdef __APPLE__
 #ifndef HOST_NAME_MAX
 #define HOST_NAME_MAX MAXHOSTNAMELEN
@@ -288,7 +290,7 @@ std::string get_brpc_http_url(const std::string& host, int port) {
     if (host.find(':') != std::string::npos) {
         return fmt::format("list://[{}]:{}", host, port);
     } else {
-        return fmt::format("http://{}:{}", host, port);
+        return fmt::format("{}{}:{}", get_http_scheme(), host, port);
     }
 }
 

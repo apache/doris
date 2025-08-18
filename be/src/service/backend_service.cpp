@@ -49,6 +49,7 @@
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
 #include "http/http_client.h"
+#include "http/utils.h"
 #include "io/fs/connectivity/storage_connectivity_tester.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -182,8 +183,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     };
 
     // Step 3: get binlog info
-    auto binlog_api_url = fmt::format("http://{}:{}/api/_binlog/_download", request.remote_host,
-                                      request.remote_port);
+    auto binlog_api_url = fmt::format("{}{}:{}/api/_binlog/_download", get_http_scheme(),
+                                      request.remote_host, request.remote_port);
     constexpr int max_retry = 3;
 
     auto get_binlog_info_url =
