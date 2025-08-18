@@ -112,7 +112,7 @@ suite("iceberg_on_hms_and_filesystem", "p0,external,doris,external_docker,extern
         assert queryResult.get(0).get(0) == data_count
     }
 
-    String externalEnvIp = "172.20.32.136"
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String keytab_root_dir = "/keytabs"
     /*-----S3------*/
     String s3_ak = context.config.otherConfigs.get("AWSAK")
