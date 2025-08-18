@@ -1232,22 +1232,40 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // bug fix
             for (Partition partition : idToPartition.values()) {
-                partition.setName(newPartitionName);
-                nameToPartition.clear();
-                nameToPartition.put(newPartitionName, partition);
+                partition.writeLock();
+                try {
+                    partition.setName(newPartitionName);
+                    nameToPartition.clear();
+                    nameToPartition.put(newPartitionName, partition);
+                } finally {
+                    partition.writeUnlock();
+                }
                 LOG.info("rename partition {} in table {}", newPartitionName, name);
                 break;
             }
         } else {
-            Partition partition = nameToPartition.remove(partitionName);
-            partition.setName(newPartitionName);
-            nameToPartition.put(newPartitionName, partition);
+            Partition partition = nameToPartition.get(partitionName);
+            if (partition != null) {
+                partition.writeLock();
+                try {
+                    nameToPartition.remove(partitionName);
+                    partition.setName(newPartitionName);
+                    nameToPartition.put(newPartitionName, partition);
+                } finally {
+                    partition.writeUnlock();
+                }
+            }
         }
     }
 
     public void addPartition(Partition partition) {
-        idToPartition.put(partition.getId(), partition);
-        nameToPartition.put(partition.getName(), partition);
+        partition.writeLock();
+        try {
+            idToPartition.put(partition.getId(), partition);
+            nameToPartition.put(partition.getName(), partition);
+        } finally {
+            partition.writeUnlock();
+        }
     }
 
     // This is a private method.
@@ -1261,11 +1279,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         //    Otherwise, the tablets of this partition will be deleted immediately.
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
-            idToPartition.remove(partition.getId());
-            nameToPartition.remove(partitionName);
-            RecyclePartitionParam recyclePartitionParam = new RecyclePartitionParam();
-            fillInfo(partition, recyclePartitionParam);
-            dropPartitionCommon(dbId, isForceDrop, recyclePartitionParam, partition, reserveTablets);
+            partition.writeLock();
+            try {
+                idToPartition.remove(partition.getId());
+                nameToPartition.remove(partitionName);
+                RecyclePartitionParam recyclePartitionParam = new RecyclePartitionParam();
+                fillInfo(partition, recyclePartitionParam);
+                dropPartitionCommon(dbId, isForceDrop, recyclePartitionParam, partition, reserveTablets);
+            } finally {
+                partition.writeUnlock();
+            }
         }
         return partition;
     }
@@ -1347,8 +1370,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // 2. If "ifForceDrop" is true, the partition will be dropped immediately
         Partition partition = recyclePartitionParam.partition;
         if (partition != null) {
-            idToPartition.remove(partition.getId());
-            dropPartitionCommon(dbId, isForceDrop, recyclePartitionParam, partition, false);
+            partition.writeLock();
+            try {
+                idToPartition.remove(partition.getId());
+                dropPartitionCommon(dbId, isForceDrop, recyclePartitionParam, partition, false);
+            } finally {
+                partition.writeUnlock();
+            }
         }
         return partition;
     }
@@ -2102,10 +2130,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public Partition replacePartition(Partition newPartition,
                                         RecyclePartitionParam recyclePartitionParam) {
         Partition oldPartition = nameToPartition.remove(newPartition.getName());
-        idToPartition.remove(oldPartition.getId());
+        if (oldPartition == null) {
+            oldPartition.writeLock();
+            try {
+                idToPartition.remove(oldPartition.getId());
+            } finally {
+                oldPartition.writeUnlock();
+            }
+        }
 
-        idToPartition.put(newPartition.getId(), newPartition);
-        nameToPartition.put(newPartition.getName(), newPartition);
+        newPartition.writeLock();
+        try {
+            idToPartition.put(newPartition.getId(), newPartition);
+            nameToPartition.put(newPartition.getName(), newPartition);
+        } finally {
+            newPartition.writeUnlock();
+        }
 
         DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
         ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(oldPartition.getId());
