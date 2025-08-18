@@ -91,6 +91,11 @@ public class AuditStreamLoader {
                         Collectors.joining(",")) + "\" \\\n  ");
         sb.append("-H \"").append("redirect-policy\":").append("\"random-be").append("\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
+        if (Config.enable_tls) {
+            sb.append(" --cert ").append(Config.tls_certificate_path);
+            sb.append(" --key ").append(Config.tls_private_key_path);
+            sb.append(" --cacert ").append(Config.tls_ca_certificate_path);
+        }
         return sb.toString();
     }
 

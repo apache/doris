@@ -85,7 +85,7 @@ public class RestBaseController extends BaseController {
         }
         try {
             urlObj = new URI(urlStr);
-            resultUriObj = new URI("http", userInfo, addr.getHostname(),
+            resultUriObj = new URI(Config.enable_tls ? "https" : "http", userInfo, addr.getHostname(),
                     addr.getPort(), urlObj.getPath(), "", null);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -94,7 +94,7 @@ public class RestBaseController extends BaseController {
         if (!Strings.isNullOrEmpty(request.getQueryString())) {
             redirectUrl += request.getQueryString();
         }
-        LOG.info("Redirect url: {}", "http://" + addr.getHostname() + ":"
+        LOG.info("Redirect url: {}", Config.enable_tls ? "https://" : "http://" + addr.getHostname() + ":"
                     + addr.getPort() + urlObj.getPath());
         RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");
@@ -183,7 +183,7 @@ public class RestBaseController extends BaseController {
     }
 
     public boolean needRedirect(String scheme) {
-        return Config.enable_https && "http".equalsIgnoreCase(scheme);
+        return (Config.enable_https | Config.enable_tls) && "http".equalsIgnoreCase(scheme);
     }
 
     public Object redirectToHttps(HttpServletRequest request) {
