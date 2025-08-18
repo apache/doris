@@ -19,6 +19,7 @@
 
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_fastunion.hpp"
+#include "benchmark_plain_text_line_reader.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
