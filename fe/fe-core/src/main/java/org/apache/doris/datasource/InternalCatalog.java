@@ -206,10 +206,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     private MonitoredReentrantLock lock = new MonitoredReentrantLock(true);
     private transient ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
     private transient ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
-    // Used to save the db being created,
-    // and will be removed from it after the creation is completed (editLog is written)
-    private transient ConcurrentHashMap<Long, Database> idToDbCreating = new ConcurrentHashMap<>();
-    private transient ConcurrentHashMap<String, Database> fullNameToDbCreating = new ConcurrentHashMap<>();
 
     // Add transient to fix gson issue.
     @Getter
@@ -423,7 +419,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
         try {
-            if (fullNameToDb.containsKey(dbName) || fullNameToDbCreating.containsKey(dbName)) {
+            if (fullNameToDb.containsKey(dbName)) {
                 if (ifNotExists) {
                     LOG.info("create database[{}] which already exists", dbName);
                     return;
@@ -437,11 +433,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                             "create database " + dbName + " time out");
                 }
                 try {
-                    addToCreating(db);
-                    Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
+                    unprotectCreateDb(db);
                     CreateDbInfo dbInfo = new CreateDbInfo(InternalCatalog.INTERNAL_CATALOG_NAME, db.getName(), db);
                     Env.getCurrentEnv().getEditLog().logCreateDb(dbInfo);
-                    moveToToFinalMap(db);
                 } finally {
                     db.writeUnlock();
                 }
@@ -461,18 +455,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         idToDb.put(db.getId(), db);
         fullNameToDb.put(db.getFullName(), db);
         Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
-    }
-
-    private void addToCreating(Database db) {
-        idToDbCreating.put(db.getId(), db);
-        fullNameToDbCreating.put(db.getFullName(), db);
-    }
-
-    private void moveToToFinalMap(Database db) {
-        idToDbCreating.remove(db.getId());
-        fullNameToDbCreating.remove(db.getFullName());
-        idToDb.put(db.getId(), db);
-        fullNameToDb.put(db.getFullName(), db);
     }
 
     /**
@@ -1855,7 +1837,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (isTempPartition) {
                     olapTable.addTempPartition(partition);
                 } else {
-                    olapTable.addPartitionCreating(partition);
+                    olapTable.addPartition(partition);
                 }
 
                 // log
@@ -1882,7 +1864,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 if (writeEditLog) {
                     Env.getCurrentEnv().getEditLog().logAddPartition(info);
-                    olapTable.movePartitionToFinalMap(partition);
                     LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
                 } else {
                     LOG.info("postpone creating partition[{}], temp: {}", partitionId, isTempPartition);
@@ -3174,7 +3155,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition
         boolean hadLogEditCreateTable = false;
         try {
-            Set<Partition> creatingPartitions = new HashSet<>();
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
                     // here, all properties should be checked
@@ -3213,8 +3193,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
-                creatingPartitions.add(partition);
-                olapTable.addPartitionCreating(partition);
+                olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -3296,8 +3275,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partionStoragePolicy, idGeneratorBuffer,
                             binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
-                    creatingPartitions.add(partition);
-                    olapTable.addPartitionCreating(partition);
+                    olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                         .setStoragePolicy(partionStoragePolicy);
                 }
@@ -3326,8 +3304,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 // if table not exists, then db.createTableWithLock will write an editlog.
                 hadLogEditCreateTable = true;
-                // after table write editlog
-                creatingPartitions.forEach(olapTable::movePartitionToFinalMap);
 
                 // we have added these index to memory, only need to persist here
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
@@ -4069,7 +4045,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         // create partition
         boolean hadLogEditCreateTable = false;
         try {
-            Set<Partition> creatingPartitions = new HashSet<>();
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
                     // here, all properties should be checked
@@ -4108,8 +4083,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
-                creatingPartitions.add(partition);
-                olapTable.addPartitionCreating(partition);
+                olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -4191,8 +4165,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partionStoragePolicy, idGeneratorBuffer,
                             binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
-                    creatingPartitions.add(partition);
-                    olapTable.addPartitionCreating(partition);
+                    olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
                 }
@@ -4220,8 +4193,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 // if table not exists, then db.createTableWithLock will write an editlog.
                 hadLogEditCreateTable = true;
-                // after table write editlog
-                creatingPartitions.forEach(olapTable::movePartitionToFinalMap);
 
                 // we have added these index to memory, only need to persist here
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
