@@ -63,9 +63,12 @@ public:
         column_ids.insert(_column_id);
     }
 
+    uint64_t get_digest(uint64_t seed) const override;
+
 private:
     int _slot_id;
     int _column_id;
+    int _column_uniq_id = -1;
     const std::string* _column_name = nullptr;
     const std::string _column_label;
 };

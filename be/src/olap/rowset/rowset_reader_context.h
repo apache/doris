@@ -87,6 +87,8 @@ struct RowsetReaderContext {
     std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+    uint64_t condition_cache_digest = 0;
 };
 
 } // namespace doris

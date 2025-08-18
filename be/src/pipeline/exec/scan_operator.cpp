@@ -115,6 +115,18 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
+
+    if (state->query_options().enable_condition_cache) {
+        for (auto& conjunt : _conjuncts) {
+            _condition_cache_digest = conjunt->get_digest(_condition_cache_digest);
+            if (!_condition_cache_digest) {
+                break;
+            }
+        }
+    } else {
+        _condition_cache_digest = 0;
+    }
+
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));

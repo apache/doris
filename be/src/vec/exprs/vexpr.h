@@ -268,6 +268,8 @@ public:
         }
     }
 
+    virtual uint64_t get_digest(uint64_t seed) const;
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {

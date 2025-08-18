@@ -434,6 +434,9 @@ void VExprContext::_reset_memory_usage(const VExprContextSPtrs& contexts) {
                   [](auto&& context) { context->_memory_usage = 0; });
 }
 
-#include "common/compile_check_end.h"
+uint64_t VExprContext::get_digest(uint64_t seed) const {
+    return _root->get_digest(seed);
+}
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

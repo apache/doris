@@ -24,18 +24,18 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9137/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9137/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
-syncerAddress = "127.0.0.1:9190"
+feSourceThriftAddress = "127.0.0.1:9127"
+feTargetThriftAddress = "127.0.0.1:9127"
+syncerAddress = "127.0.0.1:9197"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:8137"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -107,14 +107,11 @@ enableBrokerLoad=true
 
 // for s3 releated cases, "aliyun" or "aliyun-internal" or "tencent" or "huawei" or "azure" or "gcp"
 // if s3Source is set,  s3Endpoint s3BucketName s3Region s3Provider will be filled with default value if not set
-s3Source="aliyun"
-// s3Endpoint = ""
-// s3BucketName = ""
-// s3Region = ""
-// s3Provider = ""
-ak="***********"
-sk="***********"
-
+s3Source='aliyun'
+s3Region='oss-cn-beijing'
+s3Endpoint='oss-cn-beijing.aliyuncs.com'
+s3BucketName='doris-regression-bj'
+s3Provider = 'OSS'
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/run-thirdparties-docker.sh`
@@ -248,7 +245,6 @@ enableTrinoConnectorTest = false
 enableKerberosTest=false
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
-enableRefactorParamsHdfsTest=true
 
 
 // LakeSoul catalog test config

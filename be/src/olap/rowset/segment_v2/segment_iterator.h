@@ -224,7 +224,8 @@ private:
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
-                                                 vectorized::MutableColumns* mutable_columns);
+                                                 vectorized::MutableColumns* mutable_columns,
+                                                 bool init_condition_cache = false);
 
     Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
                                         vectorized::MutableColumnPtr& output_col,
@@ -365,6 +366,8 @@ private:
     // Fallback logic for virtual column materialization, materializing all unmaterialized virtual columns through expressions
     Status _materialization_of_virtual_column(vectorized::Block* block);
 
+    void _init_row_bitmap_by_condition_cache();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -484,6 +487,10 @@ private:
     // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
+
+    bool _find_condition_cache = false;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    static constexpr int CONDITION_CACHE_OFFSET = 2048;
 };
 
 } // namespace segment_v2

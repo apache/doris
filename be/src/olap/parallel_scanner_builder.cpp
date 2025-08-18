@@ -84,7 +84,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                     auto rows_need = _rows_per_scanner - rows_collected;
 
                     // 0.9: try to avoid splitting the segments into excessively small parts.
-                    if (rows_need >= remaining_rows * 0.9) {
+                    if (rows_need >= remaining_rows * 9 / 10) {
                         rows_need = remaining_rows;
                     }
                     DCHECK_LE(rows_need, remaining_rows);

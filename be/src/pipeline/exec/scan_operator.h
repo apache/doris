@@ -86,6 +86,8 @@ public:
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
+    uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::Scanner;
@@ -122,6 +124,8 @@ protected:
 
     RuntimeFilterConsumerHelper _helper;
     std::mutex _conjunct_lock;
+    // magic number as seed to generate hash value for condiction cache
+    uint64_t _condition_cache_digest = 7;
 };
 
 template <typename LocalStateType>
@@ -195,10 +199,7 @@ protected:
     friend class vectorized::Scanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts(RuntimeState* state) {
-        RETURN_IF_ERROR(_normalize_conjuncts(state));
-        return Status::OK();
-    }
+    virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }

@@ -279,6 +279,8 @@ public:
 
     [[nodiscard]] size_t get_memory_usage() const { return _memory_usage; }
 
+    uint64_t get_digest(uint64_t seed) const;
+
 private:
     // Close method is called in vexpr context dector, not need call expicility
     void close();
