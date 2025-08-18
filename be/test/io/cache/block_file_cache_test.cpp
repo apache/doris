@@ -1924,7 +1924,8 @@ TEST_F(BlockFileCacheTest, fix_tmp_file) {
             },
             &guard1);
     SyncPoint::CallbackGuard guard2;
-    sp->set_call_back("BlockFileCache::TmpFile2", [&](auto&&) { flag2 = true; }, &guard2);
+    sp->set_call_back(
+            "BlockFileCache::TmpFile2", [&](auto&&) { flag2 = true; }, &guard2);
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     auto holder = cache.get_or_set(key, 100, 1, context); /// Add range [9, 9]
