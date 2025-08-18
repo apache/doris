@@ -1981,7 +1981,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t /*input_rows_count*/) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 2);
 
         const auto& [src_column, left_const] =
@@ -2007,7 +2007,8 @@ public:
         std::visit(
                 [&](auto src_const, auto delimiter_const) {
                     _execute<src_const, delimiter_const>(*col_str, *col_delimiter,
-                                                         *dest_nested_column, dest_offsets);
+                                                         *dest_nested_column, dest_offsets,
+                                                         input_rows_count);
                 },
                 vectorized::make_bool_variant(left_const),
                 vectorized::make_bool_variant(right_const));
@@ -2023,7 +2024,8 @@ public:
 private:
     template <bool src_const, bool delimiter_const>
     void _execute(const ColumnString& src_column_string, const ColumnString& delimiter_column,
-                  IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets) const {
+                  IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
+                  size_t size) const {
         auto& dest_column_string = assert_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -2031,7 +2033,6 @@ private:
 
         ColumnArray::Offset64 string_pos = 0;
         ColumnArray::Offset64 dest_pos = 0;
-        ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
 
         StringSearch search;
         StringRef delimiter_ref_for_search;
@@ -2041,7 +2042,7 @@ private:
             search.set_pattern(&delimiter_ref_for_search);
         }
 
-        for (size_t i = 0; i < src_offsets_size; i++) {
+        for (size_t i = 0; i < size; i++) {
             const StringRef str_ref =
                     src_column_string.get_data_at(index_check_const<src_const>(i));
             const StringRef delimiter_ref =
