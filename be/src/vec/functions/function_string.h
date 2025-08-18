@@ -2034,9 +2034,11 @@ private:
         ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
 
         StringSearch search;
+        StringRef delimiter_ref_for_search;
+
         if constexpr (delimiter_const) {
-            auto delimiter_ref = delimiter_column.get_data_at(0);
-            search.set_pattern(&delimiter_ref);
+            delimiter_ref_for_search = delimiter_column.get_data_at(0);
+            search.set_pattern(&delimiter_ref_for_search);
         }
 
         for (size_t i = 0; i < src_offsets_size; i++) {
