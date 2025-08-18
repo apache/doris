@@ -207,6 +207,8 @@ public:
     // may hold lock for a long time to execute predicate.
     virtual PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) { return {0, 0}; }
 
+    virtual void for_each_entry(const std::function<void(const LRUHandle*)>& visitor) = 0;
+
     virtual int64_t get_usage() = 0;
 
     virtual PrunedInfo set_capacity(size_t capacity) = 0;
@@ -333,6 +335,7 @@ public:
     void erase(const CacheKey& key, uint32_t hash);
     PrunedInfo prune();
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false);
+    void for_each_entry(const std::function<void(const LRUHandle*)>& visitor);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -406,6 +409,7 @@ public:
     uint64_t new_id() override;
     PrunedInfo prune() override;
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
+    void for_each_entry(const std::function<void(const LRUHandle*)>& visitor) override;
     int64_t get_usage() override;
     size_t get_element_count() override;
     PrunedInfo set_capacity(size_t capacity) override;
@@ -471,6 +475,7 @@ public:
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override {
         return {0, 0};
     };
+    void for_each_entry(const std::function<void(const LRUHandle*)>& visitor) override {}
     int64_t get_usage() override { return 0; };
     PrunedInfo set_capacity(size_t capacity) override { return {0, 0}; };
     size_t get_capacity() override { return 0; };

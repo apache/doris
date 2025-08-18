@@ -1584,6 +1584,10 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum number of threads supported when executing LLMFunction
 DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
+DEFINE_mBool(enable_traverse_all_when_cached_version_is_greater, "true");
+DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
+DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
