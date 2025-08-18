@@ -121,7 +121,8 @@ protected:
 
 private:
 #ifdef __AVX2__
-    const uint8_t* find_lf_crlf_line_sep_avx2(const uint8_t* start, const size_t length, size_t& i) {
+    const uint8_t* find_lf_crlf_line_sep_avx2(const uint8_t* start, const size_t length,
+                                              size_t& i) {
         // const uint8_t* end = start + length;
         const __m256i newline = _mm256_set1_epi8('\n');
         const __m256i carriage_return = _mm256_set1_epi8('\r');
@@ -169,14 +170,15 @@ private:
         return find_lf_crlf_line_sep_scalar(start, length, i);
     }
 #elif defined(__ARM_FEATURE_SVE)
-    const uint8_t* find_lf_crlf_line_sep_sve(const uint8_t* start, const size_t length, size_t& i) {
+    const uint8_t* find_lf_crlf_line_sep_sve(const uint8_t* start, const size_t length,
+                                             size_t& i) {
         const svuint8_t newline_vec = svdup_n_u8('\n');
         const size_t vl = svcntb();
         const svbool_t all_true = svptrue_b8();
-        
+
         for (; i + vl <= length; i += vl) {
             svuint8_t data = svld1_u8(all_true, start + i);
-            
+
             // Compare with '\n'
             svbool_t is_lf = svcmpeq_u8(all_true, data, newline_vec);
 
@@ -206,7 +208,7 @@ private:
             svbool_t pg = svwhilelt_b8(i, length);
             svuint8_t data = svld1_u8(pg, start + i);
             svbool_t is_lf = svcmpeq_u8(pg, data, newline_vec);
-            
+
             if (svptest_any(pg, is_lf)) {
                 svuint8_t indices = svindex_u8(0, 1);
                 uint64_t first_lf_idx = svminv_u8(is_lf, indices);
@@ -224,7 +226,8 @@ private:
     }
 #endif
 
-    const uint8_t* find_lf_crlf_line_sep_scalar(const uint8_t* start, const size_t length, size_t& i) {
+    const uint8_t* find_lf_crlf_line_sep_scalar(const uint8_t* start, const size_t length,
+                                                size_t& i) {
         for (; i < length; ++i) {
             if (start[i] == '\n') {
                 return &start[i];
@@ -236,7 +239,6 @@ private:
         }
         return nullptr;
     }
-
 };
 class PlainTextLineReaderCtx final : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
 public:
