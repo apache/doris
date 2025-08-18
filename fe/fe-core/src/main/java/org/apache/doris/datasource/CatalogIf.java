@@ -63,6 +63,10 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     List<String> getDbNames();
 
+    default String getErrorMsg() {
+        return "";
+    }
+
     default boolean isInternalCatalog() {
         return this instanceof InternalCatalog;
     }
