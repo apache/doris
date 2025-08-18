@@ -124,7 +124,6 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 }
 
 Status OlapScanner::prepare() {
-    _has_prepared = true;
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -254,6 +253,7 @@ Status OlapScanner::prepare() {
                 _tablet_reader_params.common_expr_ctxs_push_down));
     }
 
+    _has_prepared = true;
     return Status::OK();
 }
 

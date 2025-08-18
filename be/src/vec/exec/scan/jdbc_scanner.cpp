@@ -54,7 +54,7 @@ Status JdbcScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     RETURN_IF_ERROR(Scanner::init(state, conjuncts));
 
     if (state == nullptr) {
-        return Status::InternalError("input pointer is NULL of VJdbcScanNode::prepare.");
+        return Status::InternalError("input pointer is NULL of VJdbcScanNode::init.");
     }
 
     // get tuple desc
@@ -67,7 +67,7 @@ Status JdbcScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     const JdbcTableDescriptor* jdbc_table =
             static_cast<const JdbcTableDescriptor*>(_tuple_desc->table_desc());
     if (jdbc_table == nullptr) {
-        return Status::InternalError("jdbc table pointer is NULL of VJdbcScanNode::prepare.");
+        return Status::InternalError("jdbc table pointer is NULL of VJdbcScanNode::init.");
     }
     _jdbc_param.catalog_id = jdbc_table->jdbc_catalog_id();
     _jdbc_param.driver_class = jdbc_table->jdbc_driver_class();
