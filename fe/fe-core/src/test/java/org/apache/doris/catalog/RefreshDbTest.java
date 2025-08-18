@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -95,12 +93,10 @@ public class RefreshDbTest extends TestWithFeService {
         Assertions.assertFalse(table.isObjectCreated());
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
-        RefreshDbStmt refreshDbStmt = new RefreshDbStmt("test1", "db1", null);
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
+
+        RefreshDatabaseCommand refreshDatabaseCommand = new RefreshDatabaseCommand("test1", "db1", null);
+        refreshDatabaseCommand.run(connectContext, null);
+
         long l3 = db1.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
         // when use_meta_cache is true, the table will be recreated after refresh.
@@ -109,21 +105,16 @@ public class RefreshDbTest extends TestWithFeService {
         Assertions.assertFalse(table.isObjectCreated());
         test1.getDbNullable("db1").getTables();
         Assertions.assertFalse(table.isObjectCreated());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
+
+        refreshDatabaseCommand.run(connectContext, null);
+
         Assertions.assertFalse(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
         table.makeSureInitialized();
         long l4 = db1.getLastUpdateTime();
         Assertions.assertTrue(l4 > l3);
         Assertions.assertTrue(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
-        try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
-        } catch (Exception e) {
-            // Do nothing
-        }
+
+        refreshDatabaseCommand.run(connectContext, null);
     }
 
     @Test

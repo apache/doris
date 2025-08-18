@@ -26,7 +26,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
@@ -78,9 +77,6 @@ public class DdlExecutor {
             RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
             env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
                     refreshTableStmt.getTblName(), false);
-        } else if (ddlStmt instanceof RefreshDbStmt) {
-            RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
-            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
