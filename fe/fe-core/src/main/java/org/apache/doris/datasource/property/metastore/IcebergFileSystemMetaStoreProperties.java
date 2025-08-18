@@ -44,10 +44,9 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         Configuration configuration = buildConfiguration(storagePropertiesList);
-        Map<String, String> catalogProps = buildCatalogProps(storagePropertiesList);
-
         HadoopCatalog catalog = new HadoopCatalog();
         catalog.setConf(configuration);
         try {

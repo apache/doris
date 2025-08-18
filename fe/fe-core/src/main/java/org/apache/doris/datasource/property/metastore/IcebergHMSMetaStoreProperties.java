@@ -63,12 +63,10 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         checkInitialized();
-
         Configuration conf = buildHiveConfiguration(storagePropertiesList);
-        Map<String, String> catalogProps = buildCatalogProperties();
-
         HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(conf);
         storagePropertiesList.forEach(sp -> {
@@ -76,7 +74,6 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
                 catalogProps.put(entry.getKey(), entry.getValue());
             }
         });
-
         try {
             this.executionAuthenticator.execute(() -> hiveCatalog.initialize(catalogName, catalogProps));
             return hiveCatalog;

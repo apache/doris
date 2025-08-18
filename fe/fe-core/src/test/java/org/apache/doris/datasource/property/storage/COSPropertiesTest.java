@@ -45,10 +45,10 @@ public class COSPropertiesTest {
         origProps.put("cos.access_key", "myCOSAccessKey");
         origProps.put("cos.secret_key", "myCOSSecretKey");
         origProps.put("cos.region", "ap-beijing-1");
-        origProps.put("connection.maximum", "88");
-        origProps.put("connection.request.timeout", "100");
-        origProps.put("connection.timeout", "1000");
-        origProps.put("use_path_style", "true");
+        origProps.put("cos.connection.maximum", "88");
+        origProps.put("cos.connection.request.timeout", "100");
+        origProps.put("cos.connection.timeout", "1000");
+        origProps.put("cos.use_path_style", "true");
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         origProps.put("test_non_storage_param", "6000");
         Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Invalid endpoint format: https://cos.example.com");
@@ -81,9 +81,9 @@ public class COSPropertiesTest {
         origProps.put("cos.access_key", "myCOSAccessKey");
         origProps.put("cos.secret_key", "myCOSSecretKey");
         origProps.put("test_non_storage_param", "6000");
-        origProps.put("connection.maximum", "88");
-        origProps.put("connection.request.timeout", "100");
-        origProps.put("connection.timeout", "1000");
+        origProps.put("cos.connection.maximum", "88");
+        origProps.put("cos.connection.request.timeout", "100");
+        origProps.put("cos.connection.timeout", "1000");
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         //origProps.put("cos.region", "ap-beijing");
 
@@ -106,7 +106,7 @@ public class COSPropertiesTest {
         Assertions.assertEquals("100", s3Props.get("AWS_REQUEST_TIMEOUT_MS"));
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
-        origProps.put("use_path_style", "true");
+        origProps.put("cos.use_path_style", "true");
         cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
         s3Props = cosProperties.generateBackendS3Configuration();
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
