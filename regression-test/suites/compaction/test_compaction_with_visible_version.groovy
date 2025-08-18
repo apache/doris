@@ -268,7 +268,7 @@ suite('test_compaction_with_visible_version', 'docker') {
             // E-230:
             //(1105, 'errCode = 2, detailMessage = (128.2.51.2)[CANCELLED]missed_versions is empty, spec_version 43,
             // max_version 123, tablet_id 10062')
-            exception 'versions are already compacted'
+            exception 'missed versions is empty'
         }
 
         cluster.clearFrontendDebugPoints()
