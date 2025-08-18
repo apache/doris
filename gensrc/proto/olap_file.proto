@@ -399,6 +399,15 @@ enum UniqueKeyUpdateModePB {
     UPDATE_FLEXIBLE_COLUMNS = 2;
 }
 
+message ColumnGroupPB { // <uint32, vector<uint32>>
+  required uint32 sequence_column = 1;
+  repeated uint32 columns_in_group = 2;
+};
+
+message ColumnGroupsPB {
+  repeated ColumnGroupPB cg = 1; // vector<ColumnGroupPB>
+};
+
 // ATTN: When adding or deleting fields, please update `message TabletSchemaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message TabletSchemaPB {
@@ -436,6 +445,7 @@ message TabletSchemaPB {
     optional int32 skip_bitmap_col_idx = 29 [default = -1];
     optional int64 storage_page_size = 30 [default=65536];
     optional int64 storage_dict_page_size = 31 [default=262144];
+    optional ColumnGroupsPB seq_map = 32;
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }

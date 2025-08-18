@@ -336,6 +336,47 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
         }
     }
 
+    if (_tablet_schema->has_seq_map()) {
+        if (_sequence_col_idx != -1) {
+            auto msg = "sequence columns conflict, both seq_col and seq_map are true!";
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
+        }
+        _val_to_seq = _tablet_schema->value_to_seq();
+        if (_val_to_seq.size() <= 0) {
+            auto msg = "seq_map is empty!";
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
+        }
+    }
+
+    /*
+     * |** KEY **|        ** VALUE **     |
+        ------------------------------------
+        |** KEY **|  CDE is value| sequence|
+        |----|----|----|----|----|----|----|
+        A    B    C    D    E   S1   S2
+        0    1    2    3    4    5    6
+
+        for example SQL is select C,C,D,E from table;
+        _value_cids is {2,2,3,4}
+        _seq_map is {5:{2,3}, 6:{4}}
+        _value_to_seq is {2:5,3:5,5:5,4:6,6:6}
+        _return_seq_map is {5:{2,2,3}, 6:{4}}
+    */
+    _return_seq_map.clear();
+    for (const auto& val : _value_cids) {
+        auto seq = _val_to_seq[val];
+
+        if (_return_seq_map.find(seq) == _return_seq_map.end()) {
+            _return_seq_map[seq] = std::vector<uint32_t>();
+        }
+
+        if (val != seq) {
+            _return_seq_map[seq].push_back(val);
+        }
+    }
+
     return res;
 }
 

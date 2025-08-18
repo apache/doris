@@ -29,6 +29,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TColumnGroup;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -133,6 +134,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean variantEnableFlattenNested;
 
+    private Map<String, List<String>> columnSeqMapping;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
@@ -160,7 +163,8 @@ public class CreateReplicaTask extends AgentTask {
                              long rowStorePageSize,
                              boolean variantEnableFlattenNested,
                              long storagePageSize,
-                             long storageDictPageSize) {
+                             long storageDictPageSize,
+                             Map<String, List<String>> columnSeqMapping) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -210,6 +214,7 @@ public class CreateReplicaTask extends AgentTask {
         this.variantEnableFlattenNested = variantEnableFlattenNested;
         this.storagePageSize = storagePageSize;
         this.storageDictPageSize = storageDictPageSize;
+        this.columnSeqMapping = columnSeqMapping;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -373,6 +378,33 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setRowStorePageSize(rowStorePageSize);
         tSchema.setStoragePageSize(storagePageSize);
         tSchema.setStorageDictPageSize(storageDictPageSize);
+
+        // set sequence map
+        List<TColumnGroup> resultSeqMap = null;
+        if (columnSeqMapping != null && columnSeqMapping.size() != 0) {
+            List<String> columnName = new ArrayList<>();
+            columns.forEach(x -> columnName.add(x.getName().toLowerCase()));
+            resultSeqMap = new ArrayList<>();
+            for (Map.Entry<String, List<String>> entry : columnSeqMapping.entrySet()) {
+                int sequenceColumnIdx = columnName.indexOf(entry.getKey().toLowerCase());
+                List<Integer> columnIdx = new ArrayList<>();
+                List<String> columnInGroup = entry.getValue();
+                for (String column : columnInGroup) {
+                    Integer columnIndex = columnName.indexOf(column.toLowerCase());
+                    if (columnIndex == -1) {
+                        // column name will be changed on schema change
+                        columnIndex = columnName.indexOf(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.toLowerCase());
+                    }
+                    columnIdx.add(columnIndex);
+                }
+                TColumnGroup tmpColumnGroup = new TColumnGroup();
+                tmpColumnGroup.setSequenceColumn(sequenceColumnIdx);
+                tmpColumnGroup.setColumnsInGroup(columnIdx);
+                resultSeqMap.add(tmpColumnGroup);
+            }
+        }
+        tSchema.setSeqMap(resultSeqMap);
+
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);

@@ -68,6 +68,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -312,7 +313,7 @@ public class RollupJobV2Test {
                 "", 1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, null, 1, 1,
                 KeysType.AGG_KEYS, keysCount,
                 new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
-                        0));
+                        0), new HashMap<>());
         rollupJobV2.setStorageFormat(TStorageFormat.V2);
 
         // write rollup job

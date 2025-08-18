@@ -112,11 +112,14 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -255,6 +258,143 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         return lightSchemaChange;
+    }
+
+    private void processAddSequenceMapping(Map<String, List<String>> sequenceMapping, OlapTable olapTable,
+            Map<String, String> properties, List<Column> columns) throws DdlException {
+        // not sequence mapping table
+        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS || sequenceMapping.isEmpty()) {
+            return;
+        }
+        checkSeqMapConditionMet(olapTable, properties, columns);
+        for (Map.Entry<String, String> prop : properties.entrySet()) {
+            if (prop.getKey().startsWith(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING)) {
+                // sequence_mapping.s1 = c1,c2,c3
+                String sequenceColumn = prop.getKey().split("\\.")[1];
+                String[] cols = prop.getValue().replace(" ", "").split(",");
+                Set<String> columnGroup;
+                if (sequenceMapping.containsKey(sequenceColumn)) {
+                    columnGroup = Sets.newHashSet(sequenceMapping.get(sequenceColumn));
+                } else {
+                    columnGroup = Sets.newHashSet();
+                }
+                columnGroup.addAll(Arrays.stream(cols).filter(StringUtils::isNoneBlank)
+                        .map(String::toLowerCase).collect(Collectors.toSet()));
+                sequenceMapping.put(sequenceColumn, Lists.newArrayList(columnGroup));
+            }
+        }
+    }
+
+
+    private void checkSeqMapConditionMet(OlapTable olapTable, Map<String, String> props, List<Column> columns)
+            throws DdlException {
+        if (props == null || props.isEmpty()) {
+            throw new DdlException("Sequence mapping table needs mapping info in properties when add column.");
+        }
+
+        Map<String/* sequence column */, Set<String>/* columns */> sequenceColumn2Columns = new HashMap<>();
+        String propertyNamePrefix = PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING + ".";
+        for (Map.Entry<String, String> prop : props.entrySet()) {
+            String propertyName = prop.getKey();
+            if (!propertyName.startsWith(propertyNamePrefix)) {
+                continue;
+            }
+
+            String[] columnGroupSequence = propertyName.split("\\.");
+            if (columnGroupSequence.length != 2) {
+                throw new DdlException("The sequence column of column group "
+                        + "should be specified when add column");
+            }
+            String sequenceColumn = columnGroupSequence[1];
+            if (StringUtils.isBlank(sequenceColumn)) {
+                throw new DdlException("Sequence column can not be empty");
+            }
+            String[] columnsInGroup = prop.getValue().replace(" ", "").split(",");
+
+            Set<String> columnSet = Arrays.stream(columnsInGroup)
+                    .filter(StringUtils::isNoneBlank).collect(Collectors.toSet());
+            if (sequenceColumn2Columns.containsKey(sequenceColumn)) {
+                sequenceColumn2Columns.get(sequenceColumn).addAll(columnSet);
+            } else {
+                sequenceColumn2Columns.put(sequenceColumn, columnSet);
+            }
+        }
+
+        int total = sequenceColumn2Columns.values().stream().mapToInt(Set::size).sum();
+        int dedup = sequenceColumn2Columns.values().stream().flatMap(Collection::stream)
+                .collect(Collectors.toSet()).size();
+        if (total != dedup) {
+            throw new DdlException("columns must belong to exact one column group");
+        }
+
+        Set<String> newColNames = columns.stream().map(Column::getName)
+                .map(String::toLowerCase).collect(Collectors.toSet());
+        Set<String> baseSchemaColumns = olapTable.getBaseSchema(true).stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet());
+        Set<String> keyColumns = olapTable.getBaseSchema(true).stream()
+                .filter(Column::isKey)
+                .map(Column::getName)
+                .collect(Collectors.toSet());
+        columns.stream().filter(Column::isKey).map(Column::getName).map(String::toLowerCase).forEach(keyColumns::add);
+
+        for (String seqColumn : sequenceColumn2Columns.keySet()) {
+            if (!newColNames.contains(seqColumn)) {
+                if (!baseSchemaColumns.contains(seqColumn)) {
+                    throw new DdlException("sequence column [" + seqColumn + "] in column_group does not belong to "
+                            + "current schema and new added columns");
+                }
+                if (!olapTable.isSeqMappingKeyColumn(seqColumn)) {
+                    throw new DdlException("column [" + seqColumn + "] exists but belong to other column group");
+                }
+            }
+            if (keyColumns.contains(seqColumn)) {
+                throw new DdlException("sequence column [" + seqColumn + "] in column_group can't be key column");
+            }
+        }
+
+        for (Map.Entry<String, Set<String>> seqColumn : sequenceColumn2Columns.entrySet()) {
+            for (String valueColumn : seqColumn.getValue()) {
+                if (!newColNames.contains(valueColumn)) {
+                    if (!baseSchemaColumns.contains(valueColumn)) {
+                        throw new DdlException("value column [" + valueColumn + "] in column_group ["
+                                + seqColumn.getKey() + "] does not belong to current schema and new added columns");
+                    }
+                    if (!olapTable.isSeqMappingValueColumn(valueColumn)) {
+                        throw new DdlException("value column [" + valueColumn + "] in column_group ["
+                                + seqColumn.getKey() + "] exists but it's the sequence column of other column group");
+                    }
+                    if (!olapTable.getSeqMappingKey(valueColumn).toLowerCase().equals(seqColumn.getKey())) {
+                        throw new DdlException("value column [" + valueColumn + "] belongs to other column group,"
+                                + " can't change to the sequence group [" + seqColumn.getKey() + "]");
+                    }
+                }
+                if (keyColumns.contains(valueColumn)) {
+                    throw new DdlException("value column [" + valueColumn + "] in column_group [" + seqColumn.getKey()
+                            + "] can't be key column");
+                }
+            }
+        }
+
+        for (Column newCol : columns) {
+            if (!sequenceColumn2Columns.containsKey(newCol.getName()) && sequenceColumn2Columns.values()
+                    .stream().noneMatch(v -> v.contains(newCol.getName()))) {
+                throw new DdlException("new column must be a sequence column or belong to a column group: "
+                        + newCol.getName());
+            }
+        }
+
+        for (Map.Entry<String, Set<String>> seqColumn : sequenceColumn2Columns.entrySet()) {
+            for (Column seqCol : columns) {
+                if (seqColumn.getKey().equalsIgnoreCase(seqCol.getName())) {
+                    PrimitiveType type = seqCol.getDataType();
+                    if (!PropertyAnalyzer.validateSeqType(type)) {
+                        throw new DdlException("unsupported data type in sequence column");
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     private void processDropColumn(DropColumnClause alterClause, Table externalTable, List<Column> newSchema)
@@ -491,6 +631,21 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         return lightSchemaChange;
+    }
+
+    private void processDropSequenceMapping(Map<String, List<String>> sequenceMapping, String colName)
+            throws DdlException {
+        colName = colName.toLowerCase();
+        if (sequenceMapping.containsKey(colName) && !sequenceMapping.get(colName).isEmpty()) {
+            throw new DdlException("Can not drop sequence column that has column group");
+        }
+        if (sequenceMapping.containsKey(colName)) {
+            sequenceMapping.remove(colName);
+            return;
+        }
+        for (List<String> colGroup : sequenceMapping.values()) {
+            colGroup.remove(colName);
+        }
     }
 
     // User can modify column type and column position
@@ -1264,7 +1419,8 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void createJob(String rawSql, long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-                           Map<String, String> propertyMap, List<Index> indexes) throws UserException {
+                           Map<String, String> propertyMap, List<Index> indexes,
+                           Map<String, List<String>> sequenceMapping) throws UserException {
         checkReplicaCount(olapTable);
 
         // process properties first
@@ -1624,6 +1780,8 @@ public class SchemaChangeHandler extends AlterHandler {
             storageFormat = TStorageFormat.V2;
         }
         schemaChangeJob.setStorageFormat(storageFormat);
+        // set sequence column mapping
+        schemaChangeJob.setColumnSeqMapping(sequenceMapping);
 
         // the following operations are done outside the 'for indices' loop
         // to avoid partial check success
@@ -1955,6 +2113,18 @@ public class SchemaChangeHandler extends AlterHandler {
             Map<Long, Set<String>> indexOnPartitions = new HashMap<>();
             boolean isDropIndex = false;
             Map<String, String> propertyMap = new HashMap<>();
+            Map<String, List<String>> sequenceMapping = olapTable.getColumnSeqMapping() == null ? new HashMap<>()
+                    : new HashMap<>(olapTable.getColumnSeqMapping());
+
+            Map<String, String> sequenceMappingSettings = new HashMap<>();
+            for (AlterClause alterClause : alterClauses) {
+                if (alterClause.getProperties() != null) {
+                    alterClause.getProperties().entrySet().stream().filter(
+                                    entry -> entry.getKey().startsWith(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING))
+                            .forEach(entry -> sequenceMappingSettings.put(entry.getKey(), entry.getValue()));
+                }
+            }
+
             for (AlterClause alterClause : alterClauses) {
                 Map<String, String> properties = alterClause.getProperties();
                 if (properties != null) {
@@ -2051,6 +2221,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
                 if (alterClause instanceof AddColumnClause) {
                     // add column
+                    processAddSequenceMapping(sequenceMapping, olapTable, sequenceMappingSettings,
+                            Lists.newArrayList(((AddColumnClause) alterClause).getColumn()));
                     boolean clauseCanLightSchemaChange = processAddColumn((AddColumnClause) alterClause, olapTable,
                             indexSchemaMap, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
@@ -2058,6 +2230,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                 } else if (alterClause instanceof AddColumnsClause) {
                     // add columns
+                    processAddSequenceMapping(sequenceMapping, olapTable, sequenceMappingSettings,
+                            ((AddColumnsClause) alterClause).getColumns());
                     boolean clauseCanLightSchemaChange = processAddColumns((AddColumnsClause) alterClause, olapTable,
                             indexSchemaMap, false, colUniqueIdSupplierMap);
                     if (!clauseCanLightSchemaChange) {
@@ -2065,6 +2239,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                 } else if (alterClause instanceof DropColumnClause) {
                     // drop column and drop indexes on this column
+                    processDropSequenceMapping(sequenceMapping, ((DropColumnClause) alterClause).getColName());
                     boolean clauseCanLightSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
                             indexSchemaMap, newIndexes);
                     if (!clauseCanLightSchemaChange) {
@@ -2197,7 +2372,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             alterIndexes, indexOnPartitions, false);
                 }
             } else {
-                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
+                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, sequenceMapping);
             }
         } finally {
             olapTable.writeUnlock();

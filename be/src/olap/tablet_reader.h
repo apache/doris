@@ -318,6 +318,10 @@ protected:
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;
 
+    std::unordered_map<uint32_t /* seq cid */, std::vector<uint32_t> /* value cids */>
+            _return_seq_map;
+    std::unordered_map<uint32_t /* cid */, uint32_t /* sequence */> _val_to_seq;
+
     uint64_t _merged_rows = 0;
     OlapReaderStatistics _stats;
 };
