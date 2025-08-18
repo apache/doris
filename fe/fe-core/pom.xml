@@ -175,11 +175,6 @@ under the License.
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/net.sourceforge.czt.dev/java-cup -->
-        <dependency>
-            <groupId>net.sourceforge.czt.dev</groupId>
-            <artifactId>java-cup</artifactId>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
         <dependency>
             <groupId>org.javassist</groupId>
@@ -193,11 +188,6 @@ under the License.
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>je</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/de.jflex/jflex -->
-        <dependency>
-            <groupId>de.jflex</groupId>
-            <artifactId>jflex</artifactId>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>
@@ -934,9 +924,6 @@ under the License.
         <resources>
             <resource>
                 <directory>target/generated-sources</directory>
-                <excludes>
-                    <exclude>cup</exclude>
-                </excludes>
             </resource>
             <resource>
                 <directory>src/main/resources</directory>
@@ -946,51 +933,6 @@ under the License.
             </resource>
         </resources>
         <plugins>
-            <!--jcup-->
-            <plugin>
-                <groupId>net.sourceforge.czt.dev</groupId>
-                <artifactId>cup-maven-plugin</artifactId>
-                <version>1.6-cdh</version>
-                <executions>
-                    <execution>
-                        <id>cup</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>generate</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <!--<cupDefinition>${doris.home}/gensrc/parser/sql_parser.cup</cupDefinition>-->
-                    <className>SqlParser</className>
-                    <symbolsName>SqlParserSymbols</symbolsName>
-                    <expectedConflicts>0</expectedConflicts>
-                    <!--<outputDirectory>src/main/java</outputDirectory>-->
-                </configuration>
-            </plugin>
-
-            <!--jflex-->
-            <plugin>
-                <groupId>de.jflex</groupId>
-                <artifactId>maven-jflex-plugin</artifactId>
-                <version>1.4.3</version>
-                <executions>
-                    <execution>
-                        <id>jflex</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>generate</goal>
-                        </goals>
-                        <configuration>
-                            <!-- lexDefinitions -->
-                            <!--<lexDefinition>${doris.home}/gensrc/parser/sql_scanner.flex</lexDefinition>-->
-                            <!-- /lexDefinitions -->
-                            <!--<outputDirectory>src/main/java</outputDirectory>-->
-                            <backup>false</backup>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <!--antlr-->
             <plugin>
                 <groupId>org.antlr</groupId>

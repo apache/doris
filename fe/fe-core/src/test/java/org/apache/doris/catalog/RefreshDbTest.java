@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
@@ -141,9 +142,11 @@ public class RefreshDbTest extends TestWithFeService {
         UserIdentity user1 = new UserIdentity("user1", "%");
         user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
+        RefreshDatabaseCommand command = (RefreshDatabaseCommand) parseStmt(
+                "refresh database test1.db1", user1Ctx);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "Access denied",
-                () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
+                () -> command.run(rootCtx, stmtExecutor));
         ConnectContext.remove();
 
         // add drop priv to user1
@@ -157,8 +160,10 @@ public class RefreshDbTest extends TestWithFeService {
 
         // user1 can do refresh table
         user1Ctx.setThreadLocalInfo();
+        RefreshDatabaseCommand command2 = (RefreshDatabaseCommand) parseStmt(
+                "refresh database test1.db1", user1Ctx);
         ExceptionChecker.expectThrowsNoException(
-                () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
+                () -> command2.run(rootCtx, stmtExecutor));
     }
 
     public static class RefreshTableProvider implements TestExternalCatalog.TestCatalogProvider {

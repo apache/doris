@@ -17,13 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -78,8 +78,9 @@ public class CreateEncryptKeyTest {
 
         String createFuncStr = "create encryptkey db1.my_key as \"beijing\";";
 
-        CreateEncryptKeyStmt createFunctionStmt = (CreateEncryptKeyStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
-        EncryptKeyHelper.createEncryptKey(createFunctionStmt);
+        CreateEncryptkeyCommand createFunctionStmt
+                = (CreateEncryptkeyCommand) UtFrameUtils.parseStmt(createFuncStr, ctx);
+        createFunctionStmt.run(ctx, stmtExecutor);
 
         List<EncryptKey> encryptKeys = db.getEncryptKeys();
         Assert.assertEquals(1, encryptKeys.size());

@@ -17,13 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -109,8 +109,9 @@ public class DropDbTest {
         List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover database test1";
-        RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
-        Env.getCurrentEnv().recoverDatabase(recoverDbStmt);
+        RecoverDatabaseCommand recoverDbStmt
+                = (RecoverDatabaseCommand) UtFrameUtils.parseStmt(recoverDbSql, connectContext);
+        recoverDbStmt.run(connectContext, null);
         db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
         Assert.assertEquals("test1", db.getFullName());
@@ -122,7 +123,7 @@ public class DropDbTest {
         dropDb(dropDbSql);
         db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNull(db);
-        Env.getCurrentEnv().recoverDatabase(recoverDbStmt);
+        recoverDbStmt.run(connectContext, null);
         db = Env.getCurrentInternalCatalog().getDbNullable("test1");
         Assert.assertNotNull(db);
 
@@ -148,10 +149,11 @@ public class DropDbTest {
         // List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         // Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover database test2";
-        RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
+        RecoverDatabaseCommand recoverDbStmt
+                = (RecoverDatabaseCommand) UtFrameUtils.parseStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown database 'test2' or database id '-1'",
-                () -> Env.getCurrentEnv().recoverDatabase(recoverDbStmt));
+                () -> recoverDbStmt.run(connectContext, null));
 
         dropDbSql = "drop schema test3 force";
         db = Env.getCurrentInternalCatalog().getDbOrMetaException("test3");
@@ -160,10 +162,11 @@ public class DropDbTest {
         db = Env.getCurrentInternalCatalog().getDbNullable("test3");
         Assert.assertNull(db);
         recoverDbSql = "recover database test3";
-        RecoverDbStmt recoverDbStmt2 = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
+        RecoverDatabaseCommand recoverDbStmt2
+                = (RecoverDatabaseCommand) UtFrameUtils.parseStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown database 'test3'",
-                () -> Env.getCurrentEnv().recoverDatabase(recoverDbStmt2));
+                () -> recoverDbStmt2.run(connectContext, null));
 
         dropDbSql = "drop schema if exists test3 force";
         dropDb(dropDbSql);
