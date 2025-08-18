@@ -48,7 +48,6 @@ bvar::PerSecond<bvar::Adder<uint64_t>> hdfs_read_througthput("hdfs_file_reader",
 namespace {
 static FileHandleCache cache(config::max_hdfs_file_handle_cache_num, 16,
                              config::max_hdfs_file_handle_cache_time_sec);
-// Delay remove from cache: do nothing here, let the cache eviction thread handle removal.
 
 Result<FileHandleCache::Accessor> get_file(const hdfsFS& fs, const Path& file, int64_t mtime,
                                            int64_t file_size) {
@@ -120,7 +119,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
                                     const IOContext* io_ctx) {
     auto st = do_read_at_impl(offset, result, bytes_read, io_ctx);
     if (!st.ok()) {
-        cache.remove_file_handle(_handle);
+        _accessor.destroy();
     }
     return st;
 }
