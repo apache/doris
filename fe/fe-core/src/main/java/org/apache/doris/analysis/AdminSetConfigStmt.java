@@ -49,13 +49,11 @@ public class AdminSetConfigStmt extends DdlStmt implements NotFallbackInParser {
         }
         this.applyToAll = applyToAll;
 
-        if (!this.applyToAll) {
-            // we have to analyze configs here to determine whether to forward it to master
-            for (String key : this.configs.keySet()) {
-                if (ConfigBase.checkIsMasterOnly(key)) {
-                    redirectStatus = RedirectStatus.FORWARD_NO_SYNC;
-                    break;
-                }
+        // we have to analyze configs here to determine whether to forward it to master
+        for (String key : this.configs.keySet()) {
+            if (ConfigBase.checkIsMasterOnly(key)) {
+                redirectStatus = RedirectStatus.FORWARD_NO_SYNC;
+                this.applyToAll = false;
             }
         }
     }
