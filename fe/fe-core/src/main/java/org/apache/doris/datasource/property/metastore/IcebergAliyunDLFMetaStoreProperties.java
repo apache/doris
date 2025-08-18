@@ -23,10 +23,8 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -47,8 +45,8 @@ public class IcebergAliyunDLFMetaStoreProperties extends AbstractIcebergProperti
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
-
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         DLFCatalog dlfCatalog = new DLFCatalog();
         // @see com.aliyun.datalake.metastore.hive.common.utils.ConfigUtils
         Configuration conf = new Configuration();
@@ -63,9 +61,7 @@ public class IcebergAliyunDLFMetaStoreProperties extends AbstractIcebergProperti
         conf.set("hive.metastore.type", "dlf");
         conf.set("type", "hms");
         dlfCatalog.setConf(conf);
-        Map<String, String> catalogProperties = new HashMap<>(origProps);
-        catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        dlfCatalog.initialize(catalogName, catalogProperties);
+        dlfCatalog.initialize(catalogName, catalogProps);
         return dlfCatalog;
     }
 }
