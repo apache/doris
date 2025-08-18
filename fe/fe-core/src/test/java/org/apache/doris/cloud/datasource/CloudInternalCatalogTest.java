@@ -368,7 +368,7 @@ public class CloudInternalCatalogTest {
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
                     boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
                     long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-                    boolean createInitialRowset)
+                    boolean createInitialRowset, Map<String, List<String>> columnSeqMapping)
                     throws DdlException {
                 // Track format for each partition
                 partitionFormats.put(partitionId, invertedIndexFileStorageFormat);
@@ -542,7 +542,7 @@ public class CloudInternalCatalogTest {
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
                     boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
                     long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-                    boolean createInitialRowset)
+                    boolean createInitialRowset, Map<String, List<String>> columnSeqMapping)
                     throws DdlException {
                 // Capture the actual format passed to createTabletMetaBuilder
                 capturedFormat.set(invertedIndexFileStorageFormat);
@@ -686,7 +686,7 @@ public class CloudInternalCatalogTest {
                     TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
                     boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
                     long storagePageSize, OlapFile.EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-                    boolean createInitialRowset)
+                    boolean createInitialRowset, Map<String, List<String>> columnSeqMapping)
                     throws DdlException {
                 // Capture the actual format passed to createTabletMetaBuilder
                 capturedFormat.set(invertedIndexFileStorageFormat);
