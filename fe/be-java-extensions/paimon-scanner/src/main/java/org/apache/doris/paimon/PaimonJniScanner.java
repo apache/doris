@@ -44,13 +44,9 @@ import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
-    @Deprecated
-    private static final String PAIMON_OPTION_PREFIX = "paimon.";
-    @Deprecated
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
 
     private final Map<String, String> params;
-    @Deprecated
     private final Map<String, String> hadoopOptionParams;
     private final String paimonSplit;
     private final String paimonPredicate;
@@ -59,7 +55,6 @@ public class PaimonJniScanner extends JniScanner {
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
-    private final String timeZone;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
@@ -78,7 +73,7 @@ public class PaimonJniScanner extends JniScanner {
         }
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
-        this.timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
+        String timeZone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         columnValue.setTimeZone(timeZone);
         initTableInfo(columnTypes, requiredFields, batchSize);
         hadoopOptionParams = params.entrySet().stream()
