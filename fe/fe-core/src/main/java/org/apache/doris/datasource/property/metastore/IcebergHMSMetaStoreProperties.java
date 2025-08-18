@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
@@ -74,6 +75,13 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
         storagePropertiesList.forEach(sp -> {
             for (Map.Entry<String, String> entry : sp.getHadoopStorageConfig()) {
                 catalogProps.put(entry.getKey(), entry.getValue());
+            }
+            if (sp instanceof HdfsProperties) {
+                HdfsProperties hdfsProps = (HdfsProperties) sp;
+                if (hdfsProps.isKerberos()) {
+                    catalogProps.put(CatalogProperties.FILE_IO_IMPL,
+                            "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+                }
             }
         });
 
