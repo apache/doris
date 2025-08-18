@@ -40,7 +40,6 @@
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -54,7 +53,9 @@ struct AggregateFunctionTopKGenericData {
 class AggregateFunctionApproxTopK final
         : public IAggregateFunctionDataHelper<AggregateFunctionTopKGenericData,
                                               AggregateFunctionApproxTopK>,
-          AggregateFunctionApproxTop {
+          AggregateFunctionApproxTop,
+          VarargsExpression,
+          NullableAggregateFunction {
 private:
     using State = AggregateFunctionTopKGenericData;
 

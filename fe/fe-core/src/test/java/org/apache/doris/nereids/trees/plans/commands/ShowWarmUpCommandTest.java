@@ -21,6 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 
@@ -35,17 +36,32 @@ public class ShowWarmUpCommandTest {
         //test whereClause ia null
         ShowWarmUpCommand command = new ShowWarmUpCommand(null);
         Assertions.assertDoesNotThrow(() -> command.validate());
+    }
 
+    @Test
+    public void testValidate2() {
         //test whereClause is equalTo
         Expression where = new EqualTo(new UnboundSlot(Lists.newArrayList("test")),
                 new StringLiteral("test"));
-        ShowWarmUpCommand command2 = new ShowWarmUpCommand(where);
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate());
+        ShowWarmUpCommand command = new ShowWarmUpCommand(where);
+        Assertions.assertThrows(AnalysisException.class, () -> command.validate());
+    }
 
+    @Test
+    public void testValidate3() {
         //test whereClause is equalTo
-        Expression where2 = new EqualTo(new UnboundSlot(Lists.newArrayList("id")),
+        Expression where = new EqualTo(new UnboundSlot(Lists.newArrayList("id")),
                 new IntegerLiteral(111));
-        ShowWarmUpCommand command3 = new ShowWarmUpCommand(where2);
-        Assertions.assertDoesNotThrow(() -> command3.validate());
+        ShowWarmUpCommand command = new ShowWarmUpCommand(where);
+        Assertions.assertDoesNotThrow(() -> command.validate());
+    }
+
+    @Test
+    public void testValidate4() {
+        //test whereClause is equalTo BigIntLiteral
+        Expression where = new EqualTo(new UnboundSlot(Lists.newArrayList("id")),
+                new BigIntLiteral(1754626195722L));
+        ShowWarmUpCommand command = new ShowWarmUpCommand(where);
+        Assertions.assertDoesNotThrow(() -> command.validate());
     }
 }

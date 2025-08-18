@@ -118,6 +118,8 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+
+CONF_mBool(enable_checker_for_meta_key_check, "false");
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
@@ -283,7 +285,10 @@ CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
 
-CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
+// the possibility to use a lazy commit for a doris txn, ranges from 0 to 100,
+// usually for testing
+// 0 for never, 100 for always
+CONF_mInt32(cloud_txn_lazy_commit_fuzzy_possibility, "0");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
@@ -341,6 +346,8 @@ CONF_mString(ca_cert_file_paths,
 
 CONF_Bool(enable_split_rowset_meta_pb, "false");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+CONF_Bool(enable_split_tablet_schema_pb, "false");
+CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K
 CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 
 } // namespace doris::cloud::config

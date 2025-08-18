@@ -55,13 +55,18 @@ public class MonthsDiff extends ScalarFunction implements BinaryExpression, Expl
         super("months_diff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MonthsDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MonthsDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MonthsDiff(children.get(0), children.get(1));
+        return new MonthsDiff(getFunctionParams(children));
     }
 
     @Override

@@ -37,7 +37,7 @@ suite ("projectMV2") {
     sql """insert into projectMV2 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into projectMV2 values("2020-01-02",2,"b",2,2,2);"""
 
-    createMV("create materialized view projectMV2_mv as select deptno, empid from projectMV2 order by deptno;")
+    createMV("create materialized view projectMV2_mv as select deptno as a1, empid as a2 from projectMV2 order by deptno;")
 
     sleep(3000)
 

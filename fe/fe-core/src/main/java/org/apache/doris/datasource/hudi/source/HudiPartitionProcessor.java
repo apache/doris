@@ -21,6 +21,7 @@ import org.apache.doris.datasource.ExternalTable;
 
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
@@ -51,9 +52,9 @@ public abstract class HudiPartitionProcessor {
                 .build();
 
         HoodieTableMetadata newTableMetadata = HoodieTableMetadata.create(
-                new HudiLocalEngineContext(tableMetaClient.getStorageConf()), tableMetaClient.getStorage(),
+                new HoodieLocalEngineContext(tableMetaClient.getStorageConf()), tableMetaClient.getStorage(),
                 metadataConfig,
-                tableMetaClient.getBasePathV2().toString(), true);
+                tableMetaClient.getBasePath().toString(), true);
 
         return newTableMetadata.getAllPartitionPaths();
     }

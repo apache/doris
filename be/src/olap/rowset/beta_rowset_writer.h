@@ -131,8 +131,7 @@ public:
 
     Status create_index_file_writer(uint32_t segment_id, IndexFileWriterPtr* writer) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_schema) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush() override;
 
@@ -202,7 +201,6 @@ public:
     }
 
 private:
-    Status update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
 protected:
@@ -280,8 +278,7 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_schema) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,

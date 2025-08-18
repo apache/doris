@@ -55,7 +55,8 @@ public:
 
 public:
     static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
-                         const bool without_key, AggFnEvaluator** result);
+                         const bool without_key, const bool is_window_function,
+                         AggFnEvaluator** result);
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc,
                    const SlotDescriptor* intermediate_slot_desc,
@@ -119,12 +120,16 @@ private:
     // 2. executed with group by key
     const bool _without_key;
 
-    AggFnEvaluator(const TExprNode& desc, const bool without_key);
+    const bool _is_window_function;
+
+    AggFnEvaluator(const TExprNode& desc, const bool without_key, const bool is_window_function);
     AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
 #ifdef BE_TEST
-    AggFnEvaluator(bool is_merge, bool without_key)
-            : _is_merge(is_merge), _without_key(without_key) {};
+    AggFnEvaluator(bool is_merge, bool without_key, const bool is_window_function)
+            : _is_merge(is_merge),
+              _without_key(without_key),
+              _is_window_function(is_window_function) {};
 #endif
     Status _calc_argument_columns(Block* block);
 

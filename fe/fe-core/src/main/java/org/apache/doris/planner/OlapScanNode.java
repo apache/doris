@@ -197,6 +197,9 @@ public class OlapScanNode extends ScanNode {
 
     private long maxVersion = -1L;
 
+    private SortInfo scoreSortInfo = null;
+    private long scoreSortLimit = -1;
+
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
@@ -269,6 +272,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
+    }
+
+    public void setScoreSortInfo(SortInfo scoreSortInfo) {
+        this.scoreSortInfo = scoreSortInfo;
+    }
+
+    public void setScoreSortLimit(long scoreSortLimit) {
+        this.scoreSortLimit = scoreSortLimit;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -369,6 +380,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     private Collection<Long> distributionPrune(
+            List<Column> schema,
             List<Long> tabletIdsInOrder,
             DistributionInfo distributionInfo,
             boolean pruneTablesByNereids) throws AnalysisException {
@@ -381,7 +393,7 @@ public class OlapScanNode extends ScanNode {
         switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
-                distributionPruner = new HashDistributionPruner(tabletIdsInOrder,
+                distributionPruner = new HashDistributionPruner(schema, tabletIdsInOrder,
                         info.getDistributionColumns(),
                         columnFilters,
                         info.getBucketNum(),
@@ -885,7 +897,7 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             // point query need prune tablets at this place
-            Collection<Long> prunedTabletIds = distributionPrune(
+            Collection<Long> prunedTabletIds = distributionPrune(olapTable.getSchemaByIndexId(selectedIndexId),
                     allTabletIds, partition.getDistributionInfo(), isNereids && !isPointQuery);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", prunedTabletIds);
@@ -997,6 +1009,15 @@ public class OlapScanNode extends ScanNode {
         }
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
+        }
+        if (scoreSortInfo != null) {
+            output.append(prefix).append("SCORE SORT INFO:\n");
+            scoreSortInfo.getOrderingExprs().forEach(expr -> {
+                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+            });
+        }
+        if (scoreSortLimit != -1) {
+            output.append(prefix).append("SCORE SORT LIMIT: ").append(scoreSortLimit).append("\n");
         }
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
@@ -1146,6 +1167,19 @@ public class OlapScanNode extends ScanNode {
         }
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
+        }
+        if (scoreSortInfo != null) {
+            TSortInfo tScoreSortInfo = new TSortInfo(
+                    Expr.treesToThrift(scoreSortInfo.getOrderingExprs()),
+                    scoreSortInfo.getIsAscOrder(),
+                    scoreSortInfo.getNullsFirst());
+            if (scoreSortInfo.getSortTupleSlotExprs() != null) {
+                tScoreSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(scoreSortInfo.getSortTupleSlotExprs()));
+            }
+            msg.olap_scan_node.setScoreSortInfo(tScoreSortInfo);
+        }
+        if (scoreSortLimit != -1) {
+            msg.olap_scan_node.setScoreSortLimit(scoreSortLimit);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();

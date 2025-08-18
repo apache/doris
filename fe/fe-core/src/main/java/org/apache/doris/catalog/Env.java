@@ -30,27 +30,18 @@ import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
-import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -119,13 +110,16 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
-import org.apache.doris.encryption.KeyManager;
+import org.apache.doris.encryption.KeyManagerFactory;
+import org.apache.doris.encryption.KeyManagerInterface;
+import org.apache.doris.encryption.KeyManagerStore;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
 import org.apache.doris.ha.BDBHA;
@@ -273,14 +267,12 @@ import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
 import org.apache.doris.statistics.query.QueryStats;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -592,7 +584,9 @@ public class Env {
 
     private DictionaryManager dictionaryManager;
 
-    private KeyManager keyManager;
+    private KeyManagerStore keyManagerStore;
+
+    private KeyManagerInterface keyManager;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -694,6 +688,13 @@ public class Env {
 
     public BinlogManager getBinlogManager() {
         return binlogManager;
+    }
+
+    public KeyManagerInterface getKeyManager() throws Exception {
+        if (keyManager == null) {
+            throw new Exception("The keyManager is null, possibly due to a missing implementation of KeyManager");
+        }
+        return keyManager;
     }
 
     private static class SingletonHolder {
@@ -846,7 +847,8 @@ public class Env {
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
         this.dictionaryManager = new DictionaryManager();
-        this.keyManager = new KeyManager();
+        this.keyManagerStore = new KeyManagerStore();
+        this.keyManager = KeyManagerFactory.getKeyManager();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -998,6 +1000,10 @@ public class Env {
 
     public PlsqlManager getPlsqlManager() {
         return plsqlManager;
+    }
+
+    public KeyManagerStore getKeyManagerStore() {
+        return keyManagerStore;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1957,6 +1963,9 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        if (keyManager != null) {
+            keyManager.init();
+        }
     }
 
     // start threads that should run on all FE
@@ -2515,9 +2524,9 @@ public class Env {
         return checksum;
     }
 
-    public long loadKeyManager(DataInputStream in, long checksum) throws IOException {
-        this.keyManager = KeyManager.read(in);
-        LOG.info("finished replay KeyManager from image");
+    public long loadKeyManagerStore(DataInputStream in, long checksum) throws IOException {
+        this.keyManagerStore = KeyManagerStore.read(in);
+        LOG.info("finished replay KeyManagerStore from image");
         return checksum;
     }
 
@@ -2816,8 +2825,8 @@ public class Env {
         return checksum;
     }
 
-    public long saveKeyManager(CountingDataOutputStream out, long checksum) throws IOException {
-        this.keyManager.write(out);
+    public long saveKeyManagerStore(CountingDataOutputStream out, long checksum) throws IOException {
+        this.keyManagerStore.write(out);
         LOG.info("finished save KeyManager to image");
         return checksum;
     }
@@ -3371,10 +3380,6 @@ public class Env {
         }
     }
 
-    public void dropDb(DropDbStmt stmt) throws DdlException {
-        dropDb(stmt.getCtlName(), stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
-    }
-
     public void dropDb(String catalogName, String dbName, boolean ifExists, boolean force) throws DdlException {
         CatalogIf<?> catalogIf;
         if (StringUtils.isEmpty(catalogName)) {
@@ -3405,16 +3410,8 @@ public class Env {
         getInternalCatalog().recoverDatabase(dbName, dbId, newDbName);
     }
 
-    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverTable(recoverStmt);
-    }
-
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         getInternalCatalog().recoverTable(dbName, tableName, newTableName, tableId);
-    }
-
-    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverPartition(recoverStmt);
     }
 
     public void recoverPartition(String dbName, String tableName, String partitionName,
@@ -4573,6 +4570,9 @@ public class Env {
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
             sb.append(")");
+        } else if (table.getType() == TableType.JDBC_EXTERNAL_TABLE) {
+            JdbcExternalTable jdbcTable = (JdbcExternalTable) table;
+            addTableComment(jdbcTable, sb);
         } else if (table.getType() == TableType.ODBC) {
             OdbcTable odbcTable = (OdbcTable) table;
 
@@ -4764,7 +4764,8 @@ public class Env {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Table table = info.getTable();
-            getInternalCatalog().replayCreateTable(info.getDbName(), table);
+            long dbId = info.getDbId();
+            getInternalCatalog().replayCreateTable(info.getDbName(), dbId, table);
             if (table instanceof MTMV) {
                 ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
             }
@@ -4789,14 +4790,6 @@ public class Env {
         DropMTMVInfo dropMTMVInfo = command.getDropMTMVInfo();
         dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false,
                 true, dropMTMVInfo.isIfExists(), true);
-    }
-
-    public void dropTable(DropTableStmt stmt) throws DdlException {
-        if (stmt == null) {
-            throw new DdlException("DropTableStmt is null");
-        }
-        dropTable(stmt.getCatalogName(), stmt.getDbName(), stmt.getTableName(), stmt.isView(),
-                stmt.isMaterializedView(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
 
     public void dropTable(String catalogName, String dbName, String tableName, boolean isView, boolean isMtmv,
@@ -5805,8 +5798,10 @@ public class Env {
                 List<SlotRef> slots = new ArrayList<>();
                 expr.collect(SlotRef.class, slots);
                 for (SlotRef slot : slots) {
-                    String name = MaterializedIndexMeta
-                            .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slot.toSqlWithoutTbl()));
+                    String name = slot.toSqlWithoutTbl();
+                    if (slot.getColumn() != null) {
+                        name = slot.getColumn().getName();
+                    }
                     if (!isReplay && name.equals(colName)) {
                         throw new DdlException("Column[" + colName + "] have materialized view index");
                     }
@@ -6544,24 +6539,6 @@ public class Env {
         }
     }
 
-    public void createFunction(CreateFunctionStmt stmt) throws UserException {
-        if (SetType.GLOBAL.equals(stmt.getType())) {
-            globalFunctionMgr.addFunction(stmt.getFunction(), stmt.isIfNotExists());
-        } else {
-            Database db = getInternalCatalog().getDbOrDdlException(stmt.getFunctionName().getDb());
-            db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
-            if (stmt.getFunction().isUDTFunction()) {
-                // all of the table function in doris will have two function
-                // one is the noraml, and another is outer, the different of them is deal with
-                // empty: whether need to insert NULL result value
-                Function outerFunction = stmt.getFunction().clone();
-                FunctionName name = outerFunction.getFunctionName();
-                name.setFn(name.getFunction() + "_outer");
-                db.addFunction(outerFunction, stmt.isIfNotExists());
-            }
-        }
-    }
-
     public void replayCreateFunction(Function function) throws MetaNotFoundException {
         String dbName = function.getFunctionName().getDb();
         Database db = getInternalCatalog().getDbOrMetaException(dbName);
@@ -6570,17 +6547,6 @@ public class Env {
 
     public void replayCreateGlobalFunction(Function function) {
         globalFunctionMgr.replayAddFunction(function);
-    }
-
-    public void dropFunction(DropFunctionStmt stmt) throws UserException {
-        FunctionName name = stmt.getFunctionName();
-        if (SetType.GLOBAL.equals(stmt.getType())) {
-            globalFunctionMgr.dropFunction(stmt.getFunction(), stmt.isIfExists());
-        } else {
-            Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-            db.dropFunction(stmt.getFunction(), stmt.isIfExists());
-        }
-        cleanUDFCacheTask(stmt); // BE will cache classload, when drop function, BE need clear cache
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
@@ -6866,10 +6832,6 @@ public class Env {
         }
     }
 
-    public void installPlugin(InstallPluginStmt stmt) throws UserException, IOException {
-        pluginMgr.installPlugin(stmt);
-    }
-
     public long savePlugins(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentPluginMgr().write(dos);
         return checksum;
@@ -7089,18 +7051,6 @@ public class Env {
         }
 
         getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
-    }
-
-    public void cleanUDFCacheTask(DropFunctionStmt stmt) throws UserException {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
-        String functionSignature = stmt.signatureString();
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (Backend backend : backendsInfo.values()) {
-            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature);
-            batchTask.addTask(cleanUDFCacheTask);
-            LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
-        }
-        AgentTaskExecutor.submit(batchTask);
     }
 
     public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {

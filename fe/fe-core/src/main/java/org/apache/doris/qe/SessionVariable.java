@@ -703,9 +703,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
-    // disable variant flatten nested as session variable, default is true,
-    // which means disable variant flatten nested when create table
-    public static final String DISABLE_VARIANT_FLATTEN_NESTED = "disable_variant_flatten_nested";
+    // enable variant flatten nested as session variable, default is false,
+    // which means do not flatten nested when create table
+    public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -763,8 +763,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
 
     @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
-            description = {"value 在每百行中的最低出现次数",
-                    "The minimum number of occurrences of 'value' per hundred lines"})
+                description = {"value 在每百行中的最低出现次数",
+                        "The minimum number of occurrences of 'value' per hundred lines"})
     private double hotValueThreshold = 33; // by percentage
 
     public void setHotValueThreshold(double threshold) {
@@ -784,6 +784,13 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
+
+    public static final String DEFAULT_LLM_RESOURCE = "default_llm_resource";
+
+    public static final String DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT = "default_variant_max_subcolumns_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "default_variant_enable_typed_paths_to_sparse";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1323,10 +1330,6 @@ public class SessionVariable implements Serializable, Writable {
             "Ignore the rf when it encounters an error" })
     public boolean ignoreRuntimeFilterError = false;
 
-    @VariableMgr.VarAttr(name = "enable_fixed_len_to_uint32_v2", needForward = true, description = {
-            "使用新版本fixed_len_to_uint32_v2,对datetimev2类型bloom filter做了优化",
-            "Using the new version fixed_len_to_uint32_v2, the datetimev2 type bloom filter has been optimized" })
-    public boolean enableFixedLenToUint32V2 = true;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
@@ -1389,8 +1392,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
 
-    @VariableMgr.VarAttr(name = DISABLE_VARIANT_FLATTEN_NESTED, needForward = true)
-    private boolean disableVariantFlattenNested = true;
+    @VariableMgr.VarAttr(name = ENABLE_VARIANT_FLATTEN_NESTED, needForward = true)
+    private boolean enableVariantFlattenNested = false;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -2438,6 +2441,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
+    public static final String ENABLE_EXPLAIN_NONE = "enable_explain_none";
+
     public static final String DETAIL_SHAPE_NODES = "detail_shape_nodes";
 
     public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
@@ -2459,6 +2464,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"'explain shape plan' 命令中显示详细信息的PlanNode 类型",
                     "the plan node type show detail in 'explain shape plan' command"})
     public String detailShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_EXPLAIN_NONE, needForward = true, description = {
+            "执行explain命令，但不打印explain结果",
+            "execute explain command and return nothing"
+    })
+    public boolean enableExplainNone = false;
 
     private Set<String> detailShapePlanNodesSet = ImmutableSet.of();
 
@@ -2755,6 +2766,14 @@ public class SessionVariable implements Serializable, Writable {
     }, checker = "checkSkewRewriteJoinSaltExplodeFactor")
     public int skewRewriteJoinSaltExplodeFactor = 0;
 
+    @VariableMgr.VarAttr(name = DEFAULT_LLM_RESOURCE, needForward = true,
+            description = {
+                    "当函数参数未指定LLM Resource时，系统将默认使用此变量定义的 Resource。",
+                    "Defines the default LLM resource to be used when no specific LLM resource is specified "
+                            + "in the function arguments."
+            })
+    public String defaultLLMResource = "";
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2770,6 +2789,21 @@ public class SessionVariable implements Serializable, Writable {
                     + "when disabled rebuild indexes for all data"
     })
     public boolean enableAddIndexForNewData = false;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            needForward = true,
+            checker = "checkDefaultVariantMaxSubcolumnsCount",
+            fuzzy = true
+    )
+    public int defaultVariantMaxSubcolumnsCount = 0;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultEnableTypedPathsToSparse = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2792,6 +2826,7 @@ public class SessionVariable implements Serializable, Writable {
         // 10MB = 10 * 1024 * 1024 bytes
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
+        this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -4391,7 +4426,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
-        tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
         tResult.setProfileLevel(getProfileLevel());
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
@@ -5031,12 +5065,12 @@ public class SessionVariable implements Serializable, Writable {
         return disableInvertedIndexV1ForVaraint;
     }
 
-    public void setDisableVariantFlattenNested(boolean disableVariantFlattenNested) {
-        this.disableVariantFlattenNested = disableVariantFlattenNested;
+    public void setEnableVariantFlattenNested(boolean enableVariantFlattenNested) {
+        this.enableVariantFlattenNested = enableVariantFlattenNested;
     }
 
-    public boolean getDisableVariantFlattenNested() {
-        return disableVariantFlattenNested;
+    public boolean getEnableVariantFlattenNested() {
+        return enableVariantFlattenNested;
     }
 
     public void setProfileLevel(String profileLevel) {
@@ -5099,6 +5133,30 @@ public class SessionVariable implements Serializable, Writable {
             return ConnectContext.get().getSessionVariable().enableStrictCast;
         } else {
             return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
+        }
+    }
+
+    public void checkDefaultVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+        int value = Integer.valueOf(variantMaxSubcolumnsCount);
+        if (value < 0 || value > 100000) {
+            throw new UnsupportedOperationException(
+                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 100000");
+        }
+    }
+
+    public boolean getDefaultEnableTypedPathsToSparse() {
+        return defaultEnableTypedPathsToSparse;
+    }
+
+    public int getDefaultVariantMaxSubcolumnsCount() {
+        return defaultVariantMaxSubcolumnsCount;
+    }
+
+    public static boolean isFeDebug() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().feDebug;
+        } else {
+            return false;
         }
     }
 }

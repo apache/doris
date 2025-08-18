@@ -27,6 +27,12 @@
 #include <algorithm>
 #include <cctype>
 
+#include "vec/exprs/vdirect_in_predicate.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
+#include "vec/exprs/vslot_ref.h"
+#include "vec/exprs/vtopn_pred.h"
+
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <exception>
@@ -923,15 +929,15 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
     return true;
 }
 
-bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
+bool OrcReader::_init_search_argument(const VExprSPtrs& exprs) {
     // build search argument, if any expr can not be pushed down, return false
     auto builder = orc::SearchArgumentFactory::newBuilder();
     bool at_least_one_can_push_down = false;
     builder->startAnd();
-    for (const auto& expr_ctx : conjuncts) {
+    for (const auto& expr : exprs) {
         _vslot_ref_to_orc_predicate_data_type.clear();
         _vliteral_to_orc_literal.clear();
-        if (_build_search_argument(expr_ctx->root(), builder)) {
+        if (_build_search_argument(expr, builder)) {
             at_least_one_can_push_down = true;
         }
     }
@@ -956,7 +962,8 @@ Status OrcReader::set_fill_columns(
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
-        if (auto* slot_ref = typeid_cast<VSlotRef*>(expr)) {
+        if (expr->is_slot_ref()) {
+            VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
             auto expr_name = slot_ref->expr_name();
             predicate_table_columns.emplace(
                     expr_name, std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
@@ -964,30 +971,67 @@ Status OrcReader::set_fill_columns(
                 _lazy_read_ctx.resize_first_column = false;
             }
             return;
-        } else if (auto* runtime_filter = typeid_cast<VRuntimeFilterWrapper*>(expr)) {
-            auto* filter_impl = const_cast<VExpr*>(runtime_filter->get_impl().get());
-            if (auto* bloom_predicate = typeid_cast<VBloomPredicate*>(filter_impl)) {
-                for (const auto& child : bloom_predicate->children()) {
-                    visit_slot(child.get());
-                }
-            } else if (auto* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                if (!in_predicate->children().empty()) {
-                    visit_slot(in_predicate->children()[0].get());
-                }
-            } else {
-                for (const auto& child : filter_impl->children()) {
-                    visit_slot(child.get());
-                }
-            }
-        } else {
-            for (const auto& child : expr->children()) {
-                visit_slot(child.get());
-            }
+        }
+        for (auto& child : expr->children()) {
+            visit_slot(child.get());
         }
     };
 
-    for (auto& conjunct : _lazy_read_ctx.conjuncts) {
-        visit_slot(conjunct->root().get());
+    for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
+        auto expr = conjunct->root();
+
+        if (expr->is_rf_wrapper()) {
+            // REF: src/runtime_filter/runtime_filter_consumer.cpp
+            VRuntimeFilterWrapper* runtime_filter = assert_cast<VRuntimeFilterWrapper*>(expr.get());
+
+            auto filter_impl = runtime_filter->get_impl();
+            visit_slot(filter_impl.get());
+
+            // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER,  IN_FILTER
+            if ((runtime_filter->node_type() == TExprNodeType::BINARY_PRED) &&
+                (runtime_filter->op() == TExprOpcode::GE ||
+                 runtime_filter->op() == TExprOpcode::LE)) {
+                expr = filter_impl;
+            } else if (runtime_filter->node_type() == TExprNodeType::IN_PRED &&
+                       runtime_filter->op() == TExprOpcode::FILTER_IN) {
+                VDirectInPredicate* direct_in_predicate =
+                        assert_cast<VDirectInPredicate*>(filter_impl.get());
+
+                int max_in_size =
+                        _state->query_options().__isset.max_pushdown_conditions_per_column
+                                ? _state->query_options().max_pushdown_conditions_per_column
+                                : 1024;
+                if (direct_in_predicate->get_set_func()->size() == 0 ||
+                    direct_in_predicate->get_set_func()->size() > max_in_size) {
+                    continue;
+                }
+
+                VExprSPtr new_in_slot = nullptr;
+                if (direct_in_predicate->get_slot_in_expr(new_in_slot)) {
+                    expr = new_in_slot;
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+        } else if (VTopNPred* topn_pred = typeid_cast<VTopNPred*>(expr.get())) {
+            // top runtime filter : only le && ge.
+            DCHECK(topn_pred->children().size() > 0);
+            visit_slot(topn_pred->children()[0].get());
+
+            if (topn_pred->has_value()) {
+                expr = topn_pred->get_binary_expr();
+            } else {
+                continue;
+            }
+        } else {
+            visit_slot(expr.get());
+        }
+
+        if (_check_expr_can_push_down(expr)) {
+            _push_down_exprs.emplace_back(expr);
+        }
     }
 
     if (_is_acid) {
@@ -1055,7 +1099,7 @@ Status OrcReader::set_fill_columns(
     if (_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = false;
     } else if (_enable_filter_by_min_max) {
-        auto res = _init_search_argument(_lazy_read_ctx.conjuncts);
+        auto res = _init_search_argument(_push_down_exprs);
         if (_state->query_options().check_orc_init_sargs_success && !res) {
             std::stringstream ss;
             for (const auto& conjunct : _lazy_read_ctx.conjuncts) {

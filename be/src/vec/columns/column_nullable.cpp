@@ -552,12 +552,6 @@ bool ColumnNullable::has_enough_capacity(const IColumn& src) const {
            get_null_map_column().has_enough_capacity(src_concrete.get_null_map_column());
 }
 
-ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {
-    ColumnPtr replicated_data = get_nested_column().replicate(offsets);
-    ColumnPtr replicated_null_map = get_null_map_column().replicate(offsets);
-    return ColumnNullable::create(replicated_data, replicated_null_map);
-}
-
 template <bool negative>
 void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
     NullMap& arr1 = get_null_map_data();

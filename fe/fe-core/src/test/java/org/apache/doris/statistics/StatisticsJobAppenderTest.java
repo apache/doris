@@ -367,4 +367,30 @@ public class StatisticsJobAppenderTest {
         Assertions.assertEquals(1, jobMap.get(tableName2).size());
         Assertions.assertTrue(jobMap.get(tableName2).contains(pair3));
     }
+
+    @Test
+    public void testSortTables() {
+        Column column1 = new Column("placeholder", PrimitiveType.INT);
+        List<Column> schema = new ArrayList<>();
+        schema.add(column1);
+        OlapTable table1 = new OlapTable(1340000000000L, "testTable", schema, null, null, null);
+        OlapTable table2 = new OlapTable(3000000000L, "testTable2", schema, null, null, null);
+        OlapTable table3 = new OlapTable(5000000000L, "testTable3", schema, null, null, null);
+        OlapTable table4 = new OlapTable(1, "testTable4", schema, null, null, null);
+        List<Table> tables = Lists.newArrayList();
+        tables.add(table1);
+        tables.add(table2);
+        tables.add(table3);
+        tables.add(table4);
+        StatisticsJobAppender appender = new StatisticsJobAppender();
+        List<Table> sortedTables = appender.sortTables(tables);
+        Assertions.assertEquals(4, sortedTables.size());
+        Assertions.assertEquals(1, sortedTables.get(0).getId());
+        Assertions.assertEquals(3000000000L, sortedTables.get(1).getId());
+        Assertions.assertEquals(5000000000L, sortedTables.get(2).getId());
+        Assertions.assertEquals(1340000000000L, sortedTables.get(3).getId());
+
+        sortedTables = appender.sortTables(null);
+        Assertions.assertEquals(0, sortedTables.size());
+    }
 }

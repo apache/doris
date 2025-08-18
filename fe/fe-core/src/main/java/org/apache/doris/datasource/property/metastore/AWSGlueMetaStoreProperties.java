@@ -42,7 +42,6 @@ public class AWSGlueMetaStoreProperties extends MetastoreProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         baseProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
-        baseProperties.checkAndInit();
     }
 
 

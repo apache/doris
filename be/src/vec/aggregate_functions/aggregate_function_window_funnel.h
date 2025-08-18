@@ -31,7 +31,6 @@
 #include <utility>
 
 #include "common/cast_set.h"
-#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "util/binary_cast.hpp"
 #include "util/simd/bits.h"
@@ -40,7 +39,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -104,8 +102,8 @@ struct DataValue {
 
 template <PrimitiveType PrimitiveType, typename NativeType>
 struct WindowFunnelState {
-    using DateValueType = std::conditional_t<PrimitiveType == PrimitiveType::TYPE_DATETIMEV2,
-                                             DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
+    static_assert(PrimitiveType == PrimitiveType::TYPE_DATETIMEV2);
+    using DateValueType = DateV2Value<DateTimeV2ValueType>;
     int event_count = 0;
     int64_t window;
     bool enable_mode;
@@ -348,7 +346,9 @@ template <PrimitiveType PrimitiveType, typename NativeType>
 class AggregateFunctionWindowFunnel
         : public IAggregateFunctionDataHelper<
                   WindowFunnelState<PrimitiveType, NativeType>,
-                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>> {
+                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<

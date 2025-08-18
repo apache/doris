@@ -130,28 +130,6 @@ suite("agg_variety") {
     sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
     sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
-    def check_rewrite_but_not_chose = { mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
-        }
-    }
-
     // query dimension is less then mv
     def mv1_0 = """
              select

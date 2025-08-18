@@ -24,7 +24,7 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return
     }
-    String  ak = context.config.otherConfigs.get("AWSAK")
+    String ak = context.config.otherConfigs.get("AWSAK")
     String sk = context.config.otherConfigs.get("AWSSK")
     String endpoint = "s3.ap-northeast-1.amazonaws.com"
     String region = "ap-northeast-1"
@@ -124,16 +124,12 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
     s3Load("http://${bucket}.${endpoint}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "false")
     s3Load("http://${bucket}.${endpoint}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "")
     s3Load("https://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "false")
-    shouldFail {
-        s3Load("https://${bucket}${filePath}", bucket, "", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "false")
-    }
 
     shouldFail {
         s3Load("https://${bucket}${filePath}", bucket, "", endpoint, "s3.region", region, "s3.access_key", "", "s3.secret_key", sk, "false")
     }
     shouldFail {
         s3Load("https://${bucket}/${endpoint}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "")
-
     }
     shouldFail {
         s3Load("https://${bucket}/${endpoint}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "true")
@@ -168,7 +164,6 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
     shouldFail {
         s3Load("https://${bucket}${filePath}", bucket, "", endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "false")
     }
-
     shouldFail {
         s3Load("https://${bucket}${filePath}", bucket, "", endpoint, "obs.region", region, "obs.access_key", "", "obs.secret_key", sk, "false")
     }

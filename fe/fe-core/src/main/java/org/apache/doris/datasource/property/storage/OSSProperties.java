@@ -17,18 +17,20 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -67,6 +69,60 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             description = "The region of OSS.")
     protected String region;
 
+    @ConnectorProperty(names = {"dlf.access.public", "dlf.catalog.accessPublic"},
+            required = false,
+            description = "Enable public access to Aliyun DLF.")
+    protected String dlfAccessPublic = "false";
+
+    @Getter
+    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of OSS.")
+    protected String sessionToken = "";
+
+    /**
+     * The maximum number of concurrent connections that can be made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.maximum", "s3.connection.maximum"}, required = false,
+            description = "Maximum number of connections.")
+    protected String maxConnections = "100";
+
+    /**
+     * The timeout (in milliseconds) for requests made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
+            description = "Request timeout in seconds.")
+    protected String requestTimeoutS = "10000";
+
+    /**
+     * The timeout (in milliseconds) for establishing a connection to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.timeout", "s3.connection.timeout"}, required = false,
+            description = "Connection timeout in seconds.")
+    protected String connectionTimeoutS = "10000";
+
+    /**
+     * Flag indicating whether to use path-style URLs for the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Setter
+    @Getter
+    @ConnectorProperty(names = {"oss.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    protected String usePathStyle = "false";
+
+    @ConnectorProperty(names = {"oss.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected String forceParsingByStandardUrl = "false";
+
     /**
      * Pattern to extract the region from an Alibaba Cloud OSS endpoint.
      * <p>
@@ -83,13 +139,26 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * <p>
      */
-    private static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
+    public static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
                     .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$"),
             Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
             Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
 
+    private static final List<String> URI_KEYWORDS = Arrays.asList("uri", "warehouse");
+
+    private static List<String> DLF_TYPE_KEYWORDS = Arrays.asList("hive.metastore.type",
+            "iceberg.catalog.type", "paimon.catalog.type");
+
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
+    }
+
+    public static OSSProperties of(Map<String, String> properties) {
+        OSSProperties propertiesObj = new OSSProperties(properties);
+        ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.initNormalizeAndCheckProps();
+        propertiesObj.initializeHadoopStorageConfig();
+        return propertiesObj;
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
@@ -99,12 +168,27 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
-        if (!Strings.isNullOrEmpty(value)) {
+        if (StringUtils.isNotBlank(value)) {
             return (value.contains("aliyuncs.com"));
         }
+
+        value = Stream.of("oss.region")
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (StringUtils.isNotBlank(value)) {
+            return true;
+        }
+        if (isDlfMSType(origProps)) {
+            return true;
+        }
         Optional<String> uriValue = origProps.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .filter(e -> URI_KEYWORDS.stream()
+                        .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
                 .map(Map.Entry::getValue)
+                .filter(Objects::nonNull)
+                .filter(OSSProperties::isKnownObjectStorage)
                 .findFirst();
         return uriValue.filter(OSSProperties::isKnownObjectStorage).isPresent();
     }
@@ -112,6 +196,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     private static boolean isKnownObjectStorage(String value) {
         if (value == null) {
             return false;
+        }
+        if (value.startsWith("oss://")) {
+            return true;
         }
         if (!value.contains("aliyuncs.com")) {
             return false;
@@ -122,12 +209,43 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         return isAliyunOss || isAmazonS3 || isDls;
     }
 
+    private static boolean isDlfMSType(Map<String, String> params) {
+        return DLF_TYPE_KEYWORDS.stream()
+                .anyMatch(key -> params.containsKey(key) && StringUtils.isNotBlank(params.get(key))
+                        && StringUtils.equalsIgnoreCase("dlf", params.get(key)));
+    }
+
+    @Override
+    protected void setEndpointIfPossible() {
+        if (StringUtils.isBlank(this.endpoint) && StringUtils.isNotBlank(this.region)) {
+            if (isDlfMSType(origProps)) {
+                this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+            } else {
+                Optional<String> uriValueOpt = origProps.entrySet().stream()
+                        .filter(e -> URI_KEYWORDS.stream()
+                                .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
+                        .map(Map.Entry::getValue)
+                        .filter(Objects::nonNull)
+                        .filter(OSSProperties::isKnownObjectStorage)
+                        .findFirst();
+                if (uriValueOpt.isPresent()) {
+                    String uri = uriValueOpt.get();
+                    // If the URI does not start with http(s), derive endpoint from region
+                    // (http(s) URIs are handled by separate logic elsewhere)
+                    if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
+                        this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+                    }
+                }
+            }
+        }
+        super.setEndpointIfPossible();
+    }
+
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (endpoint.contains("dlf") || endpoint.contains("oss-dls")) {
-            String publicAccess = origProps.getOrDefault("dlf.catalog.accessPublic", "false");
-            this.endpoint = getOssEndpoint(region, Boolean.parseBoolean(publicAccess));
+            this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
         }
         // Check if credentials are provided properly - either both or neither
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
@@ -140,7 +258,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         // If only one is provided, it's an error
         throw new StoragePropertiesException(
                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
-
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {
@@ -172,15 +289,10 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     @Override
     public void initializeHadoopStorageConfig() {
-        hadoopStorageConfig = new Configuration();
+        super.initializeHadoopStorageConfig();
         hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
-        hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
-        hadoopStorageConfig.set("fs.oss.region", region);
         hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
         hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
-        hadoopStorageConfig.set("fs.oss.connection.timeout", connectionTimeoutS);
-        hadoopStorageConfig.set("fs.oss.connection.max", maxConnections);
-        hadoopStorageConfig.set("fs.oss.connection.request.timeout", requestTimeoutS);
-        hadoopStorageConfig.set("fs.oss.use.path.style.access", usePathStyle);
+        hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
     }
 }

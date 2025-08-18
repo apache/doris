@@ -27,9 +27,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -180,7 +178,9 @@ private:
 
 template <typename Data, PrimitiveType K>
 class AggregateFunctionMapAgg final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAgg<Data, K>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAgg<Data, K>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     using KeyColumnType = typename PrimitiveTypeTraits<K>::ColumnType;
     AggregateFunctionMapAgg() = default;

@@ -73,6 +73,10 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
 
     }
 
+    public boolean isInvalidCache() {
+        return invalidCache;
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();

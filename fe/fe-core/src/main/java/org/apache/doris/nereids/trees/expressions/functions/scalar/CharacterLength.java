@@ -50,13 +50,18 @@ public class CharacterLength extends ScalarFunction
         super("character_length", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CharacterLength(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public CharacterLength withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new CharacterLength(children.get(0));
+        return new CharacterLength(getFunctionParams(children));
     }
 
     @Override

@@ -42,7 +42,6 @@ class PColumnMeta;
 namespace vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -78,6 +77,9 @@ public:
                                "Unimplemented get_field for array");
     }
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return true; }
@@ -104,7 +106,6 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     using SerDeType = DataTypeArraySerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {

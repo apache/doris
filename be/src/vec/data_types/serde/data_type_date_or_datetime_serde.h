@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "common/status.h"
 #include "data_type_number_serde.h"
@@ -29,6 +30,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 class Arena;
@@ -42,8 +44,16 @@ public:
     using ColumnType = PrimitiveTypeTraits<T>::ColumnType;
     using NativeType = PrimitiveTypeTraits<T>::CppNativeType; // int64
     using CppType = PrimitiveTypeTraits<T>::CppType;          // VecDateTimeValue
+    constexpr static std::string_view name() { return IsDatetime ? "DateTime" : "Date"; }
 
+    using typename DataTypeNumberSerDe<T>::FormatOptions;
     DataTypeDateSerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
 
     /// these functions are for both TYPE_DATE and TYPE_DATETIME. we set field according to T.
     Status from_string_batch(
@@ -105,8 +115,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end,
-                               std::vector<StringRef>& buffer_list) const override;
+                               int64_t start, int64_t end, vectorized::Arena& arena) const override;
 
 protected:
     template <bool is_date>

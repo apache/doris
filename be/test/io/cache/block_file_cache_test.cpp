@@ -1413,7 +1413,9 @@ TEST_F(BlockFileCacheTest, reset_range) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
-    doris::config::enable_file_cache_query_limit = true;
+    config::file_cache_enter_disk_resource_limit_mode_percent =
+            config::file_cache_exit_disk_resource_limit_mode_percent = 99;
+
     fs::create_directories(cache_base_path);
     io::FileCacheSettings settings;
     settings.index_queue_elements = 0;
@@ -1453,8 +1455,8 @@ TEST_F(BlockFileCacheTest, reset_range) {
         auto holder = cache.get_or_set(key, 0, 9, context); /// Add range [0, 8]
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 2);
-        assert_range(1, blocks[0], io::FileBlock::Range(0, 5), io::FileBlock::State::DOWNLOADED);
-        assert_range(2, blocks[1], io::FileBlock::Range(6, 8), io::FileBlock::State::EMPTY);
+        assert_range(3, blocks[0], io::FileBlock::Range(0, 5), io::FileBlock::State::DOWNLOADED);
+        assert_range(4, blocks[1], io::FileBlock::Range(6, 8), io::FileBlock::State::EMPTY);
     }
     std::cout << cache.dump_structure(key) << std::endl;
     if (fs::exists(cache_base_path)) {
@@ -4390,8 +4392,8 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_1) {
     settings.max_file_block_size = 30;
     settings.max_query_cache_size = 30;
     io::BlockFileCache cache(cache_base_path, settings);
-    config::file_cache_enter_disk_resource_limit_mode_percent =
-            config::file_cache_exit_disk_resource_limit_mode_percent = 50;
+    config::file_cache_enter_disk_resource_limit_mode_percent = 49;
+    config::file_cache_exit_disk_resource_limit_mode_percent = 50;
     ASSERT_TRUE(cache.initialize());
     for (int i = 0; i < 100; i++) {
         if (cache.get_async_open_success()) {
@@ -5932,7 +5934,7 @@ TEST_F(BlockFileCacheTest, seize_after_full) {
             if (cache.get_async_open_success()) {
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         ASSERT_TRUE(cache.get_async_open_success());
 

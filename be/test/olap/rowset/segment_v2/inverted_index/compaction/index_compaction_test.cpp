@@ -702,7 +702,8 @@ protected:
                 EXPECT_TRUE(st.ok()) << st.to_string();
             } else {
                 // check index file terms for multiple segments
-                std::vector<std::unique_ptr<DorisCompoundReader>> dirs_idx(num_segments_idx);
+                std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_idx(
+                        num_segments_idx);
                 for (int i = 0; i < num_segments_idx; i++) {
                     const auto& seg_path = output_rowset_index->segment_path(i);
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
@@ -714,7 +715,8 @@ protected:
                     EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
                     dirs_idx[i] = std::move(dir_idx.value());
                 }
-                std::vector<std::unique_ptr<DorisCompoundReader>> dirs_normal(num_segments_normal);
+                std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> dirs_normal(
+                        num_segments_normal);
                 for (int i = 0; i < num_segments_normal; i++) {
                     const auto& seg_path = output_rowset_normal->segment_path(i);
                     EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
@@ -896,7 +898,7 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
     data_files.push_back(data_file2);
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
-    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 3); };
+    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
     IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
             _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
             custom_check_build_rowsets);
@@ -921,11 +923,9 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
             _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
-    // index 10002 cannot be found in idx file
+    // index 10002 can be found in idx file
     auto dir_idx_compaction = inverted_index_file_reader_index->_open(10002, "");
-    EXPECT_TRUE(!dir_idx_compaction.has_value()) << dir_idx_compaction.error();
-    EXPECT_THAT(dir_idx_compaction.error().to_string(),
-                testing::HasSubstr("No index with id 10002 found"));
+    EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
 }
 
 TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {

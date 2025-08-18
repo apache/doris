@@ -59,20 +59,21 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
-        hmsBaseProperties.initAndCheckParams();
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         checkInitialized();
-
         Configuration conf = buildHiveConfiguration(storagePropertiesList);
-        Map<String, String> catalogProps = buildCatalogProperties();
-
         HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(conf);
-
+        storagePropertiesList.forEach(sp -> {
+            for (Map.Entry<String, String> entry : sp.getHadoopStorageConfig()) {
+                catalogProps.put(entry.getKey(), entry.getValue());
+            }
+        });
         try {
             this.executionAuthenticator.execute(() -> hiveCatalog.initialize(catalogName, catalogProps));
             return hiveCatalog;

@@ -160,4 +160,13 @@ Status SchemaHelper::fetch_schema_table_data(const std::string& ip, const int32_
             });
 }
 
+Status SchemaHelper::get_master_keys(const std::string& ip, const int32_t port,
+                                     const TGetEncryptionKeysRequest& request,
+                                     TGetEncryptionKeysResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->getEncryptionKeys(*result, request);
+            });
+}
+
 } // namespace doris

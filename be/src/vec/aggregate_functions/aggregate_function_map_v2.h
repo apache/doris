@@ -175,7 +175,9 @@ private:
 
 template <typename Data>
 class AggregateFunctionMapAggV2 final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAggV2<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAggV2<Data>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionMapAggV2() = default;
     AggregateFunctionMapAggV2(const DataTypes& argument_types_)

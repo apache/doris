@@ -198,7 +198,7 @@ inline auto DECIMAL64 = [](int64_t x, int64_t y, int scale) {
     return Decimal64::from_int_frac(x, y, scale);
 };
 inline auto DECIMAL128V2 = [](int128_t x, int128_t y, int scale) {
-    return Decimal128V2::from_int_frac(x, y, scale);
+    return Decimal128V2::from_int_frac(x, y, 9);
 };
 inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
     return Decimal128V3::from_int_frac(x, y, scale);
@@ -318,7 +318,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         auto column = desc.data_type->create_column();
         column->reserve(row_size);
 
-        for (int j = 0; j < row_size; j++) {
+        // for function cast, the second column is const but there's many rows in block. so we only insert one row
+        // for the second column.
+        for (int j = 0; j < ((func_name == "CAST" && i == 1) ? 1 : row_size); j++) {
             // null dealed in insert_cell
             EXPECT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i],
                                     datetime_is_string_format));
@@ -390,6 +392,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         return st;
     } else {
         EXPECT_EQ(Status::OK(), st);
+        // avoid subsequent visit
+        if (st != Status::OK()) {
+            return st;
+        }
     }
 
     static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));

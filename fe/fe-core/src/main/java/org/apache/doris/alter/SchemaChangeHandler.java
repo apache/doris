@@ -27,6 +27,7 @@ import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -98,6 +99,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
@@ -1002,7 +1004,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
-        if (newColumn.getType().isTime() || newColumn.getType().isTimeV2()) {
+        if (newColumn.getType().isTimeV2()) {
             throw new DdlException("Time type is not supported for olap table");
         }
 
@@ -1054,6 +1056,10 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (newColumn.getGeneratedColumnInfo() != null) {
             throw new DdlException("Not supporting alter table add generated columns.");
+        }
+
+        if (newColumn.getType().isVariantType() && olapTable.hasVariantColumns()) {
+            checkAddVariantColumnAllowed(olapTable, newColumn);
         }
 
         /*
@@ -2114,6 +2120,20 @@ public class SchemaChangeHandler extends AlterHandler {
                         throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
                     }
 
+                    for (Column column : olapTable.getBaseSchema()) {
+                        if (!column.getType().isVariantType()) {
+                            continue;
+                        }
+                        // variant type column can not support for building index
+                        for (String indexColumn : index.getColumns()) {
+                            if (column.getName().equalsIgnoreCase(indexColumn)) {
+                                throw new DdlException("BUILD INDEX operation failed: The "
+                                        + indexDef.getIndexName() + " index can not be built on the "
+                                        + indexColumn + " column, because it is a variant type column.");
+                            }
+                        }
+                    }
+
                     if (indexDef.getPartitionNames().isEmpty()) {
                         indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                     } else {
@@ -2724,6 +2744,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat());
+                if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
+                    throw new DdlException("Can not create index with field pattern");
+                }
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
@@ -2752,9 +2775,28 @@ public class SchemaChangeHandler extends AlterHandler {
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             existedIdxColSet.addAll(index.getColumns());
             if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
-                throw new DdlException(
+                if (newColset.size() == 1
+                        && olapTable.getInvertedIndexFileStorageFormat()
+                            .compareTo(TInvertedIndexFileStorageFormat.V2) >= 0) {
+                    String columnName = indexDef.getColumns().get(0);
+                    Column column = olapTable.getColumn(columnName);
+                    if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
+                        boolean isExistingIndexAnalyzer = index.isAnalyzedInvertedIndex();
+                        boolean isNewIndexAnalyzer = indexDef.isAnalyzedInvertedIndex();
+                        if (isExistingIndexAnalyzer == isNewIndexAnalyzer) {
+                            throw new DdlException(
+                                indexDef.getIndexType() + " index for column (" + columnName + ") with "
+                                    + (isNewIndexAnalyzer ? "analyzed" : "non-analyzed") + " type already exists.");
+                        }
+                    } else {
+                        throw new DdlException(
+                            indexDef.getIndexType() + " index for column (" + columnName + ") already exists.");
+                    }
+                } else {
+                    throw new DdlException(
                         indexDef.getIndexType() + " index for columns (" + String.join(",", indexDef.getColumns())
-                                + ") already exist.");
+                            + ") already exist.");
+                }
             }
             existedIndexIdSet.add(index.getIndexId());
         }
@@ -2782,6 +2824,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 return true;
             }
             throw new DdlException("index " + indexName + " does not exist");
+        }
+
+        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(found.getProperties()).isEmpty()) {
+            throw new DdlException("Can not drop index with field pattern");
         }
 
         Iterator<Index> itr = indexes.iterator();
@@ -3399,6 +3445,22 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
             nameSet.add(colName);
+        }
+    }
+
+    private void checkAddVariantColumnAllowed(OlapTable olapTable, Column newColumn) throws DdlException {
+        int currentCount = newColumn.getVariantMaxSubcolumnsCount();
+        for (Column column : olapTable.getBaseSchema()) {
+            if (column.getType().isVariantType()) {
+                if (currentCount == 0 && column.getVariantMaxSubcolumnsCount() != 0) {
+                    throw new DdlException("The variant_max_subcolumns_count must either be 0 in all columns"
+                            + " or greater than 0 in all columns");
+                }
+                if (currentCount > 0 && column.getVariantMaxSubcolumnsCount() == 0) {
+                    throw new DdlException("The variant_max_subcolumns_count must either be 0 in all columns"
+                            + " or greater than 0 in all columns");
+                }
+            }
         }
     }
 }

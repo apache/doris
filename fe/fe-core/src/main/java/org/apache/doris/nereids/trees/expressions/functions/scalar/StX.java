@@ -51,13 +51,18 @@ public class StX extends ScalarFunction
         super("st_x", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StX(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StX withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StX(children.get(0));
+        return new StX(getFunctionParams(children));
     }
 
     @Override

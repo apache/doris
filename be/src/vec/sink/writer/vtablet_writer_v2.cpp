@@ -564,8 +564,11 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
-                _state->workload_group());
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(
+                [state = _state]() { return state->is_cancelled(); });
+        if (_state->is_cancelled()) {
+            return _state->cancel_reason();
+        }
     }
     SCOPED_TIMER(_write_memtable_timer);
     st = delta_writer->write(block.get(), rows.row_idxes);
@@ -623,6 +626,11 @@ Status VTabletWriterV2::close(Status exec_status) {
         status = _send_new_partition_batch();
     }
 
+    DBUG_EXECUTE_IF("VTabletWriterV2.close.sleep", {
+        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "VTabletWriterV2.close.sleep", "sleep_sec", 1);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+    });
     DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",
                     { status = Status::InternalError("load cancel"); });
     if (status.ok()) {
@@ -783,6 +791,7 @@ Status VTabletWriterV2::_close_wait(
 
     // 2. then wait for remaining streams as much as possible
     if (!unfinished_streams.empty() && need_wait_after_quorum_success) {
+        int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
         while (true) {
             RETURN_IF_ERROR(_check_timeout());
@@ -790,7 +799,7 @@ Status VTabletWriterV2::_close_wait(
             if (unfinished_streams.empty()) {
                 break;
             }
-            int64_t elapsed_ms = _timeout_watch.elapsed_time() / 1000 / 1000;
+            int64_t elapsed_ms = UnixMillis() - arrival_quorum_success_time;
             if (elapsed_ms > max_wait_time_ms ||
                 _state->execution_timeout() - elapsed_ms / 1000 <
                         config::quorum_success_remaining_timeout_seconds) {
@@ -908,6 +917,7 @@ int64_t VTabletWriterV2::_calc_max_wait_time_ms(
 
     // 3. calculate max wait time
     // introduce quorum_success_min_wait_time_ms to avoid jitter of small load
+    max_wait_time_ms -= UnixMillis() - _timeout_watch.elapsed_time() / 1000 / 1000;
     max_wait_time_ms =
             std::max(static_cast<int64_t>(static_cast<double>(max_wait_time_ms) *
                                           (1.0 + config::quorum_success_max_wait_multiplier)),

@@ -64,13 +64,18 @@ public class ArrayDifference extends ScalarFunction
         super("array_difference", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayDifference(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayDifference withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayDifference(children.get(0));
+        return new ArrayDifference(getFunctionParams(children));
     }
 
     @Override

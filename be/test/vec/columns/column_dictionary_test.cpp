@@ -248,10 +248,6 @@ TEST_F(ColumnDictionaryTest, permute) {
     IColumn::Permutation perm;
     EXPECT_THROW(column_dict_char->permute(perm, 1), Exception);
 }
-TEST_F(ColumnDictionaryTest, replicate) {
-    IColumn::Offsets offsets;
-    EXPECT_THROW(column_dict_char->replicate(offsets), Exception);
-}
 TEST_F(ColumnDictionaryTest, filter_by_selector) {
     auto test_func = [&](const auto& source_column) {
         auto src_size = source_column->size();

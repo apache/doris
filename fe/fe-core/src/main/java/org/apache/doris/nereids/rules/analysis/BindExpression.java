@@ -56,13 +56,13 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -279,6 +279,11 @@ public class BindExpression implements AnalysisRuleFactory {
                     "the size of nameParts of UnboundSlot in LogicalGenerate must be 2.");
 
             Expression boundGenerator = analyzer.analyze(generate.getGenerators().get(i));
+
+            if (boundGenerator instanceof RewriteWhenAnalyze) {
+                boundGenerator = ((RewriteWhenAnalyze) boundGenerator).rewrite();
+            }
+
             if (!(boundGenerator instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(boundGenerator.toSql() + " is not a TableGeneratingFunction");
             }
@@ -739,9 +744,7 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private List<NamedExpression> adjustProjectionAggNullable(List<NamedExpression> expressions) {
-        boolean hasAggregation = expressions.stream()
-                .anyMatch(expr -> expr.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
-        if (!hasAggregation) {
+        if (!ExpressionUtils.hasNonWindowAggregateFunction(expressions)) {
             return expressions;
         }
         boolean hasOnlyFullGroupBy = SqlModeHelper.hasOnlyFullGroupBy();

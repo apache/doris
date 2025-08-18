@@ -52,13 +52,18 @@ public class DayName extends ScalarFunction
         super("dayname", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DayName(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DayName withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DayName(children.get(0));
+        return new DayName(getFunctionParams(children));
     }
 
     @Override

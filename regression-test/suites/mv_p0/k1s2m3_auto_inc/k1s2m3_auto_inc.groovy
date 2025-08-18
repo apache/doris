@@ -34,7 +34,7 @@ suite ("k1s2m3_auto_inc") {
         """
 
     test {
-        sql """create materialized view k1ap2spa as select k1,sum(abs(k2+1)) from d_table group by k1;"""
+        sql """create materialized view k1ap2spa as select k1 as a1,sum(abs(k2+1)) from d_table group by k1;"""
         exception "The materialized view can not involved auto increment column"
     }
 
@@ -43,7 +43,7 @@ suite ("k1s2m3_auto_inc") {
         exception "The materialized view can not involved auto increment column"
     }
 
-    createMV("create materialized view k3ap2spa as select k3,sum(abs(k2+1)) from d_table group by k3;")
+    createMV("create materialized view k3ap2spa as select k3 as a1,sum(abs(k2+1)) from d_table group by k3;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
