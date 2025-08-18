@@ -696,7 +696,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTxn.block")) {
             try {
-                Thread.sleep(1000);
+                Thread.sleep(1000 * 10);
                 LOG.info("block commitTxn for transactionId: {}", transactionId);
             } catch (InterruptedException e) {
                 LOG.warn("InterruptedException: ", e);
