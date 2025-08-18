@@ -170,7 +170,7 @@ void AgentServer::start_workers(ExecEnv* exec_env) {
 
     // clang-format on
 
-    exec_env->get_storage_engine()->clone_workers=&_clone_workers;
+    exec_env->get_storage_engine()->clone_workers = &_clone_workers;
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
