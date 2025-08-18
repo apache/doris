@@ -185,8 +185,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // so better to also check low memory and clear free blocks here.
             if (ctx->low_memory_mode()) { ctx->clear_free_blocks(); }
 
-            if (!scanner->is_init()) {
-                status = scanner->init();
+            if (!scanner->has_prepared()) {
+                status = scanner->prepare();
                 if (!status.ok()) {
                     eos = true;
                 }

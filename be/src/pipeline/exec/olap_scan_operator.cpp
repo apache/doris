@@ -415,7 +415,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
             auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
-            RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
+            RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
         return Status::OK();
     }
