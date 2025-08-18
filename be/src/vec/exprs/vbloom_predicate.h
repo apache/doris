@@ -55,6 +55,6 @@ public:
 
 private:
     std::shared_ptr<BloomFilterFuncBase> _filter;
-    std::string _expr_name;
+    inline static const std::string EXPR_NAME = "bloom_predicate";
 };
 } // namespace doris::vectorized
