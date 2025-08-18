@@ -1408,6 +1408,25 @@ true
 17	\N	\N
 18	{"k1":100, "k2":130}	false
 
+-- !select_map_contains_entry_var2 --
+1	\N	\N	\N	\N
+2	{"  11amory  ":23, "beat":20, " clever ":66}	  11amory  	23	true
+3	{"k1":31, "k2":300}	k1	31	true
+4	{}	\N	\N	false
+5	\N	\N	\N	\N
+6	{"k1":41, "k2":400}	k1	41	true
+7	{"  33,amory  ":2, " bet ":20, " cler ":26}	  33,amory  	2	true
+8	{}	\N	\N	false
+9	{"  1,amy  ":2, " k2 ":90, " k7 ":33}	  1,amy  	2	true
+10	{}	\N	\N	false
+11	{}	\N	\N	false
+12	{"k3":23, null:20, "k4":null}	k3	23	true
+13	{"null":1}	null	1	true
+15	\N	\N	\N	\N
+16	{null:null}	\N	\N	true
+17	\N	\N	\N	\N
+18	{"k1":100, "k2":130}	k1	100	true
+
 -- !select_map_contains_entry_dup1 --
 true
 

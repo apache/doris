@@ -203,6 +203,7 @@ suite("test_map_load_and_function", "p0") {
     qt_select_map_contains_entry114 "SELECT id, m, map_contains_entry(m, 'nokey', 100) FROM ${testTable} ORDER BY id"
     qt_select_map_contains_entry115 "SELECT id, m, map_contains_entry(m, 'k1', NULL) FROM ${testTable} ORDER BY id"
     qt_select_map_contains_entry116 "SELECT id, m, map_contains_entry(m, NULL, NULL) FROM ${testTable} ORDER BY id"
+    qt_select_map_contains_entry_var2 "SELECT id, m, map_keys(m)[1], map_values(m)[1], map_contains_entry(m, map_keys(m)[1], map_values(m)[1]) FROM ${testTable} ORDER BY id"
 
     // map_contains_entry: tests with duplicate keys
     qt_select_map_contains_entry_dup1 "SELECT map_contains_entry(map('k1', 100, 'k1', 200), 'k1', 100)"
@@ -255,7 +256,9 @@ suite("test_map_load_and_function", "p0") {
         [type: "DATE", testKey: "CAST('2023-01-01' AS DATE)", testValue: "CAST('2023-12-31' AS DATE)"],
         [type: "DATETIME", testKey: "CAST('2023-01-01 10:30:00' AS DATETIME)", testValue: "CAST('2023-12-31 23:59:59' AS DATETIME)"],
         [type: "DATEV2", testKey: "datev2('2023-01-01')", testValue: "datev2('2023-12-31')"],
-        [type: "DATETIMEV2(3)", testKey: "CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3))", testValue: "CAST('2023-12-31 23:59:59.999' AS DATETIMEV2(3))"]
+        [type: "DATETIMEV2(3)", testKey: "CAST('2023-01-01 10:30:00.123' AS DATETIMEV2(3))", testValue: "CAST('2023-12-31 23:59:59.999' AS DATETIMEV2(3))"],
+        [type: "CHAR(5)", testKey: "CAST('abc' AS CHAR(5))", testValue: "CAST('xyz' AS CHAR(5))"],
+        [type: "VARCHAR(10)", testKey: "CAST('hello' AS VARCHAR(10))", testValue: "CAST('world' AS VARCHAR(10))"]
     ]
 
     def testCounter = 1
@@ -271,6 +274,21 @@ suite("test_map_load_and_function", "p0") {
             assertTrue(sqlResult[0][0], "MapContainsEntry: Combination ${testCounter} failed, KeyType: ${keyType.type}, ValueType: ${valueType.type}")
             testCounter++
         }
+    }
+
+    // map_contains_entry: decimal-only tests
+    def decimalTypes = [
+        [type: "DECIMALV2(10,2)", testKey: "CAST(123.45 AS DECIMALV2(10,2))", testValue: "CAST(234.56 AS DECIMALV2(10,2))"],
+        [type: "DECIMAL(7,3)",    testKey: "CAST(123.456 AS DECIMAL(7,3))",    testValue: "CAST(234.567 AS DECIMAL(7,3))"],
+        [type: "DECIMAL(10,2)",   testKey: "CAST(123.45 AS DECIMAL(10,2))",    testValue: "CAST(234.56 AS DECIMAL(10,2))"],
+        [type: "DECIMAL(30,10)",  testKey: "CAST(12345.6789 AS DECIMAL(30,10))", testValue: "CAST(23456.7891 AS DECIMAL(30,10))"]
+    ]
+
+    for (def d : decimalTypes) {
+        def mapExpr = "map(${d.testKey}, ${d.testValue})"
+        def sqlQuery = "SELECT map_contains_entry(${mapExpr}, ${d.testKey}, ${d.testValue})"
+        def sqlResult = sql sqlQuery
+        assertTrue(sqlResult[0][0], "MapContainsEntry: Decimal tests failed for ${d.type}")
     }
 
     // map_entries: basic tests
