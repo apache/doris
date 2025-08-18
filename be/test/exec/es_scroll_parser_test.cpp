@@ -94,4 +94,91 @@ TEST_F(EsScrollParserTest, TestBugScenarioTimezoneFormat) {
     EXPECT_EQ(timezone, "+0900") << "Incorrect timezone captured: " << timezone;
 }
 
+TEST_F(EsScrollParserTest, TestEdgeCaseTimezoneFormats) {
+    RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
+
+    std::vector<std::string> edge_cases = {"+00:00", "-00:00", "+23:59", "-23:59",
+                                           "+99:99", "Z",      "+0800",  ""};
+
+    // Test each edge case
+    std::vector<std::string> test_datetime_strings = {
+            "2025-05-23T20:56:52.052+00:00", // +00:00 (UTC with colon)
+            "2025-05-23T20:56:52.052-00:00", // -00:00 (UTC with colon)
+            "2025-05-23T20:56:52.052+23:59", // +23:59 (max valid timezone)
+            "2025-05-23T20:56:52.052-23:59", // -23:59 (max valid timezone)
+            "2025-05-23T20:56:52.052+99:99", // +99:99 (invalid but should match pattern)
+            "2025-05-23T20:56:52.052Z",      // Z (UTC)
+            "2025-05-23T20:56:52.052+0800",  // +0800 (no colon)
+            "2025-05-23T20:56:52.052"        // empty timezone (no timezone)
+    };
+
+    std::vector<std::string> expected_matches = {"+00:00", "-00:00", "+23:59", "-23:59",
+                                                 "+99:99", "Z",      "+0800",  ""};
+
+    std::vector<bool> should_match = {true, true, true, true, true, true, true, false};
+
+    for (size_t i = 0; i < test_datetime_strings.size(); ++i) {
+        const std::string& datetime_str = test_datetime_strings[i];
+        const std::string& expected_match = expected_matches[i];
+        bool should_match_expected = should_match[i];
+
+        re2::StringPiece timezone_value;
+        bool matched = time_zone_pattern.Match(datetime_str, 0, datetime_str.size(),
+                                               RE2::UNANCHORED, &timezone_value, 1);
+
+        EXPECT_EQ(matched, should_match_expected)
+                << "Edge case test failed for: " << datetime_str
+                << " (expected match: " << should_match_expected << ")";
+
+        if (matched && should_match_expected) {
+            std::string timezone = timezone_value.as_string();
+            EXPECT_EQ(timezone, expected_match)
+                    << "Incorrect timezone captured from: " << datetime_str
+                    << " (expected: " << expected_match << ", got: " << timezone << ")";
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, TestSpecialTimezoneEdgeCases) {
+    RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
+
+    // Additional edge cases for comprehensive testing
+    std::vector<std::pair<std::string, std::pair<std::string, bool>>> special_cases = {
+            // {datetime_string, {expected_timezone, should_match}}
+            {"2025-05-23T20:56:52+0000", {"+0000", true}},          // +0000 without colon
+            {"2025-05-23T20:56:52-0000", {"-0000", true}},          // -0000 without colon
+            {"2025-05-23T20:56:52+12:30", {"+12:30", true}},        // +12:30 with colon
+            {"2025-05-23T20:56:52-12:30", {"-12:30", true}},        // -12:30 with colon
+            {"2025-05-23T20:56:52+1200", {"+1200", true}},          // +1200 without colon
+            {"2025-05-23T20:56:52-1200", {"-1200", true}},          // -1200 without colon
+            {"2025-05-23T20:56:52.000Z", {"Z", true}},              // Z with milliseconds
+            {"2025-05-23T20:56:52.123456+05:30", {"+05:30", true}}, // microseconds with timezone
+            {"2025-05-23T20:56:52.123456-05:30", {"-05:30", true}}, // microseconds with timezone
+            {"2025-05-23T20:56:52.123456+0530", {"+0530", true}},   // microseconds without colon
+            {"2025-05-23T20:56:52.123456-0530", {"-0530", true}},   // microseconds without colon
+            {"2025-05-23T20:56:52+14:00", {"+14:00", true}},        // +14:00 (valid max timezone)
+            {"2025-05-23T20:56:52-12:00", {"-12:00", true}},        // -12:00 (valid min timezone)
+    };
+
+    for (const auto& test_case : special_cases) {
+        const std::string& datetime_str = test_case.first;
+        const std::string& expected_timezone = test_case.second.first;
+        bool should_match = test_case.second.second;
+
+        re2::StringPiece timezone_value;
+        bool matched = time_zone_pattern.Match(datetime_str, 0, datetime_str.size(),
+                                               RE2::UNANCHORED, &timezone_value, 1);
+
+        EXPECT_EQ(matched, should_match) << "Special case test failed for: " << datetime_str
+                                         << " (expected match: " << should_match << ")";
+
+        if (matched && should_match) {
+            std::string timezone = timezone_value.as_string();
+            EXPECT_EQ(timezone, expected_timezone)
+                    << "Incorrect timezone captured from: " << datetime_str
+                    << " (expected: " << expected_timezone << ", got: " << timezone << ")";
+        }
+    }
+}
+
 } // namespace doris
