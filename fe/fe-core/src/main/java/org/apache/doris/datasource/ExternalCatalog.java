@@ -82,6 +82,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -160,6 +161,11 @@ public abstract class ExternalCatalog
     protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
     @SerializedName(value = "comment")
     private String comment;
+
+    // Save the error info if initialization fails.
+    // can be seen in `show catalogs` result.
+    // no need to persist this field.
+    private String errorMsg = "";
 
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
@@ -329,7 +335,10 @@ public abstract class ExternalCatalog
                     init();
                 }
                 initialized = true;
+                this.errorMsg = "";
             }
+        } catch (Exception e) {
+            this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
         } finally {
             isInitializing = false;
         }
@@ -629,6 +638,11 @@ public abstract class ExternalCatalog
 
     public void setComment(String comment) {
         this.comment = comment;
+    }
+
+    @Override
+    public String getErrorMsg() {
+        return errorMsg;
     }
 
     /**

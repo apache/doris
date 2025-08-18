@@ -748,6 +748,12 @@ public class IcebergUtils {
                             IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
                             true, field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
+            if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
+                Types.TimestampType timestampType = (Types.TimestampType) field.type();
+                if (timestampType.shouldAdjustToUTC()) {
+                    column.setWithTZExtraInfo();
+                }
+            }
             resSchema.add(column);
         }
         return resSchema;
