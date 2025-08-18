@@ -104,7 +104,7 @@ public:
         return find_lf_crlf_line_sep_scalar(start, length, i);
 #endif
     }
-    
+
     const uint8_t* call_find_line_sep(const uint8_t* start, const size_t length) {
         return (this->*find_line_delimiter_func)(start, length);
     }
@@ -170,8 +170,7 @@ private:
         return find_lf_crlf_line_sep_scalar(start, length, i);
     }
 #elif defined(__ARM_FEATURE_SVE)
-    const uint8_t* find_lf_crlf_line_sep_sve(const uint8_t* start, const size_t length,
-                                             size_t& i) {
+    const uint8_t* find_lf_crlf_line_sep_sve(const uint8_t* start, const size_t length, size_t& i) {
         const svuint8_t newline_vec = svdup_n_u8('\n');
         const size_t vl = svcntb();
         const svbool_t all_true = svptrue_b8();
@@ -213,7 +212,7 @@ private:
                 svuint8_t indices = svindex_u8(0, 1);
                 uint64_t first_lf_idx = svminv_u8(is_lf, indices);
                 size_t lf_pos = i + first_lf_idx;
-                
+
                 if (lf_pos > 0 && start[lf_pos - 1] == '\r') {
                     line_crlf = true;
                     return start + lf_pos - 1;
