@@ -26,6 +26,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -59,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -493,15 +495,27 @@ public class JoinUtils {
      * the nullable property of b.condition should be false
      */
     public static LogicalJoin<Plan, Plan> adjustJoinConjunctsNullable(LogicalJoin<Plan, Plan> join) {
-        Map<Slot, Slot> childSlotMap = new HashMap<>();
+        Map<ExprId, Slot> childSlotMap = new HashMap<>();
         for (Plan child : join.children()) {
             for (Slot slot : child.getOutput()) {
-                childSlotMap.put(slot, slot);
+                childSlotMap.put(slot.getExprId(), slot);
             }
         }
         return join.withJoinConjuncts(
-                ExpressionUtils.replace(join.getHashJoinConjuncts(), childSlotMap),
-                ExpressionUtils.replace(join.getOtherJoinConjuncts(), childSlotMap),
+                updateExpressions(join.getHashJoinConjuncts(), childSlotMap, true, false),
+                updateExpressions(join.getOtherJoinConjuncts(), childSlotMap, true, false),
                 join.getJoinReorderContext());
+    }
+
+    private static List<Expression> updateExpressions(List<Expression> inputs,
+            Map<ExprId, Slot> replaceMap, boolean debugCheck, boolean isAnalyzedPhase) {
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(inputs.size());
+        for (Expression input : inputs) {
+            AtomicBoolean eachChanged = new AtomicBoolean(false);
+            Expression newInput = AdjustNullable.doUpdateExpression(
+                    eachChanged, input, replaceMap, debugCheck, isAnalyzedPhase);
+            result.add(eachChanged.get() ? newInput : input);
+        }
+        return result.build();
     }
 }
