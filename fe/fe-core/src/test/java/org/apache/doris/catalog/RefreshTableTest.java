@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
@@ -36,10 +34,10 @@ import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -96,9 +94,10 @@ public class RefreshTableTest extends TestWithFeService {
         Assertions.assertTrue(table.isObjectCreated());
         long l2 = table.getSchemaUpdateTime();
         Assertions.assertTrue(l2 == l1);
-        RefreshTableStmt refreshTableStmt = new RefreshTableStmt(new TableName("test1", "db1", "tbl11"));
+        TableNameInfo tableNameInfo = new TableNameInfo("test1", "db1", "tbl11");
         try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshTableStmt);
+            Env.getCurrentEnv().getRefreshManager()
+                    .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(), false);
         } catch (Exception e) {
             // Do nothing
         }
