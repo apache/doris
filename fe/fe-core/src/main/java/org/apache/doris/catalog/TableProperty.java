@@ -826,6 +826,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         }
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
+        buildTDEAlgorithm();
     }
 
     // For some historical reason,
