@@ -84,9 +84,9 @@ Status MetaScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status MetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    VLOG_CRITICAL << "MetaScanner::prepare";
-    RETURN_IF_ERROR(Scanner::prepare(_state, conjuncts));
+Status MetaScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    VLOG_CRITICAL << "MetaScanner::init";
+    RETURN_IF_ERROR(Scanner::init(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     return Status::OK();
 }
