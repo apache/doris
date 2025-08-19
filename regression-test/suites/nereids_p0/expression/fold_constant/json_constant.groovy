@@ -15,22 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_pushdown_explain") {
-    sql "use test_query_db"
-    
-    explain {
-        sql("select k1 from baseall where k1 = 1")
-        contains "PREDICATES:"
-    }
-    qt_select "select k1 from baseall where k1 = 1"
-
-    sql "set enable_fold_constant_by_be = true;"
-    explain {
-        sql("select cast(0 as datetime)")
-        contains "NULL"
-    }
-    explain {
-        sql("select cast(0 as date)")
-        contains "NULL"
-    }
+suite("json_constant") {
+    qt_json1 "SELECT /*+ set_var(enable_fold_constant_by_be=0) */ json_array(array(cast(1 as decimal), cast(1.2 as decimal)));"
+    qt_json2 "SELECT /*+ set_var(enable_fold_constant_by_be=1) */ json_array(array(cast(1 as decimal), cast(1.2 as decimal)));"
 }
