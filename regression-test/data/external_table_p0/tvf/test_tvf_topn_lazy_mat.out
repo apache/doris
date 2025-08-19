@@ -179,34 +179,34 @@
 6	3.0	6.0
 7	3.5	7.0
 
--- !join_1 --
+-- !test_join_1 --
 1	user1	1.0	false	0.5	1	user1	1.0	false	0.5
 2	user2	2.0	true	1.0	2	user2	2.0	true	1.0
 3	user3	3.0	false	1.5	3	user3	3.0	false	1.5
 4	user4	4.0	true	2.0	4	user4	4.0	true	2.0
 5	user5	5.0	false	2.5	5	user5	5.0	false	2.5
 
--- !join_2 --
+-- !test_join_2 --
 1	user10
 2	user11
 3	user12
 4	user13
 5	user14
 
--- !join_3 --
+-- !test_join_3 --
 1	user1	1.0	false	0.5
 2	user2	2.0	true	1.0
 3	user3	3.0	false	1.5
 4	user4	4.0	true	2.0
 5	user5	5.0	false	2.5
 
--- !join_4 --
-1	user1	1.0	false	0.5	2	user2	2.0	true	1.0
-1	user1	1.0	false	0.5	4	user4	4.0	true	2.0
-1	user1	1.0	false	0.5	8	user8	8.0	true	4.0
-1	user1	1.0	false	0.5	9	user9	9.0	false	4.5
+-- !test_join_4 --
+1	user1	1.0	false	0.5	1	user1	1.0	false	0.5
+2	user2	2.0	true	1.0	2	user2	2.0	true	1.0
+3	user3	3.0	false	1.5	3	user3	3.0	false	1.5
+4	user4	4.0	true	2.0	4	user4	4.0	true	2.0
 
--- !join_5 --
+-- !test_join_5 --
 1	user1	1.0	false	0.5	10	user10	10.0	true	5.0	1	user1	1.0	false	0.5
 2	user2	2.0	true	1.0	11	user11	11.0	false	5.5	2	user2	2.0	true	1.0
 3	user3	3.0	false	1.5	12	user12	12.0	true	6.0	3	user3	3.0	false	1.5
@@ -393,34 +393,34 @@
 6	3.0	6.0
 7	3.5	7.0
 
--- !join_1 --
+-- !test_join_1 --
 1	user1	1.0	false	0.5	1	user1	1.0	false	0.5
 2	user2	2.0	true	1.0	2	user2	2.0	true	1.0
 3	user3	3.0	false	1.5	3	user3	3.0	false	1.5
 4	user4	4.0	true	2.0	4	user4	4.0	true	2.0
 5	user5	5.0	false	2.5	5	user5	5.0	false	2.5
 
--- !join_2 --
+-- !test_join_2 --
 1	user10
 2	user11
 3	user12
 4	user13
 5	user14
 
--- !join_3 --
+-- !test_join_3 --
 1	user1	1.0	false	0.5
 2	user2	2.0	true	1.0
 3	user3	3.0	false	1.5
 4	user4	4.0	true	2.0
 5	user5	5.0	false	2.5
 
--- !join_4 --
-1	user1	1.0	false	0.5	2	user2	2.0	true	1.0
-1	user1	1.0	false	0.5	4	user4	4.0	true	2.0
-1	user1	1.0	false	0.5	8	user8	8.0	true	4.0
-1	user1	1.0	false	0.5	9	user9	9.0	false	4.5
+-- !test_join_4 --
+1	user1	1.0	false	0.5	1	user1	1.0	false	0.5
+2	user2	2.0	true	1.0	2	user2	2.0	true	1.0
+3	user3	3.0	false	1.5	3	user3	3.0	false	1.5
+4	user4	4.0	true	2.0	4	user4	4.0	true	2.0
 
--- !join_5 --
+-- !test_join_5 --
 1	user1	1.0	false	0.5	10	user10	10.0	true	5.0	1	user1	1.0	false	0.5
 2	user2	2.0	true	1.0	11	user11	11.0	false	5.5	2	user2	2.0	true	1.0
 3	user3	3.0	false	1.5	12	user12	12.0	true	6.0	3	user3	3.0	false	1.5

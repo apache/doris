@@ -112,30 +112,30 @@ suite("test_tvf_topn_lazy_mat","external,hive,tvf,external_docker") {
     }
 
     def runjointest = {
-        qt_join_1 """ 
+        qt_test_join_1 """ 
             select * from ${tvf_parquet_1} as a join  ${tvf_orc_1} as b on a.id =  b.id  order by a.name limit 5;    
         """
 
-        qt_join_2 """
+        qt_test_join_2 """
             select a.id,b.name from ${tvf_parquet_1} as a join  ${tvf_orc_2} as b on a.id + 9 =  b.id  order by a.id limit 5;    
         """
 
-        qt_join_3 """
+        qt_test_join_3 """
             select a.* from ${tvf_orc_1} as a join  ${tvf_orc_2} as b on a.id + 9 =  b.id  order by b.name limit 5;    
         """
 
-        qt_join_4 """
-            select * from ${tvf_orc_1} as a join  ${tvf_orc_1} as b on a.id = a.value  order by a.id limit 4;    
+        qt_test_join_4 """
+            select * from ${tvf_orc_1} as a join  ${tvf_orc_1} as b on a.id = b.value  order by a.id limit 4;    
         """
         
-        qt_join_5 """
+        qt_test_join_5 """
             select * from ${tvf_orc_1} as a join  ${tvf_orc_2} as b join ${tvf_parquet_1} as c  
                 on a.value + 9  =  b.id and c.name = a.name  order by a.score limit 5;    
         """
         
 
     }
-
+    sql """ set disable_join_reorder=true; """
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         //id   | name  | value | active | score 
