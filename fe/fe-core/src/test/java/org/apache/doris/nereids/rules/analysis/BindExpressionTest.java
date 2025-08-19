@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -24,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatterns {
@@ -78,6 +80,26 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 .analyze(sql)
                 .nonMatch(any()
                         .when(e -> e.getExpressions().stream().anyMatch(Expression::hasUnbound)));
+
+    }
+
+    @Test
+    void testColumnIndexAndLiteralAgg() {
+        // The '1' in GROUP BY refers to the first column in the SELECT clause,
+        // but since sum(col2) is an aggregate function, using '1' will cause an error.
+        String invalidSql = "select sum(col2) from t1 group by col2, 1";
+        Assertions.assertThrows(AnalysisException.class, () ->
+            PlanChecker.from(connectContext)
+                .analyze(invalidSql)
+                .nonMatch(any()
+                    .when(e -> e.getExpressions().stream().anyMatch(Expression::hasUnbound))));
+
+        // The '2' here is an integer literal
+        String validSql = "select sum(col2) from t1 group by col2, 2";
+        PlanChecker.from(connectContext)
+            .analyze(validSql)
+            .nonMatch(any()
+                .when(e -> e.getExpressions().stream().anyMatch(Expression::hasUnbound)));
 
     }
 
