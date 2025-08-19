@@ -72,6 +72,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"

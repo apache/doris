@@ -18,15 +18,24 @@
 #pragma once
 
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
 #include <string_view>
 #include <unordered_map>
 
+#include <functional>
+#include <optional>
+
+#include "common/status.h"
+#include "io/fs/encrypted_fs_factory.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -124,6 +133,8 @@ struct RowsetWriterContext {
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
 
+    std::optional<EncryptionAlgorithmPB> encrypt_algorithm;
+
     bool is_local_rowset() const { return !storage_resource; }
 
     std::string segment_path(int seg_id) const {
@@ -134,31 +145,40 @@ struct RowsetWriterContext {
         }
     }
 
-    io::FileSystemSPtr fs() const {
-        if (is_local_rowset()) {
-            return io::global_local_filesystem();
-        } else {
-            return storage_resource->fs;
+    io::FileSystemSPtr fs() {
+        auto fs = [this]() -> io::FileSystemSPtr {
+            if (is_local_rowset()) {
+                return io::global_local_filesystem();
+            } else {
+                return storage_resource->fs;
+            }
+        }();
+
+        if (!encrypt_algorithm.has_value()) {
+#ifndef BE_TEST
+            constexpr std::string_view msg =
+                    "RowsetWriterContext::determine_encryption is not called when creating this "
+                    "RowsetWriterContext, it will result in encrypted rowsets left unencrypted";
+            auto st = Status::InternalError(msg);
+
+            LOG(WARNING) << st;
+            DCHECK(false) << st;
+#endif
+            return fs;
         }
+        return io::make_file_system(fs, encrypt_algorithm.value());
     }
 
-    io::FileSystem& fs_ref() const {
-        if (is_local_rowset()) {
-            return *io::global_local_filesystem();
-        } else {
-            return *storage_resource->fs;
-        }
-    }
+    io::FileSystem& fs_ref() { return *fs(); }
 
-    io::FileWriterOptions get_file_writer_options() const {
+    io::FileWriterOptions get_file_writer_options() {
         io::FileWriterOptions opts {
                 .write_file_cache = write_file_cache,
                 .is_cold_data = is_hot_data,
                 .file_cache_expiration = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
                                                  ? newest_write_timestamp + file_cache_ttl_sec
                                                  : 0,
-                .approximate_bytes_to_write = approximate_bytes_to_write,
-        };
+                .approximate_bytes_to_write = approximate_bytes_to_write};
 
         return opts;
     }

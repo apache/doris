@@ -545,6 +545,7 @@ message TabletMetaPB {
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
     optional int64 time_series_compaction_level_threshold = 33 [default = 1];
+    optional EncryptionAlgorithmPB encryption_algorithm = 34;
 
     // For cloud
     optional int64 index_id = 1000;
@@ -601,6 +602,7 @@ message TabletMetaCloudPB {
     optional int64 group_commit_data_bytes = 36 [default = 134217728];
     optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
     optional int64 time_series_compaction_level_threshold = 38 [default = 1];
+    optional EncryptionAlgorithmPB encryption_algorithm = 39;
 
     // Use for selectdb-cloud
     optional string table_name = 101;
@@ -669,4 +671,35 @@ message PartialUpdateInfoPB {
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
+}
+
+message FileEncryptionInfoPB {
+    optional EncryptionKeyPB data_key_info = 1;
+    optional bytes data_iv_nonce = 2;
+}
+
+message EncryptionKeyPB {
+    optional string id = 1;
+    optional int32 version = 2;
+    optional string parent_id = 3;
+    optional int32 parent_version = 4;
+    optional EncryptionKeyTypePB type = 5;
+    optional EncryptionAlgorithmPB algorithm = 6;
+    optional string ciphertext_base64 = 7;
+    optional bytes plaintext = 8;
+    optional string iv_base64 = 9;
+    optional int64 crc32 = 10;
+    optional int64 ctime = 11;
+    optional int64 mtime = 12;
+}
+
+enum EncryptionKeyTypePB {
+    MASTER_KEY = 0;
+    DATA_KEY = 1;
+}
+
+enum EncryptionAlgorithmPB {
+    NOOP = 0;
+    AES_256_CTR = 1;
+    SM4_128_CTR = 2;
 }

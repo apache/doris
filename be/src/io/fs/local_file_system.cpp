@@ -45,6 +45,7 @@
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/stack_util.h"
 
 namespace doris::io {
 

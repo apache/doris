@@ -50,6 +50,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"

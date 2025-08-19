@@ -89,6 +89,8 @@ public:
     FileCacheStorageType get_type() override { return DISK; }
 
 private:
+    static FileSystemSPtr determine_fs();
+
     void remove_old_version_directories();
 
     Status collect_directory_entries(const std::filesystem::path& dir_path,

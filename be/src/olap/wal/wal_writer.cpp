@@ -17,13 +17,20 @@
 
 #include "olap/wal/wal_writer.h"
 
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/FrontendService_types.h>
+
 #include "common/config.h"
+#include "common/status.h"
+#include "io/fs/encrypted_fs_factory.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/storage_engine.h"
 #include "olap/wal/wal_manager.h"
 #include "util/crc32c.h"
+#include "util/thrift_rpc_helper.h"
 
 namespace doris {
 
@@ -34,15 +41,46 @@ WalWriter::WalWriter(const std::string& file_name) : _file_name(file_name) {}
 
 WalWriter::~WalWriter() {}
 
-Status WalWriter::init() {
+Status determine_wal_fs(int64_t db_id, int64_t tb_id, io::FileSystemSPtr& fs) {
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+    TGetTableTDEInfoRequest req;
+    req.__set_db_id(db_id);
+    req.__set_table_id(tb_id);
+    TGetTableTDEInfoResult ret;
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&req, &ret](FrontendServiceConnection& client) {
+                client->getTableTDEInfo(ret, req);
+            }));
+    if (auto st = Status::create(ret.status); !st) {
+        return st;
+    }
+    auto encrypt_algorithm = [&ret]() -> EncryptionAlgorithmPB {
+        switch (ret.algorithm) {
+        case doris::TEncryptionAlgorithm::AES256:
+            return EncryptionAlgorithmPB::AES_256_CTR;
+        case doris::TEncryptionAlgorithm::SM4:
+            return EncryptionAlgorithmPB::SM4_128_CTR;
+        default:
+            return EncryptionAlgorithmPB::NOOP;
+        }
+    }();
+
+    auto local_fs = io::global_local_filesystem();
+    fs = io::make_file_system(local_fs, encrypt_algorithm);
+
+    return Status::OK();
+}
+
+Status WalWriter::init(const io::FileSystemSPtr& fs) {
     io::Path wal_path = _file_name;
     auto parent_path = wal_path.parent_path();
     bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(parent_path, &exists));
+    RETURN_IF_ERROR(fs->exists(parent_path, &exists));
     if (!exists) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(parent_path));
+        RETURN_IF_ERROR(fs->create_directory(parent_path));
     }
-    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_file_name, &_file_writer));
+    RETURN_IF_ERROR(fs->create_file(_file_name, &_file_writer));
     LOG(INFO) << "create wal " << _file_name;
     return Status::OK();
 }

@@ -48,6 +48,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder

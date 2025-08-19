@@ -168,6 +168,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
@@ -1704,6 +1705,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM, olapTable.getTDEAlgorithm().name());
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -2204,7 +2208,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
                             tbl.variantEnableFlattenNested(),
-                            tbl.storagePageSize(),
+                            tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
@@ -3085,6 +3089,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties);
             olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        try {
+            TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
+            olapTable.setEncryptionAlgorithm(tdeAlgorithm);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
