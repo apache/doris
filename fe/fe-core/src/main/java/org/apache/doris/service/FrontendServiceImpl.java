@@ -1507,46 +1507,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    @Override
-    public TGetTableTDEInfoResult getTableTDEInfo(TGetTableTDEInfoRequest request) throws TException {
-        String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive getTableTDEInfo request: {}, backend: {}", request, clientAddr);
-        }
-
-        if (!request.isSetDbId()) {
-            TStatus status = new TStatus()
-                    .setStatusCode(TStatusCode.INVALID_ARGUMENT);
-            status.addToErrorMsgs("Missing db id field");
-        }
-        if (!request.isSetTableId()) {
-            TStatus status = new TStatus()
-                    .setStatusCode(TStatusCode.INVALID_ARGUMENT);
-            status.addToErrorMsgs("Missing db id field");
-        }
-        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(request.getDbId());
-        if (!db.isPresent()) {
-            TStatus status = new TStatus()
-                    .setStatusCode(TStatusCode.NOT_FOUND);
-            status.addToErrorMsgs("Db=" + request.getDbId() + " not found");
-            return new TGetTableTDEInfoResult().setStatus(status);
-        }
-        Optional<Table> tbl = db.get().getTable(request.getTableId());
-        if (!tbl.isPresent()) {
-            TStatus status = new TStatus()
-                    .setStatusCode(TStatusCode.NOT_FOUND);
-            status.addToErrorMsgs("Table=" + request.getTableId() + " not found");
-            return new TGetTableTDEInfoResult().setStatus(status);
-        }
-
-        TEncryptionAlgorithm tdeAlgorithm = ((OlapTable) tbl.get()).getTableProperty().getTDEAlgorithm();
-        TStatus status = new TStatus();
-        status.setStatusCode(TStatusCode.OK);
-        TGetTableTDEInfoResult result = new TGetTableTDEInfoResult();
-        result.setAlgorithm(tdeAlgorithm).setStatus(status);
-        return result;
-    }
-
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         if (request.isSetTableId() && request.getTableId() > 0) {
             Table table = Env.getCurrentEnv().getInternalCatalog().getTableByTableId(request.getTableId());
@@ -4542,6 +4502,48 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setRoutineLoadJobs(jobInfos);
 
+        return result;
+    }
+
+    @Override
+    public TGetTableTDEInfoResult getTableTDEInfo(TGetTableTDEInfoRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive getTableTDEInfo request: {}, backend: {}", request, clientAddr);
+        }
+
+        if (!request.isSetDbId()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("Missing db id field");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        if (!request.isSetTableId()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("Missing db id field");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(request.getDbId());
+        if (!db.isPresent()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs("Db=" + request.getDbId() + " not found");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        Optional<Table> tbl = db.get().getTable(request.getTableId());
+        if (!tbl.isPresent()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs("Table=" + request.getTableId() + " not found");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+
+        TEncryptionAlgorithm tdeAlgorithm = ((OlapTable) tbl.get()).getTableProperty().getTDEAlgorithm();
+        TStatus status = new TStatus();
+        status.setStatusCode(TStatusCode.OK);
+        TGetTableTDEInfoResult result = new TGetTableTDEInfoResult();
+        result.setAlgorithm(tdeAlgorithm).setStatus(status);
         return result;
     }
 }
