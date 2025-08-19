@@ -149,7 +149,7 @@ Status SchemaEncryptionKeysScanner::_fill_block_impl(vectorized::Block* block) {
                         break;
                     }
                     switch (encryption_key.algorithm()) {
-                    case doris::EncryptionAlgorithmPB::NOOP:
+                    case doris::EncryptionAlgorithmPB::PLAINTEXT:
                         column_value = "";
                         break;
                     case doris::EncryptionAlgorithmPB::AES_256_CTR:
