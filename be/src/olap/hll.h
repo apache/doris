@@ -276,10 +276,9 @@ private:
     }
 
     void _do_simd_merge(uint8_t* __restrict registers, const uint8_t* __restrict other_registers) {
-         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-             registers[i] =
-                     (registers[i] < other_registers[i] ? other_registers[i] : registers[i]);
-         }
+        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            registers[i] = (registers[i] < other_registers[i] ? other_registers[i] : registers[i]);
+        }
     }
 
     HllDataType _type = HLL_DATA_EMPTY;
