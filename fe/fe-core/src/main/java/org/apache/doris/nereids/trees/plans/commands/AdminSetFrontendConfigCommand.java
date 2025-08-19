@@ -74,7 +74,7 @@ public class AdminSetFrontendConfigCommand extends Command implements Redirect {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
         originStmt = ctx.getStatementContext().getOriginStatement();
-        Env.getCurrentEnv().setConfig(this);
+        Env.getCurrentEnv().setConfig(this, executor.isProxy());
     }
 
     /**
@@ -116,7 +116,7 @@ public class AdminSetFrontendConfigCommand extends Command implements Redirect {
      */
     public OriginStatement getLocalSetStmt() {
         Object[] keyArr = configs.keySet().toArray();
-        String sql = String.format("ADMIN SET FRONTEND CONFIG (\"%s\" = \"%s\");",
+        String sql = String.format("ADMIN SET %s CONFIG (\"%s\" = \"%s\");", applyToAll ? "ALL FRONTENDS" : "FRONTEND",
                 keyArr[0].toString(), configs.get(keyArr[0].toString()));
 
         return new OriginStatement(sql, originStmt.idx);

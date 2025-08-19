@@ -80,7 +80,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
 
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan);
+        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan, false);
         Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 2. set with experimental
@@ -89,7 +89,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         plan = new NereidsParser().parseSingle(sql);
 
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan);
+        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan, false);
         Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 3. show config
