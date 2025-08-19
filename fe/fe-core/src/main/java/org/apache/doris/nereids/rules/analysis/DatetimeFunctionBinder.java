@@ -168,7 +168,7 @@ public class DatetimeFunctionBinder {
                 unit = TimeUnit.valueOf(unitName);
             } catch (IllegalArgumentException e) {
                 throw new AnalysisException("Unsupported time stamp diff time unit: " + unitName
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
             }
             if (TIMESTAMP_DIFF_FUNCTION_NAMES.contains(functionName)) {
                 // timestampdiff(unit, start, end)
