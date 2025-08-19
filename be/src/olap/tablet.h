@@ -501,7 +501,7 @@ private:
     std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction(int64_t min_start_version,
                                                                      int64_t max_start_version);
 
-    Status _init_context_common_fields(RowsetWriterContext& context);
+    void _init_context_common_fields(RowsetWriterContext& context);
 
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
