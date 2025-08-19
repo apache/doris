@@ -302,7 +302,7 @@ private:
     // return EOF if file is empty
     // return EROOR if encounter error.
     Status _create_file_reader();
-
+    Status _create_file_reader_inner();
     void _init_profile();
     Status _init_read_columns();
 
@@ -791,6 +791,8 @@ public:
     }
 
     uint64_t getLength() const override { return _tracing_file_reader->size(); }
+
+    Status updateLength() { return _file_reader->update_size(); }
 
     uint64_t getNaturalReadSize() const override { return config::orc_natural_read_size_mb << 20; }
 
