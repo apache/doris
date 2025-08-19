@@ -298,7 +298,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
             case SM4:
                 return EncryptionAlgorithmPB.SM4_128_CTR;
             default:
-                return EncryptionAlgorithmPB.NOOP;
+                return EncryptionAlgorithmPB.PLAINTEXT;
         }
     }
 

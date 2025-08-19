@@ -4,8 +4,6 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "enterprise/encrypted_file_system.h"
-#include "enterprise/encryption_common.h"
 #include "io/fs/file_system.h"
 
 namespace doris::io {

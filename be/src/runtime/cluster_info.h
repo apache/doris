@@ -17,11 +17,8 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <gen_cpp/olap_file.pb.h>
 
-#include <optional>
 #include <string>
 
 namespace doris {
