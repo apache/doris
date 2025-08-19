@@ -62,7 +62,7 @@ Status determine_wal_fs(int64_t db_id, int64_t tb_id, io::FileSystemSPtr& fs) {
         case doris::TEncryptionAlgorithm::SM4:
             return EncryptionAlgorithmPB::SM4_128_CTR;
         default:
-            return EncryptionAlgorithmPB::NOOP;
+            return EncryptionAlgorithmPB::PLAINTEXT;
         }
     }();
 

@@ -9,7 +9,7 @@
 namespace doris::io {
 
 FileSystemSPtr make_file_system(const FileSystemSPtr& inner, EncryptionAlgorithmPB algorithm) {
-    if (algorithm == EncryptionAlgorithmPB::NOOP) {
+    if (algorithm == EncryptionAlgorithmPB::PLAINTEXT) {
         return inner;
     }
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

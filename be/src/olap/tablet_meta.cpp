@@ -372,7 +372,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::SM4_128_CTR);
         break;
     default:
-        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::NOOP);
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::PLAINTEXT);
     }
 
     init_from_pb(tablet_meta_pb);

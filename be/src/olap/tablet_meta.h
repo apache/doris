@@ -367,7 +367,7 @@ private:
     // cloud
     int64_t _ttl_seconds = 0;
 
-    EncryptionAlgorithmPB _encryption_algorithm = NOOP;
+    EncryptionAlgorithmPB _encryption_algorithm = PLAINTEXT;
 
     mutable std::shared_mutex _meta_lock;
 };

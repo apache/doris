@@ -716,7 +716,7 @@ enum EncryptionKeyTypePB {
 }
 
 enum EncryptionAlgorithmPB {
-    NOOP = 0;
+    PLAINTEXT = 0;
     AES_256_CTR = 1;
     SM4_128_CTR = 2;
 }
