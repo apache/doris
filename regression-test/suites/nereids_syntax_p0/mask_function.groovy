@@ -47,6 +47,10 @@ suite("test_mask_function") {
         ;
     """
 
+    qt_test_error_parameter_mask_function """
+        select mask(name, '*', '#', '!', 'a') from table_mask_test;
+    """
+    
     qt_select_all """
         select * from table_mask_test order by id;
     """
