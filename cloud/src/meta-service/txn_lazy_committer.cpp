@@ -516,6 +516,8 @@ TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(txn_
 std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& instance_id,
                                                             int64_t txn_id) {
     std::shared_ptr<TxnLazyCommitTask> task;
+    LOG_INFO("[verbose] enter TxnLazyCommitter::submit, instance_id={}, txn_id={}", instance_id,
+             txn_id);
     {
         std::unique_lock<std::mutex> lock(mutex_);
         auto iter = running_tasks_.find(txn_id);
@@ -526,9 +528,14 @@ std::shared_ptr<TxnLazyCommitTask> TxnLazyCommitter::submit(const std::string& i
         task = std::make_shared<TxnLazyCommitTask>(instance_id, txn_id, txn_kv_, this);
         running_tasks_.emplace(txn_id, task);
     }
-
+    LOG_INFO(
+            "[verbose] TxnLazyCommitter::submit, begin to submit task to worker pool "
+            "instance_id={}, txn_id={}, task->txn_id={}",
+            instance_id, txn_id, task->txn_id());
     worker_pool_->submit([task]() { task->commit(); });
     DCHECK(task != nullptr);
+    LOG_INFO("[verbose] quit TxnLazyCommitter::submit, instance_id={}, txn_id={}", instance_id,
+             txn_id);
     return task;
 }
 
