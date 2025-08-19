@@ -672,17 +672,62 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto int_type = std::make_shared<DataTypeInt32>();
-        size_t num_columns_without_result = block.columns();
-        block.insert({int_type->create_column_const(input_rows_count, to_field<TYPE_INT>(1)),
-                      int_type, "const 1"});
-        ColumnNumbers temp_arguments(3);
-        temp_arguments[0] = arguments[0];
-        temp_arguments[1] = num_columns_without_result;
-        temp_arguments[2] = arguments[1];
+        DCHECK_EQ(arguments.size(), 2);
+        auto res = ColumnString::create();
+        bool col_const[2];
+        ColumnPtr argument_columns[2];
+        for (int i = 0; i < 2; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
 
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        const auto& str_col = assert_cast<const ColumnString&>(*argument_columns[0]);
+        const auto& len_col = assert_cast<const ColumnInt32&>(*argument_columns[1]);
+
+        std::visit(
+                [&](auto str_const, auto len_const) {
+                    _execute<str_const, len_const>(str_col, len_col, *res, input_rows_count);
+                },
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]));
+
+        block.get_by_position(result).column = std::move(res);
         return Status::OK();
+    }
+
+    template <bool str_const, bool len_const>
+    static void _execute(const ColumnString& str_col, const ColumnInt32& len_col, ColumnString& res,
+                         size_t size) {
+        auto& res_chars = res.get_chars();
+        auto& res_offsets = res.get_offsets();
+        res_offsets.resize(size);
+        const auto& len_data = len_col.get_data();
+
+        if constexpr (str_const) {
+            res_chars.reserve(size * (str_col.get_chars().size()));
+        } else {
+            res_chars.reserve(str_col.get_chars().size());
+        }
+
+        for (int i = 0; i < size; ++i) {
+            auto str = str_col.get_data_at(index_check_const<str_const>(i));
+            int len = len_data[index_check_const<len_const>(i)];
+            if (len <= 0 || str.empty()) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
+            }
+
+            const char* begin = str.begin();
+            const char* end = str.end();
+            const char* p = begin;
+
+            for (size_t i = 0, char_size = 0; i < len && p < end; ++i, p += char_size) {
+                char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+            }
+
+            StringOP::push_value_string_reserved_and_allow_overflow({begin, p}, i, res_chars,
+                                                                    res_offsets);
+        }
     }
 };
 
