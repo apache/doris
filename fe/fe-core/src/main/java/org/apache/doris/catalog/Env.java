@@ -37,7 +37,6 @@ import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SlotRef;
@@ -3400,10 +3399,6 @@ public class Env {
                 externalCatalog.replayDropDb(info.getDbName());
             }
         }
-    }
-
-    public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverDatabase(recoverStmt);
     }
 
     public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {

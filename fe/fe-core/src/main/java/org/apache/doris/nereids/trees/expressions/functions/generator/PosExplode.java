@@ -73,7 +73,7 @@ public class PosExplode extends TableGeneratingFunction implements UnaryExpressi
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(
                 FunctionSignature.ret(new StructType(ImmutableList.of(
-                        new StructField("pos", IntegerType.INSTANCE, true, ""),
+                        new StructField("pos", IntegerType.INSTANCE, false, ""),
                         new StructField("col", ((ArrayType) child().getDataType()).getItemType(), true, ""))))
                         .args(child().getDataType()));
     }
