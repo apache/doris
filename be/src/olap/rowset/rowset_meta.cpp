@@ -26,7 +26,6 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "enterprise/encrypted_file_system.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
