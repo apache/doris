@@ -40,6 +40,8 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
@@ -89,7 +91,7 @@ public class RoutineLoadManagerTest {
         Separator columnSeparator = new Separator(",");
         loadPropertyList.add(columnSeparator);
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        properties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
         String topicName = "topic1";
@@ -153,12 +155,13 @@ public class RoutineLoadManagerTest {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
         String tableNameString = "table1";
         List<ParseNode> loadPropertyList = new ArrayList<>();
         Separator columnSeparator = new Separator(",");
         loadPropertyList.add(columnSeparator);
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        properties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
         String topicName = "topic1";
@@ -170,6 +173,8 @@ public class RoutineLoadManagerTest {
                                                                                 typeName, customProperties,
                                                                                 LoadTask.MergeType.APPEND, "");
         createRoutineLoadStmt.setOrigStmt(new OriginStatement("dummy", 0));
+        CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(labelNameInfo, tableNameString,
+            loadPropertyList, properties, typeName, customProperties, LoadTask.MergeType.APPEND, "");
 
 
         new Expectations() {
