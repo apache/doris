@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -25,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 
 import com.google.common.collect.Maps;
 
@@ -116,7 +118,9 @@ public class BuildIndexClause extends AlterTableClause {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (indexType == IndexDef.IndexType.BLOOMFILTER) {
+        if ((Config.isNotCloudMode() && indexType == IndexDef.IndexType.NGRAM_BF)
+                || (Config.isCloudMode() && indexType == IndexType.INVERTED & !existedIdx.isInvertedIndexParserNone())
+                || indexType == IndexDef.IndexType.BLOOMFILTER) {
             throw new AnalysisException("bloomfilter index is not needed to build.");
         }
         indexDef = new IndexDef(indexName, partitionNames, indexType, true);

@@ -543,7 +543,6 @@ TEST_F(CloudIndexChangeCompactionTest, basic_compaction_test) {
     ret = reinterpret_cast<CloudCompactionMixin*>(&cloud_index_change_compaction)
                   ->build_basic_info();
     ASSERT_TRUE(cloud_index_change_compaction.get_output_schema() != tablet_schema1);
-    ASSERT_TRUE(cloud_index_change_compaction.get_output_schema() == tablet_schema2);
     ASSERT_TRUE(ret.ok());
 
     // test delete predicate

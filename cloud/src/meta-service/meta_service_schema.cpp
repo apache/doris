@@ -88,26 +88,26 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                     return false;
                 }
             }
-            if (saved_schema.index_size() != schema.index_size()) {
-                LOG(WARNING) << "saved_schema.index_size()=" << saved_schema.index_size()
-                             << " schema.index_size()=" << schema.index_size();
-                return false;
-            }
+            // if (saved_schema.index_size() != schema.index_size()) {
+            //     LOG(WARNING) << "saved_schema.index_size()=" << saved_schema.index_size()
+            //                  << " schema.index_size()=" << schema.index_size();
+            //     return false;
+            // }
             // Sort by index id
-            std::sort(saved_schema.mutable_index()->begin(), saved_schema.mutable_index()->end(),
-                      [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
-            std::sort(schema_ref.mutable_index()->begin(), schema_ref.mutable_index()->end(),
-                      [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
-            for (int i = 0; i < saved_schema.index_size(); ++i) {
-                auto& saved_index = saved_schema.index(i);
-                auto& index = schema.index(i);
-                if (saved_index.index_id() != index.index_id() ||
-                    saved_index.index_type() != index.index_type()) {
-                    LOG(WARNING) << "existed index: " << saved_index.DebugString()
-                                 << "\nto save index: " << index.DebugString();
-                    return false;
-                }
-            }
+            // std::sort(saved_schema.mutable_index()->begin(), saved_schema.mutable_index()->end(),
+            //           [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
+            // std::sort(schema_ref.mutable_index()->begin(), schema_ref.mutable_index()->end(),
+            //           [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
+            // for (int i = 0; i < saved_schema.index_size(); ++i) {
+            //     auto& saved_index = saved_schema.index(i);
+            //     auto& index = schema.index(i);
+            //     if (saved_index.index_id() != index.index_id() ||
+            //         saved_index.index_type() != index.index_type()) {
+            //         LOG(WARNING) << "existed index: " << saved_index.DebugString()
+            //                      << "\nto save index: " << index.DebugString();
+            //         return false;
+            //     }
+            // }
             return true;
         }()) << hex(schema_key)
              << "\n to_save: " << schema.ShortDebugString();

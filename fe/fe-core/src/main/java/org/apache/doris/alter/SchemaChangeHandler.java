@@ -2148,9 +2148,10 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     }
-                    // only inverted index with local mode can do light drop index change
+                    // for inverted index, light schema change is supported in both cloud and local mode;
+                    // for ngram index, light schema change is supported only in local mode;
                     if (found != null && (found.getIndexType() == IndexDef.IndexType.INVERTED
-                            || found.getIndexType() == IndexType.NGRAM_BF)) {
+                            || (Config.isCloudMode() && found.getIndexType() == IndexType.NGRAM_BF))) {
                         alterIndexes.add(found);
                         isDropIndex = true;
                         lightIndexChange = true;

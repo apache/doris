@@ -78,10 +78,6 @@ Status CloudIndexChangeCompaction::prepare_compact() {
 
     _input_rowsets.push_back(input_rowset);
 
-    _output_schema = _is_drop
-                             ? _build_output_rs_index_schema_for_drop(input_rowset->tablet_schema())
-                             : _build_output_rs_index_schema_for_add(input_rowset->tablet_schema());
-
     for (auto& rs : _input_rowsets) {
         _input_row_num += rs->num_rows();
         _input_segments += rs->num_segments();
@@ -105,6 +101,14 @@ Status CloudIndexChangeCompaction::prepare_compact() {
             .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0));
 
     return Status::OK();
+}
+
+TabletSchemaSPtr CloudIndexChangeCompaction::get_output_schema() {
+    TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
+    output_rs_tablet_schema->copy_from(*_cur_tablet_schema);
+    _output_schema = _is_drop ? _build_output_rs_index_schema_for_drop(output_rs_tablet_schema)
+                              : _build_output_rs_index_schema_for_add(output_rs_tablet_schema);
+    return _output_schema;
 }
 
 Status CloudIndexChangeCompaction::request_global_lock(bool& should_skip_err) {
@@ -455,9 +459,7 @@ Status CloudIndexChangeCompaction::garbage_collection() {
 }
 
 TabletSchemaSPtr CloudIndexChangeCompaction::_build_output_rs_index_schema_for_drop(
-        const TabletSchemaSPtr& input_rs_tablet_schema) {
-    TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
-    output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
+        const TabletSchemaSPtr& output_rs_tablet_schema) {
     for (const auto& t_index : _alter_indexes) {
         DCHECK_EQ(t_index.columns.size(), 1);
         auto column_name = t_index.columns[0];

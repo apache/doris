@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -112,7 +114,10 @@ public class BuildIndexOp extends AlterTableOp {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (indexType == IndexDef.IndexType.BLOOMFILTER) {
+        if ((Config.isNotCloudMode() && indexType == IndexDef.IndexType.NGRAM_BF)
+                || indexType == IndexDef.IndexType.BLOOMFILTER
+                || (Config.isCloudMode()
+                && indexType == IndexType.INVERTED & !existedIdx.isInvertedIndexParserNone())) {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
 

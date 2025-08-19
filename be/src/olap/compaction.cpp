@@ -240,9 +240,9 @@ Status Compaction::merge_input_rowsets() {
     // extends schema to split variant subcolumns for vertical compaction but
     // the final rowset meta must not persist those extracted subcolumns.
     if (_enable_vertical_compact_variant_subcolumns &&
-        (_cur_tablet_schema->num_variant_columns() > 0)) {
+        (get_output_schema()->num_variant_columns() > 0)) {
         _output_rowset->rowset_meta()->set_tablet_schema(
-                _cur_tablet_schema->copy_without_variant_extracted_columns());
+                get_output_schema()->copy_without_variant_extracted_columns());
     }
 
     //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));

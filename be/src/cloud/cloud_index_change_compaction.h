@@ -65,7 +65,7 @@ protected:
                                     : ReaderType::READER_CUMULATIVE_COMPACTION;
     }
 
-    TabletSchemaSPtr get_output_schema() override { return _output_schema; }
+    TabletSchemaSPtr get_output_schema() override;
 
     Status modify_rowsets() override;
 
