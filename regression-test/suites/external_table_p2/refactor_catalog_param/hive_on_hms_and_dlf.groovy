@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 import static groovy.test.GroovyAssert.shouldFail;
-suite("hive_on_hms_and_dlf", "p2,external,doris,external_docker,external_docker_doris,new_catalog_property") {
+suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
 
 
     def testQueryAndInsert = { String catalogProperties, String prefix ,String dbLocation->
