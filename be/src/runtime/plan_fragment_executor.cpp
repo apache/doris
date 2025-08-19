@@ -44,6 +44,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
@@ -482,6 +483,13 @@ void PlanFragmentExecutor::report_profile() {
     VLOG_FILE << "exiting reporting thread: instance_id=" << _runtime_state->fragment_instance_id();
 }
 
+std::string PlanFragmentExecutor::get_load_error_url() {
+    if (const auto& str = _runtime_state->get_error_log_file_path(); !str.empty()) {
+        return to_load_error_http_path(str);
+    }
+    return "";
+}
+
 void PlanFragmentExecutor::send_report(bool done) {
     Status status = Status::OK();
     {
@@ -502,6 +510,11 @@ void PlanFragmentExecutor::send_report(bool done) {
     if (!_is_report_success && !_is_report_on_cancel) {
         return;
     }
+
+    std::string load_eror_url = _query_ctx->get_load_error_url().empty()
+                                        ? get_load_error_url()
+                                        : _query_ctx->get_load_error_url();
+
     ReportStatusRequest report_req = {
             false,
             status,
@@ -515,7 +528,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             _fragment_instance_id,
             _backend_num,
             _runtime_state.get(),
-            _query_ctx->get_load_error_url(),
+            load_eror_url,
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
                       std::placeholders::_2)};

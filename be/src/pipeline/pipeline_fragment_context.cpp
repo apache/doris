@@ -966,6 +966,13 @@ void PipelineFragmentContext::close_a_pipeline(PipelineId pipeline_id) {
     }
 }
 
+std::string PipelineFragmentContext::get_load_error_url() {
+    if (const auto& str = _runtime_state->get_error_log_file_path(); !str.empty()) {
+        return to_load_error_http_path(str);
+    }
+    return "";
+}
+
 Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
@@ -987,6 +994,10 @@ Status PipelineFragmentContext::send_report(bool done) {
         return Status::NeedSendAgain("");
     }
 
+    std::string load_eror_url = _query_ctx->get_load_error_url().empty()
+                                        ? get_load_error_url()
+                                        : _query_ctx->get_load_error_url();
+
     return _report_status_cb(
             {false,
              exec_status,
@@ -1000,7 +1011,7 @@ Status PipelineFragmentContext::send_report(bool done) {
              _fragment_instance_id,
              _backend_num,
              _runtime_state.get(),
-             _query_ctx->get_load_error_url(),
+             load_eror_url,
              [this](Status st) { return update_status(st); },
              [this](const PPlanFragmentCancelReason& reason, const std::string& msg) {
                  cancel(reason, msg);
