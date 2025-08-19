@@ -38,7 +38,6 @@ import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -697,12 +696,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             olapTable.writeUnlock();
         }
-    }
-
-    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
-        recoverPartition(recoverStmt.getDbName(), recoverStmt.getTableName(),
-                        recoverStmt.getPartitionName(), recoverStmt.getNewPartitionName(),
-                        recoverStmt.getPartitionId());
     }
 
     public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {

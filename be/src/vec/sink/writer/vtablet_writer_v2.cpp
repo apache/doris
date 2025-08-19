@@ -564,8 +564,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
-                _state->workload_group(), [state = _state]() { return state->is_cancelled(); });
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(
+                [state = _state]() { return state->is_cancelled(); });
         if (_state->is_cancelled()) {
             return _state->cancel_reason();
         }
@@ -626,6 +626,11 @@ Status VTabletWriterV2::close(Status exec_status) {
         status = _send_new_partition_batch();
     }
 
+    DBUG_EXECUTE_IF("VTabletWriterV2.close.sleep", {
+        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "VTabletWriterV2.close.sleep", "sleep_sec", 1);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+    });
     DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",
                     { status = Status::InternalError("load cancel"); });
     if (status.ok()) {

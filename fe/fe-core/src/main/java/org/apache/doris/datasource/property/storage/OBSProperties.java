@@ -62,6 +62,55 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
             description = "The region of OBS.")
     protected String region;
 
+    @Getter
+    @ConnectorProperty(names = {"obs.session_token", "s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of OBS.")
+    protected String sessionToken = "";
+
+    /**
+     * The maximum number of concurrent connections that can be made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.maximum", "s3.connection.maximum"}, required = false,
+            description = "Maximum number of connections.")
+    protected String maxConnections = "100";
+
+    /**
+     * The timeout (in milliseconds) for requests made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
+            description = "Request timeout in seconds.")
+    protected String requestTimeoutS = "10000";
+
+    /**
+     * The timeout (in milliseconds) for establishing a connection to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"obs.connection.timeout", "s3.connection.timeout"}, required = false,
+            description = "Connection timeout in seconds.")
+    protected String connectionTimeoutS = "10000";
+
+    /**
+     * Flag indicating whether to use path-style URLs for the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Setter
+    @Getter
+    @ConnectorProperty(names = {"obs.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    protected String usePathStyle = "false";
+
+    @ConnectorProperty(names = {"obs.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected String forceParsingByStandardUrl = "false";
+
     /**
      * Pattern to extract the region from a Huawei Cloud OBS endpoint.
      * <p>
