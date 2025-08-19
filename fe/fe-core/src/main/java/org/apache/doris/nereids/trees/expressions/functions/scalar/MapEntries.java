@@ -50,13 +50,18 @@ public class MapEntries extends ScalarFunction
         super("map_entries", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    public MapEntries(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapEntries withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MapEntries(children.get(0));
+        return new MapEntries(getFunctionParams(children));
     }
 
     @Override

@@ -59,13 +59,18 @@ public class MapContainsEntry extends ScalarFunction
         super("map_contains_entry", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    public MapContainsEntry(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapContainsEntry withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new MapContainsEntry(children.get(0), children.get(1), children.get(2));
+        return new MapContainsEntry(getFunctionParams(children));
     }
 
     @Override
