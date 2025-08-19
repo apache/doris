@@ -982,37 +982,14 @@ struct UtcTimestampImpl {
     static constexpr auto name = "utc_timestamp";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
-            return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
-                                                                         input_rows_count);
-        } else if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
-            return executeImpl<DateV2Value<DateV2ValueType>, UInt32>(context, block, result,
-                                                                     input_rows_count);
-        } else {
-            return executeImpl<VecDateTimeValue, Int64>(context, block, result, input_rows_count);
-        }
-    }
-
-    template <typename DateValueType, typename NativeType>
-    static Status executeImpl(FunctionContext* context, Block& block, uint32_t result,
-                              size_t input_rows_count) {
-        auto col_to = ColumnDateTime::create();
-        DateValueType dtv;
+        auto col_to = ColumnDateTimeV2::create();
+        DateV2Value<DateTimeV2ValueType> dtv;
         if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000, "+00:00")) {
-            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
-            }
-
-            auto date_packed_int =
-                    binary_cast<DateValueType, NativeType>(*reinterpret_cast<DateValueType*>(&dtv));
-
-            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
-                                0);
-
+            auto date_packed_int = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv);
+            col_to->insert_data(reinterpret_cast<char*>(&date_packed_int), 0);
         } else {
-            auto invalid_val = 0;
-
-            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)), 0);
+            uint64_t invalid_val = 0;
+            col_to->insert_data(reinterpret_cast<char*>(&invalid_val), 0);
         }
         block.get_by_position(result).column =
                 ColumnConst::create(std::move(col_to), input_rows_count);
