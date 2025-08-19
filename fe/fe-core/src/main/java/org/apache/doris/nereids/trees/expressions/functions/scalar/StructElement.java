@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
@@ -54,7 +55,8 @@ public class StructElement extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child(0).getDataType() instanceof StructType)) {
+        if (!(child(0).getDataType() instanceof StructType
+                || child(0).getDataType() instanceof NullType)) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), this.getArguments());
         }
         if (!(child(1) instanceof StringLikeLiteral || child(1) instanceof IntegerLikeLiteral)) {
@@ -79,6 +81,11 @@ public class StructElement extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
+        if (child(0).getDataType() instanceof NullType) {
+            return ImmutableList.of(
+                    FunctionSignature.ret(NullType.INSTANCE).args(NullType.INSTANCE, child(1).getDataType())
+            );
+        }
         StructType structArgType = (StructType) child(0).getDataType();
         DataType retType;
         if (child(1) instanceof IntegerLikeLiteral) {

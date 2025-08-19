@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -51,6 +52,19 @@ public class CreateStruct extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private CreateStruct(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (arity() == 0) {
+            throw new AnalysisException("struct requires at least one argument, like: struct(1)");
+        }
+        // for all field we do not support struct field with jsonb/variant type
+        children.forEach(child -> {
+            if (child.getDataType().isJsonType() || child.getDataType().isVariantType()) {
+                throw new AnalysisException("struct does not support jsonb/variant type");
+            }
+        });
     }
 
     /**
