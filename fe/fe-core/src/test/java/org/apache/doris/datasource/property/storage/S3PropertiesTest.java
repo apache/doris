@@ -221,6 +221,11 @@ public class S3PropertiesTest {
 
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
         Assertions.assertEquals("external-123", backendProperties.get("AWS_EXTERNAL_ID"));
+        origProps.remove("s3.external_id");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        backendProperties = s3Props.getBackendConfigProperties();
+        Assertions.assertNull(backendProperties.get("AWS_EXTERNAL_ID"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
     }
 
     @Test

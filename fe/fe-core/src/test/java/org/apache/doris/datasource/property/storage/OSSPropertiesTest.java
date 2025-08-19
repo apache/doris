@@ -152,6 +152,16 @@ public class OSSPropertiesTest {
     }
 
     @Test
+    public void testDlfProperties() {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("iceberg.catalog.type", "dlf");
+        origProps.put("dlf.region", "cn-beijing");
+        origProps.put("dlf.access.public", "true");
+        OSSProperties ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", ossProperties.getEndpoint());
+    }
+
+    @Test
     public void testMissingSecretKey() {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
