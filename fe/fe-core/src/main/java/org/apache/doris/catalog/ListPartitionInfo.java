@@ -31,6 +31,8 @@ import org.apache.doris.common.util.ListUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,6 +42,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class ListPartitionInfo extends PartitionInfo {
+    private static final Logger LOG = LogManager.getLogger(ListPartitionInfo.class);
 
     public ListPartitionInfo() {
         // for persist
@@ -161,7 +164,11 @@ public class ListPartitionInfo extends PartitionInfo {
         idx = 0;
         for (Map.Entry<Long, PartitionItem> entry : entries) {
             Partition partition = table.getPartition(entry.getKey());
+            LOG.info("dx debug 1 table {} key {} partition {} entries: {}",
+                    table.getName(), entry.getKey(), partition, entries);
             String partitionName = partition.getName();
+            LOG.info("dx debug 2 table {} key {} partition {}",
+                    table.getName(), entry.getKey(), partitionName);
             List<PartitionKey> partitionKeys = entry.getValue().getItems();
 
             sb.append("PARTITION ").append(partitionName);

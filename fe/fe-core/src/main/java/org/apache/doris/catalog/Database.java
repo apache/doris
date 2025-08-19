@@ -394,7 +394,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     // return pair <success?, table exist?>
-    public Pair<Boolean, Boolean> createTableWithLock(
+    // caller must hold db lock
+    public Pair<Boolean, Boolean> createTableWithoutLock(
             Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
