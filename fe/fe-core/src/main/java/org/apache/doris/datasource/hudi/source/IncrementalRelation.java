@@ -36,8 +36,6 @@ public interface IncrementalRelation {
 
     boolean fallbackFullTableScan();
 
-    boolean isIncludeStartTime();
-
     String getStartTs();
 
     String getEndTs();
