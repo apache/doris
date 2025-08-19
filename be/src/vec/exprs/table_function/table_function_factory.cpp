@@ -31,7 +31,6 @@
 #include "vec/exprs/table_function/vexplode_json_object.h"
 #include "vec/exprs/table_function/vexplode_map.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
-#include "vec/exprs/table_function/vexplode_split.h"
 #include "vec/exprs/table_function/vexplode_v2.h"
 #include "vec/utils/util.hpp"
 
@@ -46,7 +45,6 @@ struct TableFunctionCreator {
 const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
         TableFunctionFactory::_function_map {
                 {"explode_variant_array", TableFunctionCreator<VExplodeV2TableFunction>()},
-                {"explode_split", TableFunctionCreator<VExplodeSplitTableFunction>()},
                 {"explode_numbers", TableFunctionCreator<VExplodeNumbersTableFunction>()},
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},

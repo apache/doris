@@ -26,7 +26,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
-import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -70,10 +69,6 @@ public class DdlExecutor {
             env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
-        } else if (ddlStmt instanceof RefreshTableStmt) {
-            RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
-            env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
-                    refreshTableStmt.getTblName(), false);
         } else if (ddlStmt instanceof RefreshDbStmt) {
             RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
             env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
