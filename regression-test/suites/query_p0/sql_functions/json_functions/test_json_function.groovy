@@ -99,7 +99,7 @@ suite("test_json_function", "arrow_flight_sql") {
             k2 varchar(100) not null
         )
         duplicate key (k1)
-        distributed BY hash(k1) buckets 3
+        distributed BY hash(k1) buckets 1
         properties("replication_num" = "1");
     """
     sql """insert into d_table values 
@@ -157,4 +157,40 @@ suite("test_json_function", "arrow_flight_sql") {
 
         exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
     }
+
+    qt_json_object_to_array1 """
+      select json_object_to_array(k1), json_object_to_array(json_extract(k2, '\$.c')) from d_table order by k1;
+    """
+
+    qt_json_object_to_array2 """
+      select json_object_to_array(NULL), json_object_to_array('{abc}');
+    """
+
+    qt_json_object_to_array3 """
+      select json_object_to_array('[123, 456]'), json_object_to_array('{"k1": null, "k2": [1,2,3]}');
+    """
+
+    sql "drop table if exists tbl_json_object_to_array;"
+    sql """
+      create table tbl_json_object_to_array (
+          id int,
+          k1 json null,
+          k2 json not null
+      ) distributed by hash(id) buckets 1
+      properties('replication_num' = '1');
+    """
+
+    sql """
+      insert into tbl_json_object_to_array values
+        (1, null, '{"k1": "v1", "k2": "v2", "k3": [1, 2, 3]}'),
+        (2, '{"k1": "v1", "k2": "v2", "k3": [1, 2, 3]}', '{}'),
+        (3, null, '[]'),
+        (4, '{"k1": {"k2": "v2"}, "k3": ["v3", 3, 4]}', '{"k4": null}'),
+        (5, '{}', '{"k5": null}'),
+        (6, '[]', '{"k6": "v6"}');
+    """
+
+    qt_json_object_to_array4 """
+      select k1, json_object_to_array(k1), k2, json_object_to_array(k2) from tbl_json_object_to_array order by id;
+    """
 }

@@ -1674,6 +1674,97 @@ public:
     }
 };
 
+class FunctionJsonObjectToArray : public IFunction {
+public:
+    static constexpr auto name = "json_object_to_array";
+
+    static FunctionPtr create() { return std::make_shared<FunctionJsonObjectToArray>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto ret_type =
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeJsonb>()));
+        if (arguments[0]->is_nullable()) {
+            return make_nullable(ret_type);
+        }
+        return ret_type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& arg_column = block.get_by_position(arguments[0]).column;
+        const ColumnString* data_column = nullptr;
+        const NullMap* null_map = nullptr;
+
+        if (arg_column->is_nullable()) {
+            const auto& nullable_column = assert_cast<const ColumnNullable&>(*arg_column);
+            null_map = &nullable_column.get_null_map_data();
+            const auto& nested_column = nullable_column.get_nested_column();
+            data_column = assert_cast<const ColumnString*>(&nested_column);
+        } else {
+            data_column = assert_cast<const ColumnString*>(arg_column.get());
+        }
+
+        auto column = ColumnString::create();
+        auto* column_string = assert_cast<ColumnString*>(column.get());
+
+        auto ret_offsets_column = ColumnArray::ColumnOffsets::create();
+        ret_offsets_column->reserve(input_rows_count);
+
+        auto& ret_offsets =
+                assert_cast<ColumnArray::ColumnOffsets&>(*ret_offsets_column).get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && (*null_map)[i]) {
+                ret_offsets.push_back(ret_offsets.back());
+                continue;
+            }
+
+            auto data_ref = data_column->get_data_at(i);
+            JsonbDocument* doc = nullptr;
+            RETURN_IF_ERROR(
+                    JsonbDocument::checkAndCreateDocument(data_ref.data, data_ref.size, &doc));
+
+            size_t count = 0;
+            if (doc->getValue()->isObject()) {
+                count = doc->getValue()->numElements();
+                for (const auto& item : *doc->getValue()->unpack<ObjectVal>()) {
+                    JsonbWriter writer;
+                    writer.writeStartObject();
+                    writer.writeKey(item.getKeyStr(), item.klen());
+                    writer.writeValue(item.value());
+                    writer.writeEndObject();
+                    column_string->insert_data(writer.getOutput()->getBuffer(),
+                                               writer.getOutput()->getSize());
+                }
+            }
+            ret_offsets.push_back(ret_offsets.back() + count);
+        }
+
+        auto ret_column = ColumnArray::create(
+                ColumnNullable::create(std::move(column), ColumnUInt8::create(column->size(), 0)),
+                std::move(ret_offsets_column));
+
+        if (null_map) {
+            auto null_map_column = ColumnUInt8::create(input_rows_count, 0);
+            auto* output_null_map = null_map_column->get_data().data();
+            memcpy(output_null_map, null_map->data(), input_rows_count * sizeof(uint8_t));
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(ret_column), std::move(null_map_column));
+        } else {
+            block.get_by_position(result).column = std::move(ret_column);
+        }
+
+        return Status::OK();
+    }
+};
+
 class FunctionJsonbObject : public IFunction {
 public:
     static constexpr auto name = "json_object";
@@ -2758,6 +2849,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbModify<JsonbModifyType::Replace>>();
     factory.register_alias(FunctionJsonbModify<JsonbModifyType::Replace>::name,
                            FunctionJsonbModify<JsonbModifyType::Replace>::alias);
+
+    factory.register_function<FunctionJsonObjectToArray>();
 }
 
 } // namespace doris::vectorized
