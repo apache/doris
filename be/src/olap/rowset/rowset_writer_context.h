@@ -20,11 +20,10 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
-#include <string_view>
-#include <unordered_map>
-
 #include <functional>
 #include <optional>
+#include <string_view>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "io/fs/encrypted_fs_factory.h"
