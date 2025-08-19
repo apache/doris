@@ -128,11 +128,9 @@ public class BackupJob extends AbstractJob {
     private Map<String, String> properties = Maps.newHashMap();
 
     // Record table IDs that were dropped during backup
-    @SerializedName("dt")
     private Set<Long> droppedTables = ConcurrentHashMap.newKeySet();
 
     // Record partition IDs that were dropped during backup (tableId -> set of partitionIds)
-    @SerializedName("dp")
     private Map<Long, Set<Long>> droppedPartitionsByTable = Maps.newConcurrentMap();
 
     private long commitSeq = 0;
@@ -1320,6 +1318,22 @@ public class BackupJob extends AbstractJob {
             Text.writeString(out, entry.getKey());
             Text.writeString(out, entry.getValue());
         }
+
+        // write dropped tables
+        out.writeInt(droppedTables.size());
+        for (Long tableId : droppedTables) {
+            out.writeLong(tableId);
+        }
+
+        // write dropped partitions
+        out.writeInt(droppedPartitionsByTable.size());
+        for (Map.Entry<Long, Set<Long>> entry : droppedPartitionsByTable.entrySet()) {
+            out.writeLong(entry.getKey());
+            out.writeInt(entry.getValue().size());
+            for (Long partitionId : entry.getValue()) {
+                out.writeLong(partitionId);
+            }
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1393,6 +1407,24 @@ public class BackupJob extends AbstractJob {
 
         if (properties.containsKey(SNAPSHOT_COMMIT_SEQ)) {
             commitSeq = Long.parseLong(properties.get(SNAPSHOT_COMMIT_SEQ));
+        }
+
+        // read dropped tables
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            droppedTables.add(in.readLong());
+        }
+
+        // read dropped partitions
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            long tableId = in.readLong();
+            int partitionSize = in.readInt();
+            Set<Long> partitionIds = ConcurrentHashMap.newKeySet();
+            for (int j = 0; j < partitionSize; j++) {
+                partitionIds.add(in.readLong());
+            }
+            droppedPartitionsByTable.put(tableId, partitionIds);
         }
     }
 
