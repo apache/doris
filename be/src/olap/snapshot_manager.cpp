@@ -329,9 +329,6 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     // keep segments_overlap same as origin rowset
     context.segments_overlap = rowset_meta->segments_overlap();
 
-    auto tablet = DORIS_TRY(_engine.get_tablet(org_rowset_meta->tablet_id()));
-    context.encrypt_algorithm = tablet->tablet_meta()->encryption_algorithm();
-
     auto rs_writer = DORIS_TRY(RowsetFactory::create_rowset_writer(_engine, context, false));
 
     st = rs_writer->add_rowset(org_rowset);
