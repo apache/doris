@@ -119,7 +119,7 @@ public class AdminSetFrontendConfigCommand extends Command implements Redirect {
         String sql = String.format("ADMIN SET %s CONFIG (\"%s\" = \"%s\");", applyToAll ? "ALL FRONTENDS" : "FRONTEND",
                 keyArr[0].toString(), configs.get(keyArr[0].toString()));
 
-        return new OriginStatement(sql, originStmt.idx);
+        return new OriginStatement(sql, originStmt == null ? 0 : originStmt.idx);
     }
 
     @Override
