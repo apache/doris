@@ -738,6 +738,7 @@ struct TLLMResource {
   7: optional i64 max_retries
   8: optional i64 retry_delay_second
   9: optional string anthropic_version
+  10: optional i32 dimensions
 }
 
 struct TCondition {

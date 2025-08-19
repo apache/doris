@@ -18,7 +18,9 @@
 #pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <rapidjson/rapidjson.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -50,11 +52,119 @@ public:
     virtual Status parse_response(const std::string& response_body,
                                   std::vector<std::string>& results) const = 0;
 
+    virtual Status build_embedding_request(const std::vector<std::string>& inputs,
+                                           std::string& request_body) const {
+        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+    }
+
+    virtual Status parse_embedding_response(const std::string& response_body,
+                                            std::vector<std::vector<float>>& results) const {
+        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+    }
+
     // Get the adapter type identifier
     virtual std::string get_type() const = 0;
 
 protected:
     TLLMResource _config;
+
+    // Determine whether the given model supports dimension parameters
+    virtual bool supports_dimension_param(const std::string& model_name) const { return false; }
+
+    // Different providers may have different dimension parameter names.
+    virtual std::string get_dimension_param_name() const { return "dimensions"; }
+
+    virtual void add_dimension_params(rapidjson::Value& doc,
+                                      rapidjson::Document::AllocatorType& allocator) const {
+        if (_config.dimensions != -1 && supports_dimension_param(_config.model_name)) {
+            doc.AddMember(rapidjson::StringRef(get_dimension_param_name().c_str()),
+                          _config.dimensions, allocator);
+        }
+    }
+};
+
+// Most LLM-providers' Embedding formats are based on VoyageAI.
+class VoyageAIAdapter : public LLMAdapter {
+public:
+    std::string get_type() const override { return "voyageai"; }
+
+    Status set_authentication(HttpClient* client) const override {
+        client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
+        client->set_content_type("application/json");
+
+        return Status::OK();
+    }
+
+    Status build_request_payload(const std::vector<std::string>& inputs,
+                                 const char* const system_prompt,
+                                 std::string& request_body) const override {
+        return Status::NotSupported("VoyageAI only support embedding function");
+    }
+
+    Status parse_response(const std::string& response_body,
+                          std::vector<std::string>& results) const override {
+        return Status::NotSupported("VoyageAI only support embedding function");
+    }
+
+    Status build_embedding_request(const std::vector<std::string>& inputs,
+                                   std::string& request_body) const override {
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
+        add_dimension_params(doc, allocator);
+
+        rapidjson::Value input(rapidjson::kArrayType);
+        for (auto msg : inputs) {
+            input.PushBack(rapidjson::Value(msg.c_str(), allocator), allocator);
+        }
+        doc.AddMember("input", input, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        request_body = buffer.GetString();
+
+        return Status::OK();
+    }
+
+    Status parse_embedding_response(const std::string& response_body,
+                                    std::vector<std::vector<float>>& results) const override {
+        rapidjson::Document doc;
+        doc.Parse(response_body.c_str());
+
+        if (doc.HasParseError() || !doc.IsObject()) {
+            return Status::InternalError("Failed to parse {} response", get_type());
+        }
+        if (!doc.HasMember("data") || !doc["data"].IsArray()) {
+            return Status::InternalError("Invalid {} response format", get_type());
+        }
+
+        const auto& data = doc["data"];
+        results.reserve(data.Size());
+        for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
+            if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
+                return Status::InternalError("Invalid {} response format", get_type());
+            }
+
+            std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
+                           std::back_inserter(results.emplace_back()),
+                           [](const auto& val) { return val.GetFloat(); });
+        }
+
+        return Status::OK();
+    }
+
+protected:
+    bool supports_dimension_param(const std::string& model_name) const override {
+        static const std::unordered_set<std::string> no_dimension_models = {
+                "voyage-law-2", "voyage-2", "voyage-code-2", "voyage-finance-2",
+                "voyage-multimodal-3"};
+        return !no_dimension_models.contains(model_name);
+    }
+
+    std::string get_dimension_param_name() const override { return "output_dimension"; }
 };
 
 // Local LLM adapter for locally hosted models (Ollama, LLaMA, etc.)
@@ -163,7 +273,7 @@ public:
 };
 
 // The OpenAI API format can be reused with some compatible LLMs.
-class OpenAIAdapter : public LLMAdapter {
+class OpenAIAdapter : public VoyageAIAdapter {
 public:
     std::string get_type() const override { return "openai"; }
 
@@ -241,36 +351,103 @@ public:
 
         return Status::OK();
     }
+
+protected:
+    bool supports_dimension_param(const std::string& model_name) const override {
+        static const std::unordered_set<std::string> no_dimension_models = {
+                "text-embedding-ada-002"};
+        return !no_dimension_models.contains(model_name);
+    }
+
+    std::string get_dimension_param_name() const override { return "dimensions"; }
 };
 
 class DeepSeekAdapter : public OpenAIAdapter {
 public:
     std::string get_type() const override { return "deepseek"; }
+    Status build_embedding_request(const std::vector<std::string>& inputs,
+                                   std::string& request_body) const override {
+        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+    }
+
+    Status parse_embedding_response(const std::string& response_body,
+                                    std::vector<std::vector<float>>& results) const override {
+        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+    }
 };
 
 class MoonShotAdapter : public OpenAIAdapter {
 public:
     std::string get_type() const override { return "moonshot"; }
+    Status build_embedding_request(const std::vector<std::string>& inputs,
+                                   std::string& request_body) const override {
+        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+    }
+
+    Status parse_embedding_response(const std::string& response_body,
+                                    std::vector<std::vector<float>>& results) const override {
+        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+    }
 };
 
 class MinimaxAdapter : public OpenAIAdapter {
 public:
     std::string get_type() const override { return "minimax"; }
+
+    Status build_embedding_request(const std::vector<std::string>& inputs,
+                                   std::string& request_body) const override {
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        rapidjson::Value texts(rapidjson::kArrayType);
+        for (auto input : inputs) {
+            texts.PushBack(rapidjson::Value(input.c_str(), allocator), allocator);
+        }
+        doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
+        doc.AddMember("texts", texts, allocator);
+        doc.AddMember("type", rapidjson::Value("db", allocator), allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        request_body = buffer.GetString();
+
+        return Status::OK();
+    }
 };
 
 class ZhipuAdapter : public OpenAIAdapter {
 public:
     std::string get_type() const override { return "zhipu"; }
+
+protected:
+    bool supports_dimension_param(const std::string& model_name) const override {
+        static const std::unordered_set<std::string> no_dimension_models = {"embedding-2"};
+        return !no_dimension_models.contains(model_name);
+    }
 };
 
 class QwenAdapter : public OpenAIAdapter {
 public:
     std::string get_type() const override { return "qwen"; }
+
+protected:
+    bool supports_dimension_param(const std::string& model_name) const override {
+        static const std::unordered_set<std::string> no_dimension_models = {"text-embedding-v1",
+                                                                            "text-embedding-v2"};
+        return !no_dimension_models.contains(model_name);
+    }
+
+    std::string get_dimension_param_name() const override { return "dimension"; }
 };
 
 class BaichuanAdapter : public OpenAIAdapter {
 public:
     std::string get_type() const override { return "baichuan"; }
+
+protected:
+    bool supports_dimension_param(const std::string& model_name) const override { return false; }
 };
 
 class GeminiAdapter : public LLMAdapter {
@@ -367,9 +544,76 @@ public:
 
         return Status::OK();
     }
+
+    Status build_embedding_request(const std::vector<std::string>& inputs,
+                                   std::string& request_body) const override {
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        rapidjson::Value requests(rapidjson::kArrayType);
+        for (auto input : inputs) {
+            rapidjson::Value request(rapidjson::kObjectType);
+            request.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
+                              allocator);
+            rapidjson::Value content(rapidjson::kObjectType);
+            rapidjson::Value parts(rapidjson::kArrayType);
+            rapidjson::Value part(rapidjson::kObjectType);
+            part.AddMember("text", rapidjson::Value(input.c_str(), allocator), allocator);
+            parts.PushBack(part, allocator);
+            content.AddMember("parts", parts, allocator);
+            request.AddMember("content", content, allocator);
+            add_dimension_params(request, allocator);
+            requests.PushBack(request, allocator);
+        }
+        doc.AddMember("requests", requests, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        request_body = buffer.GetString();
+
+        return Status::OK();
+    }
+
+    Status parse_embedding_response(const std::string& response_body,
+                                    std::vector<std::vector<float>>& results) const override {
+        rapidjson::Document doc;
+        doc.Parse(response_body.c_str());
+
+        if (doc.HasParseError() || !doc.IsObject()) {
+            return Status::InternalError("Failed to parse {} response", get_type());
+        }
+        if (!doc.HasMember("embeddings") || !doc["embeddings"].IsArray()) {
+            return Status::InternalError("Invalid {} response format", get_type());
+        }
+
+        const auto& embeddings = doc["embeddings"];
+        results.reserve(embeddings.Size());
+        for (rapidjson::SizeType i = 0; i < embeddings.Size(); ++i) {
+            if (!embeddings[i].HasMember("value") || !embeddings[i]["value"].IsArray()) {
+                return Status::InternalError("Invalid {} response format", get_type());
+            }
+
+            std::transform(embeddings[i]["value"].Begin(), embeddings[i]["value"].End(),
+                           std::back_inserter(results.emplace_back()),
+                           [](const auto& val) { return val.GetFloat(); });
+        }
+
+        return Status::OK();
+    }
+
+protected:
+    bool supports_dimension_param(const std::string& model_name) const override {
+        static const std::unordered_set<std::string> no_dimension_models = {
+                "models/gemini-embedding-001"};
+        return !no_dimension_models.contains(model_name);
+    }
+
+    std::string get_dimension_param_name() const override { return "outputDimensionality"; }
 };
 
-class AnthropicAdapter : public LLMAdapter {
+class AnthropicAdapter : public VoyageAIAdapter {
 public:
     std::string get_type() const override { return "anthropic"; }
 
@@ -478,7 +722,8 @@ public:
                             {"QWEN", []() { return std::make_shared<QwenAdapter>(); }},
                             {"BAICHUAN", []() { return std::make_shared<BaichuanAdapter>(); }},
                             {"ANTHROPIC", []() { return std::make_shared<AnthropicAdapter>(); }},
-                            {"GEMINI", []() { return std::make_shared<GeminiAdapter>(); }}};
+                            {"GEMINI", []() { return std::make_shared<GeminiAdapter>(); }},
+                            {"VOYAGEAI", []() { return std::make_shared<VoyageAIAdapter>(); }}};
 
         auto it = adapters.find(provider_type);
         return (it != adapters.end()) ? it->second() : nullptr;
