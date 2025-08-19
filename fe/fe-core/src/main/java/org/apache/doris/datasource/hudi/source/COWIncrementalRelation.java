@@ -62,7 +62,6 @@ public class COWIncrementalRelation implements IncrementalRelation {
     private final Collection<String> filteredRegularFullPaths;
     private final Collection<String> filteredMetaBootstrapFullPaths;
 
-    private final boolean includeStartTime;
     private final String startTs;
     private final String endTs;
 
@@ -162,14 +161,8 @@ public class COWIncrementalRelation implements IncrementalRelation {
 
         fs = new Path(basePath.toUri().getPath()).getFileSystem(configuration);
         fullTableScan = shouldFullTableScan();
-        includeStartTime = !fullTableScan;
-        if (fullTableScan || commitsToReturn.isEmpty()) {
-            startTs = startInstantTime;
-            endTs = endInstantTime;
-        } else {
-            startTs = commitsToReturn.get(0).requestedTime();
-            endTs = commitsToReturn.get(commitsToReturn.size() - 1).requestedTime();
-        }
+        startTs = startInstantTime;
+        endTs = endInstantTime;
     }
 
     private boolean shouldFullTableScan() throws HoodieException, IOException {
@@ -235,21 +228,14 @@ public class COWIncrementalRelation implements IncrementalRelation {
 
     @Override
     public Map<String, String> getHoodieParams() {
-        optParams.put("hoodie.datasource.read.incr.operation", "true");
         optParams.put("hoodie.datasource.read.begin.instanttime", startTs);
         optParams.put("hoodie.datasource.read.end.instanttime", endTs);
-        optParams.put("hoodie.datasource.read.incr.includeStartTime", includeStartTime ? "true" : "false");
         return optParams;
     }
 
     @Override
     public boolean fallbackFullTableScan() {
         return fullTableScan;
-    }
-
-    @Override
-    public boolean isIncludeStartTime() {
-        return includeStartTime;
     }
 
     @Override

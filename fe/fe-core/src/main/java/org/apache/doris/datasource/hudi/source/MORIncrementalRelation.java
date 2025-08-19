@@ -57,7 +57,6 @@ public class MORIncrementalRelation implements IncrementalRelation {
     private final List<StoragePathInfo> affectedFilesInCommits;
     private final boolean fullTableScan;
     private final String globPattern;
-    private final boolean includeStartTime;
     private final String startTs;
     private final String endTs;
 
@@ -103,23 +102,14 @@ public class MORIncrementalRelation implements IncrementalRelation {
         }
         globPattern = optParams.getOrDefault("hoodie.datasource.read.incr.path.glob", "");
 
-        if (startInstantArchived) {
-            includeStartTime = false;
-            startTs = startTimestamp;
-        } else {
-            includeStartTime = true;
-            startTs = includedCommits.isEmpty() ? startTimestamp : includedCommits.get(0).requestedTime();
-        }
-        endTs = endInstantArchived || includedCommits.isEmpty() ? endTimestamp
-                : includedCommits.get(includedCommits.size() - 1).requestedTime();
+        startTs = startTimestamp;
+        endTs = endTimestamp;
     }
 
     @Override
     public Map<String, String> getHoodieParams() {
-        optParams.put("hoodie.datasource.read.incr.operation", "true");
         optParams.put("hoodie.datasource.read.begin.instanttime", startTs);
         optParams.put("hoodie.datasource.read.end.instanttime", endTs);
-        optParams.put("hoodie.datasource.read.incr.includeStartTime", includeStartTime ? "true" : "false");
         return optParams;
     }
 
@@ -163,11 +153,6 @@ public class MORIncrementalRelation implements IncrementalRelation {
     @Override
     public boolean fallbackFullTableScan() {
         return fullTableScan;
-    }
-
-    @Override
-    public boolean isIncludeStartTime() {
-        return includeStartTime;
     }
 
     @Override
