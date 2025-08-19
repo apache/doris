@@ -40,6 +40,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class ListPartitionInfo extends PartitionInfo {
+
     public ListPartitionInfo() {
         // for persist
         super();
