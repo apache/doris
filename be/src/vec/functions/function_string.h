@@ -683,11 +683,14 @@ public:
 
         const auto& str_col = assert_cast<const ColumnString&>(*argument_columns[0]);
         const auto& len_col = assert_cast<const ColumnInt32&>(*argument_columns[1]);
+        const auto is_ascii = str_col.is_ascii();
 
         std::visit(
-                [&](auto str_const, auto len_const) {
-                    _execute<str_const, len_const>(str_col, len_col, *res, input_rows_count);
+                [&](auto is_ascii, auto str_const, auto len_const) {
+                    _execute<is_ascii, str_const, len_const>(str_col, len_col, *res,
+                                                             input_rows_count);
                 },
+                vectorized::make_bool_variant(is_ascii),
                 vectorized::make_bool_variant(col_const[0]),
                 vectorized::make_bool_variant(col_const[1]));
 
@@ -695,7 +698,7 @@ public:
         return Status::OK();
     }
 
-    template <bool str_const, bool len_const>
+    template <bool is_ascii, bool str_const, bool len_const>
     static void _execute(const ColumnString& str_col, const ColumnInt32& len_col, ColumnString& res,
                          size_t size) {
         auto& res_chars = res.get_chars();
@@ -718,11 +721,15 @@ public:
             }
 
             const char* begin = str.begin();
-            const char* end = str.end();
             const char* p = begin;
 
-            for (size_t i = 0, char_size = 0; i < len && p < end; ++i, p += char_size) {
-                char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+            if constexpr (is_ascii) {
+                p = begin + std::min(len, static_cast<int>(str.size));
+            } else {
+                const char* end = str.end();
+                for (size_t i = 0, char_size = 0; i < len && p < end; ++i, p += char_size) {
+                    char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+                }
             }
 
             StringOP::push_value_string_reserved_and_allow_overflow({begin, p}, i, res_chars,
