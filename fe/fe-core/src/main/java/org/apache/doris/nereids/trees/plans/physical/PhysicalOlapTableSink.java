@@ -242,9 +242,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
      */
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
-        if (targetTable.isPartitionDistributed()
-                || (targetTable.isPartitionedTable() && targetTable.getPartitions().isEmpty()
-                        && targetTable.getDefaultDistributionInfo().getBucketNum() > 1)) {
+        if (targetTable.isPartitionDistributed() || targetTable.getPartitionInfo().enableAutomaticPartition()) {
             DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();
             if (distributionInfo instanceof HashDistributionInfo) {
                 // Do not enable shuffle for duplicate key tables when its tablet num is less than threshold.
