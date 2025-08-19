@@ -693,6 +693,23 @@ public class SchemaTable extends Table {
                             .column("CTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .column("MTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .build()))
+            .put("backend_metrics",
+                   new SchemaTable(SystemIdGenerator.getNextId(), "backend_metrics", TableType.SCHEMA,
+                       builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                           .column("BE_IP", ScalarType.createVarchar(NAME_CHAR_LEN))
+                           .column("METRIC_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                           .column("METRIC_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                           .column("METRIC_VALUE", ScalarType.createType(PrimitiveType.DOUBLE))
+                           .column("TAG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                           .build()))
+            .put("frontend_metrics",
+                  new SchemaTable(SystemIdGenerator.getNextId(), "frontend_metrics", TableType.SCHEMA,
+                      builder().column("FE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                          .column("METRIC_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                          .column("METRIC_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
+                          .column("METRIC_VALUE", ScalarType.createType(PrimitiveType.DOUBLE))
+                          .column("TAG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                          .build(), true))
             .build();
 
     private boolean fetchAllFe = false;
