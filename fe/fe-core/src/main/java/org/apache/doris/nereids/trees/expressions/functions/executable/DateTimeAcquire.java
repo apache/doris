@@ -38,7 +38,7 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "now")
     public static Expression now() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
     @ExecFunction(name = "now")
@@ -52,7 +52,7 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "current_timestamp")
     public static Expression currentTimestamp() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
     @ExecFunction(name = "current_timestamp")
@@ -65,7 +65,7 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "localtime")
     public static Expression localTime() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
     @ExecFunction(name = "localtimestamp")
@@ -85,20 +85,6 @@ public class DateTimeAcquire {
     public static Expression currentDate() {
         return DateLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
-
-    // comment these function temporally until we support TimeLiteral
-    // /**
-    //  * date acquire function: current_time
-    //  */
-    // @ExecFunction(name = "curtime")
-    // public static Expression curTime() {
-    //     return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
-    // }
-
-    // @ExecFunction(name = "current_time")
-    // public static Expression currentTime() {
-    //     return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
-    // }
 
     /**
      * date transformation function: unix_timestamp
