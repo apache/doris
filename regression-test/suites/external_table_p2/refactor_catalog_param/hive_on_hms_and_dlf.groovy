@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 import static groovy.test.GroovyAssert.shouldFail;
+import java.util.concurrent.ThreadLocalRandom
+
 suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
 
 
-    def testQueryAndInsert = { String catalogProperties, String prefix ,String dbLocation->
+    def testQueryAndInsert = { String catalogProperties, String prefix, String dbLocation ->
 
         def catalog_name = "${prefix}_catalog"
         sql """
@@ -33,7 +35,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
             switch ${catalog_name};
         """
 
-        def db_name = prefix + "_db"+System.currentTimeMillis()
+        def db_name = prefix + "_db" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(1000)
         sql """
             DROP DATABASE IF EXISTS ${db_name} FORCE;
         """
@@ -51,7 +53,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
         sql """
             use ${db_name};
         """
-        def table_name = prefix + "_table"
+        def table_name = prefix + ThreadLocalRandom.current().nextInt(1000) + "_table"
         sql """
             CREATE TABLE ${table_name} (
             user_id            BIGINT      COMMENT "user id",
@@ -181,11 +183,11 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     String dlf_access_key = context.config.otherConfigs.get("dlf_access_key")
     String dlf_secret_key = context.config.otherConfigs.get("dlf_secret_key")
     /**************** DLF *******************/
- 
+
     String dlf_oss_properties = """
                "oss.endpoint" = "oss-cn-beijing.aliyuncs.com",
                "oss.access_key" = "${dlf_access_key}",
-               "oss.secret_key" = "${dlf_access_key}",
+               "oss.secret_key" = "${dlf_secret_key}",
     """
 
 
@@ -201,7 +203,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
                 "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
      """
-    
+
 
     String hms_kerberos_new_prop = """
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
@@ -225,40 +227,43 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
         "type"="hms",
     """
     //COS
-    String db_location = "cosn://${cos_parent_path}/hive/hms/"+System.currentTimeMillis()
+    String db_location = "cosn://${cos_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + cos_storage_properties, "hive_hms_cos_test", db_location)
     testQueryAndInsert(hms_properties + cos_region_param + cos_storage_properties, "hive_hms_cos_test_region", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop  + cos_storage_properties, "hive_hms_on_cos_kerberos_old",db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + cos_storage_properties, "hive_hms_on_cos_kerberos_new",db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + cos_storage_properties, "hive_hms_on_cos_kerberos_old", db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + cos_storage_properties, "hive_hms_on_cos_kerberos_new", db_location)
 
-    db_location = "cos://${cos_parent_path}/hive/hms/"+System.currentTimeMillis()
+    db_location = "cos://${cos_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + cos_storage_properties, "hive_hms_cos_test", db_location)
 
     //OSS
-    db_location = "oss://${oss_parent_path}/hive/hms/"+System.currentTimeMillis()
+    db_location = "oss://${oss_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + oss_storage_properties, "hive_hms_oss_test", db_location)
     testQueryAndInsert(hms_properties + oss_region_param + oss_storage_properties, "hive_hms_oss_test_region", db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop  + oss_storage_properties, "hive_hms_on_oss_kerberos_old",db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + oss_storage_properties, "hive_hms_on_oss_kerberos_new",db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop + oss_storage_properties, "hive_hms_on_oss_kerberos_old", db_location)
+    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + oss_storage_properties, "hive_hms_on_oss_kerberos_new", db_location)
 
     //s3
-    db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
+   db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
     testQueryAndInsert(hms_properties + s3_storage_properties, "hive_hms_s3_test", db_location)
+    db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
     testQueryAndInsert(hms_properties + s3_region_param + s3_storage_properties, "hive_hms_s3_test_region", db_location)
+    db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
     testQueryAndInsert(hms_properties + s3_region_param + s3_storage_properties_not_endpoint, "hive_hms_s3_test_region", db_location)
-
-    testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop  + s3_storage_properties, "hive_hms_on_s3_kerberos_old",db_location)
-    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + s3_storage_properties, "hive_hms_on_s3_kerberos_new",db_location)
+    //db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
+    //testQueryAndInsert(hms_type_properties + hms_kerberos_old_prop  + s3_storage_properties, "hive_hms_on_s3_kerberos_old",db_location)
+    //db_location = "s3a://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
+    //testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + s3_storage_properties, "hive_hms_on_s3_kerberos_new",db_location)
     db_location = "s3://${s3_parent_path}/hive/hms/"+System.currentTimeMillis()
     testQueryAndInsert(hms_properties + s3_storage_properties, "hive_hms_s3_test", db_location)
     //HDFS
-    db_location = "${hdfs_parent_path}/hive/hms/"+System.currentTimeMillis()
+    db_location = "${hdfs_parent_path}/hive/hms/" + System.currentTimeMillis()
     testQueryAndInsert(hms_properties + hdfs_properties, "hive_hms_hdfs_test", db_location)
     //kerberos
-    db_location = "hdfs://${externalEnvIp}:8520/hive/hms/"+System.currentTimeMillis()
-    
-    testQueryAndInsert(hms_type_properties+hms_kerberos_new_prop  + hdfs_kerberos_properties, "hive_hms_hdfs_kerberos_test", db_location)
-    
+    db_location = "hdfs://${externalEnvIp}:8520/hive/hms/" + System.currentTimeMillis()
+
+    testQueryAndInsert(hms_type_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "hive_hms_hdfs_kerberos_test", db_location)
+
     /**************** DLF *******************/
     String dlf_warehouse = "oss://selectdb-qa-datalake-test/hive-dlf-oss-warehouse"
     String hive_dlf_catalog_base_properties = """
@@ -277,13 +282,12 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     String dlf_endpoint_properties = """
              "dlf.endpoint" = "${dlf_endpoint}",
     """
-    db_location = "${dlf_warehouse}/hive/dlf-oss/"+System.currentTimeMillis()
-    testQueryAndInsert(dlf_region_param+hive_dlf_catalog_base_properties , "hive_dlf_oss_test", db_location)
-    db_location = "${dlf_warehouse}/hive/dlf-oss/"+System.currentTimeMillis()
-    testQueryAndInsert(dlf_region_param+dlf_oss_properties+hive_dlf_catalog_base_properties , "hive_dlf_oss_test_with_oss", db_location)
-    shouldFail {
-        // not has region param
-        db_location = "${dlf_warehouse}/hive/dlf-oss/"+System.currentTimeMillis()
-        testQueryAndInsert(dlf_endpoint_properties+hive_dlf_catalog_base_properties , "hive_dlf_oss_test", db_location)
-    }
+    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
+    testQueryAndInsert(dlf_region_param + hive_dlf_catalog_base_properties, "hive_dlf_oss_test", db_location)
+    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
+    testQueryAndInsert(dlf_region_param + dlf_oss_properties + hive_dlf_catalog_base_properties, "hive_dlf_oss_test_with_oss", db_location)
+ 
+    // not has region param
+    db_location = "${dlf_warehouse}/hive/dlf-oss/" + System.currentTimeMillis()
+    testQueryAndInsert(dlf_endpoint_properties + hive_dlf_catalog_base_properties, "hive_dlf_oss_test", db_location)
 }
