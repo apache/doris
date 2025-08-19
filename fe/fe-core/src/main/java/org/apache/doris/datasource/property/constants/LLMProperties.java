@@ -40,6 +40,7 @@ public class LLMProperties extends BaseProperties {
     public static final String MAX_RETRIES = "llm.max_retries";
     public static final String RETRY_DELAY_SECOND = "llm.retry_delay_second";
     public static final String ANTHROPIC_VERSION = "llm.anthropic_version";
+    public static final String DIMENSIONS = "llm.dimensions";
 
     // default_val
     public static final String DEFAULT_TEMPERATURE = "-1";
@@ -47,6 +48,7 @@ public class LLMProperties extends BaseProperties {
     public static final String DEFAULT_MAX_RETRIES = "3";
     public static final String DEFAULT_RETRY_DELAY_SECOND = "0";
     public static final String DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
+    public static final String DEFAULT_DIMENSIONS = "-1";
 
     public static final String VALIDITY_CHECK = "llm.validity_check";
 
@@ -84,6 +86,15 @@ public class LLMProperties extends BaseProperties {
                 throw new DdlException("Temperature must be a double between 0 and 1");
             }
         }
+
+        // Check 'dimensions'
+        temp = properties.get(LLMProperties.DIMENSIONS);
+        if (!Strings.isNullOrEmpty(temp) && temp.equals("-1")) {
+            int tempVal = Integer.parseInt(temp);
+            if (tempVal <= 0) {
+                throw new DdlException("Dimensions must be a positive integer");
+            }
+        }
     }
 
     public static void optionalLLMProperties(Map<String, String> properties) {
@@ -92,5 +103,6 @@ public class LLMProperties extends BaseProperties {
         properties.putIfAbsent(LLMProperties.MAX_RETRIES, LLMProperties.DEFAULT_MAX_RETRIES);
         properties.putIfAbsent(LLMProperties.RETRY_DELAY_SECOND, LLMProperties.DEFAULT_RETRY_DELAY_SECOND);
         properties.putIfAbsent(LLMProperties.ANTHROPIC_VERSION, LLMProperties.DEFAULT_ANTHROPIC_VERSION);
+        properties.putIfAbsent(LLMProperties.DIMENSIONS, LLMProperties.DEFAULT_DIMENSIONS);
     }
 }

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/llm/functions_llm.h"
 
 namespace doris::vectorized {

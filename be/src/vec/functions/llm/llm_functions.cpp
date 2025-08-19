@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/columns/column_array.h"
+#include "vec/functions/llm/embed.h"
 #include "vec/functions/llm/llm_classify.h"
 #include "vec/functions/llm/llm_extract.h"
 #include "vec/functions/llm/llm_filter.h"
@@ -67,6 +68,15 @@ Status FunctionLLMClassify::build_prompt(const Block& block, const ColumnNumbers
     labels_str += "]";
 
     prompt = "Labels: " + labels_str + "\nText: " + text_str;
+
+    return Status::OK();
+}
+
+Status FunctionEmbed::build_prompt(const Block& block, const ColumnNumbers& arguments,
+                                   size_t row_num, std::string& prompt) const {
+    const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
+    StringRef text = text_column.column->get_data_at(row_num);
+    prompt = std::string(text.data, text.size);
 
     return Status::OK();
 }
@@ -240,6 +250,10 @@ void register_function_llm_classify(SimpleFunctionFactory& factory) {
 
 void register_function_llm_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLLMExtract>();
+}
+
+void register_function_embed(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionEmbed>();
 }
 
 void register_function_llm_filter(SimpleFunctionFactory& factory) {

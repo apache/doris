@@ -22,16 +22,23 @@
 
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_client.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/threadpool.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/cow.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 #include "vec/functions/llm/llm_adapter.h"
 
@@ -51,7 +58,14 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        MutableColumnPtr col_result = ReturnType::create();
+        MutableColumnPtr col_result;
+        if constexpr (std::is_same_v<ReturnType, ColumnArray>) {
+            col_result = ColumnArray::create(
+                    make_nullable(std::make_shared<DataTypeFloat32>()->create_column()),
+                    ColumnArray::ColumnOffsets::create());
+        } else {
+            col_result = ReturnType::create();
+        }
 
         std::unique_ptr<ThreadPool> thread_pool;
         Status st = ThreadPoolBuilder("LLMRequestPool")
@@ -65,7 +79,7 @@ public:
         }
 
         struct RowResult {
-            std::string data;
+            std::variant<std::string, std::vector<float>> data;
             Status status;
             bool is_null = false;
         };
@@ -83,6 +97,9 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             Status submit_status = thread_pool->submit_func([this, i, &block, &arguments, &results,
                                                              &adapter, &config, context]() {
+                using ResultType = std::conditional_t<std::is_same_v<ReturnType, ColumnArray>,
+                                                      std::vector<float>, std::string>;
+
                 RowResult& row_result = results[i];
 
                 try {
@@ -98,14 +115,14 @@ public:
                     }
 
                     // Execute a single LLM request and get the result
-                    std::string result_str;
-                    status = execute_single_request(prompt, result_str, config, adapter, context);
+                    ResultType result_data;
+                    status = execute_single_request(prompt, result_data, config, adapter, context);
                     if (!status.ok()) {
                         row_result.status = status;
                         row_result.is_null = true;
                         return;
                     }
-                    row_result.data = std::move(result_str);
+                    row_result.data = std::move(result_data);
                     row_result.status = Status::OK();
                 } catch (const std::exception& e) {
                     row_result.status = Status::InternalError("Exception in LLM request: " +
@@ -132,20 +149,37 @@ public:
             if (!row_result.is_null) {
                 if constexpr (std::is_same_v<ReturnType, ColumnString>) {
                     // string
+                    const auto& str_data = std::get<std::string>(row_result.data);
                     assert_cast<ColumnString&>(*col_result)
-                            .insert_data(row_result.data.data(), row_result.data.size());
+                            .insert_data(str_data.data(), str_data.size());
                 } else if constexpr (std::is_same_v<ReturnType, ColumnUInt8>) {
                     // bool
-                    if (row_result.data != "1" && row_result.data != "0") {
-                        return Status::RuntimeError("Failed to parse boolean value: " +
-                                                    row_result.data);
+                    const auto& str_data = std::get<std::string>(row_result.data);
+                    if (str_data != "1" && str_data != "0") {
+                        return Status::RuntimeError("Failed to parse boolean value: " + str_data);
                     }
                     assert_cast<ColumnUInt8&>(*col_result)
-                            .insert_value(static_cast<UInt8>(row_result.data == "1"));
+                            .insert_value(static_cast<UInt8>(str_data == "1"));
                 } else if constexpr (std::is_same_v<ReturnType, ColumnFloat32>) {
                     // float
-                    assert_cast<ColumnFloat32&>(*col_result)
-                            .insert_value(std::stof(row_result.data));
+                    const auto& str_data = std::get<std::string>(row_result.data);
+                    assert_cast<ColumnFloat32&>(*col_result).insert_value(std::stof(str_data));
+                } else if constexpr (std::is_same_v<ReturnType, ColumnArray>) {
+                    // // array of floats
+                    const auto& float_data = std::get<std::vector<float>>(row_result.data);
+                    auto& col_array = assert_cast<ColumnArray&>(*col_result);
+                    auto& offsets = col_array.get_offsets();
+                    auto& nested_nullable_col = assert_cast<ColumnNullable&>(col_array.get_data());
+                    auto& nested_col = assert_cast<ColumnFloat32&>(
+                            *(nested_nullable_col.get_nested_column_ptr()));
+                    nested_col.reserve(nested_col.size() + float_data.size());
+
+                    size_t current_offset = nested_col.size();
+                    nested_col.insert_many_raw_data(
+                            reinterpret_cast<const char*>(float_data.data()), float_data.size());
+                    offsets.push_back(current_offset + float_data.size());
+                    auto& null_map = nested_nullable_col.get_null_map_column();
+                    null_map.insert_many_vals(0, float_data.size());
                 } else {
                     return Status::InternalError("Unsupported ReturnType for LLMFunction");
                 }
@@ -235,6 +269,31 @@ private:
         RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
 
         Status status = adapter->parse_response(response, results);
+        if (!status.ok()) {
+            return status;
+        }
+
+        if (results.empty()) {
+            return Status::InternalError("LLM returned empty result");
+        }
+
+        result = results[0];
+        return Status::OK();
+    }
+
+    Status execute_single_request(const std::string& input, std::vector<float>& result,
+                                  const TLLMResource& config, std::shared_ptr<LLMAdapter>& adapter,
+                                  FunctionContext* context) const {
+        std::vector<std::string> inputs = {input};
+        std::vector<std::vector<float>> results;
+
+        std::string request_body;
+        RETURN_IF_ERROR(adapter->build_embedding_request(inputs, request_body));
+
+        std::string response;
+        RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+
+        Status status = adapter->parse_embedding_response(response, results);
         if (!status.ok()) {
             return status;
         }
