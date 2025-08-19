@@ -112,6 +112,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ResultOr;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
@@ -188,7 +189,9 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
@@ -1455,6 +1458,77 @@ public class InternalCatalog implements CatalogIf<Database> {
         return 1 + totalReplicaNum + indexNum * bucketNum;
     }
 
+    private ResultOr<CompletableFuture<Void>, DdlException> getCurrentPartitionFuture(
+            Database db, String tableName, OlapTable olapTable, String partitionName,
+            SinglePartitionDesc singlePartitionDesc
+    ) throws DdlException {
+        // Guard to serialize concurrent creation of the same partition within the same table.
+        // We acquire or wait on a per-partition future to ensure only one creator proceeds to heavy work.
+        while (true) {
+            Pair<CompletableFuture<Void>, Boolean> acquire = olapTable.acquirePartitionCreationFuture(partitionName);
+            if (acquire.second) {
+                // we have the ownership. do the creation work and share the result by completePartitionCreationFuture.
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("acquired owner for table[{}] partition[{}], tableId={}", tableName, partitionName,
+                            olapTable.getId());
+                }
+                return ResultOr.ok(acquire.first);
+            } else {
+                // Wait for ongoing creation to finish, then double-check existence.
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("waiting for ongoing creation of table[{}] partition[{}]", tableName, partitionName);
+                }
+                try {
+                    acquire.first.get(Config.create_partition_wait_seconds, TimeUnit.SECONDS);
+                } catch (ExecutionException ex) {
+                    // ignore the exception. we only care about it's created or not. will check below.
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(
+                                "previous creation future for table[{}] partition[{}] completed exceptionally: {}: {}",
+                                tableName, partitionName, ex.getClass().getSimpleName(), ex.getMessage());
+                    }
+                } catch (TimeoutException | InterruptedException ex) {
+                    // execute by myself again. It may cause a small number of partitions to be created repeatedly,
+                    // but can avoid pseudo deadlocks.
+                    LOG.warn("wait for table[{}] partition[{}] creation future timeout, try by myself",
+                            tableName, partitionName);
+                    // current thread as an isolated thread and do creation, does not hold any future.
+                    return ResultOr.ok(null);
+                }
+                OlapTable t = db.getOlapTableOrDdlException(tableName);
+                t.readLock();
+                try {
+                    // if other succeed, always return.
+                    if (t.checkPartitionNameExist(partitionName)) {
+                        if (singlePartitionDesc.isSetIfNotExists()) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("partition[{}] already exists after waiting; IF NOT EXISTS no-op",
+                                        partitionName);
+                            }
+                            return ResultOr.err(null);
+                        } else {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("partition[{}] already exists after waiting; raising duplicate error",
+                                        partitionName);
+                            }
+                            return ResultOr.err(
+                                    new DdlException("Partition " + partitionName + " already exists in table "
+                                            + tableName));
+                        }
+                    }
+                    // If failed, continue this loop. Try acquire again before we decide to do by ourself in case
+                    // another task acquired the ownership between our wait and the check.
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("partition[{}] not present after wait on table[{}]; will retry acquire ownership",
+                                partitionName, tableName);
+                    }
+                } finally {
+                    t.readUnlock();
+                }
+            }
+        }
+    }
+
     public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
                                              boolean isCreateTable, long generatedPartitionId,
                                              boolean writeEditLog) throws DdlException {
@@ -1646,63 +1720,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkNotNull(olapTable);
         Preconditions.checkNotNull(indexIdToMeta);
 
-        // Guard to serialize concurrent creation of the same partition within the same table.
-        // We acquire or wait on a per-partition future to ensure only one creator proceeds to heavy work.
-        CompletableFuture<Void> ownerFuture = null;
-        while (true) {
-            Pair<CompletableFuture<Void>, Boolean> acquire = olapTable.acquirePartitionCreationFuture(partitionName);
-            if (acquire.second) {
-                // we have the ownership. do the creation work and share the result by completePartitionCreationFuture.
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("acquired owner for table[{}] partition[{}], tableId={}", tableName, partitionName,
-                            olapTable.getId());
-                }
-                ownerFuture = acquire.first;
-                break;
+        ResultOr<CompletableFuture<Void>, DdlException> ownerFutureOr = getCurrentPartitionFuture(
+                db, tableName, olapTable, partitionName, singlePartitionDesc);
+        if (ownerFutureOr.isErr()) {
+            if (ownerFutureOr.unwrapErr() == null) {
+                return null;
             } else {
-                // Wait for ongoing creation to finish, then double-check existence.
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("waiting for ongoing creation of table[{}] partition[{}]", tableName, partitionName);
-                }
-                try {
-                    acquire.first.join();
-                } catch (RuntimeException ex) {
-                    // ignore the exception. we only care about it's created or not. will check below.
-                    if (LOG.isDebugEnabled()) {
-                        LOG.warn("previous creation future for table[{}] partition[{}] completed exceptionally: {}: {}",
-                                tableName, partitionName, ex.getClass().getSimpleName(), ex.getMessage());
-                    }
-                }
-                OlapTable t = db.getOlapTableOrDdlException(tableName);
-                t.readLock();
-                try {
-                    // if other succeed, always return.
-                    if (t.checkPartitionNameExist(partitionName)) {
-                        if (singlePartitionDesc.isSetIfNotExists()) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("partition[{}] already exists after waiting; IF NOT EXISTS no-op",
-                                        partitionName);
-                            }
-                            return null;
-                        } else {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("partition[{}] already exists after waiting; raising duplicate error",
-                                        partitionName);
-                            }
-                            ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
-                        }
-                    }
-                    // If failed, continue this loop. Try acquire again before we decide to do by ourself in case
-                    // another task acquired the ownership between our wait and the check.
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("partition[{}] not present after wait on table[{}]; will retry acquire ownership",
-                                partitionName, tableName);
-                    }
-                } finally {
-                    t.readUnlock();
-                }
+                throw ownerFutureOr.unwrapErr();
             }
         }
+        CompletableFuture<Void> ownerFuture = ownerFutureOr.unwrap();
 
         // create partition outside db lock
         if (LOG.isDebugEnabled()) {
