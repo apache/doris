@@ -1806,11 +1806,6 @@ struct TFetchRoutineLoadJobResult {
     1: optional list<TRoutineLoadJob> routineLoadJobs
 }
 
-enum TEncryptionAlgorithm {
-    AES256 = 0,
-    SM4 = 1
-}
-
 enum TEncryptionKeyType {
     MASTER_KEY = 0,
     DATA_KEY = 1,
