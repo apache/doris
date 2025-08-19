@@ -49,12 +49,16 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -64,6 +68,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     // erase meta at least after minEraseLatency milliseconds
     // to avoid erase log ahead of drop log
     private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
+
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+    private final Lock readLock = rwLock.readLock();
+    private final Lock writeLock = rwLock.writeLock();
 
     private Map<Long, RecycleDatabaseInfo> idToDatabase;
     private Map<Long, RecycleTableInfo> idToTable;
@@ -82,36 +90,36 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime = Maps.newHashMap();
     }
 
-    public synchronized boolean allTabletsInRecycledStatus(List<Long> backendTabletIds) {
-        Set<Long> recycledTabletSet = Sets.newHashSet();
+    public boolean allTabletsInRecycledStatus(List<Long> backendTabletIds) {
+        readLock.lock();
+        try {
+            Set<Long> recycledTabletSet = Sets.newHashSet();
 
-        Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
-            RecyclePartitionInfo partitionInfo = entry.getValue();
-            Partition partition = partitionInfo.getPartition();
-            addRecycledTabletsForPartition(recycledTabletSet, partition);
-        }
+            for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
+                RecyclePartitionInfo partitionInfo = entry.getValue();
+                Partition partition = partitionInfo.getPartition();
+                addRecycledTabletsForPartition(recycledTabletSet, partition);
+            }
 
-        Iterator<Map.Entry<Long, RecycleTableInfo>> tableIter = idToTable.entrySet().iterator();
-        while (tableIter.hasNext()) {
-            Map.Entry<Long, RecycleTableInfo> entry = tableIter.next();
-            RecycleTableInfo tableInfo = entry.getValue();
-            Table table = tableInfo.getTable();
-            addRecycledTabletsForTable(recycledTabletSet, table);
-        }
-
-        Iterator<Map.Entry<Long, RecycleDatabaseInfo>> dbIterator = idToDatabase.entrySet().iterator();
-        while (dbIterator.hasNext()) {
-            Map.Entry<Long, RecycleDatabaseInfo> entry = dbIterator.next();
-            RecycleDatabaseInfo dbInfo = entry.getValue();
-            Database db = dbInfo.getDb();
-            for (Table table : db.getTables()) {
+            for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
+                RecycleTableInfo tableInfo = entry.getValue();
+                Table table = tableInfo.getTable();
                 addRecycledTabletsForTable(recycledTabletSet, table);
             }
-        }
 
-        return recycledTabletSet.size() >= backendTabletIds.size() && recycledTabletSet.containsAll(backendTabletIds);
+            for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
+                RecycleDatabaseInfo dbInfo = entry.getValue();
+                Database db = dbInfo.getDb();
+                for (Table table : db.getTables()) {
+                    addRecycledTabletsForTable(recycledTabletSet, table);
+                }
+            }
+
+            return recycledTabletSet.size() >= backendTabletIds.size()
+                    && recycledTabletSet.containsAll(backendTabletIds);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     private void addRecycledTabletsForTable(Set<Long> recycledTabletSet, Table table) {
@@ -132,188 +140,300 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    public synchronized boolean recycleDatabase(Database db, Set<String> tableNames, Set<Long> tableIds,
+    public boolean recycleDatabase(Database db, Set<String> tableNames, Set<Long> tableIds,
                                                 boolean isReplay, boolean isForceDrop, long replayRecycleTime) {
-        long recycleTime = 0;
-        if (idToDatabase.containsKey(db.getId())) {
-            LOG.error("db[{}] already in recycle bin.", db.getId());
-            return false;
-        }
+        writeLock.lock();
+        try {
+            long recycleTime = 0;
+            if (idToDatabase.containsKey(db.getId())) {
+                LOG.error("db[{}] already in recycle bin.", db.getId());
+                return false;
+            }
 
-        // db should be empty. all tables are recycled before
-        Preconditions.checkState(db.getTables().isEmpty());
+            // db should be empty. all tables are recycled before
+            Preconditions.checkState(db.getTables().isEmpty());
 
-        // recycle db
-        RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames, tableIds);
-        idToDatabase.put(db.getId(), databaseInfo);
-        if (isForceDrop) {
-            // The 'force drop' database should be recycle immediately.
-            recycleTime = 0;
-        } else if (!isReplay || replayRecycleTime == 0) {
-            recycleTime = System.currentTimeMillis();
-        } else {
-            recycleTime = replayRecycleTime;
+            // recycle db
+            RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames, tableIds);
+            idToDatabase.put(db.getId(), databaseInfo);
+            if (isForceDrop) {
+                // the 'force drop' database should be recycle immediately.
+                recycleTime = 0;
+            } else if (!isReplay || replayRecycleTime == 0) {
+                recycleTime = System.currentTimeMillis();
+            } else {
+                recycleTime = replayRecycleTime;
+            }
+            idToRecycleTime.put(db.getId(), recycleTime);
+            LOG.info("recycle db[{}-{}], is force drop: {}", db.getId(), db.getFullName(), isForceDrop);
+            return true;
+        } finally {
+            writeLock.unlock();
         }
-        idToRecycleTime.put(db.getId(), recycleTime);
-        LOG.info("recycle db[{}-{}], is force drop: {}", db.getId(), db.getFullName(), isForceDrop);
-        return true;
     }
 
-    public synchronized boolean recycleTable(long dbId, Table table, boolean isReplay,
+    public boolean recycleTable(long dbId, Table table, boolean isReplay,
                                              boolean isForceDrop, long replayRecycleTime) {
-        long recycleTime = 0;
-        if (idToTable.containsKey(table.getId())) {
+        // check if the table is already in the recycle bin
+        boolean alreadyExists = false;
+        readLock.lock();
+        try {
+            alreadyExists = idToTable.containsKey(table.getId());
+        } finally {
+            readLock.unlock();
+        }
+
+        if (alreadyExists) {
             LOG.error("table[{}] already in recycle bin.", table.getId());
             return false;
         }
 
-        // recycle table
-        RecycleTableInfo tableInfo = new RecycleTableInfo(dbId, table);
+        // calculate the recovery time
+        long recycleTime = 0;
         if (isForceDrop) {
-            // The 'force drop' table should be recycle immediately.
+            // the 'force drop' table should be recycle immediately.
             recycleTime = 0;
         } else if (!isReplay || replayRecycleTime == 0) {
             recycleTime = System.currentTimeMillis();
         } else {
             recycleTime = replayRecycleTime;
         }
-        idToRecycleTime.put(table.getId(), recycleTime);
-        idToTable.put(table.getId(), tableInfo);
-        LOG.info("recycle table[{}-{}], is force drop: {}", table.getId(), table.getName(), isForceDrop);
-        return true;
+
+        // create recovery table information
+        RecycleTableInfo tableInfo = new RecycleTableInfo(dbId, table);
+
+        // acquire a write lock to update the internal state
+        writeLock.lock();
+        try {
+            // check again if the table is already in the recycle bin
+            // it may have been added by another thread after we released the read lock
+            if (idToTable.containsKey(table.getId())) {
+                LOG.error("table[{}] already in recycle bin.", table.getId());
+                return false;
+            }
+
+            idToRecycleTime.put(table.getId(), recycleTime);
+            idToTable.put(table.getId(), tableInfo);
+            LOG.info("recycle table[{}-{}], is force drop: {}", table.getId(), table.getName(), isForceDrop);
+            return true;
+        } finally {
+            writeLock.unlock();
+        }
     }
 
-    public synchronized boolean recyclePartition(long dbId, long tableId, String tableName, Partition partition,
+    public boolean recyclePartition(long dbId, long tableId, String tableName, Partition partition,
                                                  Range<PartitionKey> range, PartitionItem listPartitionItem,
                                                  DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                                  boolean isInMemory, boolean isMutable) {
-        if (idToPartition.containsKey(partition.getId())) {
+        // check if the table is already in the recycle bin
+        boolean alreadyExists = false;
+        readLock.lock();
+        try {
+            alreadyExists = idToPartition.containsKey(partition.getId());
+        } finally {
+            readLock.unlock();
+        }
+
+        if (alreadyExists) {
             LOG.error("partition[{}] already in recycle bin.", partition.getId());
             return false;
         }
 
-        // recycle partition
+        // create recovery partition information
         RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
                 range, listPartitionItem, dataProperty, replicaAlloc, isInMemory, isMutable);
-        idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
-        idToPartition.put(partition.getId(), partitionInfo);
-        LOG.info("recycle partition[{}-{}] of table [{}-{}]", partition.getId(), partition.getName(),
-                tableId, tableName);
-        return true;
-    }
+        long recycleTime = System.currentTimeMillis();
 
-    public synchronized Long getRecycleTimeById(long id) {
-        return idToRecycleTime.get(id);
-    }
-
-    public synchronized void setRecycleTimeByIdForReplay(long id, Long recycleTime) {
-        idToRecycleTime.put(id, recycleTime);
-    }
-
-    public synchronized boolean isRecycleDatabase(long dbId) {
-        return idToDatabase.containsKey(dbId);
-    }
-
-    public synchronized boolean isRecycleTable(long dbId, long tableId) {
-        return isRecycleDatabase(dbId) || idToTable.containsKey(tableId);
-    }
-
-    public synchronized boolean isRecyclePartition(long dbId, long tableId, long partitionId) {
-        return isRecycleTable(dbId, tableId) || idToPartition.containsKey(partitionId);
-    }
-
-    public synchronized void getRecycleIds(Set<Long> dbIds, Set<Long> tableIds, Set<Long> partitionIds) {
-        dbIds.addAll(idToDatabase.keySet());
-        tableIds.addAll(idToTable.keySet());
-        partitionIds.addAll(idToPartition.keySet());
-    }
-
-    private synchronized boolean isExpire(long id, long currentTimeMs) {
-        long latency = currentTimeMs - idToRecycleTime.get(id);
-        return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
-                && latency > Config.catalog_trash_expire_second * 1000L;
-    }
-
-    private synchronized void eraseDatabase(long currentTimeMs, int keepNum) {
-        int eraseNum = 0;
-        StopWatch watch = StopWatch.createStarted();
+        // acquire a write lock to update the internal status
+        writeLock.lock();
         try {
-            // 1. erase expired database
+            if (idToPartition.containsKey(partition.getId())) {
+                LOG.error("partition[{}] already in recycle bin.", partition.getId());
+                return false;
+            }
+
+            idToRecycleTime.put(partition.getId(), recycleTime);
+            idToPartition.put(partition.getId(), partitionInfo);
+            LOG.info("recycle partition[{}-{}] of table [{}-{}]", partition.getId(), partition.getName(),
+                    tableId, tableName);
+            return true;
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    public Long getRecycleTimeById(long id) {
+        readLock.lock();
+        try {
+            return idToRecycleTime.get(id);
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public void setRecycleTimeByIdForReplay(long id, Long recycleTime) {
+        writeLock.lock();
+        try {
+            idToRecycleTime.put(id, recycleTime);
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    public boolean isRecycleDatabase(long dbId) {
+        readLock.lock();
+        try {
+            return idToDatabase.containsKey(dbId);
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public boolean isRecycleTable(long dbId, long tableId) {
+        readLock.lock();
+        try {
+            return isRecycleDatabase(dbId) || idToTable.containsKey(tableId);
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public boolean isRecyclePartition(long dbId, long tableId, long partitionId) {
+        readLock.lock();
+        try {
+            return isRecycleTable(dbId, tableId) || idToPartition.containsKey(partitionId);
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public void getRecycleIds(Set<Long> dbIds, Set<Long> tableIds, Set<Long> partitionIds) {
+        readLock.lock();
+        try {
+            dbIds.addAll(idToDatabase.keySet());
+            tableIds.addAll(idToTable.keySet());
+            partitionIds.addAll(idToPartition.keySet());
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    private boolean isExpire(long id, long currentTimeMs) {
+        readLock.lock();
+        try {
+            long latency = currentTimeMs - idToRecycleTime.get(id);
+            return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
+                    && latency > Config.catalog_trash_expire_second * 1000L;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    private void eraseDatabase(long currentTimeMs, int keepNum) {
+        List<Pair<Long, Database>> databasesToErase = new ArrayList<>();
+        Set<String> dbNames = new HashSet<>();
+
+        // collect the expired databases to be erased within the lock
+        writeLock.lock();
+        try {
+            StopWatch watch = StopWatch.createStarted();
+            // 1. collect expired databases
             Iterator<Map.Entry<Long, RecycleDatabaseInfo>> dbIter = idToDatabase.entrySet().iterator();
             while (dbIter.hasNext()) {
                 Map.Entry<Long, RecycleDatabaseInfo> entry = dbIter.next();
                 RecycleDatabaseInfo dbInfo = entry.getValue();
                 Database db = dbInfo.getDb();
                 if (isExpire(db.getId(), currentTimeMs)) {
-                    // erase db
-                    dbIter.remove();
-                    idToRecycleTime.remove(entry.getKey());
-                    Env.getCurrentEnv().eraseDatabase(db.getId(), true);
-                    LOG.info("erase db[{}]", db.getId());
-                    eraseNum++;
+                    // collect information only, do not perform erasure within the lock
+                    databasesToErase.add(Pair.of(db.getId(), db));
                 }
             }
-            // 2. erase exceed number
-            if (keepNum < 0) {
-                return;
+
+            // 2. if handling databases with the same name, collect the database name information
+            if (keepNum >= 0) {
+                dbNames = idToDatabase.values().stream()
+                        .map(d -> d.getDb().getFullName())
+                        .collect(Collectors.toSet());
             }
-            Set<String> dbNames = idToDatabase.values().stream().map(d -> d.getDb().getFullName())
-                    .collect(Collectors.toSet());
+
+            watch.stop();
+            LOG.info("eraseDatabase collected {} databases to erase, cost: {}ms",
+                    databasesToErase.size(), watch.getTime());
+        } finally {
+            writeLock.unlock();
+        }
+
+        // perform the erasure operation outside the lock
+        int eraseNum = 0;
+        StopWatch totalWatch = StopWatch.createStarted();
+
+        // process expired databases
+        for (Pair<Long, Database> pair : databasesToErase) {
+            long dbId = pair.first;
+            Env.getCurrentEnv().eraseDatabase(dbId, true);
+
+            // acquire the lock to update the internal state
+            writeLock.lock();
+            try {
+                if (idToDatabase.containsKey(dbId)) {
+                    idToDatabase.remove(dbId);
+                    idToRecycleTime.remove(dbId);
+                    LOG.info("erase db[{}]", dbId);
+                    eraseNum++;
+                }
+            } finally {
+                writeLock.unlock();
+            }
+        }
+
+        if (keepNum >= 0) {
             for (String dbName : dbNames) {
                 eraseDatabaseWithSameName(dbName, currentTimeMs, keepNum);
             }
+        }
+
+        totalWatch.stop();
+        LOG.info("eraseDatabase total eraseNum: {} cost: {}ms", eraseNum, totalWatch.getTime());
+    }
+
+    private void eraseDatabaseWithSameName(String dbName, long currentTimeMs, int maxSameNameTrashNum) {
+        List<Long> dbIdToErase;
+        readLock.lock();
+        try {
+            dbIdToErase = getSameNameDbIdListToErase(dbName, maxSameNameTrashNum);
         } finally {
-            watch.stop();
-            LOG.info("eraseDatabase eraseNum: {} cost: {}ms", eraseNum, watch.getTime());
+            readLock.unlock();
         }
-    }
 
-    private synchronized List<Long> getSameNameDbIdListToErase(String dbName, int maxSameNameTrashNum) {
-        Iterator<Map.Entry<Long, RecycleDatabaseInfo>> iterator = idToDatabase.entrySet().iterator();
-        List<List<Long>> dbRecycleTimeLists = Lists.newArrayList();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, RecycleDatabaseInfo> entry = iterator.next();
-            RecycleDatabaseInfo dbInfo = entry.getValue();
-            Database db = dbInfo.getDb();
-            if (db.getFullName().equals(dbName)) {
-                List<Long> dbRecycleTimeInfo = Lists.newArrayList();
-                dbRecycleTimeInfo.add(entry.getKey());
-                dbRecycleTimeInfo.add(idToRecycleTime.get(entry.getKey()));
-
-                dbRecycleTimeLists.add(dbRecycleTimeInfo);
-            }
-        }
-        List<Long> dbIdToErase = Lists.newArrayList();
-        if (dbRecycleTimeLists.size() <= maxSameNameTrashNum) {
-            return dbIdToErase;
-        }
-        // order by recycle time desc
-        dbRecycleTimeLists.sort((x, y) ->
-                (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
-
-        for (int i = maxSameNameTrashNum; i < dbRecycleTimeLists.size(); i++) {
-            dbIdToErase.add(dbRecycleTimeLists.get(i).get(0));
-        }
-        return dbIdToErase;
-    }
-
-    private synchronized void eraseDatabaseWithSameName(String dbName, long currentTimeMs, int maxSameNameTrashNum) {
-        List<Long> dbIdToErase = getSameNameDbIdListToErase(dbName, maxSameNameTrashNum);
         for (Long dbId : dbIdToErase) {
-            RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
-            if (!isExpireMinLatency(dbId, currentTimeMs)) {
-                continue;
-            }
-            eraseAllTables(dbInfo);
-            idToDatabase.remove(dbId);
-            idToRecycleTime.remove(dbId);
-            Env.getCurrentEnv().eraseDatabase(dbId, true);
-            LOG.info("erase database[{}] name: {}", dbId, dbName);
-        }
-    }
+            RecycleDatabaseInfo dbInfo = null;
+            boolean shouldErase = false;
 
-    private synchronized boolean isExpireMinLatency(long id, long currentTimeMs) {
-        return (currentTimeMs - idToRecycleTime.get(id)) > minEraseLatency;
+            writeLock.lock();
+            try {
+                dbInfo = idToDatabase.get(dbId);
+                if (dbInfo != null && isExpireMinLatency(dbId, currentTimeMs)) {
+                    shouldErase = true;
+                }
+            } finally {
+                writeLock.unlock();
+            }
+
+            if (shouldErase && dbInfo != null) {
+                eraseAllTables(dbInfo);
+                Env.getCurrentEnv().eraseDatabase(dbId, true);
+                writeLock.lock();
+                try {
+                    if (idToDatabase.containsKey(dbId)) {
+                        idToDatabase.remove(dbId);
+                        idToRecycleTime.remove(dbId);
+                        LOG.info("erase database[{}] name: {}", dbId, dbName);
+                    }
+                } finally {
+                    writeLock.unlock();
+                }
+            }
+        }
     }
 
     private void eraseAllTables(RecycleDatabaseInfo dbInfo) {
@@ -321,39 +441,64 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Set<String> tableNames = Sets.newHashSet(dbInfo.getTableNames());
         Set<Long> tableIds = Sets.newHashSet(dbInfo.getTableIds());
         long dbId = db.getId();
-        Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-        while (iterator.hasNext() && !tableNames.isEmpty()) {
-            Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
-            RecycleTableInfo tableInfo = entry.getValue();
-            if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
-                    || !tableIds.contains(tableInfo.getTable().getId())) {
-                continue;
-            }
 
-            Table table = tableInfo.getTable();
+        List<Pair<Long, Table>> tablesToErase = new ArrayList<>();
+
+        writeLock.lock();
+        try {
+            Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
+            while (iterator.hasNext() && !tableNames.isEmpty()) {
+                Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
+                RecycleTableInfo tableInfo = entry.getValue();
+                if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
+                        || !tableIds.contains(tableInfo.getTable().getId())) {
+                    continue;
+                }
+
+                Table table = tableInfo.getTable();
+                tablesToErase.add(Pair.of(table.getId(), table));
+                tableNames.remove(table.getName());
+            }
+        } finally {
+            writeLock.unlock();
+        }
+
+        for (Pair<Long, Table> pair : tablesToErase) {
+            long tableId = pair.first;
+            Table table = pair.second;
+
             if (table.isManagedTable()) {
                 Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
             }
-            iterator.remove();
-            idToRecycleTime.remove(table.getId());
-            tableNames.remove(table.getName());
-            Env.getCurrentEnv().getEditLog().logEraseTable(table.getId());
-            LOG.info("erase db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+
+            writeLock.lock();
+            try {
+                if (idToTable.containsKey(tableId)) {
+                    idToTable.remove(tableId);
+                    idToRecycleTime.remove(tableId);
+                    Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
+                    LOG.info("erase db[{}] with table[{}]: {}", dbId, tableId, table.getName());
+                }
+            } finally {
+                writeLock.unlock();
+            }
         }
     }
 
-    public synchronized void replayEraseDatabase(long dbId) {
+    public void replayEraseDatabase(long dbId) {
         idToDatabase.remove(dbId);
         idToRecycleTime.remove(dbId);
         Env.getCurrentEnv().eraseDatabase(dbId, false);
         LOG.info("replay erase db[{}]", dbId);
     }
 
-    private synchronized void eraseTable(long currentTimeMs, int keepNum) {
-        int eraseNum = 0;
-        StopWatch watch = StopWatch.createStarted();
+    private void eraseTable(long currentTimeMs, int keepNum) {
+        List<Pair<Long, Table>> tablesToErase = new ArrayList<>();
+        Map<Long, Set<String>> dbId2TableNames = Maps.newHashMap();
+
+        writeLock.lock();
         try {
-            // 1. erase expired tables
+            StopWatch watch = StopWatch.createStarted();
             Iterator<Map.Entry<Long, RecycleTableInfo>> tableIter = idToTable.entrySet().iterator();
             while (tableIter.hasNext()) {
                 Map.Entry<Long, RecycleTableInfo> entry = tableIter.next();
@@ -362,100 +507,149 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long tableId = table.getId();
 
                 if (isExpire(tableId, currentTimeMs)) {
-                    if (table.isManagedTable()) {
-                        Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                    tablesToErase.add(Pair.of(tableId, table));
+                }
+            }
+
+            if (keepNum >= 0) {
+                for (RecycleTableInfo tableInfo : idToTable.values()) {
+                    Set<String> tblNames = dbId2TableNames.get(tableInfo.dbId);
+                    if (tblNames == null) {
+                        tblNames = Sets.newHashSet();
+                        dbId2TableNames.put(tableInfo.dbId, tblNames);
                     }
+                    tblNames.add(tableInfo.getTable().getName());
+                }
+            }
 
-                    // erase table
-                    tableIter.remove();
+            watch.stop();
+            LOG.info("eraseTable collected {} tables to erase, cost: {}ms",
+                    tablesToErase.size(), watch.getTime());
+        } finally {
+            writeLock.unlock();
+        }
+
+        int eraseNum = 0;
+        StopWatch totalWatch = StopWatch.createStarted();
+
+        for (Pair<Long, Table> pair : tablesToErase) {
+            long tableId = pair.first;
+            Table table = pair.second;
+            if (table.isManagedTable()) {
+                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+            }
+
+            writeLock.lock();
+            try {
+                if (idToTable.containsKey(tableId)) {
+                    idToTable.remove(tableId);
                     idToRecycleTime.remove(tableId);
-
-                    // log
                     Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
                     LOG.info("erase table[{}]", tableId);
                     eraseNum++;
                 }
-            } // end for tables
+            } finally {
+                writeLock.unlock();
+            }
+        }
 
-            // 2. erase exceed num
-            if (keepNum < 0) {
-                return;
-            }
-            Map<Long, Set<String>> dbId2TableNames = Maps.newHashMap();
-            for (RecycleTableInfo tableInfo : idToTable.values()) {
-                Set<String> tblNames = dbId2TableNames.get(tableInfo.dbId);
-                if (tblNames == null) {
-                    tblNames = Sets.newHashSet();
-                    dbId2TableNames.put(tableInfo.dbId, tblNames);
-                }
-                tblNames.add(tableInfo.getTable().getName());
-            }
+        if (keepNum >= 0) {
             for (Map.Entry<Long, Set<String>> entry : dbId2TableNames.entrySet()) {
                 for (String tblName : entry.getValue()) {
                     eraseTableWithSameName(entry.getKey(), tblName, currentTimeMs, keepNum);
                 }
             }
-        } finally {
-            watch.stop();
-            LOG.info("eraseTable eraseNum: {} cost: {}ms", eraseNum, watch.getTime());
         }
+
+        totalWatch.stop();
+        LOG.info("eraseTable total eraseNum: {} cost: {}ms", eraseNum, totalWatch.getTime());
     }
 
-    private synchronized List<Long> getSameNameTableIdListToErase(long dbId, String tableName,
+    private List<Long> getSameNameTableIdListToErase(long dbId, String tableName,
                                                                   int maxSameNameTrashNum) {
-        Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-        List<List<Long>> tableRecycleTimeLists = Lists.newArrayList();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
-            RecycleTableInfo tableInfo = entry.getValue();
-            if (tableInfo.getDbId() != dbId) {
-                continue;
-            }
+        readLock.lock();
+        try {
+            Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
+            List<List<Long>> tableRecycleTimeLists = Lists.newArrayList();
+            while (iterator.hasNext()) {
+                Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
+                RecycleTableInfo tableInfo = entry.getValue();
+                if (tableInfo.getDbId() != dbId) {
+                    continue;
+                }
 
-            Table table = tableInfo.getTable();
-            if (table.getName().equals(tableName)) {
-                List<Long> tableRecycleTimeInfo = Lists.newArrayList();
-                tableRecycleTimeInfo.add(entry.getKey());
-                tableRecycleTimeInfo.add(idToRecycleTime.get(entry.getKey()));
+                Table table = tableInfo.getTable();
+                if (table.getName().equals(tableName)) {
+                    List<Long> tableRecycleTimeInfo = Lists.newArrayList();
+                    tableRecycleTimeInfo.add(entry.getKey());
+                    tableRecycleTimeInfo.add(idToRecycleTime.get(entry.getKey()));
 
-                tableRecycleTimeLists.add(tableRecycleTimeInfo);
+                    tableRecycleTimeLists.add(tableRecycleTimeInfo);
+                }
             }
-        }
-        List<Long> tableIdToErase = Lists.newArrayList();
-        if (tableRecycleTimeLists.size() <= maxSameNameTrashNum) {
+            List<Long> tableIdToErase = Lists.newArrayList();
+            if (tableRecycleTimeLists.size() <= maxSameNameTrashNum) {
+                return tableIdToErase;
+            }
+            // order by recycle time desc
+            tableRecycleTimeLists.sort((x, y) ->
+                    (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
+
+            for (int i = maxSameNameTrashNum; i < tableRecycleTimeLists.size(); i++) {
+                tableIdToErase.add(tableRecycleTimeLists.get(i).get(0));
+            }
             return tableIdToErase;
+        } finally {
+            readLock.unlock();
         }
-        // order by recycle time desc
-        tableRecycleTimeLists.sort((x, y) ->
-                (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
-
-        for (int i = maxSameNameTrashNum; i < tableRecycleTimeLists.size(); i++) {
-            tableIdToErase.add(tableRecycleTimeLists.get(i).get(0));
-        }
-        return tableIdToErase;
     }
 
-    private synchronized void eraseTableWithSameName(long dbId, String tableName, long currentTimeMs,
+    private void eraseTableWithSameName(long dbId, String tableName, long currentTimeMs,
             int maxSameNameTrashNum) {
-        List<Long> tableIdToErase = getSameNameTableIdListToErase(dbId, tableName, maxSameNameTrashNum);
+        List<Long> tableIdToErase;
+        readLock.lock();
+        try {
+            tableIdToErase = getSameNameTableIdListToErase(dbId, tableName, maxSameNameTrashNum);
+        } finally {
+            readLock.unlock();
+        }
+
         for (Long tableId : tableIdToErase) {
-            RecycleTableInfo tableInfo = idToTable.get(tableId);
-            if (!isExpireMinLatency(tableId, currentTimeMs)) {
-                continue;
-            }
-            Table table = tableInfo.getTable();
-            if (table.isManagedTable()) {
-                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+            Table table = null;
+            boolean shouldErase = false;
+
+            writeLock.lock();
+            try {
+                RecycleTableInfo tableInfo = idToTable.get(tableId);
+                if (tableInfo != null && isExpireMinLatency(tableId, currentTimeMs)) {
+                    table = tableInfo.getTable();
+                    shouldErase = true;
+                }
+            } finally {
+                writeLock.unlock();
             }
 
-            idToTable.remove(tableId);
-            idToRecycleTime.remove(tableId);
-            Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
-            LOG.info("erase table[{}] name: {} from db[{}]", tableId, tableName, dbId);
+            if (shouldErase && table != null) {
+                if (table.isManagedTable()) {
+                    Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                }
+
+                writeLock.lock();
+                try {
+                    if (idToTable.containsKey(tableId)) {
+                        idToTable.remove(tableId);
+                        idToRecycleTime.remove(tableId);
+                        Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
+                        LOG.info("erase table[{}] name: {} from db[{}]", tableId, tableName, dbId);
+                    }
+                } finally {
+                    writeLock.unlock();
+                }
+            }
         }
     }
 
-    public synchronized void replayEraseTable(long tableId) {
+    public void replayEraseTable(long tableId) {
         LOG.info("before replay erase table[{}]", tableId);
         RecycleTableInfo tableInfo = idToTable.remove(tableId);
         idToRecycleTime.remove(tableId);
@@ -471,110 +665,178 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         LOG.info("replay erase table[{}]", tableId);
     }
 
-    private synchronized void erasePartition(long currentTimeMs, int keepNum) {
-        int eraseNum = 0;
-        StopWatch watch = StopWatch.createStarted();
+    private void erasePartition(long currentTimeMs, int keepNum) {
+        List<Pair<Long, Partition>> partitionsToErase = new ArrayList<>();
+
+        writeLock.lock();
         try {
-            // 1. erase expired partitions
+            StopWatch watch = StopWatch.createStarted();
             Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
             while (iterator.hasNext()) {
                 Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
                 RecyclePartitionInfo partitionInfo = entry.getValue();
                 Partition partition = partitionInfo.getPartition();
-
                 long partitionId = entry.getKey();
+
                 if (isExpire(partitionId, currentTimeMs)) {
-                    Env.getCurrentEnv().onErasePartition(partition);
-                    // erase partition
-                    iterator.remove();
+                    partitionsToErase.add(Pair.of(partitionId, partition));
+                }
+            }
+
+            if (keepNum < 0) {
+                watch.stop();
+                LOG.info("erasePartition collected {} partitions to erase, cost: {}ms",
+                        partitionsToErase.size(), watch.getTime());
+                return;
+            }
+
+            watch.stop();
+            LOG.info("erasePartition collected info, cost: {}ms", watch.getTime());
+        } finally {
+            writeLock.unlock();
+        }
+
+        int eraseNum = 0;
+        StopWatch totalWatch = StopWatch.createStarted();
+
+        for (Pair<Long, Partition> pair : partitionsToErase) {
+            long partitionId = pair.first;
+            Partition partition = pair.second;
+
+            Env.getCurrentEnv().onErasePartition(partition);
+
+            writeLock.lock();
+            try {
+                if (idToPartition.containsKey(partitionId)) {
+                    idToPartition.remove(partitionId);
                     idToRecycleTime.remove(partitionId);
-                    // log
                     Env.getCurrentEnv().getEditLog().logErasePartition(partitionId);
                     LOG.info("erase partition[{}]. reason: expired", partitionId);
                     eraseNum++;
                 }
-            } // end for partitions
+            } finally {
+                writeLock.unlock();
+            }
+        }
 
-            // 2. erase exceed number
-            if (keepNum < 0) {
-                return;
+        if (keepNum >= 0) {
+            com.google.common.collect.Table<Long, Long, Set<String>> dbTblId2PartitionNames;
+            writeLock.lock();
+            try {
+                dbTblId2PartitionNames = buildPartitionNameMap();
+            } finally {
+                writeLock.unlock();
             }
-            com.google.common.collect.Table<Long, Long, Set<String>> dbTblId2PartitionNames = HashBasedTable.create();
-            for (RecyclePartitionInfo partitionInfo : idToPartition.values()) {
-                Set<String> partitionNames = dbTblId2PartitionNames.get(partitionInfo.dbId, partitionInfo.tableId);
-                if (partitionNames == null) {
-                    partitionNames = Sets.newHashSet();
-                    dbTblId2PartitionNames.put(partitionInfo.dbId, partitionInfo.tableId, partitionNames);
-                }
-                partitionNames.add(partitionInfo.getPartition().getName());
-            }
+
             for (Cell<Long, Long, Set<String>> cell : dbTblId2PartitionNames.cellSet()) {
                 for (String partitionName : cell.getValue()) {
-                    erasePartitionWithSameName(cell.getRowKey(), cell.getColumnKey(), partitionName, currentTimeMs,
-                            keepNum);
+                    erasePartitionWithSameName(cell.getRowKey(), cell.getColumnKey(), partitionName,
+                            currentTimeMs, keepNum);
                 }
             }
-        } finally {
-            watch.stop();
-            LOG.info("erasePartition eraseNum: {} cost: {}ms", eraseNum, watch.getTime());
         }
+
+        totalWatch.stop();
+        LOG.info("erasePartition total eraseNum: {} cost: {}ms", eraseNum, totalWatch.getTime());
     }
 
-    private synchronized List<Long> getSameNamePartitionIdListToErase(long dbId, long tableId, String partitionName,
+    private com.google.common.collect.Table<Long, Long, Set<String>> buildPartitionNameMap() {
+        com.google.common.collect.Table<Long, Long, Set<String>> dbTblId2PartitionNames = HashBasedTable.create();
+        for (RecyclePartitionInfo partitionInfo : idToPartition.values()) {
+            Set<String> partitionNames = dbTblId2PartitionNames.get(partitionInfo.dbId, partitionInfo.tableId);
+            if (partitionNames == null) {
+                partitionNames = Sets.newHashSet();
+                dbTblId2PartitionNames.put(partitionInfo.dbId, partitionInfo.tableId, partitionNames);
+            }
+            partitionNames.add(partitionInfo.getPartition().getName());
+        }
+        return dbTblId2PartitionNames;
+    }
+
+    private List<Long> getSameNamePartitionIdListToErase(long dbId, long tableId, String partitionName,
                                                                       int maxSameNameTrashNum) {
-        Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
-        List<List<Long>> partitionRecycleTimeLists = Lists.newArrayList();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
-            RecyclePartitionInfo partitionInfo = entry.getValue();
-            if (partitionInfo.getDbId() != dbId || partitionInfo.getTableId() != tableId) {
-                continue;
+        readLock.lock();
+        try {
+            List<List<Long>> partitionRecycleTimeLists = Lists.newArrayList();
+            for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
+                RecyclePartitionInfo partitionInfo = entry.getValue();
+                if (partitionInfo.getDbId() != dbId || partitionInfo.getTableId() != tableId) {
+                    continue;
+                }
+
+                Partition partition = partitionInfo.getPartition();
+                if (partition.getName().equals(partitionName)) {
+                    List<Long> partitionRecycleTimeInfo = Lists.newArrayList();
+                    partitionRecycleTimeInfo.add(entry.getKey());
+                    partitionRecycleTimeInfo.add(idToRecycleTime.get(entry.getKey()));
+                    partitionRecycleTimeLists.add(partitionRecycleTimeInfo);
+                }
             }
 
-            Partition partition = partitionInfo.getPartition();
-            if (partition.getName().equals(partitionName)) {
-                List<Long> partitionRecycleTimeInfo = Lists.newArrayList();
-                partitionRecycleTimeInfo.add(entry.getKey());
-                partitionRecycleTimeInfo.add(idToRecycleTime.get(entry.getKey()));
-
-                partitionRecycleTimeLists.add(partitionRecycleTimeInfo);
+            if (partitionRecycleTimeLists.size() <= maxSameNameTrashNum) {
+                return Lists.newArrayList();
             }
-        }
-        List<Long> partitionIdToErase = Lists.newArrayList();
-        if (partitionRecycleTimeLists.size() <= maxSameNameTrashNum) {
+
+            // order by recycle time desc
+            partitionRecycleTimeLists.sort((x, y) ->
+                    (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
+
+            List<Long> partitionIdToErase = Lists.newArrayList();
+            for (int i = maxSameNameTrashNum; i < partitionRecycleTimeLists.size(); i++) {
+                partitionIdToErase.add(partitionRecycleTimeLists.get(i).get(0));
+            }
             return partitionIdToErase;
+        } finally {
+            readLock.unlock();
         }
-        // order by recycle time desc
-        partitionRecycleTimeLists.sort((x, y) ->
-                (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
-
-        for (int i = maxSameNameTrashNum; i < partitionRecycleTimeLists.size(); i++) {
-            partitionIdToErase.add(partitionRecycleTimeLists.get(i).get(0));
-        }
-        return partitionIdToErase;
     }
 
-    private synchronized void erasePartitionWithSameName(long dbId, long tableId, String partitionName,
+    private void erasePartitionWithSameName(long dbId, long tableId, String partitionName,
             long currentTimeMs, int maxSameNameTrashNum) {
-        List<Long> partitionIdToErase = getSameNamePartitionIdListToErase(dbId, tableId, partitionName,
-                maxSameNameTrashNum);
-        for (Long partitionId : partitionIdToErase) {
-            RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
-            if (!isExpireMinLatency(partitionId, currentTimeMs)) {
-                continue;
-            }
-            Partition partition = partitionInfo.getPartition();
+        List<Long> partitionIdToErase;
+        readLock.lock();
+        try {
+            partitionIdToErase = getSameNamePartitionIdListToErase(dbId, tableId, partitionName,
+                    maxSameNameTrashNum);
+        } finally {
+            readLock.unlock();
+        }
 
-            Env.getCurrentEnv().onErasePartition(partition);
-            idToPartition.remove(partitionId);
-            idToRecycleTime.remove(partitionId);
-            Env.getCurrentEnv().getEditLog().logErasePartition(partitionId);
-            LOG.info("erase partition[{}] name: {} from table[{}] from db[{}]", partitionId, partitionName, tableId,
-                    dbId);
+        for (Long partitionId : partitionIdToErase) {
+            Partition partition = null;
+            boolean shouldErase = false;
+
+            writeLock.lock();
+            try {
+                RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
+                if (partitionInfo != null && isExpireMinLatency(partitionId, currentTimeMs)) {
+                    partition = partitionInfo.getPartition();
+                    shouldErase = true;
+                }
+            } finally {
+                writeLock.unlock();
+            }
+
+            if (shouldErase && partition != null) {
+                Env.getCurrentEnv().onErasePartition(partition);
+
+                writeLock.lock();
+                try {
+                    if (idToPartition.containsKey(partitionId)) {
+                        idToPartition.remove(partitionId);
+                        idToRecycleTime.remove(partitionId);
+                        Env.getCurrentEnv().getEditLog().logErasePartition(partitionId);
+                        LOG.info("erase partition[{}] name: {} from table[{}] from db[{}]",
+                                partitionId, partitionName, tableId, dbId);
+                    }
+                } finally {
+                    writeLock.unlock();
+                }
+            }
         }
     }
 
-    public synchronized void replayErasePartition(long partitionId) {
+    public void replayErasePartition(long partitionId) {
         RecyclePartitionInfo partitionInfo = idToPartition.remove(partitionId);
         idToRecycleTime.remove(partitionId);
 
@@ -589,7 +851,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         LOG.info("replay erase partition[{}]", partitionId);
     }
 
-    public synchronized Database recoverDatabase(String dbName, long dbId) throws DdlException {
+    public Database recoverDatabase(String dbName, long dbId) throws DdlException {
         RecycleDatabaseInfo dbInfo = null;
         // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
         // skip these databases and tables.
@@ -625,7 +887,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return db;
     }
 
-    public synchronized Database replayRecoverDatabase(long dbId) {
+    public Database replayRecoverDatabase(long dbId) {
         RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
 
         try {
@@ -672,7 +934,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    public synchronized boolean recoverTable(Database db, String tableName, long tableId,
+    public boolean recoverTable(Database db, String tableName, long tableId,
                                              String newTableName) throws DdlException {
         // make sure to get db lock
         Table table = null;
@@ -718,7 +980,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return true;
     }
 
-    public synchronized void replayRecoverTable(Database db, long tableId, String newTableName) throws DdlException {
+    public void replayRecoverTable(Database db, long tableId, String newTableName) throws DdlException {
         // make sure to get db write lock
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -736,7 +998,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    private synchronized boolean innerRecoverTable(Database db, Table table, String tableName, String newTableName,
+    private boolean innerRecoverTable(Database db, Table table, String tableName, String newTableName,
                                                 Iterator<Map.Entry<Long, RecycleTableInfo>> iterator,
                                                 boolean isReplay) throws DdlException {
         table.writeLock();
@@ -785,7 +1047,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return true;
     }
 
-    public synchronized void recoverPartition(long dbId, OlapTable table, String partitionName,
+    public void recoverPartition(long dbId, OlapTable table, String partitionName,
             long partitionIdToRecover, String newPartitionName) throws DdlException {
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             throw new DdlException("Can not recover partition in materialized view: " + table.getName());
@@ -878,7 +1140,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     // The caller should keep table write lock
-    public synchronized void replayRecoverPartition(OlapTable table, long partitionId,
+    public void replayRecoverPartition(OlapTable table, long partitionId,
                                                     String newPartitionName) throws DdlException {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -920,7 +1182,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     // erase database in catalog recycle bin instantly
-    public synchronized void eraseDatabaseInstantly(long dbId) throws DdlException {
+    public void eraseDatabaseInstantly(long dbId) throws DdlException {
         // 1. find dbInfo and erase db
         RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
         if (dbInfo != null) {
@@ -971,7 +1233,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     // erase table in catalog recycle bin instantly
-    public synchronized void eraseTableInstantly(long tableId) throws DdlException {
+    public void eraseTableInstantly(long tableId) throws DdlException {
         // 1. find tableInfo and erase table
         RecycleTableInfo tableInfo = idToTable.get(tableId);
         if (tableInfo != null) {
@@ -1013,7 +1275,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     // erase partition in catalog recycle bin instantly
-    public synchronized void erasePartitionInstantly(long partitionId) throws DdlException {
+    public void erasePartitionInstantly(long partitionId) throws DdlException {
         // 1. find partitionInfo to erase
         RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
         if (partitionInfo == null) {
@@ -1133,7 +1395,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         eraseDatabase(currentTimeMs, keepNum);
     }
 
-    public synchronized List<List<String>> getInfo() {
+    public List<List<String>> getInfo() {
         Map<Long, Pair<Long, Long>> dbToDataSize = new HashMap<>();
         List<List<String>> tableInfos = Lists.newArrayList();
         for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
@@ -1145,7 +1407,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             info.add(String.valueOf(tableInfo.getDbId()));
             info.add(String.valueOf(entry.getKey()));
             info.add("");
-            //info.add(String.valueOf(idToRecycleTime.get(entry.getKey())));
             info.add(TimeUtils.longToTimeString(idToRecycleTime.get(entry.getKey())));
             // data size
             long dataSize = table.getDataSize(false);
@@ -1186,7 +1447,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             info.add(String.valueOf(partitionInfo.getDbId()));
             info.add(String.valueOf(partitionInfo.getTableId()));
             info.add(String.valueOf(entry.getKey()));
-            //info.add(String.valueOf(idToRecycleTime.get(entry.getKey())));
             info.add(TimeUtils.longToTimeString(idToRecycleTime.get(entry.getKey())));
             // data size
             long dataSize = partition.getDataSize(false);
@@ -1227,7 +1487,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             info.add(String.valueOf(entry.getKey()));
             info.add("");
             info.add("");
-            //info.add(String.valueOf(idToRecycleTime.get(entry.getKey())));
             info.add(TimeUtils.longToTimeString(idToRecycleTime.get(entry.getKey())));
             // data size
             Pair<Long, Long> dataSizePair = dbToDataSize.getOrDefault(entry.getKey(), Pair.of(0L, 0L));
@@ -1250,7 +1509,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return Stream.of(dbInfos, tableInfos, partitionInfos).flatMap(Collection::stream).collect(Collectors.toList());
     }
 
-    public synchronized Map<Long, Pair<Long, Long>> getDbToRecycleSize() {
+    public Map<Long, Pair<Long, Long>> getDbToRecycleSize() {
         Map<Long, Pair<Long, Long>> dbToRecycleSize = new HashMap<>();
         for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
             RecycleTableInfo tableInfo = entry.getValue();
@@ -1292,7 +1551,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     // Need to add "synchronized", because when calling /dump api to dump image,
     // this class is not protected by any lock, will throw ConcurrentModificationException.
     @Override
-    public synchronized void write(DataOutput out) throws IOException {
+    public void write(DataOutput out) throws IOException {
         out.writeInt(idToDatabase.size());
         for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
             out.writeLong(entry.getKey());
@@ -1540,5 +1799,51 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     // currently only used when loading image. So no synchronized protected.
     public List<Long> getAllDbIds() {
         return Lists.newArrayList(idToDatabase.keySet());
+    }
+
+    private List<Long> getSameNameDbIdListToErase(String dbName, int maxSameNameTrashNum) {
+        readLock.lock();
+        try {
+            List<List<Long>> dbRecycleTimeLists = Lists.newArrayList();
+            for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
+                RecycleDatabaseInfo dbInfo = entry.getValue();
+                Database db = dbInfo.getDb();
+                if (db.getFullName().equals(dbName)) {
+                    List<Long> dbRecycleTimeInfo = Lists.newArrayList();
+                    dbRecycleTimeInfo.add(entry.getKey());
+                    dbRecycleTimeInfo.add(idToRecycleTime.get(entry.getKey()));
+                    dbRecycleTimeLists.add(dbRecycleTimeInfo);
+                }
+            }
+
+            List<Long> dbIdToErase = Lists.newArrayList();
+            if (dbRecycleTimeLists.size() <= maxSameNameTrashNum) {
+                return dbIdToErase;
+            }
+
+            // order by recycle time desc
+            dbRecycleTimeLists.sort((x, y) ->
+                    (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
+
+            for (int i = maxSameNameTrashNum; i < dbRecycleTimeLists.size(); i++) {
+                dbIdToErase.add(dbRecycleTimeLists.get(i).get(0));
+            }
+            return dbIdToErase;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    private boolean isExpireMinLatency(long id, long currentTimeMs) {
+        readLock.lock();
+        try {
+            Long recycleTime = idToRecycleTime.get(id);
+            if (recycleTime == null) {
+                return false;
+            }
+            return currentTimeMs - recycleTime > minEraseLatency;
+        } finally {
+            readLock.unlock();
+        }
     }
 }
