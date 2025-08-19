@@ -280,36 +280,14 @@ private:
 
     // absorb other registers into this registers
     void _merge_registers(const uint8_t* other_registers) {
-#ifdef __AVX2__
-        int loop = HLL_REGISTERS_COUNT / 32; // 32 = 256/8
-        uint8_t* dst = _registers;
-        const uint8_t* src = other_registers;
-        for (int i = 0; i < loop; i++) {
-            __m256i xa = _mm256_loadu_si256((const __m256i*)dst);
-            __m256i xb = _mm256_loadu_si256((const __m256i*)src);
-            _mm256_storeu_si256((__m256i*)dst, _mm256_max_epu8(xa, xb));
-            src += 32;
-            dst += 32;
-        }
-#elif defined(__ARM_FEATURE_SVE)
-        uint64_t byte_len = svcntb();
-        int loop = HLL_REGISTERS_COUNT / byte_len;
-        uint8_t* dst = _registers;
-        const uint8_t* src = other_registers;
-        svbool_t pg = svptrue_b8();
-        for (int i = 0; i < loop; i++) {
-            svuint8_t xa = svld1(pg, dst);
-            svuint8_t xb = svld1(pg, src);
-            svst1(pg, dst, svmax_u8_x(pg, xa, xb));
-            src += byte_len;
-            dst += byte_len;
-        }
-#else
-        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-            _registers[i] =
-                    (_registers[i] < other_registers[i] ? other_registers[i] : _registers[i]);
-        }
-#endif
+        _do_simd_merge(_registers, other_registers);
+    }
+
+    void _do_simd_merge(uint8_t* __restrict registers, const uint8_t* __restrict other_registers) {
+         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+             registers[i] =
+                     (registers[i] < other_registers[i] ? other_registers[i] : registers[i]);
+         }
     }
 
     HllDataType _type = HLL_DATA_EMPTY;
