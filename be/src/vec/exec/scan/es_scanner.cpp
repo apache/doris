@@ -53,16 +53,12 @@ EsScanner::EsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_st
           _es_scroll_parser(nullptr),
           _docvalue_context(docvalue_context),
           _doc_value_mode(doc_value_mode) {
-    _is_init = false;
+    _has_prepared = false;
 }
 
-Status EsScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
-    RETURN_IF_ERROR(Scanner::prepare(_state, conjuncts));
-
-    if (_is_init) {
-        return Status::OK();
-    }
+Status EsScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    VLOG_CRITICAL << NEW_SCANNER_TYPE << "::init";
+    RETURN_IF_ERROR(Scanner::init(_state, conjuncts));
 
     if (nullptr == state) {
         return Status::InternalError("input pointer is null.");
@@ -79,7 +75,6 @@ Status EsScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjunct
         return Status::InternalError("Es reader construct failed.");
     }
 
-    _is_init = true;
     return Status::OK();
 }
 
@@ -90,7 +85,7 @@ Status EsScanner::open(RuntimeState* state) {
         return Status::InternalError("input pointer is null.");
     }
 
-    if (!_is_init) {
+    if (!_has_prepared) {
         return Status::InternalError("used before initialize.");
     }
 
@@ -108,7 +103,7 @@ Status EsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) 
         return Status::InternalError("input is NULL pointer");
     }
 
-    if (!_is_init) {
+    if (!_has_prepared) {
         return Status::InternalError("used before initialize.");
     }
 

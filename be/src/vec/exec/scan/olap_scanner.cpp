@@ -96,7 +96,7 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .score_runtime {},
                                  .collection_statistics {}}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
-    _is_init = false;
+    _has_prepared = false;
 }
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
@@ -123,8 +123,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status OlapScanner::init() {
-    _is_init = true;
+Status OlapScanner::prepare() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -254,6 +253,7 @@ Status OlapScanner::init() {
                 _tablet_reader_params.common_expr_ctxs_push_down));
     }
 
+    _has_prepared = true;
     return Status::OK();
 }
 

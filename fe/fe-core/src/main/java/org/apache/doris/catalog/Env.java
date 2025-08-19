@@ -31,15 +31,12 @@ import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SlotRef;
@@ -184,9 +181,11 @@ import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
@@ -3402,10 +3401,6 @@ public class Env {
         }
     }
 
-    public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
-        getInternalCatalog().recoverDatabase(recoverStmt);
-    }
-
     public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
         getInternalCatalog().recoverDatabase(dbName, dbId, newDbName);
     }
@@ -4335,7 +4330,7 @@ public class Env {
      *
      * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
-    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
+    public static void getDdlStmt(Command command, String dbName, TableIf table, List<String> createTableStmt,
                                   List<String> addPartitionStmt, List<String> createRollupStmt,
                                   boolean separatePartition,
                                   boolean hidePassword, boolean getDdlForLike, long specificVersion,
@@ -4365,8 +4360,8 @@ public class Env {
         }
 
         // create table like a temporary table or create temporary table like a table
-        if (ddlStmt instanceof CreateTableLikeStmt) {
-            if (((CreateTableLikeStmt) ddlStmt).isTemp()) {
+        if (command instanceof CreateTableLikeCommand) {
+            if (((CreateTableLikeCommand) command).getInfo().isTemp()) {
                 sb.append("TEMPORARY ");
             }
         } else if (table.isTemporary()) {
@@ -4468,12 +4463,10 @@ public class Env {
             sb.append("\n").append(distributionInfo.toSql());
 
             // rollup index
-            if (ddlStmt instanceof CreateTableLikeStmt) {
-
-                CreateTableLikeStmt stmt = (CreateTableLikeStmt) ddlStmt;
-
-                ArrayList<String> rollupNames = stmt.getRollupNames();
-                boolean withAllRollup = stmt.isWithAllRollup();
+            if (command instanceof CreateTableLikeCommand) {
+                CreateTableLikeInfo info = ((CreateTableLikeCommand) command).getInfo();
+                ArrayList<String> rollupNames = info.getRollupNames();
+                boolean withAllRollup = info.isWithAllRollup();
                 List<Long> addIndexIdList = Lists.newArrayList();
 
                 if (!CollectionUtils.isEmpty(rollupNames)) {

@@ -21,15 +21,15 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -72,9 +72,9 @@ public class PosExplodeOuter extends TableGeneratingFunction implements UnaryExp
     @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(
-                FunctionSignature.ret(StructLiteral.constructStructType(
-                        Lists.newArrayList(IntegerType.INSTANCE,
-                                ((ArrayType) child().getDataType()).getItemType())))
+                FunctionSignature.ret(new StructType(ImmutableList.of(
+                        new StructField("pos", IntegerType.INSTANCE, false, ""),
+                        new StructField("col", ((ArrayType) child().getDataType()).getItemType(), true, ""))))
                         .args(child().getDataType()));
     }
 
