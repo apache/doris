@@ -645,39 +645,49 @@ Status VParquetWriterWrapper::write(const Block& block) {
             }
             case TYPE_DATEV2: {
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::ByteArrayWriter* col_writer =
-                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
-                parquet::ByteArray value;
+                parquet::Int32Writer* col_writer =
+                        static_cast<parquet::Int32Writer*>(rgWriter->column(i));
                 if (null_map != nullptr) {
                     auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if (null_data[row_id] != 0) {
-                            single_def_level = 0;
-                            col_writer->WriteBatch(1, &single_def_level, nullptr, &value);
-                            single_def_level = 1;
-                        } else {
-                            char buffer[30];
-                            int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
-                            value.ptr = reinterpret_cast<const uint8_t*>(buffer);
-                            value.len = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
-                                                assert_cast<const ColumnVector<UInt32>&>(*col)
-                                                        .get_data()[row_id])
-                                                .to_buffer(buffer, output_scale);
-                            col_writer->WriteBatch(1, &single_def_level, nullptr, &value);
+                        def_level[row_id] = null_data[row_id] == 0;
+                    }
+                    VecDateTimeValue epoch_date;
+                    if (!epoch_date.from_date_str(epoch_date_str.c_str(),
+                                                  epoch_date_str.length())) {
+                        return Status::InternalError("create epoch date from string error");
+                    }
+                    int32_t days_from_epoch = epoch_date.daynr();
+                    int32_t tmp_data[sz];
+                    int idx = 0;
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if (null_data[row_id] == 0) {
+                            int32_t days = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                                                   assert_cast<const ColumnVector<UInt32>&>(*col)
+                                                           .get_data()[row_id])
+                                                   .daynr();
+                            tmp_data[idx++] = days - days_from_epoch;
                         }
                     }
-                } else if (const auto* not_nullable_column =
-                                   check_and_get_column<const ColumnVector<UInt32>>(col)) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        char buffer[30];
-                        int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
-                        value.ptr = reinterpret_cast<const uint8_t*>(buffer);
-                        value.len = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
-                                            not_nullable_column->get_data()[row_id])
-                                            .to_buffer(buffer, output_scale);
-                        col_writer->WriteBatch(1, nullable ? &single_def_level : nullptr, nullptr,
-                                               &value);
+                    col_writer->WriteBatch(sz, def_level.data(), nullptr,
+                                           reinterpret_cast<const int32_t*>(tmp_data));
+                } else if (check_and_get_column<const ColumnVector<UInt32>>(col)) {
+                    VecDateTimeValue epoch_date;
+                    if (!epoch_date.from_date_str(epoch_date_str.c_str(),
+                                                  epoch_date_str.length())) {
+                        return Status::InternalError("create epoch date from string error");
                     }
+                    int32_t days_from_epoch = epoch_date.daynr();
+                    std::vector<int32_t> res(sz);
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        int32_t days = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                                               assert_cast<const ColumnVector<UInt32>&>(*col)
+                                                       .get_data()[row_id])
+                                               .daynr();
+                        res[row_id] = days - days_from_epoch;
+                    }
+                    col_writer->WriteBatch(sz, nullable ? def_level.data() : nullptr, nullptr,
+                                           reinterpret_cast<const int32_t*>(res.data()));
                 } else {
                     RETURN_WRONG_TYPE
                 }
@@ -685,39 +695,61 @@ Status VParquetWriterWrapper::write(const Block& block) {
             }
             case TYPE_DATETIMEV2: {
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                parquet::ByteArrayWriter* col_writer =
-                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(i));
-                parquet::ByteArray value;
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(i));
                 if (null_map != nullptr) {
                     auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if (null_data[row_id] != 0) {
-                            single_def_level = 0;
-                            col_writer->WriteBatch(1, &single_def_level, nullptr, &value);
-                            single_def_level = 1;
-                        } else {
-                            char buffer[30];
-                            int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
-                            value.ptr = reinterpret_cast<const uint8_t*>(buffer);
-                            value.len = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                                assert_cast<const ColumnVector<UInt64>&>(*col)
-                                                        .get_data()[row_id])
-                                                .to_buffer(buffer, output_scale);
-                            col_writer->WriteBatch(1, &single_def_level, nullptr, &value);
+                        def_level[row_id] = null_data[row_id] == 0;
+                    }
+                    int64_t tmp_data[sz];
+                    int idx = 0;
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if (null_data[row_id] == 0) {
+                            DateV2Value<DateTimeV2ValueType> datetime_value =
+                                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                                            assert_cast<const ColumnVector<UInt64>&>(*col)
+                                                    .get_data()[row_id]);
+                            if (!datetime_value.unix_timestamp(&tmp_data[idx],
+                                                               TimezoneUtils::default_time_zone)) {
+                                return Status::InternalError("get unix timestamp error.");
+                            }
+                            // -2177481943 represent '1900-12-31 23:54:17'
+                            // but -2177481944 represent '1900-12-31 23:59:59'
+                            // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
+                            if (tmp_data[idx] < timestamp_threshold) {
+                                tmp_data[idx] -= timestamp_diff;
+                            }
+                            // convert seconds to MILLIS seconds
+                            tmp_data[idx] *= 1000;
+                            ++idx;
                         }
                     }
+                    col_writer->WriteBatch(sz, def_level.data(), nullptr,
+                                           reinterpret_cast<const int64_t*>(tmp_data));
                 } else if (const auto* not_nullable_column =
                                    check_and_get_column<const ColumnVector<UInt64>>(col)) {
+                    std::vector<int64_t> res(sz);
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        char buffer[30];
-                        int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
-                        value.ptr = reinterpret_cast<const uint8_t*>(buffer);
-                        value.len = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                            not_nullable_column->get_data()[row_id])
-                                            .to_buffer(buffer, output_scale);
-                        col_writer->WriteBatch(1, nullable ? &single_def_level : nullptr, nullptr,
-                                               &value);
+                        DateV2Value<DateTimeV2ValueType> datetime_value =
+                                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                                        not_nullable_column->get_data()[row_id]);
+
+                        if (!datetime_value.unix_timestamp(&res[row_id],
+                                                           TimezoneUtils::default_time_zone)) {
+                            return Status::InternalError("get unix timestamp error.");
+                        };
+                        // -2177481943 represent '1900-12-31 23:54:17'
+                        // but -2177481944 represent '1900-12-31 23:59:59'
+                        // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
+                        if (res[row_id] < timestamp_threshold) {
+                            res[row_id] -= timestamp_diff;
+                        }
+                        // convert seconds to MILLIS seconds
+                        res[row_id] *= 1000;
                     }
+                    col_writer->WriteBatch(sz, nullable ? def_level.data() : nullptr, nullptr,
+                                           reinterpret_cast<const int64_t*>(res.data()));
                 } else {
                     RETURN_WRONG_TYPE
                 }
