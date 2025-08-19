@@ -18,6 +18,7 @@
 #include "olap/tablet_meta.h"
 
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -101,7 +102,8 @@ TabletMetaSharedPtr TabletMeta::create(
             request.time_series_compaction_file_count_threshold,
             request.time_series_compaction_time_threshold_seconds,
             request.time_series_compaction_empty_rowsets_threshold,
-            request.time_series_compaction_level_threshold, inverted_index_file_storage_format);
+            request.time_series_compaction_level_threshold, inverted_index_file_storage_format,
+            request.tde_algorithm);
 }
 
 TabletMeta::~TabletMeta() {
@@ -128,7 +130,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int64_t time_series_compaction_time_threshold_seconds,
                        int64_t time_series_compaction_empty_rowsets_threshold,
                        int64_t time_series_compaction_level_threshold,
-                       TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format)
+                       TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format,
+                       TEncryptionAlgorithm::type tde_algorithm)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -359,6 +362,17 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         BinlogConfig tmp_binlog_config;
         tmp_binlog_config = binlog_config.value();
         tmp_binlog_config.to_pb(tablet_meta_pb.mutable_binlog_config());
+    }
+
+    switch (tde_algorithm) {
+    case doris::TEncryptionAlgorithm::AES256:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::AES_256_CTR);
+        break;
+    case doris::TEncryptionAlgorithm::SM4:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::SM4_128_CTR);
+        break;
+    default:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::NOOP);
     }
 
     init_from_pb(tablet_meta_pb);
@@ -769,6 +783,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             tablet_meta_pb.time_series_compaction_empty_rowsets_threshold();
     _time_series_compaction_level_threshold =
             tablet_meta_pb.time_series_compaction_level_threshold();
+
+    if (tablet_meta_pb.has_encryption_algorithm()) {
+        _encryption_algorithm = tablet_meta_pb.encryption_algorithm();
+    }
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -860,6 +878,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_empty_rowsets_threshold());
     tablet_meta_pb->set_time_series_compaction_level_threshold(
             time_series_compaction_level_threshold());
+
+    tablet_meta_pb->set_encryption_algorithm(_encryption_algorithm);
 }
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {

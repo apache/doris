@@ -1974,7 +1974,7 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
 Result<std::unique_ptr<RowsetWriter>> Tablet::create_rowset_writer(RowsetWriterContext& context,
                                                                    bool vertical) {
     context.rowset_id = _engine.next_rowset_id();
-    _init_context_common_fields(context);
+    RETURN_IF_ERROR_RESULT(_init_context_common_fields(context));
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -2016,11 +2016,11 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
 Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
         RowsetWriterContext& context, const RowsetId& rowset_id) {
     context.rowset_id = rowset_id;
-    _init_context_common_fields(context);
+    RETURN_IF_ERROR_RESULT(_init_context_common_fields(context));
     return RowsetFactory::create_rowset_writer(_engine, context, false);
 }
 
-void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
+Status Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.tablet_uid = tablet_uid();
     context.tablet_id = tablet_id();
     context.partition_id = partition_id();
@@ -2038,6 +2038,9 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 
     context.data_dir = data_dir();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
+    return Status::OK();
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {
