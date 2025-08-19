@@ -29,12 +29,12 @@ suite("test_show_processlist") {
     sql """set show_all_fe_connection = false;"""
 
     def url1 = "http://${context.config.feHttpAddress}/rest/v1/session"
-    result =  Http.GET(url1, true)
+    result =  Http.GET(url1, true, true, context.config.feHttpUser, context.config.feHttpPassword)
     logger.info("result:${result}")
     assertTrue(result["data"]["column_names"].size() == 15);
 
     def url2 = "http://${context.config.feHttpAddress}/rest/v1/session/all"
-    result = Http.GET(url2, true)
+    result = Http.GET(url2, true, true, context.config.feHttpUser, context.config.feHttpPassword)
     logger.info("result:${result}")
     assertTrue(result["data"]["column_names"].size() == 15);
 
