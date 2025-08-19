@@ -191,6 +191,9 @@ public class StreamLoadHandler {
                     throw new AnalysisException(msg);
                 }
             }
+            if (table.isTemporary()) {
+                throw new UserException("Do not support load for temporary table " + tableName);
+            }
             tables.add((OlapTable) table);
         }
 
