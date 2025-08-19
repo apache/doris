@@ -23,10 +23,6 @@
 #include <string>
 #include <utility>
 
-#ifdef __x86_64__
-#include <immintrin.h>
-#endif
-
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
