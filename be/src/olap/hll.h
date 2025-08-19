@@ -27,10 +27,6 @@
 #include <immintrin.h>
 #endif
 
-#ifdef __ARM_FEATURE_SVE
-#include <arm_sve.h>
-#endif
-
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
