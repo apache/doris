@@ -35,6 +35,7 @@ namespace doris::cloud {
 
 TxnErrorCode MetaReader::get_table_version(int64_t table_id, Versionstamp* table_version,
                                            bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -47,12 +48,21 @@ TxnErrorCode MetaReader::get_table_version(Transaction* txn, int64_t table_id,
                                            Versionstamp* table_version, bool snapshot) {
     std::string table_version_key = versioned::table_version_key({instance_id_, table_id});
     std::string table_version_value;
-    return versioned_get(txn, table_version_key, snapshot_version_, table_version,
-                         &table_version_value, snapshot);
+    Versionstamp key_version;
+    TxnErrorCode err = versioned_get(txn, table_version_key, snapshot_version_, &key_version,
+                                     &table_version_value, snapshot);
+    if (err == TxnErrorCode::TXN_OK) {
+        if (table_version) {
+            *table_version = key_version;
+        }
+        min_read_version_ = std::min(min_read_version_, key_version);
+    }
+    return err;
 }
 
 TxnErrorCode MetaReader::get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
                                          Versionstamp* versionstamp, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -66,12 +76,21 @@ TxnErrorCode MetaReader::get_tablet_meta(Transaction* txn, int64_t tablet_id,
                                          TabletMetaCloudPB* tablet_meta, Versionstamp* versionstamp,
                                          bool snapshot) {
     std::string tablet_meta_key = versioned::meta_tablet_key({instance_id_, tablet_id});
-    return versioned::document_get(txn, tablet_meta_key, snapshot_version_, tablet_meta,
-                                   versionstamp, snapshot);
+    Versionstamp key_version;
+    TxnErrorCode err = versioned::document_get(txn, tablet_meta_key, snapshot_version_, tablet_meta,
+                                               &key_version, snapshot);
+    if (err == TxnErrorCode::TXN_OK) {
+        if (versionstamp) {
+            *versionstamp = key_version;
+        }
+        min_read_version_ = std::min(min_read_version_, key_version);
+    }
+    return err;
 }
 
 TxnErrorCode MetaReader::get_partition_version(int64_t partition_id, VersionPB* version,
                                                Versionstamp* partition_version, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -87,11 +106,17 @@ TxnErrorCode MetaReader::get_partition_version(Transaction* txn, int64_t partiti
     std::string partition_version_key =
             versioned::partition_version_key({instance_id_, partition_id});
     std::string partition_version_value;
-    TxnErrorCode err = versioned_get(txn, partition_version_key, snapshot_version_,
-                                     partition_version, &partition_version_value, snapshot);
+    Versionstamp key_version;
+    TxnErrorCode err = versioned_get(txn, partition_version_key, snapshot_version_, &key_version,
+                                     &partition_version_value, snapshot);
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
+
+    if (partition_version) {
+        *partition_version = key_version;
+    }
+    min_read_version_ = std::min(min_read_version_, key_version);
 
     if (version && !version->ParseFromString(partition_version_value)) {
         LOG_ERROR("Failed to parse VersionPB")
@@ -106,6 +131,7 @@ TxnErrorCode MetaReader::get_partition_version(Transaction* txn, int64_t partiti
 
 TxnErrorCode MetaReader::get_tablet_load_stats(int64_t tablet_id, TabletStatsPB* tablet_stats,
                                                Versionstamp* versionstamp, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -119,11 +145,17 @@ TxnErrorCode MetaReader::get_tablet_load_stats(Transaction* txn, int64_t tablet_
                                                Versionstamp* versionstamp, bool snapshot) {
     std::string tablet_load_stats_key = versioned::tablet_load_stats_key({instance_id_, tablet_id});
     std::string tablet_load_stats_value;
-    TxnErrorCode err = versioned_get(txn, tablet_load_stats_key, snapshot_version_, versionstamp,
+    Versionstamp key_version;
+    TxnErrorCode err = versioned_get(txn, tablet_load_stats_key, snapshot_version_, &key_version,
                                      &tablet_load_stats_value, snapshot);
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
+
+    if (versionstamp) {
+        *versionstamp = key_version;
+    }
+    min_read_version_ = std::min(min_read_version_, key_version);
 
     if (tablet_stats && !tablet_stats->ParseFromString(tablet_load_stats_value)) {
         LOG_ERROR("Failed to parse TabletStatsPB")
@@ -138,6 +170,7 @@ TxnErrorCode MetaReader::get_tablet_load_stats(Transaction* txn, int64_t tablet_
 
 TxnErrorCode MetaReader::get_tablet_compact_stats(int64_t tablet_id, TabletStatsPB* tablet_stats,
                                                   Versionstamp* versionstamp, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -152,11 +185,17 @@ TxnErrorCode MetaReader::get_tablet_compact_stats(Transaction* txn, int64_t tabl
     std::string tablet_compact_stats_key =
             versioned::tablet_compact_stats_key({instance_id_, tablet_id});
     std::string tablet_compact_stats_value;
-    TxnErrorCode err = versioned_get(txn, tablet_compact_stats_key, snapshot_version_, versionstamp,
+    Versionstamp key_version;
+    TxnErrorCode err = versioned_get(txn, tablet_compact_stats_key, snapshot_version_, &key_version,
                                      &tablet_compact_stats_value, snapshot);
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
+
+    if (versionstamp) {
+        *versionstamp = key_version;
+    }
+    min_read_version_ = std::min(min_read_version_, key_version);
 
     if (tablet_stats && !tablet_stats->ParseFromString(tablet_compact_stats_value)) {
         LOG_ERROR("Failed to parse TabletStatsPB")
@@ -171,6 +210,7 @@ TxnErrorCode MetaReader::get_tablet_compact_stats(Transaction* txn, int64_t tabl
 
 TxnErrorCode MetaReader::get_tablet_merged_stats(int64_t tablet_id, TabletStatsPB* tablet_stats,
                                                  Versionstamp* versionstamp, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -211,18 +251,17 @@ TxnErrorCode MetaReader::get_tablet_merged_stats(Transaction* txn, int64_t table
         tablet_stats->set_index_size(load_stats.index_size() + compact_stats.index_size());
         tablet_stats->set_segment_size(load_stats.segment_size() + compact_stats.segment_size());
     }
+    Versionstamp read_version = std::min(load_version, compact_version);
     if (versionstamp) {
-        if (load_version < compact_version) {
-            *versionstamp = compact_version;
-        } else {
-            *versionstamp = load_version;
-        }
+        *versionstamp = read_version;
     }
+    min_read_version_ = std::min(min_read_version_, read_version);
     return TxnErrorCode::TXN_OK;
 }
 
 TxnErrorCode MetaReader::get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index,
                                           bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -255,6 +294,7 @@ TxnErrorCode MetaReader::get_tablet_index(Transaction* txn, int64_t tablet_id,
 TxnErrorCode MetaReader::get_table_versions(
         const std::vector<int64_t>& table_ids,
         std::unordered_map<int64_t, Versionstamp>* table_versions, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -293,6 +333,7 @@ TxnErrorCode MetaReader::get_table_versions(
         Versionstamp version = kv->second;
         int64_t table_id = table_ids[i];
         table_versions->emplace(table_id, version);
+        min_read_version_ = std::min(min_read_version_, version);
     }
 
     return TxnErrorCode::TXN_OK;
@@ -301,6 +342,7 @@ TxnErrorCode MetaReader::get_table_versions(
 TxnErrorCode MetaReader::get_partition_versions(
         const std::vector<int64_t>& partition_ids, std::unordered_map<int64_t, VersionPB>* versions,
         std::unordered_map<int64_t, Versionstamp>* versionstamps, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -345,6 +387,7 @@ TxnErrorCode MetaReader::get_partition_versions(
         if (versionstamps) {
             versionstamps->emplace(partition_id, versionstamp);
         }
+        min_read_version_ = std::min(min_read_version_, versionstamp);
 
         if (versions) {
             VersionPB version;
@@ -395,6 +438,7 @@ TxnErrorCode MetaReader::get_rowset_metas(int64_t tablet_id, int64_t start_versi
                                           int64_t end_version,
                                           std::vector<RowsetMetaCloudPB>* rowset_metas,
                                           bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -428,6 +472,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
         for (auto&& kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
             auto&& [key, version, rowset_meta] = *kvp;
             rowset_graph.emplace(rowset_meta.end_version(), std::move(rowset_meta));
+            min_read_version_ = std::min(min_read_version_, version);
             DCHECK(version < snapshot_version_)
                     << "version: " << version.to_string()
                     << ", snapshot_version: " << snapshot_version_.to_string();
@@ -472,6 +517,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                 continue;
             }
 
+            min_read_version_ = std::min(min_read_version_, version);
             last_start_version = start_version;
             // erase the rowsets that are covered by this compact rowset
             rowset_graph.erase(rowset_graph.lower_bound(start_version),
@@ -500,6 +546,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
 
 TxnErrorCode MetaReader::get_load_rowset_meta(int64_t tablet_id, int64_t version,
                                               RowsetMetaCloudPB* rowset_meta, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -513,13 +560,18 @@ TxnErrorCode MetaReader::get_load_rowset_meta(Transaction* txn, int64_t tablet_i
     std::string load_rowset_key =
             versioned::meta_rowset_load_key({instance_id_, tablet_id, version});
     Versionstamp versionstamp;
-    return versioned::document_get(txn, load_rowset_key, snapshot_version_, rowset_meta,
-                                   &versionstamp, snapshot);
+    TxnErrorCode err = versioned::document_get(txn, load_rowset_key, snapshot_version_, rowset_meta,
+                                               &versionstamp, snapshot);
+    if (err == TxnErrorCode::TXN_OK) {
+        min_read_version_ = std::min(min_read_version_, versionstamp);
+    }
+    return err;
 }
 
 TxnErrorCode MetaReader::get_tablet_indexes(
         const std::vector<int64_t>& tablet_ids,
         std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -576,6 +628,7 @@ TxnErrorCode MetaReader::get_tablet_indexes(
 
 TxnErrorCode MetaReader::get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
                                                       bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -600,6 +653,7 @@ TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t 
         return err;
     }
 
+    min_read_version_ = std::min(min_read_version_, versionstamp);
     if (version_pb.pending_txn_ids_size() > 0) {
         *first_txn_id = version_pb.pending_txn_ids(0);
     }
@@ -608,6 +662,7 @@ TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t 
 }
 
 TxnErrorCode MetaReader::get_index_index(int64_t index_id, IndexIndexPB* index, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -638,6 +693,7 @@ TxnErrorCode MetaReader::get_index_index(Transaction* txn, int64_t index_id, Ind
 
 TxnErrorCode MetaReader::get_partition_index(int64_t partition_id,
                                              PartitionIndexPB* partition_index, bool snapshot) {
+    CHECK(txn_kv_) << "TxnKv must be set before calling";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
