@@ -26,7 +26,6 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
@@ -7035,18 +7034,6 @@ public class Env {
         }
 
         getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
-    }
-
-    public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
-        String database = stmt.getDatabase();
-        String table = stmt.getTable();
-        long partitionId = stmt.getPartitionId();
-        long visibleVersion = stmt.getVisibleVersion();
-        int setSuccess = setPartitionVersionInternal(database, table, partitionId, visibleVersion, false);
-        if (setSuccess == -1) {
-            throw new DdlException("Failed to set partition visible version to " + visibleVersion + ". " + "Partition "
-                    + partitionId + " not exists. Database " + database + ", Table " + table + ".");
-        }
     }
 
     public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {
