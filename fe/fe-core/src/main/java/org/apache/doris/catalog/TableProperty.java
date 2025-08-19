@@ -783,6 +783,7 @@ public class TableProperty implements GsonPostProcessable {
         buildInAtomicRestore();
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
+        buildTDEAlgorithm();
     }
 
     // For some historical reason,
