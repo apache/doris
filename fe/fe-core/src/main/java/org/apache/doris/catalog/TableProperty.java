@@ -292,7 +292,7 @@ public class TableProperty implements GsonPostProcessable {
             case SM4:
                 return EncryptionAlgorithmPB.SM4_128_CTR;
             default:
-                return EncryptionAlgorithmPB.NOOP;
+                return EncryptionAlgorithmPB.PLAINTEXT;
         }
     }
 

@@ -665,12 +665,6 @@ under the License.
             <artifactId>protocol-core</artifactId>
             <version>${awssdk.version}</version>
         </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>kms</artifactId>
-            <version>${awssdk.version}</version>
-        </dependency>
-
         <!-- For Iceberg, must be consistent with Iceberg version -->
         <dependency>
             <groupId>org.apache.avro</groupId>

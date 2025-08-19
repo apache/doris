@@ -18,16 +18,13 @@
 #include "runtime/exec_env.h"
 
 #include <gen_cpp/HeartbeatService_types.h>
-#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
 #include <mutex>
-#include <optional>
 #include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -186,11 +183,5 @@ bool ExecEnv::check_auth_token(const std::string& auth_token) {
     return _cluster_info->curr_auth_token == auth_token ||
            _cluster_info->last_auth_token == auth_token;
 }
-
-/*Result<std::optional<EncryptionAlgorithmPB>> RowsetMeta::_determine_encryption() const {*/
-/*auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id()));*/
-/*return tablet->is_encrypted();*/
-/*return ExecEnv::encryption_algorithm();*/
-/*}*/
 
 } // namespace doris
