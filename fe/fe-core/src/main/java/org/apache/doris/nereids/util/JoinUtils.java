@@ -501,6 +501,7 @@ public class JoinUtils {
                 equalConjunctsSlotMap.put(slot.getExprId(), slot);
             }
         }
+        // other conjuncts should use join output slot
         Map<ExprId, Slot> otherConjunctsSlotMap = new HashMap<>();
         for (Slot slot : join.getOutput()) {
             otherConjunctsSlotMap.put(slot.getExprId(), slot);
