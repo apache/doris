@@ -784,6 +784,46 @@ int compaction_update_tablet_stats(const TabletCompactionJobPB& compaction, Tabl
     return 0;
 }
 
+std::pair<MetaServiceCode, std::string> scan_compaction_input_rowsets(
+        Transaction* txn, std::string_view instance_id, int64_t tablet_id, std::string& rs_start,
+        std::string& rs_end, int& num_rowsets, auto&& callback) {
+    std::unique_ptr<RangeGetIterator> it;
+    DORIS_CLOUD_DEFER {
+        INSTANCE_LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
+                           << hex(rs_start) << "," << hex(rs_end) << "]";
+    };
+
+    auto rs_start1 = rs_start;
+    do {
+        TxnErrorCode err = txn->get(rs_start1, rs_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            return {cast_as<ErrCategory::READ>(err),
+                    fmt::format("internal error, failed to get rowset range, err={} tablet_id={} "
+                                "range=[{}, {})",
+                                err, tablet_id, hex(rs_start), hex(rs_end))};
+        }
+
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+
+            doris::RowsetMetaCloudPB rs;
+            if (!rs.ParseFromArray(v.data(), v.size())) {
+                return {MetaServiceCode::PROTOBUF_PARSE_ERR,
+                        fmt::format(
+                                "malformed rowset meta, unable to deserialize, tablet_id={} key={}",
+                                tablet_id, hex(k))};
+            }
+
+            callback(std::move(rs));
+
+            ++num_rowsets;
+            if (!it->has_next()) rs_start1 = k;
+        }
+        rs_start1.push_back('\x00'); // Update to next smallest key for iteration
+    } while (it->more());
+    return {MetaServiceCode::OK, ""};
+}
+
 void process_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                             std::unique_ptr<Transaction>& txn,
                             const FinishTabletJobRequest* request,
@@ -906,34 +946,51 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     //                          Update tablet stats
     //==========================================================================
     auto stats = response->mutable_stats();
+
+    MetaReader meta_reader(instance_id);
     TabletStats detached_stats;
-    // ATTN: The condition that snapshot read can be used to get tablet stats is: all other transactions that put tablet stats
-    //  can make read write conflicts with this transaction on other keys. Currently, if all meta-service nodes are running
-    //  with `config::split_tablet_stats = true` can meet the condition.
-    internal_get_tablet_stats(code, msg, txn.get(), instance_id, request->job().idx(), *stats,
-                              detached_stats, config::snapshot_get_tablet_stats);
-    if (code != MetaServiceCode::OK) {
-        LOG_WARNING("failed to get tablet stats")
-                .tag("instance_id", instance_id)
-                .tag("tablet_id", tablet_id)
-                .tag("code", code)
-                .tag("msg", msg);
-        return;
+    if (is_versioned_read) {
+        TxnErrorCode err =
+                meta_reader.get_tablet_compact_stats(txn.get(), tablet_id, stats, nullptr, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet stats, tablet_id={}, err={}", tablet_id, err);
+            LOG(WARNING) << msg;
+            return;
+        }
+    } else {
+        // ATTN: The condition that snapshot read can be used to get tablet stats is: all other transactions that put tablet stats
+        //  can make read write conflicts with this transaction on other keys. Currently, if all meta-service nodes are running
+        //  with `config::split_tablet_stats = true` can meet the condition.
+        internal_get_tablet_stats(code, msg, txn.get(), instance_id, request->job().idx(), *stats,
+                                  detached_stats, config::snapshot_get_tablet_stats);
+        if (code != MetaServiceCode::OK) {
+            LOG_WARNING("failed to get tablet stats")
+                    .tag("instance_id", instance_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("code", code)
+                    .tag("msg", msg);
+            return;
+        }
     }
 
     if (is_versioned_write) {
         // read old TabletCompactStatsKey -> TabletStatsPB
         TabletStatsPB tablet_compact_stats;
-        MetaReader meta_reader(instance_id, txn_kv);
-        Versionstamp* versionstamp = nullptr;
-        TxnErrorCode err = meta_reader.get_tablet_compact_stats(
-                txn.get(), tablet_id, &tablet_compact_stats, versionstamp, false);
+        TxnErrorCode err = TxnErrorCode::TXN_OK;
+        if (is_versioned_read) {
+            // Reuse the above txn::get result.
+            tablet_compact_stats.CopyFrom(*stats);
+        } else {
+            err = meta_reader.get_tablet_compact_stats(txn.get(), tablet_id, &tablet_compact_stats,
+                                                       nullptr, false);
+        }
         if (err == TxnErrorCode::TXN_OK) {
             // tablet_compact_stats exists, update TabletStatsPB
             if (compaction_update_tablet_stats(compaction, &tablet_compact_stats, code, msg, now) ==
                 -1) {
                 LOG_WARNING("compaction_update_tablet_stats failed.")
-                        .tag("instancej_id", instance_id)
+                        .tag("instance_id", instance_id)
                         .tag("tablet_id", tablet_id)
                         .tag("compact_stats", tablet_compact_stats.ShortDebugString());
                 return;
@@ -998,7 +1055,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
     txn->put(stats_key, stats_val);
     merge_tablet_stats(*stats, detached_stats); // this is to check
-    if (stats->data_size() < 0 || stats->num_rowsets() < 1) [[unlikely]] {
+    if (!is_versioned_read && (stats->data_size() < 0 || stats->num_rowsets() < 1)) [[unlikely]] {
         INSTANCE_LOG(ERROR) << "buggy data size, tablet_id=" << tablet_id
                             << " stats.num_rows=" << stats->num_rows()
                             << " stats.data_size=" << stats->data_size()
@@ -1062,68 +1119,58 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     compaction_log.set_start_version(start);
     compaction_log.set_end_version(end);
-
-    std::unique_ptr<RangeGetIterator> it;
     int num_rowsets = 0;
-    DORIS_CLOUD_DEFER {
-        INSTANCE_LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
-                           << hex(rs_start) << "," << hex(rs_end) << "]";
-    };
 
-    auto rs_start1 = rs_start;
-    do {
-        TxnErrorCode err = txn->get(rs_start1, rs_end, &it);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            SS << "internal error, failed to get rowset range, err=" << err
-               << " tablet_id=" << tablet_id << " range=[" << hex(rs_start1) << ", << "
-               << hex(rs_end) << ")";
-            msg = ss.str();
+    auto handle_compaction_input_rowset_meta = [&](doris::RowsetMetaCloudPB rs) {
+        // remove delete bitmap of input rowset for MoW table
+        if (compaction.has_delete_bitmap_lock_initiator()) {
+            auto delete_bitmap_start =
+                    meta_delete_bitmap_key({instance_id, tablet_id, rs.rowset_id_v2(), 0, 0});
+            auto delete_bitmap_end = meta_delete_bitmap_key(
+                    {instance_id, tablet_id, rs.rowset_id_v2(), INT64_MAX, INT64_MAX});
+            txn->remove(delete_bitmap_start, delete_bitmap_end);
+        }
+
+        auto recycle_key = recycle_rowset_key({instance_id, tablet_id, rs.rowset_id_v2()});
+        RecycleRowsetPB recycle_rowset;
+        recycle_rowset.set_creation_time(now);
+        recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
+        recycle_rowset.set_type(RecycleRowsetPB::COMPACT);
+
+        if (is_versioned_write) {
+            compaction_log.add_recycle_rowsets()->Swap(&recycle_rowset);
+        } else {
+            auto recycle_val = recycle_rowset.SerializeAsString();
+            txn->put(recycle_key, recycle_val);
+        }
+
+        INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
+                           << " key=" << hex(recycle_key);
+    };
+    if (!is_versioned_read) {
+        std::tie(code, msg) =
+                scan_compaction_input_rowsets(txn.get(), instance_id, tablet_id, rs_start, rs_end,
+                                              num_rowsets, handle_compaction_input_rowset_meta);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << msg;
             return;
         }
-
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-
-            doris::RowsetMetaCloudPB rs;
-            if (!rs.ParseFromArray(v.data(), v.size())) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                SS << "malformed rowset meta, unable to deserialize, tablet_id=" << tablet_id
-                   << " key=" << hex(k);
-                msg = ss.str();
-                return;
-            }
-
-            // remove delete bitmap of input rowset for MoW table
-            if (compaction.has_delete_bitmap_lock_initiator()) {
-                auto delete_bitmap_start =
-                        meta_delete_bitmap_key({instance_id, tablet_id, rs.rowset_id_v2(), 0, 0});
-                auto delete_bitmap_end = meta_delete_bitmap_key(
-                        {instance_id, tablet_id, rs.rowset_id_v2(), INT64_MAX, INT64_MAX});
-                txn->remove(delete_bitmap_start, delete_bitmap_end);
-            }
-
-            auto recycle_key = recycle_rowset_key({instance_id, tablet_id, rs.rowset_id_v2()});
-            RecycleRowsetPB recycle_rowset;
-            recycle_rowset.set_creation_time(now);
-            recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
-            recycle_rowset.set_type(RecycleRowsetPB::COMPACT);
-
-            if (is_versioned_write) {
-                compaction_log.add_recycle_rowsets()->Swap(&recycle_rowset);
-            } else {
-                auto recycle_val = recycle_rowset.SerializeAsString();
-                txn->put(recycle_key, recycle_val);
-            }
-
-            INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
-                               << " key=" << hex(recycle_key);
-
-            ++num_rowsets;
-            if (!it->has_next()) rs_start1 = k;
+    } else {
+        std::vector<RowsetMetaCloudPB> rowset_metas;
+        TxnErrorCode err =
+                meta_reader.get_rowset_metas(txn.get(), tablet_id, start, end, &rowset_metas);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get rowset metas, tablet_id={}, start={}, end={}, err={}",
+                              tablet_id, start, end, err);
+            LOG(WARNING) << msg;
+            return;
         }
-        rs_start1.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+        num_rowsets = rowset_metas.size();
+        for (auto&& rowset_meta : rowset_metas) {
+            handle_compaction_input_rowset_meta(std::move(rowset_meta));
+        }
+    }
 
     txn->remove(rs_start, rs_end);
 
@@ -1243,6 +1290,9 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
+        if (is_versioned_read) {
+            operation_log.set_min_timestamp(meta_reader.min_read_version());
+        }
         operation_log.mutable_compaction()->Swap(&compaction_log);
         if (!operation_log.SerializeToString(&operation_log_value)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
