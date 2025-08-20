@@ -566,10 +566,6 @@ public abstract class ExternalCatalog
     public synchronized void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
-        synchronized (this.propLock) {
-            this.convertedProperties = null;
-        }
-
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
@@ -734,17 +730,7 @@ public abstract class ExternalCatalog
 
     @Override
     public Map<String, String> getProperties() {
-        // convert properties may be a heavy operation, so we cache the result.
-        if (convertedProperties != null) {
-            return convertedProperties;
-        }
-        synchronized (propLock) {
-            if (convertedProperties != null) {
-                return convertedProperties;
-            }
-            convertedProperties = PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
-            return convertedProperties;
-        }
+        return catalogProperty.getProperties();
     }
 
     @Override
@@ -1032,7 +1018,6 @@ public abstract class ExternalCatalog
                 }
             }
         }
-        this.propLock = new byte[0];
         this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
@@ -1156,7 +1141,7 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-            boolean force) throws DdlException {
+                          boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());

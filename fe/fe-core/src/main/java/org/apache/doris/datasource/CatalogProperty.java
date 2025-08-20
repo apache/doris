@@ -20,7 +20,6 @@ package org.apache.doris.datasource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -85,7 +84,7 @@ public class CatalogProperty implements Writable {
 
     public void modifyCatalogProps(Map<String, String> props) {
         synchronized (this) {
-            properties.putAll(PropertyConverter.convertToMetaProperties(props));
+            properties.putAll(props);
             resetAllCaches();
         }
     }
@@ -207,9 +206,21 @@ public class CatalogProperty implements Writable {
         if (hadoopProperties == null) {
             synchronized (this) {
                 if (hadoopProperties == null) {
-                    Map<String, String> result = getProperties();
-                    result.putAll(PropertyConverter.convertToHadoopFSProperties(getProperties()));
-                    this.hadoopProperties = result;
+                    hadoopProperties = new HashMap<>();
+                    Map<StorageProperties.Type, StorageProperties> storageMap = getStoragePropertiesMap();
+
+                    for (StorageProperties sp : storageMap.values()) {
+                        Configuration configuration = sp.getHadoopStorageConfig();
+                        if (configuration != null) {
+                            configuration.forEach(entry -> {
+                                String key = entry.getKey();
+                                String value = entry.getValue();
+                                if (value != null) {
+                                    hadoopProperties.put(key, value);
+                                }
+                            });
+                        }
+                    }
                 }
             }
         }
