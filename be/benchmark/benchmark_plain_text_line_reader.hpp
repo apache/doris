@@ -70,12 +70,24 @@ static void BM_FindLfCrlfLineSep(benchmark::State& state) {
 
 BENCHMARK(BM_FindLfCrlfLineSep)
     ->Unit(benchmark::kNanosecond)
+    ->Args({16, 0}) // 16 bytes, no delimiter
+    ->Args({16, 1}) // 16 bytes, delimiter is \n
+    ->Args({16, 2}) // 16 bytes, delimiter is \r\n
+    ->Args({32, 0}) // 32 bytes, no delimiter
+    ->Args({32, 1}) // 32 bytes, delimiter is \n
+    ->Args({32, 2}) // 32 bytes, delimiter is \r\n
     ->Args({64, 0}) // 64 bytes, no delimiter
     ->Args({64, 1}) // 64 bytes, delimiter is \n
     ->Args({64, 2}) // 64 bytes, delimiter is \r\n
     ->Args({128, 0}) // 128 bytes, no delimiter
     ->Args({128, 1}) // 128 bytes, delimiter is \n
     ->Args({128, 2}) // 128 bytes, delimiter is \r\n
+    ->Args({256, 0}) // 256 bytes, no delimiter
+    ->Args({256, 1}) // 256 bytes, delimiter is \n
+    ->Args({256, 2}) // 256 bytes, delimiter is \r\n
+    ->Args({512, 0}) // 512 bytes, no delimiter
+    ->Args({512, 1}) // 512 bytes, delimiter is \n
+    ->Args({512, 2}) // 512 bytes, delimiter is \r\n
     ->Args({1024, 0}) // 1KB, no delimiter
     ->Args({1024, 1}) // 1KB, delimiter is \n
     ->Args({1024, 2}) // 1KB, delimiter is \r\n
@@ -86,12 +98,6 @@ BENCHMARK(BM_FindLfCrlfLineSep)
     ->Args({1024 * 1024, 1}) // 1MB, delimiter is \n
     ->Args({1024 * 1024, 2}) // 1MB, delimiter is \r\n
     ->Repetitions(5)
-    ->DisplayAggregatesOnly()
-    ->ComputeStatistics("min", [](const std::vector<double>& v) -> double {
-        return *std::min_element(v.begin(), v.end());
-    })
-    ->ComputeStatistics("max", [](const std::vector<double>& v) -> double {
-        return *std::max_element(v.begin(), v.end());
-    });
+    ->DisplayAggregatesOnly();
 
 } // namespace doris

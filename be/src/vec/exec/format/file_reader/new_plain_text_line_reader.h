@@ -28,10 +28,6 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
 
-#ifdef __ARM_FEATURE_SVE
-#include <arm_sve.h>
-#endif
-
 namespace doris {
 #include "common/compile_check_begin.h"
 namespace io {
@@ -95,14 +91,16 @@ public:
         if (start == nullptr || length == 0) {
             return nullptr;
         }
-        size_t i = 0;
-#ifdef __AVX2__
-        return find_lf_crlf_line_sep_avx2(start, length, i);
-#elif defined(__ARM_FEATURE_SVE)
-        return find_lf_crlf_line_sep_sve(start, length, i);
-#else
-        return find_lf_crlf_line_sep_scalar(start, length, i);
-#endif
+
+        const auto* p = (const uint8_t*)memchr(start, '\n', length);
+        if (p) {
+            size_t i = p - start;
+            if (i > 0 and start[i - 1] == '\r') {
+                return p - 1;
+            }
+            return p;
+        }
+        return nullptr;
     }
 
     const uint8_t* call_find_line_sep(const uint8_t* start, const size_t length) {
@@ -118,126 +116,6 @@ protected:
     using FindLineDelimiterFunc = const uint8_t* (BaseTextLineReaderContext::*)(const uint8_t*,
                                                                                 size_t);
     FindLineDelimiterFunc find_line_delimiter_func;
-
-private:
-#ifdef __AVX2__
-    const uint8_t* find_lf_crlf_line_sep_avx2(const uint8_t* start, const size_t length,
-                                              size_t& i) {
-        // const uint8_t* end = start + length;
-        const __m256i newline = _mm256_set1_epi8('\n');
-        const __m256i carriage_return = _mm256_set1_epi8('\r');
-
-        const size_t simd_width = 32;
-        // Process 32 bytes at a time using AVX2
-        for (; i + simd_width <= length; i += simd_width) {
-            __m256i data = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(start + i));
-
-            // Compare with '\n' and '\r'
-            __m256i cmp_newline = _mm256_cmpeq_epi8(data, newline);
-            __m256i cmp_carriage_return = _mm256_cmpeq_epi8(data, carriage_return);
-
-            // Check if there is a match
-            int mask_newline = _mm256_movemask_epi8(cmp_newline);
-            int mask_carriage_return = _mm256_movemask_epi8(cmp_carriage_return);
-
-            if (mask_newline != 0 || mask_carriage_return != 0) {
-                size_t pos_lf = (mask_newline != 0) ? i + __builtin_ctz(mask_newline) : INT32_MAX;
-                size_t pos_cr = (mask_carriage_return != 0)
-                                        ? i + __builtin_ctz(mask_carriage_return)
-                                        : INT32_MAX;
-                if (pos_lf < pos_cr) {
-                    return start + pos_lf;
-                } else if (pos_cr < pos_lf) {
-                    if (pos_lf != INT32_MAX) {
-                        if (pos_lf >= 1 && start[pos_lf - 1] == '\r') {
-                            //check   xxx\r\r\r\nxxx
-                            line_crlf = true;
-                            return start + pos_lf - 1;
-                        }
-                        // xxx\rxxxx\nxx
-                        return start + pos_lf;
-                    } else if (i + simd_width < length && start[i + simd_width - 1] == '\r' &&
-                               start[i + simd_width] == '\n') {
-                        //check [/r/r/r/r/r/r/rxxx/r]  [\nxxxx]
-                        line_crlf = true;
-                        return start + i + simd_width - 1;
-                    }
-                }
-            }
-        }
-
-        // Process remaining bytes
-        return find_lf_crlf_line_sep_scalar(start, length, i);
-    }
-#elif defined(__ARM_FEATURE_SVE)
-    const uint8_t* find_lf_crlf_line_sep_sve(const uint8_t* start, const size_t length, size_t& i) {
-        const svuint8_t newline_vec = svdup_n_u8('\n');
-        const size_t vl = svcntb();
-        const svbool_t all_true = svptrue_b8();
-
-        for (; i + vl <= length; i += vl) {
-            svuint8_t data = svld1_u8(all_true, start + i);
-
-            // Compare with '\n'
-            svbool_t is_lf = svcmpeq_u8(all_true, data, newline_vec);
-
-            if (svptest_any(all_true, is_lf)) {
-                // Find the first occurrence of '\n'
-                svuint8_t indices = svindex_u8(0, 1);
-                uint64_t first_lf_idx = svminv_u8(is_lf, indices);
-                size_t lf_pos = i + first_lf_idx;
-
-                // Check if the '\n' is part of '\r\n'
-                if (lf_pos > 0 && start[lf_pos - 1] == '\r') {
-                    line_crlf = true;
-                    return start + lf_pos - 1;
-                }
-                return start + lf_pos;
-            }
-
-            // Check for \r\n at the boundaries
-            if (i + vl < length && start[i + vl - 1] == '\r' && start[i + vl] == '\n') {
-                line_crlf = true;
-                return start + i + vl - 1;
-            }
-        }
-
-        // Process remaining bytes
-        if (i < length) {
-            svbool_t pg = svwhilelt_b8(i, length);
-            svuint8_t data = svld1_u8(pg, start + i);
-            svbool_t is_lf = svcmpeq_u8(pg, data, newline_vec);
-
-            if (svptest_any(pg, is_lf)) {
-                svuint8_t indices = svindex_u8(0, 1);
-                uint64_t first_lf_idx = svminv_u8(is_lf, indices);
-                size_t lf_pos = i + first_lf_idx;
-
-                if (lf_pos > 0 && start[lf_pos - 1] == '\r') {
-                    line_crlf = true;
-                    return start + lf_pos - 1;
-                }
-                return start + lf_pos;
-            }
-        }
-
-        return nullptr;
-    }
-#endif
-
-    const uint8_t* find_lf_crlf_line_sep_scalar(const uint8_t* start, const size_t length,
-                                                size_t& i) {
-        for (; i < length; ++i) {
-            if (start[i] == '\n') {
-                return &start[i];
-            }
-            if (start[i] == '\r' && (i + 1 < length) && start[i + 1] == '\n') {
-                line_crlf = true;
-                return &start[i];
-            }
-        }
-        return nullptr;
-    }
 };
 class PlainTextLineReaderCtx final : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
 public:
