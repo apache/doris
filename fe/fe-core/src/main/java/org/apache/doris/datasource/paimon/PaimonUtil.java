@@ -664,9 +664,10 @@ public class PaimonUtil {
         DataTable dataTable = (DataTable) table;
         if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
             Optional<Tag> tag = dataTable.tagManager().get(snapshot.getValue());
-            if (tag.isEmpty()) {
+            if (!tag.isPresent()) {
                 throw new RuntimeException(String.format("Tag '%s' does not exist", snapshot.getValue()));
             }
+            return tag.get();
         }
         throw new RuntimeException(String.format("Invalid snapshot type: %s", snapshot.getType()));
     }
