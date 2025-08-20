@@ -653,7 +653,8 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public String getExplainString(ExplainOptions explainOptions) {
-        if (cascadesContext.getConnectContext().getSessionVariable().enableExplainNone) {
+        ConnectContext context = cascadesContext == null ? ConnectContext.get() : cascadesContext.getConnectContext();
+        if (context.getSessionVariable().enableExplainNone) {
             return "";
         }
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
