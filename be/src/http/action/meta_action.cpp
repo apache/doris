@@ -67,18 +67,36 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
         return Status::InternalError("convert failed, {}", e.what());
     }
 
-    auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
     std::string operation = req->param(OP);
-    if (operation == HEADER) {
-        TabletMeta tablet_meta;
-        tablet->generate_tablet_meta_copy(tablet_meta);
-        json2pb::Pb2JsonOptions json_options;
-        json_options.pretty_json = true;
-        json_options.bytes_to_base64 = enable_byte_to_base64;
-        tablet_meta.to_json(json_meta, json_options);
-        return Status::OK();
-    } else if (operation == DATA_SIZE) {
-        if (!config::is_cloud_mode()) {
+    if (config::is_cloud_mode()) {
+        TabletMetaSharedPtr tablet_meta;
+        if (operation == HEADER) {
+            // option 1: get meta data directly using cloud_meta_mgr
+            cloud::CloudMetaMgr& cloud_meta_mgr = _exec_env->storage_engine()->meta_mgr();
+            Status st = cloud_meta_mgr->get_tablet_meta(tablet_id, &tablet_meta);
+            if (!st.ok()) {
+                return Status::InternalError("tablet meta not found, err: {}", st.to_string());
+            }
+            json2pb::Pb2JsonOptions json_options;
+            json_options.pretty_json = true;
+            json_options.bytes_to_base64 = enable_byte_to_base64;
+            tablet_meta.to_json(json_meta, json_options);
+            return Status::OK();
+
+            // option 2: get meta data using ExecEnv::get_tablet
+            // same code to the local mode
+        }
+    } else {
+        auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
+        if (operation == HEADER) {
+            TabletMeta tablet_meta;
+            tablet->generate_tablet_meta_copy(tablet_meta);
+            json2pb::Pb2JsonOptions json_options;
+            json_options.pretty_json = true;
+            json_options.bytes_to_base64 = enable_byte_to_base64;
+            tablet_meta.to_json(json_meta, json_options);
+
+        } else if (operation == DATA_SIZE) {
             EasyJson data_size;
             {
                 auto* local_tablet = static_cast<Tablet*>(tablet.get());
