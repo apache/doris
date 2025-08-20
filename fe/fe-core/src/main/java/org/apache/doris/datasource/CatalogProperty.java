@@ -203,8 +203,6 @@ public class CatalogProperty {
                                     hadoopProperties.put(key, value);
                                 }
                             });
-                        } else {
-                            LOG.info("Hadoop storage config is null for storage type: {}", sp.getType());
                         }
                     }
                 }
