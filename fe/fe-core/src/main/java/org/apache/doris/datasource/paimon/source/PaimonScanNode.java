@@ -388,16 +388,17 @@ public class PaimonScanNode extends FileQueryScanNode {
             // an empty table in PaimonSnapshotCacheValue
             return Collections.emptyList();
         }
-        int[] projected = desc.getSlots().stream().mapToInt(
-                        slot -> source.getPaimonTable().rowType()
-                                .getFieldNames()
-                                .stream()
-                                .map(String::toLowerCase)
-                                .collect(Collectors.toList())
-                                .indexOf(slot.getColumn().getName()))
-                .toArray();
 
         Table paimonTable = getProcessedTable();
+        int[] projected = desc.getSlots().stream().mapToInt(
+                slot -> paimonTable.rowType()
+                        .getFieldNames()
+                        .stream()
+                        .map(String::toLowerCase)
+                        .collect(Collectors.toList())
+                        .indexOf(slot.getColumn().getName()))
+                .filter(i -> i >= 0)
+                .toArray();
         ReadBuilder readBuilder = paimonTable.newReadBuilder();
         return readBuilder.withFilter(predicates)
                 .withProjection(projected)
@@ -713,5 +714,3 @@ public class PaimonScanNode extends FileQueryScanNode {
         return baseTable;
     }
 }
-
-
