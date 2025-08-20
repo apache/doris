@@ -1586,9 +1586,8 @@ DEFINE_mInt32(omp_threads_limit, "8");
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
-DEFINE_mBool(enable_traverse_all_when_cached_version_is_greater, "true");
-DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
-DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "false");
+DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "false");
 
 // clang-format off
 #ifdef BE_TEST
