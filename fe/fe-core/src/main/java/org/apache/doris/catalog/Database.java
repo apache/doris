@@ -462,9 +462,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
+        unregisterTable(table.getId());
+    }
+
+    public void unregisterTable(Long tableId) {
+        Table table = getTableNullable(tableId);
         if (table != null) {
-            this.nameToTable.remove(tableName);
-            this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            this.nameToTable.remove(table.getName());
+            this.lowerCaseToTableName.remove(table.getName().toLowerCase());
             this.idToTable.remove(table.getId());
             if (table.isTemporary()) {
                 Env.getCurrentEnv().unregisterTempTable(table);
