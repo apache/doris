@@ -794,8 +794,8 @@ struct RegexpPositionThreeParamImpl {
     }
 
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
-                                        size_t input_rows_count,
-                                        ColumnInt32::Container& result_data, bool is_const_args) {
+                             size_t input_rows_count, ColumnInt32::Container& result_data,
+                             bool is_const_args) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const ColumnInt32* index_col = check_and_get_column<ColumnInt32>(argument_columns[2].get());
@@ -805,7 +805,8 @@ struct RegexpPositionThreeParamImpl {
             if (!is_const_args) {
                 position = index_col->get_element(i);
             }
-            result_data[i] = ExecuteImpl::_execute_inner_loop(context, str_col, pattern_col, i, position);
+            result_data[i] =
+                    ExecuteImpl::_execute_inner_loop(context, str_col, pattern_col, i, position);
         }
     }
 };
@@ -882,9 +883,11 @@ public:
         }
 
         if constexpr (std::is_same_v<Impl, RegexpPositionTwoParamImpl>) {
-            Impl::execute_impl(context, argument_columns, input_rows_count, result_data, col_const[1]);
+            Impl::execute_impl(context, argument_columns, input_rows_count, result_data,
+                               col_const[1]);
         } else {
-            Impl::execute_impl(context, argument_columns, input_rows_count, result_data, col_const[1] && col_const[2]);
+            Impl::execute_impl(context, argument_columns, input_rows_count, result_data,
+                               col_const[1] && col_const[2]);
         }
 
         block.get_by_position(result).column = std::move(result_data_column);
