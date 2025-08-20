@@ -42,6 +42,7 @@ WalWriter::WalWriter(const std::string& file_name) : _file_name(file_name) {}
 WalWriter::~WalWriter() {}
 
 Status determine_wal_fs(int64_t db_id, int64_t tb_id, io::FileSystemSPtr& fs) {
+#ifndef BE_TEST
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     TGetTableTDEInfoRequest req;
     req.__set_db_id(db_id);
@@ -68,6 +69,9 @@ Status determine_wal_fs(int64_t db_id, int64_t tb_id, io::FileSystemSPtr& fs) {
 
     auto local_fs = io::global_local_filesystem();
     fs = io::make_file_system(local_fs, encrypt_algorithm);
+#else
+    fs = io::global_local_filesystem();
+#endif
 
     return Status::OK();
 }
