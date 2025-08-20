@@ -77,8 +77,9 @@ protected:
     virtual void add_dimension_params(rapidjson::Value& doc,
                                       rapidjson::Document::AllocatorType& allocator) const {
         if (_config.dimensions != -1 && supports_dimension_param(_config.model_name)) {
-            doc.AddMember(rapidjson::StringRef(get_dimension_param_name().c_str()),
-                          _config.dimensions, allocator);
+            std::string param_name = get_dimension_param_name();
+            rapidjson::Value name(param_name.c_str(), allocator);
+            doc.AddMember(name, _config.dimensions, allocator);
         }
     }
 };
@@ -270,6 +271,71 @@ public:
 
         return Status::InternalError("Unsupported response format from local LLM");
     }
+
+    Status build_embedding_request(const std::vector<std::string>& inputs,
+                                   std::string& request_body) const override {
+        rapidjson::Document doc;
+        doc.SetObject();
+        auto& allocator = doc.GetAllocator();
+
+        if (!_config.model_name.empty()) {
+            doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
+                          allocator);
+        }
+
+        add_dimension_params(doc, allocator);
+
+        rapidjson::Value input(rapidjson::kArrayType);
+        for (auto msg : inputs) {
+            input.PushBack(rapidjson::Value(msg.c_str(), allocator), allocator);
+        }
+        doc.AddMember("input", input, allocator);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        doc.Accept(writer);
+        request_body = buffer.GetString();
+
+        return Status::OK();
+    }
+
+    Status parse_embedding_response(const std::string& response_body,
+                                    std::vector<std::vector<float>>& results) const override {
+        rapidjson::Document doc;
+        doc.Parse(response_body.c_str());
+
+        if (doc.HasParseError() || !doc.IsObject()) {
+            return Status::InternalError("Failed to parse {} response", get_type());
+        }
+
+        // parse different response format
+        rapidjson::Value embedding;
+        if (doc.HasMember("data") && doc["data"].IsArray()) {
+            // "data":["object":"embedding", "embedding":[0.1, 0.2...], "index":0]
+            const auto& data = doc["data"];
+            results.reserve(data.Size());
+            for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
+                if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
+                    return Status::InternalError("Invalid {} response format", get_type());
+                }
+
+                std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
+                               std::back_inserter(results.emplace_back()),
+                               [](const auto& val) { return val.GetFloat(); });
+            }
+        } else if (doc.HasMember("embedding") && doc["embedding"].IsArray()) {
+            // "embedding":[0.1, 0.2, ...]
+            results.reserve(1);
+            embedding = doc["embedding"];
+            std::transform(embedding.Begin(), embedding.End(),
+                           std::back_inserter(results.emplace_back()),
+                           [](const auto& val) { return val.GetFloat(); });
+        } else {
+            return Status::InternalError("Invalid {} response format", get_type());
+        }
+
+        return Status::OK();
+    }
 };
 
 // The OpenAI API format can be reused with some compatible LLMs.
@@ -354,9 +420,7 @@ public:
 
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
-        static const std::unordered_set<std::string> no_dimension_models = {
-                "text-embedding-ada-002"};
-        return !no_dimension_models.contains(model_name);
+        return !(model_name == "text-embedding-ada-002");
     }
 
     std::string get_dimension_param_name() const override { return "dimensions"; }
@@ -423,8 +487,7 @@ public:
 
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
-        static const std::unordered_set<std::string> no_dimension_models = {"embedding-2"};
-        return !no_dimension_models.contains(model_name);
+        return !(model_name == "embedding-2");
     }
 };
 
@@ -434,8 +497,8 @@ public:
 
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
-        static const std::unordered_set<std::string> no_dimension_models = {"text-embedding-v1",
-                                                                            "text-embedding-v2"};
+        static const std::unordered_set<std::string> no_dimension_models = {
+                "text-embedding-v1", "text-embedding-v2", "text2vec", "m3e-base", "m3e-small"};
         return !no_dimension_models.contains(model_name);
     }
 
@@ -554,8 +617,15 @@ public:
         rapidjson::Value requests(rapidjson::kArrayType);
         for (auto input : inputs) {
             rapidjson::Value request(rapidjson::kObjectType);
-            request.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
-                              allocator);
+
+            // gemini requires the model format as `models/{model}`
+            std::string model_name = _config.model_name;
+            if (!model_name.starts_with("models/")) {
+                model_name = "models/" + model_name;
+            }
+
+            request.AddMember("model", rapidjson::Value(model_name.c_str(), allocator), allocator);
+
             rapidjson::Value content(rapidjson::kObjectType);
             rapidjson::Value parts(rapidjson::kArrayType);
             rapidjson::Value part(rapidjson::kObjectType);
@@ -605,8 +675,8 @@ public:
 
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
-        static const std::unordered_set<std::string> no_dimension_models = {
-                "models/gemini-embedding-001"};
+        static const std::unordered_set<std::string> no_dimension_models = {"models/embedding-001",
+                                                                            "embedding-001"};
         return !no_dimension_models.contains(model_name);
     }
 
