@@ -53,7 +53,6 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
@@ -167,13 +166,6 @@ public abstract class ExternalCatalog
     private boolean objectCreated = false;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
-
-    private ExternalSchemaCache schemaCache;
-    // A cached and being converted properties for external catalog.
-    // generated from catalog properties.
-    private byte[] propLock = new byte[0];
-    private Map<String, String> convertedProperties = null;
-
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected ExecutionAuthenticator executionAuthenticator;
@@ -315,7 +307,6 @@ public abstract class ExternalCatalog
             }
             return;
         }
-        isInitializing = true;
         try {
             initLocalObjects();
             if (!initialized) {

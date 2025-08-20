@@ -304,7 +304,7 @@ public class PropertyConverterTest extends TestWithFeService {
         String query1 = "create catalog " + catalogName1 + " properties (\n"
                 + "    'type'='hms',\n"
                 + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                + "    'oss.endpoint' = 'oss-cn-beijing.aliyuncs.com',\n"
+                + "    'oss.endpoint' = 'cn-beijing.oss-dls.aliyuncs.com',\n"
                 + "    'oss.hdfs.enabled' = 'true',\n"
                 + "    'oss.access_key' = 'akk',\n"
                 + "    'oss.secret_key' = 'skk'\n"
