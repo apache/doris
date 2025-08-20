@@ -91,6 +91,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -401,7 +402,8 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         UnixTimestamp ut = new UnixTimestamp(StringLiteral.of("2021-11-11"), StringLiteral.of("%Y-%m-%d"));
         rewritten = executor.rewrite(ut, context);
-        Assertions.assertEquals(new DecimalV3Literal(new BigDecimal("1636560000.000000")), rewritten);
+        Assertions.assertEquals(new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeNoCheck(18, 6),
+                        new BigDecimal("1636560000.000000")), rewritten);
 
         StrToDate sd = new StrToDate(StringLiteral.of("2021-11-11"), StringLiteral.of("%Y-%m-%d"));
         rewritten = executor.rewrite(sd, context);
