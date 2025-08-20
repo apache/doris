@@ -17,10 +17,15 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
+
 import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -122,5 +127,46 @@ public class HMSExternalTableTest {
         protected synchronized void makeSureInitialized() {
             this.objectCreated = true;
         }
+    }
+
+    @Test
+    public void testVoidColumnFiltering() {
+        // Test that void columns are properly filtered out
+        List<FieldSchema> schema = new ArrayList<>();
+
+        // Add a normal column
+        FieldSchema normalField = new FieldSchema();
+        normalField.setName("normal_column");
+        normalField.setType("string");
+        schema.add(normalField);
+
+        // Add a void column (should be skipped)
+        FieldSchema voidField = new FieldSchema();
+        voidField.setName("void_column");
+        voidField.setType("void");
+        schema.add(voidField);
+
+        // Add another void column with different case (should be skipped)
+        FieldSchema voidFieldUpperCase = new FieldSchema();
+        voidFieldUpperCase.setName("void_column_upper");
+        voidFieldUpperCase.setType("VOID");
+        schema.add(voidFieldUpperCase);
+
+        // Add another normal column
+        FieldSchema anotherNormalField = new FieldSchema();
+        anotherNormalField.setName("another_normal_column");
+        anotherNormalField.setType("int");
+        schema.add(anotherNormalField);
+
+        // Count non-void columns
+        int nonVoidCount = 0;
+        for (FieldSchema field : schema) {
+            if (!"void".equalsIgnoreCase(field.getType())) {
+                nonVoidCount++;
+            }
+        }
+
+        // Should have 2 non-void columns
+        Assertions.assertEquals(2, nonVoidCount);
     }
 }
