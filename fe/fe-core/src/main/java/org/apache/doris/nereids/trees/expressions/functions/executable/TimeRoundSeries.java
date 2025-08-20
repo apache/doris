@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
@@ -67,29 +68,25 @@ public class TimeRoundSeries {
                 break;
             }
             case DAY: {
-                diff = dt.getTotalDays() - start.getTotalDays();
+                diff = Duration.between(origin, date).toDays();
                 long part2 = dt.getHour() * 3600 + dt.getMinute() * 60 + dt.getSecond();
                 long part1 = start.getHour() * 3600 + start.getMinute() * 60 + start.getSecond();
                 trivialPart = part2 - part1;
                 break;
             }
             case HOUR: {
-                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 + (dt.getHour() - start.getHour());
+                diff = Duration.between(origin, date).toHours();
                 trivialPart = (dt.getMinute() * 60 + dt.getSecond())
                         - (start.getMinute() * 60 + start.getSecond());
                 break;
             }
             case MINUTE: {
-                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 * 60 + (dt.getHour() - start.getHour()) * 60
-                        + (dt.getMinute() - start.getMinute());
+                diff = Duration.between(origin, date).toMinutes();
                 trivialPart = dt.getSecond() - start.getSecond();
                 break;
             }
             case SECOND: {
-                diff = (dt.getTotalDays() - start.getTotalDays()) * 24 * 60 * 60
-                        + (dt.getHour() - start.getHour()) * 60 * 60
-                        + (dt.getMinute() - start.getMinute()) * 60
-                        + (dt.getSecond() - start.getSecond());
+                diff = Duration.between(origin, date).toMinutes() * 60 + (dt.getSecond() - start.getSecond());
                 trivialPart = dt.getMicroSecond() - start.getMicroSecond();
                 break;
             }
