@@ -19,8 +19,9 @@
 
 #include "common/config.h"
 #include "util/stack_util.h"
-namespace doris {
 
+namespace doris {
+// private concrete constructor
 Exception::Exception(int code, const std::string_view& msg, bool from_status) {
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
