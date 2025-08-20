@@ -48,6 +48,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.CoreOptions.StartupMode;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
@@ -58,9 +59,11 @@ import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
@@ -87,6 +90,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -654,6 +658,13 @@ public class PaimonUtil {
         options.putAll(excludePaimonConflictOptions(PAIMON_FROM_SNAPSHOT_CONFLICT_OPTIONS));
 
         return baseTable.copy(options);
+    }
+
+    public static Snapshot getSnapshotByBranchOrTag(Table table, TableScanParams scanParams) {
+        String ref = extractBranchOrTagName(scanParams);
+        DataTable dataTable = (DataTable) table;
+        Optional<Tag> tag = dataTable.tagManager().get(ref);
+        return tag.get();
     }
 
     /**
