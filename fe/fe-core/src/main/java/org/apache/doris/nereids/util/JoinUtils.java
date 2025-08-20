@@ -495,15 +495,21 @@ public class JoinUtils {
      * the nullable property of b.condition should be false
      */
     public static LogicalJoin<Plan, Plan> adjustJoinConjunctsNullable(LogicalJoin<Plan, Plan> join) {
-        Map<ExprId, Slot> childSlotMap = new HashMap<>();
+        Map<ExprId, Slot> equalConjunctsSlotMap = new HashMap<>();
         for (Plan child : join.children()) {
             for (Slot slot : child.getOutput()) {
-                childSlotMap.put(slot.getExprId(), slot);
+                equalConjunctsSlotMap.put(slot.getExprId(), slot);
             }
         }
+        Map<ExprId, Slot> otherConjunctsSlotMap = new HashMap<>();
+        for (Slot slot : join.getOutput()) {
+            otherConjunctsSlotMap.put(slot.getExprId(), slot);
+        }
         return join.withJoinConjuncts(
-                updateExpressions(join.getHashJoinConjuncts(), childSlotMap, true, false),
-                updateExpressions(join.getOtherJoinConjuncts(), childSlotMap, true, false),
+                updateExpressions(join.getHashJoinConjuncts(), equalConjunctsSlotMap, false,
+                        false),
+                updateExpressions(join.getOtherJoinConjuncts(), otherConjunctsSlotMap, false,
+                        false),
                 join.getJoinReorderContext());
     }
 
