@@ -17,6 +17,7 @@
 
 #include "index_storage_format_v2.h"
 
+#include "cloud/config.h"
 #include "common/cast_set.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
@@ -45,8 +46,11 @@ Status IndexStorageFormatV2::write() {
     try {
         // Calculate header length and initialize offset
         int64_t current_offset = header_length();
+
         // Prepare file metadata
-        auto file_metadata = prepare_file_metadata(current_offset);
+        std::vector<FileMetadata> file_metadata;
+        MetaFileRange meta_range;
+        prepare_file_metadata(current_offset, file_metadata, meta_range);
 
         // Create output stream
         auto result = create_output_stream();
@@ -107,8 +111,9 @@ int64_t IndexStorageFormatV2::header_length() {
     return header_size;
 }
 
-std::vector<FileMetadata> IndexStorageFormatV2::prepare_file_metadata(int64_t& current_offset) {
-    std::vector<FileMetadata> file_metadata;
+void IndexStorageFormatV2::prepare_file_metadata(int64_t& current_offset,
+                                                 std::vector<FileMetadata>& file_metadata,
+                                                 MetaFileRange& meta_range) {
     std::vector<FileMetadata> meta_files;
     std::vector<FileMetadata> normal_files;
     for (const auto& entry : _index_file_writer->_indices_dirs) {
@@ -140,11 +145,14 @@ std::vector<FileMetadata> IndexStorageFormatV2::prepare_file_metadata(int64_t& c
     file_metadata.reserve(meta_files.size() + normal_files.size());
 
     // meta file
+    meta_range.start_offset = current_offset;
     for (auto& entry : meta_files) {
         entry.offset = current_offset;
         file_metadata.emplace_back(std::move(entry));
         current_offset += entry.length;
     }
+    meta_range.end_offset = current_offset;
+
     // normal file
     for (auto& entry : normal_files) {
         entry.offset = current_offset;
@@ -172,8 +180,6 @@ std::vector<FileMetadata> IndexStorageFormatV2::prepare_file_metadata(int64_t& c
             }
         }
     });
-
-    return file_metadata;
 }
 
 std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
@@ -242,6 +248,24 @@ void IndexStorageFormatV2::copy_files_data(lucene::store::IndexOutput* output,
 
     for (const auto& meta : file_metadata) {
         copy_file(meta.filename.c_str(), meta.directory, output, buffer, buffer_length);
+    }
+}
+
+void IndexStorageFormatV2::add_meta_files_to_index_cache(const MetaFileRange& meta_range) {
+    if (auto* cache_builder = _index_file_writer->_idx_v2_writer->cache_builder();
+        cache_builder != nullptr && cache_builder->_expiration_time == 0 &&
+        config::is_cloud_mode()) {
+        int64_t meta_file_size = meta_range.end_offset - meta_range.start_offset;
+        if (meta_file_size > 0) {
+#ifndef BE_TEST
+            auto holder =
+                    cache_builder->allocate_cache_holder(meta_range.start_offset, meta_file_size);
+            for (auto& segment : holder->file_blocks) {
+                static_cast<void>(segment->change_cache_type_between_normal_and_index(
+                        io::FileCacheType::INDEX));
+            }
+#endif
+        }
     }
 }
 

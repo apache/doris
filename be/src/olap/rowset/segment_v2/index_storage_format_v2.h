@@ -41,8 +41,14 @@ public:
     Status write() override;
 
 private:
+    struct MetaFileRange {
+        int64_t start_offset;
+        int64_t end_offset;
+    };
+
     int64_t header_length();
-    std::vector<FileMetadata> prepare_file_metadata(int64_t& current_offset);
+    void prepare_file_metadata(int64_t& current_offset, std::vector<FileMetadata>& file_metadata,
+                               MetaFileRange& meta_range);
     virtual std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
                       std::unique_ptr<lucene::store::IndexOutput>>
     create_output_stream();
@@ -51,6 +57,7 @@ private:
                                                   const std::vector<FileMetadata>& file_metadata);
     void copy_files_data(lucene::store::IndexOutput* output,
                          const std::vector<FileMetadata>& file_metadata);
+    void add_meta_files_to_index_cache(const MetaFileRange& meta_range);
 
     friend class IndexFileWriterTest;
 };
