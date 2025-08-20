@@ -19,6 +19,7 @@ suite("test_temp_table_with_conn_timeout", "p0") {
     String db = context.config.getDbNameByFile(context.file)
     def tableName = "t_test_temp_table_with_conn_timeout"
     String tempTableFullName
+    sql "select 1" // ensure db is created
     connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
         sql"use ${db}"
         sql """create temporary table ${tableName}(id int) properties("replication_num" = "1") """
