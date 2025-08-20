@@ -95,9 +95,8 @@ public class GrantResourcePrivilegeCommandTest extends TestWithFeService {
     public void testWorkload() {
         String createWorkLoadSql = "create workload group if not exists g1 \n"
                 + "properties (  \n"
-                + "\"cpu_share\"=\"10\", \n"
-                + "\"memory_limit\"=\"30%\", \n"
-                + "\"enable_memory_overcommit\"=\"true\" \n"
+                + "\"min_memory_percent\"=\"10\", \n"
+                + "\"max_memory_percent\"=\"30%\" \n"
                 + ");";
         String createUserSql = "CREATE USER 'jack1'";
         String createRoleSql = "CREATE ROLE role2";

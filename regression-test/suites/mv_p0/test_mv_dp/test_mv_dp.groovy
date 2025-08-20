@@ -37,7 +37,7 @@ suite ("test_mv_dp") {
     sql """INSERT INTO `dp` VALUES (1,'success',["1","2"]),(2,'fail',["1"]);"""
 
     createMV("""CREATE MATERIALIZED VIEW view_2 as
-                    select d,
+                    select d as a1,
                         bitmap_union(bitmap_from_array(cast(uid_list as array<bigint>))),
                         bitmap_union(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))
                     from dp

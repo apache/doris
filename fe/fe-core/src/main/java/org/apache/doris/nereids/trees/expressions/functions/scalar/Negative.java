@@ -54,13 +54,18 @@ public class Negative extends ScalarFunction
         super("negative", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Negative(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Negative withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Negative(children.get(0));
+        return new Negative(getFunctionParams(children));
     }
 
     @Override

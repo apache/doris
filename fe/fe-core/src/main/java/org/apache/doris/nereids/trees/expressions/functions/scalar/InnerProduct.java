@@ -20,9 +20,8 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForArrayItemAgg;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -36,7 +35,7 @@ import java.util.List;
  * inner_product function
  */
 public class InnerProduct extends ScalarFunction implements ExplicitlyCastableSignature,
-        ComputePrecisionForArrayItemAgg, UnaryExpression, AlwaysNullable {
+        BinaryExpression, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE)
@@ -50,13 +49,18 @@ public class InnerProduct extends ScalarFunction implements ExplicitlyCastableSi
         super("inner_product", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private InnerProduct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public InnerProduct withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new InnerProduct(children.get(0), children.get(1));
+        return new InnerProduct(getFunctionParams(children));
     }
 
     @Override

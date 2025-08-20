@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/once.h"
 
@@ -77,7 +76,7 @@ private:
     uint32_t _next_shard;
     uint32_t _error_path_next_shard;
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _clean_thread;
+    std::shared_ptr<Thread> _clean_thread;
     DorisCallOnce<Status> _init_once;
 };
 

@@ -310,4 +310,11 @@ public class IndexDef {
             throw new AnalysisException("Invalid value for '" + key + "': " + valueStr, e);
         }
     }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+            && properties != null
+            && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
+    }
 }

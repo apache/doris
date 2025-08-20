@@ -264,9 +264,10 @@ constexpr int max_ascii_len() {
     return 0;
 }
 
+// bool type
 template <>
 inline constexpr int max_ascii_len<uint8_t>() {
-    return 3;
+    return 1;
 }
 
 template <>

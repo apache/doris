@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_group_commit_timeout", "nonConcurrent") {
+suite("test_group_commit_timeout") {
     def tableName = "test_group_commit_timeout"
     sql """
         CREATE TABLE if not exists ${tableName} (
@@ -31,14 +31,14 @@ suite("test_group_commit_timeout", "nonConcurrent") {
         );
     """
 
-    def query_timeout = sql """show variables where variable_name = 'query_timeout';"""
+    /*def query_timeout = sql """show variables where variable_name = 'query_timeout';"""
     def insert_timeout = sql """show variables where variable_name = 'insert_timeout';"""
-    logger.info("query_timeout: ${query_timeout}, insert_timeout: ${insert_timeout}")
+    logger.info("query_timeout: ${query_timeout}, insert_timeout: ${insert_timeout}")*/
 
     long start = System.currentTimeMillis()
     try {
-        sql "SET global query_timeout = 5"
-        sql "SET global insert_timeout = 5"
+        sql "SET query_timeout = 5"
+        sql "SET insert_timeout = 5"
 
         sql "set group_commit = sync_mode"
         sql "insert into ${tableName} values(1, 'a', 10)"
@@ -49,7 +49,7 @@ suite("test_group_commit_timeout", "nonConcurrent") {
         assertTrue(e.getMessage().contains("FragmentMgr cancel worker going to cancel timeout instance") || e.getMessage().contains("Execute timeout") || e.getMessage().contains("timeout"))
         assertTrue(end - start <= 60000)
     } finally {
-        sql "SET global query_timeout = ${query_timeout[0][1]}"
-        sql "SET global insert_timeout = ${insert_timeout[0][1]}"
+        /*sql "SET query_timeout = ${query_timeout[0][1]}"
+        sql "SET insert_timeout = ${insert_timeout[0][1]}"*/
     }
 }

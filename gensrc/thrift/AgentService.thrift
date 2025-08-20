@@ -428,6 +428,8 @@ struct TSnapshotRequest {
 struct TReleaseSnapshotRequest {
     1: required string snapshot_path
     2: optional Types.TTabletId tablet_id
+    // indicates the job is completed or cancelled
+    3: optional bool is_job_completed
 }
 
 struct TClearRemoteFileReq {

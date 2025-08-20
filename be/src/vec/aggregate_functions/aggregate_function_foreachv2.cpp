@@ -98,7 +98,7 @@ void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFac
                     nested_function_name, types_name(types));
         }
         return creator_without_type::create<AggregateFunctionForEachV2>(types, result_is_nullable,
-                                                                        nested_function);
+                                                                        attr, nested_function);
     };
     factory.register_foreach_function_combinator(
             creator, AggregateFunctionForEachV2::AGG_FOREACH_SUFFIX, true);

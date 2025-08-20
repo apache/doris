@@ -332,7 +332,7 @@ void WalManagerTest::generate_scanner(std::shared_ptr<FileScanner>& scanner) {
             &_colname_to_slot_id);
     scanner->_is_load = false;
     vectorized::VExprContextSPtrs _conjuncts;
-    WARN_IF_ERROR(scanner->prepare(&_runtime_state, _conjuncts), "fail to prepare scanner");
+    WARN_IF_ERROR(scanner->init(&_runtime_state, _conjuncts), "fail to prepare scanner");
 }
 
 TEST_F(WalManagerTest, read_block_normal) {

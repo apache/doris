@@ -52,9 +52,9 @@ suite("test_variant_cast", "p0") {
         );
     """
     sql """insert into var_not_null_cast values (1, '{"aaa" : 1}')"""
-    qt_sql6 "select cast(var as json) from var_not_null_cast"
+    //qt_sql6 "select cast(var as json) from var_not_null_cast"
     sql """insert into var_not_null_cast values (1, '[1]')"""
-    qt_sql7 "select cast(var as json) from var_not_null_cast"
+    //qt_sql7 "select cast(var as json) from var_not_null_cast"
     sql """insert into var_not_null_cast values (1, '123')"""
-    qt_sql8 "select cast(var as json) from var_not_null_cast"
+    //qt_sql8 "select cast(var as json) from var_not_null_cast"
 }

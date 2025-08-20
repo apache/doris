@@ -17,7 +17,7 @@ import java.text.SimpleDateFormat
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_create_mv_and_mtmt") {
+suite("test_create_mv_and_mtmv") {
     def tableName = "test_create_mv_and_mtmt_advertiser_view_record"
     def mvName = "test_create_mv_and_mtmt_advertiser_uv"
     def mtmvName = "test_create_mv_and_mtmt_advertiser_uv_mtmv"
@@ -41,10 +41,10 @@ suite("test_create_mv_and_mtmt") {
 
     createMV("""
         CREATE materialized VIEW ${mvName} AS
-        SELECT advertiser,
-               channel,
-               dt,
-               bitmap_union(to_bitmap(user_id))
+        SELECT advertiser as a1,
+               channel as a2,
+               dt as a3,
+               bitmap_union(to_bitmap(user_id)) as a4
         FROM ${tableName}
         GROUP BY advertiser,
                  channel,
@@ -59,7 +59,7 @@ suite("test_create_mv_and_mtmt") {
                     GROUP BY dt,advertiser""")
         contains "(${mvName})"
     }
-    def refreshTime = System.currentTimeMillis() / 1000L
+    def refreshTime = (int) (System.currentTimeMillis() / 1000L)
     sql """
             CREATE MATERIALIZED VIEW ${mtmvName}
             BUILD IMMEDIATE REFRESH AUTO ON MANUAL
@@ -94,13 +94,13 @@ AND RefreshMode = '${refreshMode}';"""
     qt_mtmv_init """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""
 
     sql """INSERT INTO ${tableName} VALUES("2024-07-03",'b', "2024-07-03", 'b',2);"""
-    refreshTime = System.currentTimeMillis() / 1000L
+    refreshTime = (int) (System.currentTimeMillis() / 1000L)
     sql """REFRESH MATERIALIZED VIEW ${mtmvName} AUTO;"""
     wait_mtmv_refresh_finish("PARTIAL")
     qt_insert_into_partial_old_partition """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""
 
     sql """INSERT INTO ${tableName} VALUES("2024-07-04",'b', "2024-07-04", 'a',1);"""
-    refreshTime = System.currentTimeMillis() / 1000L
+    refreshTime = (int) (System.currentTimeMillis() / 1000L)
     sql """REFRESH MATERIALIZED VIEW ${mtmvName} AUTO;"""
     wait_mtmv_refresh_finish("PARTIAL")
     qt_insert_into_partial_new_partition """ SELECT * FROM ${mtmvName} ORDER BY dt, advertiser"""

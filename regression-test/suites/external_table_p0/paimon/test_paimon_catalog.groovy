@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
 
     String file_ctl_name = "paimon_file_catalog";
     String hms_ctl_name = "paimon_hms_catalog";

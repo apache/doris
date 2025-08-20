@@ -55,7 +55,6 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA_TIMELINE = ImmutableList.of(
             new Column("timestamp", PrimitiveType.STRING, false),
             new Column("action", PrimitiveType.STRING, false),
-            new Column("file_name", PrimitiveType.STRING, false),
             new Column("state", PrimitiveType.STRING, false),
             new Column("state_transition_time", PrimitiveType.STRING, false));
 
@@ -121,7 +120,7 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds) {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.HUDI);
         // set hudi metadata params
@@ -131,7 +130,7 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
         hudiMetadataParams.setDatabase(hudiTableName.getDb());
         hudiMetadataParams.setTable(hudiTableName.getTbl());
         metaScanRange.setHudiParams(hudiMetadataParams);
-        return Lists.newArrayList(metaScanRange);
+        return metaScanRange;
     }
 
     @Override

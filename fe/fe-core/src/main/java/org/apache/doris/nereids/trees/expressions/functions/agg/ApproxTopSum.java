@@ -53,6 +53,11 @@ public class ApproxTopSum extends NullableAggregateFunction
         super("approx_top_sum", distinct, alwaysNullable, varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ApproxTopSum(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (arity() < 3) {
@@ -73,13 +78,13 @@ public class ApproxTopSum extends NullableAggregateFunction
 
     @Override
     public ApproxTopSum withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new ApproxTopSum(distinct, alwaysNullable, children.toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new ApproxTopSum(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new ApproxTopSum(distinct, alwaysNullable, children.toArray(new Expression[0]));
+        return new ApproxTopSum(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

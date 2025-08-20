@@ -125,6 +125,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
@@ -183,6 +184,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
@@ -270,7 +272,6 @@ import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
-import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
@@ -549,10 +550,6 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowStagesCommand(ShowStagesCommand showStagesCommand, C context) {
         return visitCommand(showStagesCommand, context);
-    }
-
-    default R visitUnsupportedCommand(UnsupportedCommand unsupportedCommand, C context) {
-        return visitCommand(unsupportedCommand, context);
     }
 
     default R visitUnsupportedStartTransactionCommand(StartTransactionCommand unsupportedStartTransactionCommand,
@@ -1398,6 +1395,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropIndexAnalyzerCommand, context);
     }
 
+    default R visitShowCreateStorageVaultCommand(ShowCreateStorageVaultCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
     default R visitDropIndexTokenizerCommand(
             DropIndexTokenizerCommand dropIndexTokenizerCommand, C context) {
         return visitCommand(dropIndexTokenizerCommand, context);
@@ -1425,5 +1426,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropMaterializedViewCommand(DropMaterializedViewCommand dropMaterializedViewCommand, C context) {
         return visitCommand(dropMaterializedViewCommand, context);
+    }
+
+    default R visitEmptyCommand(EmptyCommand emptyCommand, C context) {
+        return visitCommand(emptyCommand, context);
     }
 }

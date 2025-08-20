@@ -86,13 +86,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto& data = block.get_by_position(arguments[0]);
         if (const auto* col_null = check_and_get_column<ColumnNullable>(data.column.get());
-            col_null == nullptr) // raise error if input is not nullable.
-        {
-            return Status::InvalidArgument(
-                    "Try to use originally non-nullable column {} in nullable's non-nullable "
-                    "convertion.",
-                    data.column->get_name());
-        } else { // column is ColumnNullable
+            col_null != nullptr) {
             if (col_null->has_null()) [[unlikely]] {
                 return Status::InvalidArgument(
                         "There's NULL value in column {} which is illegal for non_nullable",
@@ -100,6 +94,8 @@ public:
             }
             const ColumnPtr& nest_col = col_null->get_nested_column_ptr();
             block.replace_by_position(result, nest_col->clone_resized(nest_col->size()));
+        } else {
+            block.replace_by_position(result, data.column->clone_resized(input_rows_count));
         }
         return Status::OK();
     }

@@ -112,7 +112,7 @@ public class IndexDefinition {
     /**
      * Check if the column type is supported for inverted index
      */
-    public boolean isSupportIdxType(DataType columnType) {
+    public static boolean isSupportIdxType(DataType columnType) {
         if (columnType.isArrayType()) {
             DataType itemType = ((ArrayType) columnType).getItemType();
             if (itemType.isArrayType()) {
@@ -123,7 +123,7 @@ public class IndexDefinition {
         return columnType.isDateLikeType() || columnType.isDecimalLikeType()
                 || columnType.isIntegralType() || columnType.isStringLikeType()
                 || columnType.isBooleanType() || columnType.isVariantType()
-                || columnType.isIPType();
+                || columnType.isIPType() || columnType.isFloatLikeType();
     }
 
     /**
@@ -322,5 +322,16 @@ public class IndexDefinition {
             sb.append(" COMMENT '" + comment + "'");
         }
         return sb.toString();
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexType.INVERTED
+                && properties != null
+                        && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

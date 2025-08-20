@@ -37,7 +37,7 @@ suite ("test_dup_group_by_mv_abs") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12sa as select k1,sum(abs(k2)) from d_table group by k1;")
+    createMV ("create materialized view k12sa as select k1 as a1,sum(abs(k2)) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

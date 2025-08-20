@@ -45,6 +45,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
+import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
@@ -131,6 +132,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
+import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
@@ -170,6 +172,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -534,6 +537,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 )),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
+                topic("score optimize",
+                        topDown(new PushDownScoreTopNIntoOlapScan(),
+                                new CheckScoreUsage())
+                ),
                 topic("topn optimize",
                         topDown(new DeferMaterializeTopNResult())
                 ),
@@ -689,5 +696,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
         } else {
             return true;
         }
+    }
+
+    @Override
+    public void execute() {
+        MoreFieldsThread.keepFunctionSignature(() -> {
+            super.execute();
+            return null;
+        });
     }
 }

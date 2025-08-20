@@ -225,5 +225,11 @@ Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const 
     return Status::OK();
 }
 
+Status DataTypeHLLSerDe::from_string(StringRef& str, IColumn& column,
+                                     const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
+}
+
 } // namespace vectorized
 } // namespace doris

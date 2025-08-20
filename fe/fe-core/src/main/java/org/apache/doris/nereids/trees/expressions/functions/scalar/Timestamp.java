@@ -54,13 +54,18 @@ public class Timestamp extends ScalarFunction
         super("timestamp", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Timestamp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Timestamp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Timestamp(children.get(0));
+        return new Timestamp(getFunctionParams(children));
     }
 
     @Override

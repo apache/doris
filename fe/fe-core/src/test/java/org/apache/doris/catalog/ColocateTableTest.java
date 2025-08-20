@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -25,6 +24,8 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -88,8 +89,15 @@ public class ColocateTableTest {
     @After
     public void dropDb() throws Exception {
         String dropDbStmtStr = "drop database " + dbName;
-        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbStmtStr, connectContext);
-        Env.getCurrentEnv().dropDb(dropDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbStmtStr);
+        DropDatabaseCommand command = (DropDatabaseCommand) logicalPlan;
+        DropDatabaseInfo dropDatabaseInfo = command.getDropDatabaseInfo();
+        Env.getCurrentEnv().dropDb(
+                dropDatabaseInfo.getCatalogName(),
+                dropDatabaseInfo.getDatabaseName(),
+                dropDatabaseInfo.isIfExists(),
+                dropDatabaseInfo.isForce());
     }
 
     private static void createTable(String sql) throws Exception {

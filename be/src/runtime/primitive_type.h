@@ -487,7 +487,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMALV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMALV2;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMALV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
@@ -631,7 +631,7 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
     using CppNativeType = CppType;
     using ColumnItemType = HyperLogLog;
     using DataType = vectorized::DataTypeHLL;
-    using ColumnType = vectorized::ColumnString;
+    using ColumnType = vectorized::ColumnHLL;
     using NearestFieldType = HyperLogLog;
     using AvgNearestFieldType = HyperLogLog;
     using AvgNearestFieldType256 = HyperLogLog;

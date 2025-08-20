@@ -1221,7 +1221,6 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _push_down_agg_type = tnode.push_down_agg_type_opt;
     } else if (tnode.olap_scan_node.__isset.push_down_agg_type_opt) {
         _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
-
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
     }

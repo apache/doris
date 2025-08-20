@@ -23,10 +23,11 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_agg_function_map_agg_v2(const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
     return creator_without_type::create_ignore_nullable<
             AggregateFunctionMapAggV2<AggregateFunctionMapAggDataV2>>(argument_types,
-                                                                      result_is_nullable);
+                                                                      result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& name,
@@ -55,7 +56,7 @@ AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& nam
     case PrimitiveType::TYPE_DATEV2:
     case PrimitiveType::TYPE_DATETIMEV2:
     case PrimitiveType::TYPE_TIMEV2:
-        return create_agg_function_map_agg_v2(argument_types, result_is_nullable);
+        return create_agg_function_map_agg_v2(argument_types, result_is_nullable, attr);
     default:
         LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
                                     argument_types[0]->get_name(), name);

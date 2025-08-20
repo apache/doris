@@ -23,9 +23,9 @@ import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSigna
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
@@ -34,7 +34,6 @@ import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
@@ -67,23 +66,25 @@ public class ToJson extends ScalarFunction
         super("to_json", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ToJson(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ToJson withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1, "ToJson should have exactly one argument");
-        return new ToJson(children.get(0));
+        return new ToJson(getFunctionParams(children));
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        if (child(0).getDataType().isStructType()) {
-            return ImmutableList.of(
-                    FunctionSignature.ret(JsonType.INSTANCE).args((StructType) child(0).getDataType()));
-        } else if (child(0).getDataType().isArrayType()) {
-            return ImmutableList.of(
-                    FunctionSignature.ret(JsonType.INSTANCE).args((ArrayType) child(0).getDataType()));
+        DataType firstChildType = child(0).getDataType();
+        if (firstChildType.isStructType() || firstChildType.isArrayType()) {
+            return ImmutableList.of(FunctionSignature.ret(JsonType.INSTANCE).args(firstChildType));
         } else {
             return SIGNATURES;
         }

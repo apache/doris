@@ -58,18 +58,23 @@ public class AnyValue extends NullableAggregateFunction
         super("any_value", false, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private AnyValue(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public AnyValue withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new AnyValue(distinct, alwaysNullable, children.get(0));
+        return new AnyValue(getFunctionParams(distinct, children));
     }
 
     @Override
     public AnyValue withAlwaysNullable(boolean alwaysNullable) {
-        return new AnyValue(distinct, alwaysNullable, children.get(0));
+        return new AnyValue(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
@@ -84,7 +89,7 @@ public class AnyValue extends NullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new AnyValue(this.distinct, this.alwaysNullable, param);
+        return new AnyValue(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override

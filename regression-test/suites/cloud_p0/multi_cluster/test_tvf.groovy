@@ -29,11 +29,8 @@ suite('test_tvf', 'multi_cluster,docker') {
         for (def i = 0; i < 100; i++) {
             def ret = sql """select * from numbers("number" = "100")"""
             assertEquals(ret.size(), 100)
-            test {
-                // current cloud not implement it
-                sql """select START_VERSION,END_VERSION from information_schema.rowsets"""
-                exception "_get_all_rowsets is not implemented"
-            }
+            ret = sql """select START_VERSION,END_VERSION from information_schema.rowsets"""
+            assertTrue(ret.size() > 0)
         }
     }
 
@@ -74,7 +71,7 @@ suite('test_tvf', 'multi_cluster,docker') {
         // use old clusterName, has been droped
         test {
             sql """select * from numbers("number" = "100")"""
-            exception "in cloud maybe this cluster has been dropped" 
+            exception "Can not find compute group" 
         }
         // switch to old cluster
         sql """use @${currentCluster.cluster}"""

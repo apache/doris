@@ -92,10 +92,19 @@ public abstract class NumericLiteral extends Literal implements ComparableLitera
         if (value <= 0) {
             return false;
         }
-        int digits = digits(value);
+        int digits = (int) (Math.floor(Math.log10(value)) + 1);
         return digits == 3 || digits == 4 || digits == 5 || digits == 6 || digits == 8 || digits == 14;
     }
 
+    /**
+     * 3-digit number (abc) => Year 2000, month 0a, day bc
+     * 4-digit number (abcd) => Year 2000, month ab, day cd
+     * 5-digit number (abcde) => Year 200a, month bc, day de
+     * 6-digit number (abcdef, where ab ≥ 70) => Year 19ab, month cd, day ef
+     * 6-digit number (abcdef, where ab < 70) => Year 20ab, month cd, day ef
+     * 8-digit number (abcdefgh) => Year abcd, month ef, day gh
+     * 14-digit number (abcdefghijklmn) => Year abcd, month ef, day gh, hour ij, minute kl, second mn
+     */
     protected String getDateTimeString(long value) {
         int year = 0;
         int month = 0;
@@ -103,7 +112,7 @@ public abstract class NumericLiteral extends Literal implements ComparableLitera
         int hour = 0;
         int minute = 0;
         int second = 0;
-        switch (digits(value)) {
+        switch ((int) (Math.floor(Math.log10(value)) + 1)) {
             case 3:
             case 4: {
                 year = 2000;
@@ -138,18 +147,9 @@ public abstract class NumericLiteral extends Literal implements ComparableLitera
                 second = (int) (value % 100);
                 break;
             default:
-                throw new CastException("Unexpected value: " + digits(value));
+                throw new CastException("Unexpected value: " + (int) (Math.floor(Math.log10(value)) + 1));
         }
         return String.format("%d-%d-%d %d:%d:%d", year, month, day, hour, minute, second);
-    }
-
-    protected int digits(long value) {
-        int digits = 0;
-        do {
-            digits++;
-            value /= 10;
-        } while (value != 0);
-        return digits;
     }
 
     protected Expression getDateLikeLiteral(String s, DataType targetType) {

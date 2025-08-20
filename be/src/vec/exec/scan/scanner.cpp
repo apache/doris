@@ -38,11 +38,12 @@ Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
           _limit(limit),
           _profile(profile),
           _output_tuple_desc(_local_state->output_tuple_desc()),
-          _output_row_descriptor(_local_state->_parent->output_row_descriptor()) {
+          _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
+          _has_prepared(false) {
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
-Status Scanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     if (!conjuncts.empty()) {
         _conjuncts.resize(conjuncts.size());
         for (size_t i = 0; i != conjuncts.size(); ++i) {

@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -357,82 +355,6 @@ public class LoadManager implements Writable {
                         "Cancel load job [" + loadJob.getId() + "] fail, " + "label=[" + loadJob.getLabel()
                                 +
                                 "] failed msg=" + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Match need cancel loadJob by stmt.
-     **/
-    @VisibleForTesting
-    public static void addNeedCancelLoadJob(CancelLoadStmt stmt, List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
-            throws AnalysisException {
-        String label = stmt.getLabel();
-        String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
-                CaseSensibility.LABEL.getCaseSensibility());
-        matchLoadJobs.addAll(
-                loadJobs.stream()
-                .filter(job -> job.getState() != JobState.CANCELLED)
-                .filter(job -> {
-                    if (stmt.getOperator() != null) {
-                        // compound
-                        boolean labelFilter =
-                                label.contains("%") ? matcher.match(job.getLabel())
-                                : job.getLabel().equalsIgnoreCase(label);
-                        boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
-                        return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
-                            labelFilter || stateFilter;
-                    }
-                    if (StringUtils.isNotEmpty(label)) {
-                        return label.contains("%") ? matcher.match(job.getLabel())
-                            : job.getLabel().equalsIgnoreCase(label);
-                    }
-                    if (StringUtils.isNotEmpty(state)) {
-                        return job.getState().name().equalsIgnoreCase(state);
-                    }
-                    return false;
-                }).collect(Collectors.toList())
-        );
-    }
-
-    /**
-     * Cancel load job by stmt.
-     **/
-    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
-        // List of load jobs waiting to be cancelled
-        List<LoadJob> unfinishedLoadJob;
-        readLock();
-        try {
-            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
-            if (labelToLoadJobs == null) {
-                throw new DdlException("Load job does not exist");
-            }
-            List<LoadJob> matchLoadJobs = Lists.newArrayList();
-            addNeedCancelLoadJob(stmt,
-                    labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()),
-                    matchLoadJobs);
-            if (matchLoadJobs.isEmpty()) {
-                throw new DdlException("Load job does not exist");
-            }
-            // check state here
-            unfinishedLoadJob =
-                matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
-            if (unfinishedLoadJob.isEmpty()) {
-                throw new DdlException("There is no uncompleted job");
-            }
-        } finally {
-            readUnlock();
-        }
-        for (LoadJob loadJob : unfinishedLoadJob) {
-            try {
-                loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
-            } catch (DdlException e) {
-                throw new DdlException(
-                    "Cancel load job [" + loadJob.getId() + "] fail, " + "label=[" + loadJob.getLabel()
-                        +
-                        "] failed msg=" + e.getMessage());
             }
         }
     }

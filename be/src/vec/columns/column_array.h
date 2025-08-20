@@ -47,7 +47,7 @@ class SipHash;
             ColumnDecimal128V2, ColumnDecimal256
 #define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
-#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
+#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString, ColumnIPv4, ColumnIPv6
 
 namespace doris::vectorized {
 
@@ -164,7 +164,6 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
-    ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;

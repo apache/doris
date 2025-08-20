@@ -48,12 +48,17 @@ public class CreateStruct extends ScalarFunction
         super("struct", varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CreateStruct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public CreateStruct withChildren(List<Expression> children) {
-        return new CreateStruct(children.toArray(new Expression[0]));
+        return new CreateStruct(getFunctionParams(children));
     }
 
     @Override

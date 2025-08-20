@@ -305,7 +305,7 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
-            scoped_refptr<Thread> path_gc_thread;
+            std::shared_ptr<Thread> path_gc_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
                     [this, data_dir]() { this->_path_gc_thread_callback(data_dir); },
@@ -386,9 +386,10 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        curr_interval = uint32_t(max_interval * ratio);
-        curr_interval = std::max(curr_interval, min_interval);
-        curr_interval = std::min(curr_interval, max_interval);
+        // TODO(dx): fix it
+        auto curr_interval_not_work = uint32_t(max_interval * ratio);
+        curr_interval_not_work = std::max(curr_interval_not_work, min_interval);
+        curr_interval_not_work = std::min(curr_interval_not_work, max_interval);
 
         // start clean trash and update usage.
         Status res = start_trash_sweep(&usage);
@@ -401,8 +402,6 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
                          << "see previous message for detail. err code=" << res;
             // do nothing. continue next loop.
         }
-        LOG(INFO) << "trash thread check usage=" << usage << " ratio=" << ratio
-                  << " curr_interval=" << curr_interval;
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval)));
 }
 

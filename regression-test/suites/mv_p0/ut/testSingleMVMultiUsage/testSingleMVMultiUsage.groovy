@@ -38,7 +38,7 @@ suite ("testSingleMVMultiUsage") {
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view emps_mv as select deptno, empid, salary from emps order by deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, empid as a2, salary as a3 from emps order by deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""

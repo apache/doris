@@ -19,13 +19,10 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "jni.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
-#include "vec/columns/column.h"
-#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/exec/jni_connector.h"
 
@@ -95,7 +92,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
                                       size_t num_rows) const {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    JniContext* jni_ctx = reinterpret_cast<JniContext*>(
+    auto* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     SCOPED_TIMER(context->get_udf_execute_timer());
     std::unique_ptr<long[]> input_table;
@@ -117,9 +114,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
     RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
     long output_address = env->CallLongMethod(jni_ctx->executor, jni_ctx->executor_evaluate_id,
                                               input_map, output_map);
-    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(input_map);
-    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(output_map);
     RETURN_ERROR_IF_EXC(env);
     return JniConnector::fill_block(&block, {result}, output_address);
@@ -127,7 +122,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
 
 Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
-    JniContext* jni_ctx = reinterpret_cast<JniContext*>(
+    auto* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     // JNIContext own some resource and its release method depend on JavaFunctionCall
     // has to release the resource before JavaFunctionCall is deconstructed.

@@ -35,12 +35,15 @@ public class MTMVUtilTest {
         LiteralExpr expr = new DateLiteral("2020-01-01");
         long exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
         Assert.assertEquals(1577808000L, exprTimeSec);
+
         expr = new StringLiteral("2020-01-01");
         exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.of("%Y-%m-%d"));
         Assert.assertEquals(1577808000L, exprTimeSec);
+
         expr = new IntLiteral(20200101);
         exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.of("%Y%m%d"));
         Assert.assertEquals(1577808000L, exprTimeSec);
+
         expr = new DateLiteral(Type.DATE, true);
         exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
         Assert.assertEquals(253402185600L, exprTimeSec);

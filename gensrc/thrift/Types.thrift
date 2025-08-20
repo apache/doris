@@ -76,7 +76,7 @@ enum TPrimitiveType {
   VARCHAR = 15,
   HLL = 16,
   DECIMALV2 = 17,
-  TIME = 18,
+  // TIME = 18, deprecated, use TIMEV2 instead
   BITMAP = 19,
   ARRAY = 20,
   MAP = 21,
@@ -463,6 +463,7 @@ struct TJdbcExecutorCtorParams {
   15: optional bool connection_pool_keep_alive
   16: optional i64 catalog_id
   17: optional string jdbc_driver_checksum
+  18: optional bool is_tvf
 }
 
 struct TJavaUdfExecutorCtorParams {

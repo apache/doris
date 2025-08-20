@@ -25,7 +25,7 @@ suite ("test_insert_multi") {
              create table sales_records(record_id int, seller_id int, store_id int, sale_date date, sale_amt bigint) distributed by hash(record_id) properties("replication_num" = "1");
         """
 
-    createMV ("create materialized view store_amt as select store_id, sum(sale_amt) from sales_records group by store_id;")
+    createMV ("create materialized view store_amt as select store_id as a1, sum(sale_amt) from sales_records group by store_id;")
 
     sql """insert into sales_records
     values

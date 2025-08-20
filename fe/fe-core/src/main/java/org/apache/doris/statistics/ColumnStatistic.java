@@ -48,6 +48,8 @@ public class ColumnStatistic {
     public static final StatsType NUM_NULLS = StatsType.NUM_NULLS;
     public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
     public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
+    // TODO: remove this when hotValues.second becomes ratio
+    public static final float ONE_HUNDRED = 100.0f;
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
@@ -56,10 +58,9 @@ public class ColumnStatistic {
             .setIsUnknown(true).setUpdatedTime("")
             .build();
 
-    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(
-            Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT, Type.MAP, Type.QUANTILE_STATE, Type.JSONB,
-            Type.VARIANT, Type.TIME, Type.TIMEV2, Type.LAMBDA_FUNCTION
-    );
+    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT,
+            Type.MAP, Type.QUANTILE_STATE, Type.JSONB, Type.VARIANT, Type.TIMEV2, Type.LAMBDA_FUNCTION);
+
 
     // ATTENTION: Stats deriving WILL NOT use 'count' field any longer.
     // Use 'rowCount' field in Statistics if needed.
@@ -96,6 +97,11 @@ public class ColumnStatistic {
     @SerializedName("updatedTime")
     public final String updatedTime;
 
+    /**
+     * hotValues == null means no hot values.
+     * hotValues.isEmpty() means there are hotValues, but the values are unknown. for example, Column A has hot values,
+     * func(A) has hot values, but the values are unknown.
+     */
     @SerializedName("hotValues")
     public final Map<Literal, Float> hotValues;
 
@@ -425,6 +431,9 @@ public class ColumnStatistic {
         return sb.toString();
     }
 
+    /**
+     * return null if there is no hot value
+     */
     public Map<Literal, Float> getHotValues() {
         return hotValues;
     }

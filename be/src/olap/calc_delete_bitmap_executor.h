@@ -58,7 +58,7 @@ public:
                   std::function<void(segment_v2::SegmentSharedPtr, Status)> callback);
 
     // calculate delete bitmap between `segments`
-    Status submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+    Status submit(BaseTabletSPtr tablet, TabletSchemaSPtr schema, RowsetId rowset_id,
                   const std::vector<segment_v2::SegmentSharedPtr>& segments,
                   DeleteBitmapPtr delete_bitmap);
 

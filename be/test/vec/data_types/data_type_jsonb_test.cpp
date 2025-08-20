@@ -43,7 +43,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -301,7 +300,7 @@ TEST_F(DataTypeJsonbTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count - 1; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));
             }
@@ -311,7 +310,7 @@ TEST_F(DataTypeJsonbTest, to_string) {
             // now default Jsonb value is empty. use from_string will throw:[INVALID_ARGUMENT]json parse error: Empty document for value
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 if (i == row_count - 1) {
                     continue;
                 } else {
@@ -330,7 +329,7 @@ TEST_F(DataTypeJsonbTest, to_string) {
             ColumnType col_from_str;
             for (size_t i = 0; i != row_count - 1; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_data_at(i), source_column.get_data_at(i));

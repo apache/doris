@@ -2172,7 +2172,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             env.getEditLog().logRestoreJob(this);
 
             // Only send release snapshot tasks after the job is finished.
-            releaseSnapshots(savedSnapshotInfos);
+            releaseSnapshots(savedSnapshotInfos, true);
         }
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
@@ -2240,7 +2240,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void releaseSnapshots(com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos) {
+    private void releaseSnapshots(com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos,
+                                  boolean isJobCompleted) {
         if (snapshotInfos.isEmpty()) {
             return;
         }
@@ -2249,7 +2250,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
-                    info.getTabletId(), info.getPath());
+                    info.getTabletId(), info.getPath(), isJobCompleted);
             batchTask.addTask(releaseTask);
         }
         AgentTaskExecutor.submit(batchTask);
@@ -2392,7 +2393,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             // Send release snapshot tasks after log restore job, so that the snapshot won't be released
             // before the cancelled restore job is persisted.
-            releaseSnapshots(savedSnapshotInfos);
+            releaseSnapshots(savedSnapshotInfos, false);
             return;
         }
 

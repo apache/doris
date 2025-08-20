@@ -25,6 +25,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -50,12 +51,7 @@ struct AggregateFunctionAvgWeightedData {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        if constexpr (is_decimal(T)) {
-            DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
-            data_sum = data_sum + (double(value) * weight_val);
-        } else {
-            data_sum = data_sum + (double(data_val) * weight_val);
-        }
+        data_sum = data_sum + (double(data_val) * weight_val);
         weight_sum = weight_sum + weight_val;
     }
 
@@ -91,7 +87,9 @@ struct AggregateFunctionAvgWeightedData {
 template <PrimitiveType type>
 class AggregateFunctionAvgWeight final
         : public IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<type>,
-                                              AggregateFunctionAvgWeight<type>> {
+                                              AggregateFunctionAvgWeight<type>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     using T = typename PrimitiveTypeTraits<type>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<type>::ColumnType;

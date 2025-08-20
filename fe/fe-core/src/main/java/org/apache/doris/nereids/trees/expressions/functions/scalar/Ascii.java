@@ -50,13 +50,18 @@ public class Ascii extends ScalarFunction
         super("ascii", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ascii(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Ascii withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Ascii(children.get(0));
+        return new Ascii(getFunctionParams(children));
     }
 
     @Override

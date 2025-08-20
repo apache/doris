@@ -247,6 +247,10 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
 
+    public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
+
+    public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property
@@ -1829,5 +1833,39 @@ public class PropertyAnalyzer {
                     Boolean.toString(Config.enable_skip_bitmap_column_by_default));
         }
         return properties;
+    }
+
+    public static int analyzeVariantMaxSubcolumnsCount(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSubcoumnsCount = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+            String maxSubcoumnsCountStr = properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+            try {
+                maxSubcoumnsCount = Integer.parseInt(maxSubcoumnsCountStr);
+                if (maxSubcoumnsCount < 0 || maxSubcoumnsCount > 100000) {
+                    throw new AnalysisException("varaint max counts count must between 0 and 100000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("varaint max counts count format error");
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+        }
+        return maxSubcoumnsCount;
+    }
+
+    public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
+                        boolean defaultValue) throws AnalysisException {
+        boolean enableTypedPathsToSparse = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
+            String enableTypedPathsToSparseStr = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+            try {
+                enableTypedPathsToSparse = Boolean.parseBoolean(enableTypedPathsToSparseStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+        }
+        return enableTypedPathsToSparse;
     }
 }

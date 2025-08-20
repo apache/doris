@@ -23,6 +23,7 @@ import org.apache.doris.common.jni.vec.ColumnValue;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
+import com.google.common.base.Preconditions;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
@@ -34,6 +35,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -47,16 +50,21 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
     private final ClassLoader classLoader;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
-    private final FileScanTask scanTask;
+    private final Iterator<FileScanTask> scanTasks;
     private final List<NestedField> fields;
     private final String timezone;
     private CloseableIterator<StructLike> reader;
 
     public IcebergSysTableJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
-        this.scanTask = SerializationUtil.deserializeFromBase64(params.get("serialized_task"));
+        List<FileScanTask> scanTasks = Arrays.stream(params.get("serialized_splits").split(","))
+                .map(SerializationUtil::deserializeFromBase64)
+                .map(obj -> (FileScanTask) obj)
+                .collect(Collectors.toList());
+        Preconditions.checkState(!scanTasks.isEmpty(), "scanTasks shoudle not be empty");
+        this.scanTasks = scanTasks.iterator();
         String[] requiredFields = params.get("required_fields").split(",");
-        this.fields = selectSchema(scanTask.schema().asStruct(), requiredFields);
+        this.fields = selectSchema(scanTasks.get(0).schema().asStruct(), requiredFields);
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         Map<String, String> hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
@@ -69,8 +77,14 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     @Override
     public void open() throws IOException {
+        Thread.currentThread().setContextClassLoader(classLoader);
+        nextScanTask();
+    }
+
+    private void nextScanTask() throws IOException {
+        Preconditions.checkArgument(scanTasks.hasNext());
+        FileScanTask scanTask = scanTasks.next();
         try {
-            Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
                 // execute FileScanTask to get rows
                 reader = scanTask.asDataTask().rows().iterator();
@@ -78,7 +92,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
             });
         } catch (Exception e) {
             this.close();
-            String msg = String.format("Failed to open IcebergMetadataJniScanner");
+            String msg = String.format("Failed to open next scan task: %s", scanTask);
             LOG.error(msg, e);
             throw new IOException(msg, e);
         }
@@ -86,11 +100,11 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     @Override
     protected int getNext() throws IOException {
-        if (reader == null) {
-            return 0;
-        }
         int rows = 0;
-        while (reader.hasNext() && rows < getBatchSize()) {
+        while ((reader.hasNext() || scanTasks.hasNext()) && rows < getBatchSize()) {
+            if (!reader.hasNext()) {
+                nextScanTask();
+            }
             StructLike row = reader.next();
             for (int i = 0; i < fields.size(); i++) {
                 NestedField field = fields.get(i);

@@ -67,9 +67,13 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_emp
 }
 
 ColumnPtr ColumnConst::convert_to_full_column() const {
-    // Assuming the number of replicate rows will not exceed Offset(UInt32),
-    // currently Column::replicate only supports Uint32 Offsets
-    return data->replicate(Offsets(1, cast_set<Offset>(s)));
+    // clone_resized(0) will make ColumnVariant loss type information
+    // so we use clone_resized(1) as possible workaround
+    auto result = data->clone_resized(std::min(1UL, s));
+    if (s > 1) {
+        result->insert_many_from(*data, 0, s - 1);
+    }
+    return result;
 }
 
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {
@@ -84,13 +88,6 @@ size_t ColumnConst::filter(const Filter& filter) {
     const auto result_size = count_bytes_in_filter(filter);
     resize(result_size);
     return result_size;
-}
-
-ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
-    column_match_offsets_size(s, offsets.size());
-
-    size_t replicated_size = 0 == s ? 0 : offsets.back();
-    return ColumnConst::create(data, replicated_size);
 }
 
 MutableColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {

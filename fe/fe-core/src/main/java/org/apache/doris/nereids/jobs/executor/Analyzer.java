@@ -56,6 +56,7 @@ import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -88,6 +89,28 @@ public class Analyzer extends AbstractBatchJobExecutor {
      */
     public void analyze() {
         execute();
+    }
+
+    @Override
+    public void execute() {
+        MoreFieldsThread.keepFunctionSignature(false, () -> {
+            super.execute();
+            return null;
+        });
+    }
+
+    /** buildCustomAnalyzer */
+    public static Analyzer buildCustomAnalyzer(CascadesContext cascadesContext, List<RewriteJob> customJobs) {
+        List<RewriteJob> wrappedJobs = notTraverseChildrenOf(
+                ImmutableSet.of(LogicalView.class, LogicalCTEAnchor.class),
+                () -> customJobs
+        );
+        return new Analyzer(cascadesContext) {
+            @Override
+            public List<RewriteJob> getJobs() {
+                return wrappedJobs;
+            }
+        };
     }
 
     private static List<RewriteJob> buildAnalyzeJobs() {

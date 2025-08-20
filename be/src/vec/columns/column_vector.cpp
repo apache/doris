@@ -431,31 +431,6 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
-    size_t size = data.size();
-    column_match_offsets_size(size, offsets.size());
-
-    auto res = this->create();
-    if (0 == size) return res;
-
-    typename Self::Container& res_data = res->get_data();
-    res_data.reserve(offsets.back());
-
-    // vectorized this code to speed up
-    auto counts_uptr = std::unique_ptr<IColumn::Offset[]>(new IColumn::Offset[size]);
-    IColumn::Offset* counts = counts_uptr.get();
-    for (ssize_t i = 0; i < size; ++i) {
-        counts[i] = offsets[i] - offsets[i - 1];
-    }
-
-    for (size_t i = 0; i < size; ++i) {
-        res_data.resize_fill(res_data.size() + counts[i], data[i]);
-    }
-
-    return res;
-}
-
-template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
     size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);

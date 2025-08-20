@@ -99,6 +99,115 @@ public:
         write(s.data, s.size);
     }
 
+    void write_char(char x) { write(x); }
+
+    // Writes a C-string without creating a temporary object. If the string is a literal, then `strlen` is executed at the compilation stage.
+    // Use when the string is a literal.
+    void write_c_string(const char* s) { write(s, strlen(s)); }
+
+    /**
+     * @brief Write a string in JSON format, escaping special characters.
+     *
+     * This function takes a string (as a char pointer and size) and writes it to the buffer
+     * as a JSON string literal. This involves:
+     *   1. Enclosing the string in double quotes ("...").
+     *   2. Escaping control characters (e.g., \n, \t, \b).
+     *   3. Escaping JSON-specific characters like backslash (\\) and double-quote (").
+     *   4. Escaping ASCII control characters (0x00-0x1F) using `\uXXXX` notation.
+     *   5. Escaping Unicode line separators U+2028 and U+2029 for JavaScript compatibility.
+     *
+     * @param s A pointer to the character data of the string.
+     * @param size The number of bytes in the string.
+     *
+     * @example
+     *   // String to be written:
+     *   // Hello, "world"!
+     *   // (with a newline at the end)
+     *   const char* my_str = "Hello, \"world\"!\n";
+     *   size_t my_size = 16;
+     *
+     *   // The function will write the following to the buffer:
+     *   // "Hello, \"world\"!\\n"
+     */
+    void write_json_string(const char* s, size_t size) {
+        write_char('"');
+        const char* begin = s;
+        const char* end = s + size;
+        for (const char* it = begin; it != end; ++it) {
+            switch (*it) {
+            case '\b':
+                write_char('\\');
+                write_char('b');
+                break;
+            case '\f':
+                write_char('\\');
+                write_char('f');
+                break;
+            case '\n':
+                write_char('\\');
+                write_char('n');
+                break;
+            case '\r':
+                write_char('\\');
+                write_char('r');
+                break;
+            case '\t':
+                write_char('\\');
+                write_char('t');
+                break;
+            case '\\':
+                write_char('\\');
+                write_char('\\');
+                break;
+            case '/':
+                write_char('/');
+                break;
+            case '"':
+                write_char('\\');
+                write_char('"');
+                break;
+            default:
+                UInt8 c = *it;
+                if (c <= 0x1F) {
+                    /// Escaping of ASCII control characters.
+
+                    UInt8 higher_half = c >> 4;
+                    UInt8 lower_half = c & 0xF;
+
+                    write_c_string("\\u00");
+                    write_char('0' + higher_half);
+
+                    if (lower_half <= 9) {
+                        write_char('0' + lower_half);
+                    } else {
+                        write_char('A' + lower_half - 10);
+                    }
+                } else if (end - it >= 3 && it[0] == '\xE2' && it[1] == '\x80' &&
+                           (it[2] == '\xA8' || it[2] == '\xA9')) {
+                    /// This is for compatibility with JavaScript, because unescaped line separators are prohibited in string literals,
+                    ///  and these code points are alternative line separators.
+
+                    if (it[2] == '\xA8') {
+                        write_c_string("\\u2028");
+                    }
+                    if (it[2] == '\xA9') {
+                        write_c_string("\\u2029");
+                    }
+
+                    /// Byte sequence is 3 bytes long. We have additional two bytes to skip.
+                    it += 2;
+                } else {
+                    write_char(*it);
+                }
+            }
+        }
+        write_char('"');
+    }
+
+    void write_json_string(const StringRef& s) { write_json_string(s.data, s.size); }
+    void write_json_string(const std::string& s) { write_json_string(s.data(), s.size()); }
+    void write_json_string(std::string_view s) { write_json_string(s.data(), s.size()); }
+
 private:
     ColumnString::Chars& _data;
     ColumnString::Offsets& _offsets;
@@ -182,22 +291,21 @@ public:
         s = read(size);
     }
 
+    ///TODO: Currently this function is only called in one place, we might need to convert all read_binary(StringRef) to this style? Or directly use read_binary(String)
+    StringRef read_binary_into(Arena& arena) {
+        UInt64 size = 0;
+        read_var_uint(size);
+
+        char* data = arena.alloc(size);
+        read(data, size);
+
+        return {data, size};
+    }
+
 private:
     const char* _data;
 };
 
 using VectorBufferReader = BufferReadable;
 using BufferReader = BufferReadable;
-
-///TODO: Currently this function is only called in one place, we might need to convert all read_binary(StringRef) to this style? Or directly use read_binary(String)
-inline StringRef read_binary_into(Arena& arena, BufferReadable& buf) {
-    UInt64 size = 0;
-    buf.read_var_uint(size);
-
-    char* data = arena.alloc(size);
-    buf.read(data, size);
-
-    return {data, size};
-}
-
 } // namespace doris::vectorized

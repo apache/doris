@@ -20,8 +20,11 @@
 #include <CLucene.h> // IWYU pragma: keep
 
 #include <memory>
+#include <string>
 
 #include "CLucene/index/Terms.h"
+#include "common/be_mock_util.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 
 CL_NS_USE(index)
 
@@ -47,48 +50,63 @@ public:
     using TermDocsPtr = std::unique_ptr<TermDocs, CLuceneDeleter>;
 
     TermIterator() = default;
-    TermIterator(TermDocsPtr term_docs) : term_docs_(std::move(term_docs)) {}
+    TermIterator(std::wstring term, TermDocsPtr term_docs)
+            : term_(std::move(term)), term_docs_(std::move(term_docs)) {}
     virtual ~TermIterator() = default;
 
-    int32_t doc_id() const {
+    MOCK_FUNCTION const std::wstring& term() const { return term_; }
+
+    MOCK_FUNCTION int32_t doc_id() const {
         int32_t docId = term_docs_->doc();
         return docId >= INT_MAX ? INT_MAX : docId;
     }
 
-    int32_t freq() const { return term_docs_->freq(); }
+    MOCK_FUNCTION int32_t freq() const { return term_docs_->freq(); }
 
-    int32_t next_doc() const {
+    MOCK_FUNCTION int32_t norm() const { return term_docs_->norm(); }
+
+    MOCK_FUNCTION int32_t next_doc() const {
         if (term_docs_->next()) {
             return term_docs_->doc();
         }
         return INT_MAX;
     }
 
-    int32_t advance(int32_t target) const {
+    MOCK_FUNCTION int32_t advance(int32_t target) const {
         if (term_docs_->skipTo(target)) {
             return term_docs_->doc();
         }
         return INT_MAX;
     }
 
-    int32_t doc_freq() const { return term_docs_->docFreq(); }
+    MOCK_FUNCTION int32_t doc_freq() const { return term_docs_->docFreq(); }
 
-    bool read_range(DocRange* docRange) const { return term_docs_->readRange(docRange); }
-
-    static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
-                              const std::wstring& field_name, const std::string& term) {
-        return create(io_ctx, reader, field_name, StringUtil::string_to_wstring(term));
+    MOCK_FUNCTION bool read_range(DocRange* docRange) const {
+        return term_docs_->readRange(docRange);
     }
 
-    static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
-                              const std::wstring& field_name, const std::wstring& ws_term) {
-        auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termDocs(t, false, io_ctx);
-        _CLDECDELETE(t);
-        return std::make_shared<TermIterator>(TermDocsPtr(term_pos, CLuceneDeleter {}));
+    static TermIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
+                              lucene::index::IndexReader* reader, const std::wstring& field_name,
+                              const std::string& term) {
+        return create(io_ctx, is_similarity, reader, field_name,
+                      StringUtil::string_to_wstring(term));
+    }
+
+    static TermIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
+                              lucene::index::IndexReader* reader, const std::wstring& field_name,
+                              const std::wstring& ws_term) {
+        auto t = make_term(field_name, ws_term);
+        auto* term_pos = reader->termDocs(t.get(), is_similarity, io_ctx);
+        return std::make_shared<TermIterator>(ws_term, TermDocsPtr(term_pos, CLuceneDeleter {}));
     }
 
 protected:
+    static TermPtr make_term(const std::wstring& field_name, const std::wstring& ws_term) {
+        return TermPtr(new lucene::index::Term(field_name.c_str(), ws_term.c_str()),
+                       TermDeleter {});
+    }
+
+    std::wstring term_;
     TermDocsPtr term_docs_;
 };
 

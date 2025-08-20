@@ -64,10 +64,15 @@ public class WeeksSub extends ScalarFunction
         super("weeks_sub", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private WeeksSub(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public WeeksSub withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new WeeksSub(children.get(0), children.get(1));
+        return new WeeksSub(getFunctionParams(children));
     }
 
     @Override

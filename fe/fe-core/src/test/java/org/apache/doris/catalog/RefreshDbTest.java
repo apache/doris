@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
@@ -31,8 +29,11 @@ import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
@@ -56,22 +57,30 @@ public class RefreshDbTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
+
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt("create catalog test1 properties(\n"
+        String createStmt = "create catalog test1 properties(\n"
                 + "    \"type\" = \"test\",\n"
                 + "    \"catalog_provider.class\" "
                 + "= \"org.apache.doris.catalog.RefreshTableTest$RefreshTableProvider\"\n"
-                + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                + ");";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Override
     protected void runAfterAll() throws Exception {
         super.runAfterAll();
         rootCtx.setThreadLocalInfo();
-        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
-        env.getCatalogMgr().dropCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop catalog test1");
+        if (logicalPlan instanceof DropCatalogCommand) {
+            ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Test
@@ -133,9 +142,11 @@ public class RefreshDbTest extends TestWithFeService {
         UserIdentity user1 = new UserIdentity("user1", "%");
         user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
+        RefreshDatabaseCommand command = (RefreshDatabaseCommand) parseStmt(
+                "refresh database test1.db1", user1Ctx);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "Access denied",
-                () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
+                () -> command.run(rootCtx, stmtExecutor));
         ConnectContext.remove();
 
         // add drop priv to user1
@@ -149,8 +160,10 @@ public class RefreshDbTest extends TestWithFeService {
 
         // user1 can do refresh table
         user1Ctx.setThreadLocalInfo();
+        RefreshDatabaseCommand command2 = (RefreshDatabaseCommand) parseStmt(
+                "refresh database test1.db1", user1Ctx);
         ExceptionChecker.expectThrowsNoException(
-                () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
+                () -> command2.run(rootCtx, stmtExecutor));
     }
 
     public static class RefreshTableProvider implements TestExternalCatalog.TestCatalogProvider {

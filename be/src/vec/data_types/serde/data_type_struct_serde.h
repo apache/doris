@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris {
 class PValues;
@@ -36,78 +35,6 @@ class Arena;
 
 class DataTypeStructSerDe : public DataTypeSerDe {
 public:
-    static bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name,
-                                      bool& has_quota) {
-        StringRef element(rb.position(), 0);
-        has_quota = false;
-        is_name = false;
-        if (rb.eof()) {
-            return false;
-        }
-
-        // ltrim
-        while (!rb.eof() && isspace(*rb.position())) {
-            ++rb.position();
-            element.data = rb.position();
-        }
-
-        // parse string
-        if (*rb.position() == '"' || *rb.position() == '\'') {
-            const char str_sep = *rb.position();
-            size_t str_len = 1;
-            // search until next '"' or '\''
-            while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
-                if (*(rb.position() + str_len) == '\\' && str_len + 1 < rb.count()) {
-                    ++str_len;
-                }
-                ++str_len;
-            }
-            // invalid string
-            if (str_len >= rb.count()) {
-                rb.position() = rb.end();
-                return false;
-            }
-            has_quota = true;
-            rb.position() += str_len + 1;
-            element.size += str_len + 1;
-        }
-
-        // parse element until separator ':' or ',' or end '}'
-        while (!rb.eof() && (*rb.position() != ':') && (*rb.position() != ',') &&
-               (rb.count() != 1 || *rb.position() != '}')) {
-            if (has_quota && !isspace(*rb.position())) {
-                return false;
-            }
-            ++rb.position();
-            ++element.size;
-        }
-        // invalid element
-        if (rb.eof()) {
-            return false;
-        }
-
-        if (*rb.position() == ':') {
-            is_name = true;
-        }
-
-        // adjust read buffer position to first char of next element
-        ++rb.position();
-
-        // rtrim
-        while (element.size > 0 && isspace(element.data[element.size - 1])) {
-            --element.size;
-        }
-
-        // trim '"' and '\'' for string
-        if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-            element.data[0] == element.data[element.size - 1]) {
-            ++element.data;
-            element.size -= 2;
-        }
-        output = element;
-        return true;
-    }
-
     DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elem_serdes_ptrs, const Strings names,
                         int nesting_level = 1)
             : DataTypeSerDe(nesting_level),
@@ -115,6 +42,12 @@ public:
               elem_names(names) {}
 
     std::string get_name() const override;
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
@@ -168,6 +101,9 @@ public:
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                      JsonbWriter& writer) const override;
 
+    Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
+                                         CastParameters& castParms) const override;
+
     void set_return_object_as_string(bool value) override {
         DataTypeSerDe::set_return_object_as_string(value);
         for (auto& serde : elem_serdes_ptrs) {
@@ -187,6 +123,9 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
+
+    template <bool is_strict_mode>
+    Status _from_string(StringRef& str, IColumn& column, const FormatOptions& options) const;
 
     DataTypeSerDeSPtrs elem_serdes_ptrs;
     Strings elem_names;

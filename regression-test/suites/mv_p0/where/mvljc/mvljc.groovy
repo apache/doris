@@ -36,7 +36,7 @@ suite ("mvljc") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("""CREATE MATERIALIZED VIEW mvljc AS SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1;""")
+    createMV ("""CREATE MATERIALIZED VIEW mvljc AS SELECT k1 as a1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1;""")
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"

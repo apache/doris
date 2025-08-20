@@ -18,12 +18,7 @@
 #pragma once
 
 #include <cmath>
-#include <cstdint>
-#include <string>
-#include <type_traits>
 
-#include "common/exception.h"
-#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -33,7 +28,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

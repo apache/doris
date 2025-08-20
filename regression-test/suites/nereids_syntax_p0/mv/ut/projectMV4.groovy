@@ -39,7 +39,7 @@ suite ("projectMV4") {
 
     def result = "null"
 
-    createMV("create materialized view projectMV4_mv as select name, deptno, salary from projectMV4;")
+    createMV("create materialized view projectMV4_mv as select name as a1, deptno as a2, salary as a3 from projectMV4;")
 
     sleep(3000)
 

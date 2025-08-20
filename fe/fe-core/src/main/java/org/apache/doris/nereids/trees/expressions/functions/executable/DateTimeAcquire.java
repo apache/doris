@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -105,7 +106,7 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp() {
-        return new IntegerLiteral((int) (System.currentTimeMillis() / 1000L));
+        return new BigIntLiteral((int) (System.currentTimeMillis() / 1000L));
     }
 
     /**

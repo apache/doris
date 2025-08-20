@@ -59,18 +59,18 @@ public class RoundBankers extends ScalarFunction
         super("round_bankers", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private RoundBankers(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public RoundBankers withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1
-                || children.size() == 2);
-        if (children.size() == 1) {
-            return new RoundBankers(children.get(0));
-        } else {
-            return new RoundBankers(children.get(0), children.get(1));
-        }
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new RoundBankers(getFunctionParams(children));
     }
 
     @Override

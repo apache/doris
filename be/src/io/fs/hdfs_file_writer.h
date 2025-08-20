@@ -52,10 +52,6 @@ public:
 
     Status close(bool non_block = false) override;
 
-    FileCacheAllocatorBuilder* cache_builder() const override {
-        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
-    }
-
 private:
     Status _close_impl();
     // Flush buffered data into HDFS client and write local file cache if enabled
@@ -73,8 +69,6 @@ private:
     std::string _fs_name;
     size_t _bytes_appended = 0;
     bool _sync_file_data;
-    std::unique_ptr<FileCacheAllocatorBuilder>
-            _cache_builder; // nullptr if disable write file cache
     class BatchBuffer {
     public:
         BatchBuffer(size_t capacity);

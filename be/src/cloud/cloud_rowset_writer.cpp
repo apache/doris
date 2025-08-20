@@ -100,10 +100,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         _rowset_meta->set_rowset_state(COMMITTED);
     }
 
-    // update rowset meta tablet schema if tablet schema updated
-    auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
-                                                                  : _context.tablet_schema;
-    _rowset_meta->set_tablet_schema(rowset_schema);
+    _rowset_meta->set_tablet_schema(_context.tablet_schema);
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
@@ -115,7 +112,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     } else {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
-    if (rowset_schema->has_inverted_index()) {
+    if (_context.tablet_schema->has_inverted_index()) {
         if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
             !idx_files_info.has_value()) [[unlikely]] {
             LOG(ERROR) << "expected inverted index files info, but none presents: "
@@ -125,9 +122,10 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
         }
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
-                                                                _rowset_meta, &rowset),
-                                   "rowset init failed when build new rowset");
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, _rowset_meta,
+                                         &rowset),
+            "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
 }

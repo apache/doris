@@ -19,7 +19,6 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
-#include <type_traits>
 
 #include "common/exception.h"
 #include "common/status.h"
