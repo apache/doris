@@ -226,7 +226,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public long getNewestUpdateVersionOrTime() {
-        return getPaimonSnapshotCacheValue().getPartitionInfo().getNameToPartition().values().stream()
+        return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty()).getPartitionInfo().getNameToPartition()
+                .values().stream()
                 .mapToLong(Partition::lastFileCreationTime).max().orElse(0);
     }
 
@@ -242,7 +243,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
-        return new PaimonMvccSnapshot(getPaimonSnapshotCacheValue());
+        return new PaimonMvccSnapshot(getPaimonSnapshotCacheValue(tableSnapshot, scanParams));
     }
 
     @Override
@@ -303,7 +304,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         if (snapshot.isPresent()) {
             return ((PaimonMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
-            return getPaimonSnapshotCacheValue();
+            return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty());
         }
     }
 
