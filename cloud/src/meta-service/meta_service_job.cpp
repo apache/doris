@@ -1658,33 +1658,25 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         return;
     }
     if (is_versioned_write) {
-        // read old TabletLoadStatsKey -> TabletStatsPB
-        TabletStatsPB old_tablet_compact_stats;
+        // read new TabletLoadStatsKey -> TabletStatsPB
+        TabletStatsPB new_tablet_load_stats;
         MetaReader meta_reader(instance_id, txn_kv);
         Versionstamp* versionstamp = nullptr;
-        TxnErrorCode err = meta_reader.get_tablet_compact_stats(
-                txn.get(), tablet_id, &old_tablet_compact_stats, versionstamp, false);
+        TxnErrorCode err = meta_reader.get_tablet_load_stats(
+                txn.get(), new_tablet_id, &new_tablet_load_stats, versionstamp, false);
         if (err == TxnErrorCode::TXN_OK) {
-            // old_tablet_load_stats exists, update TabletStatsPB
+            // new_tablet_load_stats exists, update TabletStatsPB
             schema_change_update_tablet_stats(
-                    schema_change, &old_tablet_compact_stats, num_remove_rows, size_remove_rowsets,
+                    schema_change, &new_tablet_load_stats, num_remove_rows, size_remove_rowsets,
                     num_remove_rowsets, num_remove_segments, index_size_remove_rowsets,
                     segment_size_remove_rowsets);
         } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
             // First time switching from single write to double write mode
             // Step 1: Copy from single version stats as baseline
-            old_tablet_compact_stats.CopyFrom(*stats);
-            // Step 2: Reset size fields to zero because compact_stats + load_stats = single_stats
-            // Since data_size/index_size are inherited by load_stats, compact_stats must start from 0
-            old_tablet_compact_stats.set_num_rows(0);
-            old_tablet_compact_stats.set_data_size(0);
-            old_tablet_compact_stats.set_num_rowsets(0);
-            old_tablet_compact_stats.set_num_segments(0);
-            old_tablet_compact_stats.set_index_size(0);
-            old_tablet_compact_stats.set_segment_size(0);
-            // Step 3: Apply schema change updates
+            new_tablet_load_stats.CopyFrom(*stats);
+            // Step 2: Apply schema change updates
             schema_change_update_tablet_stats(
-                    schema_change, &old_tablet_compact_stats, num_remove_rows, size_remove_rowsets,
+                    schema_change, &new_tablet_load_stats, num_remove_rows, size_remove_rowsets,
                     num_remove_rowsets, num_remove_segments, index_size_remove_rowsets,
                     segment_size_remove_rowsets);
         } else if (err != TxnErrorCode::TXN_OK) {
@@ -1694,17 +1686,16 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             return;
         }
         // Write new TabletLoadStatsKey -> TabletStatsPB for versioned storage
-        auto new_tablet_load_stats_val = old_tablet_compact_stats.SerializeAsString();
-        std::string new_tablet_compact_stats_version_key =
-                versioned::tablet_compact_stats_key({instance_id, new_tablet_id});
+        auto new_tablet_load_stats_val = new_tablet_load_stats.SerializeAsString();
+        std::string new_tablet_load_stats_version_key =
+                versioned::tablet_load_stats_key({instance_id, new_tablet_id});
         LOG_INFO("put versioned tablet compact stats key")
-                .tag("new_tablet_compact_stats_version_key",
-                     hex(new_tablet_compact_stats_version_key))
+                .tag("new_tablet_load_stats_version_key", hex(new_tablet_load_stats_version_key))
                 .tag("tablet_id", tablet_id)
                 .tag("new_tablet_id", new_tablet_id)
                 .tag("value_size", new_tablet_load_stats_val.size())
                 .tag("instance_id", instance_id);
-        versioned_put(txn.get(), new_tablet_compact_stats_version_key, new_tablet_load_stats_val);
+        versioned_put(txn.get(), new_tablet_load_stats_version_key, new_tablet_load_stats_val);
     }
     schema_change_update_tablet_stats(schema_change, stats, num_remove_rows, size_remove_rowsets,
                                       num_remove_rowsets, num_remove_segments,

@@ -347,12 +347,12 @@ int OperationLogRecycler::recycle_schema_change_log(const SchemaChangeLogPB& sch
             return -1;
         }
         std::string recycle_key =
-                recycle_rowset_key({instance_id_, schema_change_log.old_tablet_id(),
+                recycle_rowset_key({instance_id_, schema_change_log.new_tablet_id(),
                                     recycle_rowset_pb.rowset_meta().rowset_id_v2()});
         // Put recycle rowset key to track recycled rowset metadata
         LOG_INFO("put recycle rowset key")
                 .tag("recycle_key", hex(recycle_key))
-                .tag("tablet_id", schema_change_log.old_tablet_id())
+                .tag("new_tablet_id", schema_change_log.new_tablet_id())
                 .tag("rowset_id_v2", recycle_rowset_pb.rowset_meta().rowset_id_v2())
                 .tag("start_version", recycle_rowset_pb.rowset_meta().start_version())
                 .tag("end_version", recycle_rowset_pb.rowset_meta().end_version());
