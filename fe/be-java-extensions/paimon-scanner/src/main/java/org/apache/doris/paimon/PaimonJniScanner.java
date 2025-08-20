@@ -22,9 +22,8 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
-import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
-import org.apache.doris.paimon.PaimonTableCache.TableExt;
 
+import com.google.common.base.Preconditions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
@@ -51,13 +50,7 @@ public class PaimonJniScanner extends JniScanner {
 
     private final Map<String, String> params;
     @Deprecated
-    private final Map<String, String> paimonOptionParams;
-    @Deprecated
     private final Map<String, String> hadoopOptionParams;
-    @Deprecated
-    private final String dbName;
-    @Deprecated
-    private final String tblName;
     private final String paimonSplit;
     private final String paimonPredicate;
     private Table table;
@@ -65,15 +58,6 @@ public class PaimonJniScanner extends JniScanner {
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
-
-    @Deprecated
-    private long ctlId;
-    @Deprecated
-    private long dbId;
-    @Deprecated
-    private long tblId;
-    @Deprecated
-    private long lastUpdateTime;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
@@ -92,17 +76,7 @@ public class PaimonJniScanner extends JniScanner {
         }
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
-        dbName = params.get("db_name");
-        tblName = params.get("table_name");
-        ctlId = Long.parseLong(params.get("ctl_id"));
-        dbId = Long.parseLong(params.get("db_id"));
-        tblId = Long.parseLong(params.get("tbl_id"));
-        lastUpdateTime = Long.parseLong(params.get("last_update_time"));
         initTableInfo(columnTypes, requiredFields, batchSize);
-        paimonOptionParams = params.entrySet().stream()
-                .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
-                .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(PAIMON_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
         hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
@@ -242,20 +216,8 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        if (params.containsKey("serialized_table")) {
-            table = PaimonUtils.deserialize(params.get("serialized_table"));
-        } else {
-            PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
-                    paimonOptionParams, hadoopOptionParams, dbName, tblName);
-            TableExt tableExt = PaimonTableCache.getTable(key);
-            if (tableExt.getCreateTime() < lastUpdateTime) {
-                LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
-                        lastUpdateTime);
-                PaimonTableCache.invalidateTableCache(key);
-                tableExt = PaimonTableCache.getTable(key);
-            }
-            this.table = tableExt.getTable();
-        }
+        Preconditions.checkState(params.containsKey("serialized_table"));
+        table = PaimonUtils.deserialize(params.get("serialized_table"));
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);

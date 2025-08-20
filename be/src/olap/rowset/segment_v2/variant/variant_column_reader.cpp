@@ -312,9 +312,19 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                         _statistics->sparse_column_non_null_size.size() >=
                                                 config::variant_max_sparse_column_statistics_size;
 
-    // For compaction operations, read flat leaves, otherwise read hierarchical data
-    // Since the variant subcolumns are flattened in schema_util::get_compaction_schema
-    if (opt != nullptr && is_compaction_reader_type(opt->io_ctx.reader_type)) {
+    // If the variant column has extracted columns and is a compaction reader, then read flat leaves
+    // Otherwise read hierarchical data, since the variant subcolumns are flattened in schema_util::get_compaction_schema
+    // For checksum reader, we need to read flat leaves to get the correct data if has extracted columns
+    auto need_read_flat_leaves = [](const StorageReadOptions* opts) {
+        return opts != nullptr && opts->tablet_schema != nullptr &&
+               std::ranges::any_of(
+                       opts->tablet_schema->columns(),
+                       [](const auto& column) { return column->is_extracted_column(); }) &&
+               (is_compaction_reader_type(opts->io_ctx.reader_type) ||
+                opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
+    };
+
+    if (need_read_flat_leaves(opt)) {
         // original path, compaction with wide schema
         return _new_iterator_with_flat_leaves(iterator, *target_col, opt,
                                               exceeded_sparse_column_limit,

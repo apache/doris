@@ -1673,9 +1673,8 @@ struct Prefix {
 bool ColumnObject::Subcolumn::is_empty_nested(size_t row) const {
     TypeIndex base_type_id = least_common_type.get_base_type_id();
     const DataTypePtr& type = least_common_type.get();
-    // check if it is empty nested json array, then skip
-    if (base_type_id == TypeIndex::VARIANT) {
-        DCHECK(type->equals(*ColumnObject::NESTED_TYPE));
+    if (type->get_type_id() == TypeIndex::Array) {
+        // check if it is empty nested json array, then skip
         Field field;
         get(row, field);
         field = get_field_from_variant_field(field);
@@ -1707,8 +1706,10 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
     if (root->data.is_null_at(nrow)) {
         return false;
     }
-    if (root->data.least_common_type.get_base_type_id() == TypeIndex::VARIANT) {
-        // nested field
+
+    // for top level array we should also use field to check if it is empty
+    if (root->data.least_common_type.get_type_id() == TypeIndex::Array) {
+        // nested field which field is Array
         return !root->data.is_empty_nested(nrow);
     }
     for (const auto& subcolumn : subcolumns) {

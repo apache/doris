@@ -164,7 +164,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             }
             StatementBase stmt = new LogicalPlanAdapter(executeStmt, statementContext);
             stmt.setOrigStmt(prepareCommand.getOriginalStmt());
-            executor = new StmtExecutor(ctx, stmt);
+            executor = new StmtExecutor(ctx, stmt, true);
             ctx.setExecutor(executor);
             if (null != queryId) {
                 executor.execute(queryId);

@@ -49,6 +49,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -169,7 +170,8 @@ public class LogicalHudiScan extends LogicalFileScan {
         Optional<IncrementalRelation> newIncrementalRelation = Optional.empty();
         if (optScanParams.isPresent() && optScanParams.get().incrementalRead()) {
             TableScanParams scanParams = optScanParams.get();
-            Map<String, String> optParams = table.getBackendStorageProperties();
+            // Clone the getBackendStorageProperties, because we need to modify it for the incremental read
+            Map<String, String> optParams = new HashMap<>(table.getBackendStorageProperties());
             if (scanParams.getMapParams().containsKey("beginTime")) {
                 optParams.put("hoodie.datasource.read.begin.instanttime", scanParams.getMapParams().get("beginTime"));
             }
