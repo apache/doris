@@ -218,9 +218,18 @@ Status OlapScanner::prepare() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
-            auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                 &read_source.rs_splits,
-                                                 _state->skip_missing_version());
+            Status st {};
+            if (config::is_cloud_mode() && _state->enable_query_freshness_tolerance()) {
+                st = std::static_pointer_cast<CloudTablet>(tablet)
+                             ->capture_rs_readers_with_freshness_tolerance(
+                                     _tablet_reader_params.version, &read_source.rs_splits,
+                                     _state->skip_missing_version(),
+                                     _state->query_freshness_tolerance_ms());
+            } else {
+                st = tablet->capture_rs_readers(_tablet_reader_params.version,
+                                                &read_source.rs_splits,
+                                                _state->skip_missing_version());
+            }
             if (!st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << st;
                 return st;

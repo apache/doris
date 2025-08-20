@@ -20,6 +20,7 @@
 #include <rapidjson/document.h>
 #include <stdint.h>
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -54,6 +55,21 @@ public:
     /// in the graph. The version paths are added to version_path as return info.
     Status capture_consistent_versions(const Version& spec_version,
                                        std::vector<Version>* version_path) const;
+
+    // Given a start, this method can find a version path which satisfy the following conditions:
+    // 1. all edges satisfy the conditions specified by `validator` in the graph.
+    // 2. the destination version is as far as possible.
+    // 3. the path is the shortest path.
+    // The version paths are added to version_path as return info.
+    // If this version not in main version, version_path can be included expired rowset.
+    // NOTE: this method may return edges which is in stale path
+    Status capture_consistent_versions_with_validator(
+            int64_t start, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
+    Status capture_newest_consistent_versions_with_validator(
+            int64_t start, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
 
     // See comment of TimestampedVersionTracker's get_orphan_vertex_ratio();
     double get_orphan_vertex_ratio();
@@ -167,6 +183,21 @@ public:
     /// If this version not in main version, version_path can be included expired rowset.
     Status capture_consistent_versions(const Version& spec_version,
                                        std::vector<Version>* version_path) const;
+
+    // Given a start, this method can find a version path which satisfy the following conditions:
+    // 1. all edges satisfy the conditions specified by `validator` in the graph.
+    // 2. the destination version is as far as possible.
+    // 3. the path is the shortest path.
+    // The version paths are added to version_path as return info.
+    // If this version not in main version, version_path can be included expired rowset.
+    // NOTE: this method may return edges which is in stale path
+    Status capture_consistent_versions_with_validator(
+            int64_t start, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
+    Status capture_newest_consistent_versions_with_validator(
+            int64_t start, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
 
     /// Capture all expired path version.
     /// When the last rowset create time of a path greater than expired time  which can be expressed
