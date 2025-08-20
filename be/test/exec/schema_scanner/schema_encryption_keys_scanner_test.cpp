@@ -31,8 +31,8 @@ class ScheamEncryptionKeysScannerTest : public testing::Test {
 };
 
 TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
-    SchemaEncryptionKeysScanner scnanner;
-    auto& keys = scnanner._master_keys;
+    SchemaEncryptionKeysScanner scanner;
+    auto& keys = scanner._master_keys;
     EncryptionKeyPB key;
     keys.push_back(key);
 
