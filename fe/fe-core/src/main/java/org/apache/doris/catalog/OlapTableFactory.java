@@ -62,8 +62,12 @@ public class OlapTableFactory {
     private BuildParams params;
 
 
-    public static TableType getOlapTableType() {
-        return TableType.OLAP;
+    public static TableType getTableType(CreateTableInfo createTableInfo) {
+        if (createTableInfo.getRelation() != null) {
+            return TableType.MATERIALIZED_VIEW;
+        } else {
+            return TableType.OLAP;
+        }
     }
 
     public static TableType getTableType(DdlStmt stmt) {
@@ -185,7 +189,16 @@ public class OlapTableFactory {
     }
 
     public OlapTableFactory withExtraParams(CreateTableInfo createTableInfo) {
-        return withIndexes(new TableIndexes(createTableInfo.getIndexes()));
+        boolean isMaterializedView = createTableInfo.getRelation() != null;
+        if (!isMaterializedView) {
+            return withIndexes(new TableIndexes(createTableInfo.getIndexes()));
+        } else {
+            return withRefreshInfo(createTableInfo.getRefreshInfo())
+                .withQuerySql(createTableInfo.getQuerySql())
+                .withMvProperties(createTableInfo.getMvProperties())
+                .withMvPartitionInfo(createTableInfo.getMvPartitionInfo())
+                .withMvRelation(createTableInfo.getRelation());
+        }
     }
 
     public OlapTableFactory withExtraParams(DdlStmt stmt) {
