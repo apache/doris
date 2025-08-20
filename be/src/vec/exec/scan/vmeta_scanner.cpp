@@ -316,9 +316,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     return Status::OK();
 }
 
-Status MetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                 TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "MetaScanner::_build_hudi_metadata_request";
+Status VMetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                  TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_hudi_metadata_request";
     if (!meta_scan_range.__isset.hudi_params) {
         return Status::InternalError("Can not find THudiMetadataParams from meta_scan_range.");
     }
