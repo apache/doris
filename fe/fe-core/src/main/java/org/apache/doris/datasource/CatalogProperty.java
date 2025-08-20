@@ -204,7 +204,7 @@ public class CatalogProperty {
                                 }
                             });
                         } else {
-                            LOG.warn("Hadoop storage config is null for storage type: {}", sp.getType());
+                            LOG.info("Hadoop storage config is null for storage type: {}", sp.getType());
                         }
                     }
                 }
