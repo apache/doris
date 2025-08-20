@@ -281,6 +281,7 @@ void OrcReader::_init_profile() {
 }
 
 Status OrcReader::_create_file_reader() {
+    SCOPED_RAW_TIMER(&_statistics.create_reader_time);
     if (_reader != nullptr) {
         return Status::OK();
     }
@@ -383,14 +384,8 @@ Status OrcReader::init_reader(
         _orc_max_merge_distance_bytes = _state->query_options().orc_max_merge_distance_bytes;
     }
 
-    {
-        SCOPED_RAW_TIMER(&_statistics.create_reader_time);
-        RETURN_IF_ERROR(_create_file_reader());
-    }
-    {
-        SCOPED_RAW_TIMER(&_statistics.init_column_time);
-        RETURN_IF_ERROR(_init_read_columns());
-    }
+    RETURN_IF_ERROR(_create_file_reader());
+    RETURN_IF_ERROR(_init_read_columns());
     return Status::OK();
 }
 
@@ -410,6 +405,7 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 Status OrcReader::_init_read_columns() {
+    SCOPED_RAW_TIMER(&_statistics.init_column_time);
     const auto& root_type = _reader->getType();
     if (_is_acid) {
         for (uint64_t i = 0; i < root_type.getSubtypeCount(); ++i) {

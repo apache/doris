@@ -30,7 +30,8 @@ class HiveReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     HiveReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                RuntimeState* state, const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               io::IOContext* io_ctx, const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
+               io::IOContext* io_ctx, const std::set<TSlotId>* is_file_slot,
+               FileMetaCache* meta_cache)
             : TableFormatReader(std::move(file_format_reader), state, profile, params, range,
                                 io_ctx, meta_cache),
               _is_file_slot(is_file_slot) {};
