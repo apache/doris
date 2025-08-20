@@ -28,10 +28,6 @@ HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t 
           _state(MergeSorterState::create_unique(row_desc, offset)) {}
 
 Status HeapSorter::append_block(Block* block) {
-    //_do_filter(block);
-    if (block->empty()) {
-        return Status::OK();
-    }
     auto tmp_block = std::make_shared<Block>(block->clone_empty());
     RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
     _queue.push(
@@ -87,30 +83,6 @@ Field HeapSorter::get_top_value() {
 
 size_t HeapSorter::data_size() const {
     return _data_size;
-}
-
-void HeapSorter::_do_filter(Block* block) {
-    if (_queue_row_num < _heap_size) {
-        return;
-    }
-
-    IColumn::Filter filter(block->rows());
-    for (size_t i = 0; i < block->rows(); ++i) {
-        filter[i] = 0;
-    }
-
-    auto [current, current_rows] = _queue.current();
-
-    std::vector<uint8_t> cmp_res(block->rows(), 0);
-
-    for (size_t col_id = 0; col_id < _sort_description.size(); ++col_id) {
-        block->get_by_position(_sort_description[col_id].column_number)
-                .column->compare_internal(current->impl->pos, *current->impl->sort_columns[col_id],
-                                          _sort_description[col_id].nulls_direction,
-                                          _sort_description[col_id].direction, cmp_res,
-                                          filter.data());
-    }
-    Block::filter_block_internal(block, filter);
 }
 
 #include "common/compile_check_end.h"
