@@ -412,6 +412,11 @@ void HttpService::register_local_handler(StorageEngine& engine) {
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_local",
                                       count_delete_bitmap_action);
+    DeleteBitmapAction* count_agg_cache_delete_bitmap_action =
+            _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_AGG_CACHE, _env, engine,
+                                             TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_agg_cache",
+                                      count_agg_cache_delete_bitmap_action);
 
     CheckTabletSegmentAction* check_tablet_segment_action = _pool.add(new CheckTabletSegmentAction(
             _env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -471,10 +476,9 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_ms",
                                       count_ms_delete_bitmap_action);
-
-    CloudDeleteBitmapAction* count_agg_cache_delete_bitmap_action = _pool.add(
-            new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_AGG_CACHE, _env, engine,
-                                        TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    DeleteBitmapAction* count_agg_cache_delete_bitmap_action =
+            _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_AGG_CACHE, _env, engine,
+                                             TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_agg_cache",
                                       count_agg_cache_delete_bitmap_action);
 #ifdef ENABLE_INJECTION_POINT

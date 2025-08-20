@@ -72,8 +72,6 @@ bvar::Adder<uint64_t> g_contains_agg_with_cache_if_eligible_partial_hit(
         "g_contains_agg_with_cache_if_eligible_partial_hit");
 bvar::Adder<uint64_t> g_contains_agg_with_cache_if_eligible_full_hit(
         "g_contains_agg_with_cache_if_eligible_full_hit");
-bvar::Adder<uint64_t> g_contains_agg_with_cache_if_eligible_traverse(
-        "g_contains_agg_with_cache_if_eligible_fallback");
 bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_total_minute(
         "g_contains_agg_with_cache_if_eligible_total_1m",
         &g_contains_agg_with_cache_if_eligible_total, 60);
@@ -83,9 +81,6 @@ bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_partia
 bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_full_hit_minute(
         "g_contains_agg_with_cache_if_eligible_full_hit_1m",
         &g_contains_agg_with_cache_if_eligible_full_hit, 60);
-bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_traverse_minute(
-        "g_contains_agg_with_cache_if_eligible_traverse_1m",
-        &g_contains_agg_with_cache_if_eligible_traverse, 60);
 
 TabletMetaSharedPtr TabletMeta::create(
         const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
@@ -1389,10 +1384,8 @@ bool DeleteBitmap::contains_agg_with_cache_if_eligible(const BitmapKey& bmk,
             cached_version = _get_rowset_cache_version(bmk);
             if (cached_version > 0) {
                 if (cached_version > std::get<2>(bmk)) {
-                    g_contains_agg_with_cache_if_eligible_traverse << 1;
                     cached_version = 0;
-                }
-                if (cached_version > 0 && cached_version <= std::get<2>(bmk)) {
+                } else {
                     dbm_handle.reset(DeleteBitmapAggCache::instance()->lookup(agg_cache_key(
                             _tablet_id, {std::get<0>(bmk), std::get<1>(bmk), cached_version})));
                 }
@@ -1622,7 +1615,7 @@ DeleteBitmap::Version DeleteBitmap::_get_rowset_cache_version(const BitmapKey& b
 }
 
 DeleteBitmap DeleteBitmap::agg_cache_snapshot() {
-    return _agg_cache->snapshot(_tablet_id);
+    return DeleteBitmapAggCache::instance()->snapshot(_tablet_id);
 }
 
 std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) const {
