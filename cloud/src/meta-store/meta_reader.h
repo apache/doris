@@ -42,11 +42,12 @@ public:
             : instance_id_(instance_id),
               snapshot_version_(snapshot_version),
               txn_kv_(txn_kv),
-              min_read_version_(Versionstamp::max()) {}
+              min_read_versionstamp_(Versionstamp::max()) {}
     MetaReader(const MetaReader&) = delete;
     MetaReader& operator=(const MetaReader&) = delete;
 
-    Versionstamp min_read_version() const { return min_read_version_; }
+    uint64_t min_read_version() const { return min_read_versionstamp_.version(); }
+    Versionstamp min_read_versionstamp() const { return min_read_versionstamp_; }
 
     // Get the version of the table_version_key with the given table_id.
     TxnErrorCode get_table_version(int64_t table_id, Versionstamp* table_version,
@@ -183,12 +184,22 @@ public:
     TxnErrorCode get_partition_index(Transaction* txn, int64_t partition_id,
                                      PartitionIndexPB* partition_index, bool snapshot = false);
 
+    // Check if the index exists in the given transaction.
+    // Returns TXN_OK if the index exists, or TXN_KEY_NOT_FOUND if it does not.
+    TxnErrorCode is_index_exists(int64_t index_id, bool snapshot = false);
+    TxnErrorCode is_index_exists(Transaction* txn, int64_t index_id, bool snapshot = false);
+
+    // Check if the partition exists in the given transaction.
+    // Returns TXN_OK if the partition exists, or TXN_KEY_NOT_FOUND if it does not.
+    TxnErrorCode is_partition_exists(int64_t partition_id, bool snapshot = false);
+    TxnErrorCode is_partition_exists(Transaction* txn, int64_t partition_id, bool snapshot = false);
+
 private:
     const std::string_view instance_id_;
     const Versionstamp snapshot_version_;
 
     TxnKv* txn_kv_;
-    Versionstamp min_read_version_;
+    Versionstamp min_read_versionstamp_;
 };
 
 } // namespace doris::cloud
