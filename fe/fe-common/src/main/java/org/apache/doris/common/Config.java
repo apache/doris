@@ -3577,7 +3577,7 @@ public class Config extends ConfigBase {
         "KMS 主密钥的 ID，用于生成和加密数据密钥",
         "The ID of the master key in KMS, used for generating and encrypting data keys"
     })
-    public static String doris_tde_key_id = "9ed21896-34ac-4128-8da4-6ce58bb33341";
+    public static String doris_tde_key_id = "";
 
     @ConfField(mutable = true, description = {
         "KMS 服务的访问地址（endpoint），需与密钥所在的 region 匹配",
