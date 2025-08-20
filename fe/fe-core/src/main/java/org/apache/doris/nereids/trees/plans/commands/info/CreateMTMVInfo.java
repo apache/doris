@@ -18,13 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
-import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
@@ -60,6 +58,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
@@ -403,17 +402,42 @@ public class CreateMTMVInfo {
     }
 
     /**
-     * translate to catalog CreateMultiTableMaterializedViewStmt
+     * translate to CreateTableCommand
      */
-    public CreateMTMVStmt translateToLegacyStmt() {
+    public CreateTableCommand translateToCreateTableCommand(ConnectContext ctx) {
         TableName tableName = mvName.transferToTableName();
         KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, keys);
-        List<Column> catalogColumns = columns.stream()
-                .map(ColumnDefinition::translateToCatalogStyle)
+        List<String> ctasColumns = simpleColumnDefinitions.stream()
+                .map(SimpleColumnDefinition::getName)
                 .collect(Collectors.toList());
-        return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
-                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment,
-                partitionDesc, mvPartitionInfo, relation);
-    }
 
+        CreateTableInfo createTableInfo = new CreateTableInfo(
+                ifNotExists,
+                false,
+                false,
+                tableName.getCtl(),
+                tableName.getDb(),
+                tableName.getTbl(),
+                ctasColumns.isEmpty() ? null : ctasColumns,
+                CreateTableInfo.ENGINE_OLAP,
+                keysDesc.getKeysType(),
+                keys,
+                comment,
+                partitionDesc == null ? PartitionTableInfo.EMPTY : partitionDesc.convertToPartitionTableInfo(),
+                distribution,
+                Lists.newArrayList(),
+                properties,
+                null,
+                Lists.newArrayList(),
+                refreshInfo,
+                querySql,
+                mvProperties,
+                mvPartitionInfo,
+                relation);
+        createTableInfo.setColumns(columns);
+        createTableInfo.analyzeEngine();
+
+        CreateTableCommand createTableCommand = new CreateTableCommand(Optional.of(logicalQuery), createTableInfo);
+        return createTableCommand;
+    }
 }
