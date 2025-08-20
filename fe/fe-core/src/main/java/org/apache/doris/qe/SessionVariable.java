@@ -799,6 +799,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
                                                             "default_variant_enable_typed_paths_to_sparse";
 
+    public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2415,6 +2417,9 @@ public class SessionVariable implements Serializable, Writable {
                             + "Smaller values reduce network traffic but may not fully resolve skew. "
             }, checker = "checkSkewRewriteAggBucketNum")
     public int skewRewriteAggBucketNum = 1024;
+
+    @VariableMgr.VarAttr(name = QUERY_FRESHNESS_TOLERANCE_MS)
+    public long queryFreshnessToleranceMs = 5000;
 
     public void setSkewRewriteAggBucketNum(int num) {
         this.skewRewriteAggBucketNum = num;
@@ -4429,6 +4434,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
+
+        tResult.setQueryFreshnessToleranceMs(queryFreshnessToleranceMs);
 
         // for spill
         tResult.setEnableSpill(enableSpill);
