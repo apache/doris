@@ -70,6 +70,11 @@ public:
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
 
+    Status capture_rs_readers_with_freshness_tolerance(const Version& spec_version,
+                                                       std::vector<RowSetSplits>* rs_splits,
+                                                       bool skip_missing_version,
+                                                       int64_t query_freshness_tolerance_ms);
+
     Status capture_consistent_rowsets_unlocked(
             const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
 
@@ -300,6 +305,22 @@ public:
     bool add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpState state);
     WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status);
 
+    bool is_rowset_warmed_up(const RowsetId& rowset_id) const {
+        std::shared_lock rlock(_warmed_up_rowsets_mutex);
+        return _warmed_up_rowsets.contains(rowset_id);
+    }
+
+    // TODO: add to warm up callback when file cache donwload task is done
+    void add_warmed_up_rowset(const RowsetId& rowset_id) {
+        std::unique_lock wlock(_warmed_up_rowsets_mutex);
+        _warmed_up_rowsets.insert(rowset_id);
+    }
+
+    void remove_warmed_up_rowset(const RowsetId& rowset_id) {
+        std::unique_lock wlock(_warmed_up_rowsets_mutex);
+        _warmed_up_rowsets.erase(rowset_id);
+    }
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
@@ -367,6 +388,9 @@ private:
 
     // for warm up states management
     std::unordered_map<RowsetId, std::pair<WarmUpState, int32_t>> _rowset_warm_up_states;
+
+    mutable std::shared_mutex _warmed_up_rowsets_mutex;
+    std::unordered_set<RowsetId> _warmed_up_rowsets;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

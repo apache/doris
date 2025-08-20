@@ -327,6 +327,8 @@ public:
 
     int64_t approximate_cache_index_size();
 
+    std::chrono::time_point<std::chrono::system_clock> visible_timestamp() const;
+
 protected:
     friend class RowsetFactory;
 

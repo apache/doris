@@ -25,6 +25,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <list>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <utility>
 
@@ -336,6 +337,20 @@ Status TimestampedVersionTracker::capture_consistent_versions(
     return _version_graph.capture_consistent_versions(spec_version, version_path);
 }
 
+Status TimestampedVersionTracker::capture_consistent_versions_with_validator(
+        int64_t start, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    return _version_graph.capture_consistent_versions_with_validator(start, version_path,
+                                                                     validator);
+}
+
+Status TimestampedVersionTracker::capture_newest_consistent_versions_with_validator(
+        int64_t start, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    return _version_graph.capture_newest_consistent_versions_with_validator(start, version_path,
+                                                                            validator);
+}
+
 void TimestampedVersionTracker::capture_expired_paths(
         int64_t stale_sweep_endtime, std::vector<int64_t>* path_version_vec) const {
     std::map<int64_t, PathVersionListSharedPtr>::const_iterator iter =
@@ -632,6 +647,103 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
                    << ", path=" << shortest_path_for_debug.str();
     }
 
+    return Status::OK();
+}
+
+Status VersionGraph::capture_consistent_versions_with_validator(
+        int64_t start, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    int64_t cur_idx = -1;
+    for (size_t i = 0; i < _version_graph.size(); i++) {
+        if (_version_graph[i].value == start) {
+            cur_idx = i;
+            break;
+        }
+    }
+
+    if (cur_idx < 0) {
+        return Status::InternalError<false>("failed to find path in version_graph. start {}",
+                                            start);
+    }
+
+    while (true) {
+        int64_t next_idx = -1;
+        for (const auto& it : _version_graph[cur_idx].edges) {
+            // Only consider incremental versions.
+            if (_version_graph[it].value < _version_graph[cur_idx].value) {
+                break;
+            }
+
+            if (!validator(_version_graph[cur_idx].value, _version_graph[it].value - 1)) {
+                continue;
+            }
+
+            next_idx = it;
+            break;
+        }
+
+        if (next_idx > -1) {
+            version_path.emplace_back(_version_graph[cur_idx].value,
+                                      _version_graph[next_idx].value - 1);
+
+            cur_idx = next_idx;
+        } else {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+Status VersionGraph::capture_newest_consistent_versions_with_validator(
+        int64_t start, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    int64_t cur_idx = -1;
+    for (size_t i = 0; i < _version_graph.size(); i++) {
+        if (_version_graph[i].value == start) {
+            cur_idx = i;
+            break;
+        }
+    }
+
+    if (cur_idx < 0) {
+        return Status::InternalError<false>("failed to find path in version_graph. start {}",
+                                            start);
+    }
+
+    std::optional<int64_t> end_value;
+    while (!end_value.has_value() || _version_graph[cur_idx].value < end_value.value()) {
+        int64_t next_idx = -1;
+        for (const auto& it : _version_graph[cur_idx].edges) {
+            // Only consider incremental versions.
+            if (_version_graph[it].value < _version_graph[cur_idx].value) {
+                break;
+            }
+
+            if (!validator(_version_graph[cur_idx].value, _version_graph[it].value - 1)) {
+                if (_version_graph[cur_idx].value + 1 == _version_graph[it].value) {
+                    break;
+                }
+                if (!end_value.has_value() || _version_graph[it].value < end_value.value()) {
+                    // when encounter a compaction's output rowset which is not valid, try to find a version path
+                    // with smaller max version
+                    end_value = _version_graph[it].value;
+                }
+                continue;
+            }
+
+            next_idx = it;
+            break;
+        }
+
+        if (next_idx > -1) {
+            version_path.emplace_back(_version_graph[cur_idx].value,
+                                      _version_graph[next_idx].value - 1);
+
+            cur_idx = next_idx;
+        } else {
+            return Status::OK();
+        }
+    }
     return Status::OK();
 }
 
