@@ -4,3 +4,8 @@ PhysicalResultSink
 --filter((tbl_test_variable_between.a <= 100) and (tbl_test_variable_between.a >= 1))
 ----PhysicalOlapScan[tbl_test_variable_between]
 
+-- !2 --
+PhysicalResultSink
+--filter((tbl_test_variable_between.a <= 67108864) and (tbl_test_variable_between.a >= 1048576))
+----PhysicalOlapScan[tbl_test_variable_between]
+

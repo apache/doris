@@ -28,5 +28,6 @@ suite('test_variable_between') {
     sql "set @beginValue = 1"
     sql "set @endValue = 100"
     qt_1 "explain shape plan select * from tbl_test_variable_between where a between @beginValue and @endValue"
+    qt_2 "explain shape plan select * from tbl_test_variable_between where a between @@runtime_bloom_filter_min_size and @@runtime_bloom_filter_max_size"
     sql "drop table if exists tbl_test_variable_between force"
 }
