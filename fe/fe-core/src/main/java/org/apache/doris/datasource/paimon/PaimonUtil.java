@@ -235,7 +235,7 @@ public class PaimonUtil {
                 if (charLen > 255) {
                     return ScalarType.createStringType();
                 }
-                return ScalarType.createCharType(((CharType) dataType).getLength());
+                return ScalarType.createCharType(charLen);
             case BINARY:
             case VARBINARY:
                 return Type.STRING;
