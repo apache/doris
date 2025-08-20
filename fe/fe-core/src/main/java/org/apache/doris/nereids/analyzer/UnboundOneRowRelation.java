@@ -36,6 +36,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -99,6 +100,26 @@ public class UnboundOneRowRelation extends LogicalRelation implements Unbound, O
     @Override
     public LogicalProperties computeLogicalProperties() {
         return UnboundLogicalProperties.INSTANCE;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        UnboundOneRowRelation other = (UnboundOneRowRelation) o;
+        return projects.equals(other.projects);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), projects);
     }
 
     @Override
