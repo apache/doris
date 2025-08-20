@@ -298,7 +298,7 @@ suite("aggregate") {
     qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} """
     qt_select_quantile_percent """ select QUANTILE_PERCENT(QUANTILE_UNION(TO_QUANTILE_STATE(c_bigint,2048)),0.5) from regression_test_nereids_p0_aggregate.${tableName};  """
 
-    qt_aggregate """ select count(distinct c_bigint),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} group by c_string;"""
+    qt_aggregate """ select count(distinct c_bigint),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} group by c_string order by 1 2;"""
 
     sql "select k1 as k, k1 from tempbaseall group by k1 having k1 > 0"
     sql "select k1 as k, k1 from tempbaseall group by k1 having k > 0"
