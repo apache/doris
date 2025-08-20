@@ -251,7 +251,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         // so we should set specified info to create correct types, and those predefined types are static and
         // no conflict, so we can set them directly.
         add_new_column_part(base_data_type);
-    } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
+    } else if ((least_common_type.get_base_type_id() != base_type.idx || value_dim != column_dim) &&
+               !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
             VLOG_DEBUG << "Conversion between " << getTypeName(base_type.idx) << " and "
@@ -262,7 +263,9 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
             if (!least_type->equals(*base_data_type)) {
                 type_changed = true;
             }
-            add_new_column_part(least_type);
+            if (!least_type->equals(*least_common_type.get())) {
+                add_new_column_part(least_type);
+            }
         }
     }
     // 1. type changed means encounter different type, we need to convert it to the least common type
