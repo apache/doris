@@ -24,7 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 
 import java.util.Map;
 
@@ -48,7 +48,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    public boolean createTable(CreateTableCommand command) throws UserException {
+    public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
         throw new NotSupportedException("iceberg catalog with dlf type not supports 'create table'");
     }
 

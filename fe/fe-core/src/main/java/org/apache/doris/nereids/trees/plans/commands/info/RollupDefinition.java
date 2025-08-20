@@ -67,4 +67,25 @@ public class RollupDefinition {
     public List<String> getCols() {
         return cols;
     }
+
+    /**
+     * to sql
+     */
+    public String toSql() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("ADD ROLLUP `").append(name).append("` (");
+        int idx = 0;
+        for (String column : cols) {
+            if (idx != 0) {
+                stringBuilder.append(", ");
+            }
+            stringBuilder.append("`").append(column).append("`");
+            idx++;
+        }
+        stringBuilder.append(")");
+        if (name != null) {
+            stringBuilder.append(" FROM `").append(name).append("`");
+        }
+        return stringBuilder.toString();
+    }
 }

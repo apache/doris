@@ -126,7 +126,6 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -1194,9 +1193,7 @@ public class InternalCatalog implements CatalogIf<Database> {
      * 10. add this table to FE's meta
      * 11. add this table to ColocateGroup if necessary
      */
-    public boolean createTable(CreateTableCommand command) throws UserException {
-        org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo createTableInfo =
-                command.getCreateTableInfo();
+    public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
         String engineName = createTableInfo.getEngineName();
         String dbName = createTableInfo.getDbName();
         String tableName = createTableInfo.getTableName();
@@ -2578,7 +2575,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // create table
         long tableId = idGeneratorBuffer.getNextId();
-        TableType tableType = OlapTableFactory.getOlapTableType();
+        TableType tableType = OlapTableFactory.getTableType(createTableInfo);
         OlapTable olapTable = (OlapTable) new OlapTableFactory()
                 .init(tableType, createTableInfo.isTemp())
                 .withTableId(tableId)

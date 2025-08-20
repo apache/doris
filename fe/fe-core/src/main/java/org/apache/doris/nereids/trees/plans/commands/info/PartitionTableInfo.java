@@ -342,4 +342,8 @@ public class PartitionTableInfo {
     public List<String> getIdentifierPartitionColumns() {
         return identifierPartitionColumns;
     }
+
+    public List<PartitionDefinition> getPartitionDefs() {
+        return partitionDefs;
+    }
 }

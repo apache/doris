@@ -40,6 +40,7 @@ import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -84,6 +85,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -116,31 +118,31 @@ public class CreateTableInfo {
             ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
 
     private static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
+
     protected TableNameInfo tableNameInfo;
-    private final boolean ifNotExists;
+    protected boolean ifNotExists;
+    protected List<String> keys;
+    protected String comment;
+    protected DistributionDescriptor distribution;
+    protected Map<String, String> properties;
+    protected PartitionDesc partitionDesc;
+    protected List<ColumnDefinition> columns;
     private String ctlName;
     private String dbName;
-    private final String tableName;
-    private List<ColumnDefinition> columns;
-    private final List<IndexDefinition> indexes;
-    private final List<String> ctasColumns;
+    private String tableName;
+    private List<IndexDefinition> indexes;
+    private List<String> ctasColumns;
     private String engineName;
     private KeysType keysType;
-    private List<String> keys;
-    private final String comment;
-    private DistributionDescriptor distribution;
-    private final List<RollupDefinition> rollups;
-    private Map<String, String> properties;
+    private List<RollupDefinition> rollups;
     private Map<String, String> extProperties;
     private boolean isEnableMergeOnWrite = false;
     private boolean isEnableSkipBitmapColumn = false;
-
     private boolean isExternal = false;
     private boolean isTemp = false;
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private PartitionTableInfo partitionTableInfo; // get when validate
-    private PartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
 
     // get when validate
@@ -150,12 +152,24 @@ public class CreateTableInfo {
     /**
      * constructor for create table
      */
-    public CreateTableInfo(boolean ifNotExists, boolean isExternal, boolean isTemp, String ctlName, String dbName,
-            String tableName, List<ColumnDefinition> columns, List<IndexDefinition> indexes,
-            String engineName, KeysType keysType, List<String> keys, String comment,
+    public CreateTableInfo(
+            boolean ifNotExists,
+            boolean isExternal,
+            boolean isTemp,
+            String ctlName,
+            String dbName,
+            String tableName,
+            List<ColumnDefinition> columns,
+            List<IndexDefinition> indexes,
+            String engineName,
+            KeysType keysType,
+            List<String> keys,
+            String comment,
             PartitionTableInfo partitionTableInfo,
-            DistributionDescriptor distribution, List<RollupDefinition> rollups,
-            Map<String, String> properties, Map<String, String> extProperties,
+            DistributionDescriptor distribution,
+            List<RollupDefinition> rollups,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
             List<String> clusterKeyColumnNames) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
@@ -183,12 +197,23 @@ public class CreateTableInfo {
     /**
      * constructor for create table as select
      */
-    public CreateTableInfo(boolean ifNotExists, boolean isExternal, boolean isTemp, String ctlName, String dbName,
-            String tableName, List<String> cols, String engineName, KeysType keysType,
-            List<String> keys, String comment,
+    public CreateTableInfo(
+            boolean ifNotExists,
+            boolean isExternal,
+            boolean isTemp,
+            String ctlName,
+            String dbName,
+            String tableName,
+            List<String> cols,
+            String engineName,
+            KeysType keysType,
+            List<String> keys,
+            String comment,
             PartitionTableInfo partitionTableInfo,
-            DistributionDescriptor distribution, List<RollupDefinition> rollups,
-            Map<String, String> properties, Map<String, String> extProperties,
+            DistributionDescriptor distribution,
+            List<RollupDefinition> rollups,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
             List<String> clusterKeyColumnNames) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
@@ -214,6 +239,25 @@ public class CreateTableInfo {
     }
 
     /**
+     * constructor for create multi table materialized view
+     */
+    public CreateTableInfo(
+            boolean ifNotExists,
+            TableNameInfo mvName,
+            List<String> keys,
+            String comment,
+            DistributionDescriptor distribution,
+            Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
+        this.tableNameInfo = mvName;
+        this.keys = keys;
+        this.comment = comment;
+        this.distribution = distribution;
+        this.properties = properties;
+        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
+    }
+
+    /**
      * withTableNameAndIfNotExists
      */
     public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
@@ -226,6 +270,50 @@ public class CreateTableInfo {
                     engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
                     extProperties, clusterKeysColumnNames);
         }
+    }
+
+    public boolean isEnableMergeOnWrite() {
+        return isEnableMergeOnWrite;
+    }
+
+    public void setIndexes(List<IndexDefinition> indexes) {
+        this.indexes = indexes;
+    }
+
+    public void setClusterKeysColumnNames(List<String> clusterKeysColumnNames) {
+        this.clusterKeysColumnNames = clusterKeysColumnNames;
+    }
+
+    public void setRollups(List<RollupDefinition> rollups) {
+        this.rollups = rollups;
+    }
+
+    public void setPartitionTableInfo(PartitionTableInfo partitionTableInfo) {
+        this.partitionTableInfo = partitionTableInfo;
+    }
+
+    public void setEngineName(String engineName) {
+        this.engineName = engineName;
+    }
+
+    public void setKeysType(KeysType keysType) {
+        this.keysType = keysType;
+    }
+
+    public void setCtasColumns(List<String> ctasColumns) {
+        this.ctasColumns = ctasColumns;
+    }
+
+    public void setCatalog(String ctlName) {
+        this.ctlName = ctlName;
+    }
+
+    public void setDbName(String dbName) {
+        this.dbName = dbName;
+    }
+
+    public void setTableName(String tableName) {
+        this.tableName = tableName;
     }
 
     public List<String> getCtasColumns() {
@@ -254,6 +342,10 @@ public class CreateTableInfo {
 
     public boolean isIfNotExists() {
         return ifNotExists;
+    }
+
+    public void setColumns(List<ColumnDefinition> columns) {
+        this.columns = columns;
     }
 
     /**
@@ -1326,5 +1418,87 @@ public class CreateTableInfo {
                 }
             }
         }
+    }
+
+    /**
+     * to sql
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("CREATE ");
+        if (isTemp) {
+            sb.append("TEMPORARY ");
+        }
+        if (isExternal) {
+            sb.append("EXTERNAL ");
+        }
+        sb.append("TABLE ");
+        if (ifNotExists) {
+            sb.append("IF NOT EXISTS ");
+        }
+        sb.append(tableNameInfo.toSql()).append(" (\n");
+        int idx = 0;
+        for (ColumnDefinition columnDef : columns) {
+            if (idx != 0) {
+                sb.append(",\n");
+            }
+            sb.append("  ").append(columnDef.toSql());
+            idx++;
+        }
+        if (CollectionUtils.isNotEmpty(indexes)) {
+            sb.append(",\n");
+            for (IndexDefinition indexDef : indexes) {
+                sb.append("  ").append(indexDef.toSql());
+            }
+        }
+        sb.append("\n)");
+        sb.append(" ENGINE = ").append(engineName.toLowerCase());
+
+        if (keys != null) {
+            sb.append("\n").append(getKeysDesc().toSql());
+        }
+
+        if (!Strings.isNullOrEmpty(comment)) {
+            sb.append("\nCOMMENT \"").append(comment).append("\"");
+        }
+
+        if (partitionDesc != null) {
+            sb.append("\n").append(partitionDesc.toSql());
+        }
+
+        if (distributionDesc != null) {
+            sb.append("\n").append(distributionDesc.toSql());
+        }
+
+        if (rollups != null && !rollups.isEmpty()) {
+            sb.append("\n rollup(");
+            StringBuilder opsSb = new StringBuilder();
+            for (int i = 0; i < rollups.size(); i++) {
+                opsSb.append(rollups.get(i).toSql());
+                if (i != rollups.size() - 1) {
+                    opsSb.append(",");
+                }
+            }
+            sb.append(opsSb.toString().replace("ADD ROLLUP", "")).append(")");
+        }
+
+        // properties may contains password and other sensitive information,
+        // so do not print properties.
+        // This toSql() method is only used for log, user can see detail info by using show create table stmt,
+        // which is implemented in Catalog.getDdlStmt()
+        if (properties != null && !properties.isEmpty()) {
+            sb.append("\nPROPERTIES (");
+            sb.append(new PrintableMap<>(properties, " = ", true, true, true));
+            sb.append(")");
+        }
+
+        if (extProperties != null && !extProperties.isEmpty()) {
+            sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
+            sb.append(new PrintableMap<>(extProperties, " = ", true, true, true));
+            sb.append(")");
+        }
+
+        return sb.toString();
     }
 }

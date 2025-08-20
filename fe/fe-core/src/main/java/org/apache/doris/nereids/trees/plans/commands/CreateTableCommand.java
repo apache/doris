@@ -87,10 +87,45 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 LOG.debug("Nereids start to execute the create table command, query id: {}, tableName: {}",
                         ctx.queryId(), createTableInfo.getTableName());
             }
-            Env.getCurrentEnv().createTable(this);
+            Env.getCurrentEnv().createTable(this.createTableInfo);
             return;
         }
+
         LogicalPlan query = ctasQuery.get();
+        validateCreateTableAsSelect(ctx, query);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
+                    ctx.queryId(), createTableInfo.getTableName());
+        }
+        try {
+            if (Env.getCurrentEnv().createTable(this.createTableInfo)) {
+                return;
+            }
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+
+        query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
+        try {
+            if (!FeConstants.runningUnitTest) {
+                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(),
+                        Optional.empty(), true, Optional.empty()).run(ctx, executor);
+            }
+            if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                handleFallbackFailedCtas(ctx);
+            }
+        } catch (Exception e) {
+            handleFallbackFailedCtas(ctx);
+            throw new AnalysisException("Failed to execute CTAS Reason: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * validateCreateTableAsSelect
+     */
+    public void validateCreateTableAsSelect(ConnectContext ctx, LogicalPlan query) {
         List<String> ctasCols = createTableInfo.getCtasColumns();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         // must disable constant folding by be, because be constant folding may return wrong type
@@ -115,9 +150,9 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
             } else {
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                        NullType.class, TinyIntType.INSTANCE);
+                    NullType.class, TinyIntType.INSTANCE);
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                        DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
+                    DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
                 if (s.isColumnFromTable()) {
                     if ((!((SlotReference) s).getOriginalTable().isPresent()
                             || !((SlotReference) s).getOriginalTable().get().isManagedTable())) {
@@ -127,26 +162,26 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                             // String type can not be used in partition/distributed column,
                             // so we replace it to varchar
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                    CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
+                                CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
                         } else {
                             if (i == 0) {
                                 // first column of olap table can not be string type.
                                 // So change it to varchar type.
                                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                        CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
+                                    CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
                             } else {
                                 // change varchar/char column from external table to string type
                                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                        CharacterType.class, StringType.INSTANCE);
+                                    CharacterType.class, StringType.INSTANCE);
                             }
                         }
                     }
                 } else {
                     if (ctx.getSessionVariable().useMaxLengthOfVarcharInCtas) {
                         dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                            VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
                         dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                CharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                            CharType.class, VarcharType.MAX_VARCHAR_TYPE);
                     }
                 }
             }
@@ -161,32 +196,6 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         }
         List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
         createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Nereids start to execute the ctas command, query id: {}, tableName: {}",
-                    ctx.queryId(), createTableInfo.getTableName());
-        }
-        try {
-            if (Env.getCurrentEnv().createTable(this)) {
-                return;
-            }
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
-
-        query = UnboundTableSinkCreator.createUnboundTableSink(createTableInfo.getTableNameParts(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), query);
-        try {
-            if (!FeConstants.runningUnitTest) {
-                new InsertIntoTableCommand(query, Optional.empty(), Optional.empty(),
-                        Optional.empty(), true, Optional.empty()).run(ctx, executor);
-            }
-            if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-                handleFallbackFailedCtas(ctx);
-            }
-        } catch (Exception e) {
-            handleFallbackFailedCtas(ctx);
-            throw new AnalysisException("Failed to execute CTAS Reason: " + e.getMessage(), e);
-        }
     }
 
     void handleFallbackFailedCtas(ConnectContext ctx) {

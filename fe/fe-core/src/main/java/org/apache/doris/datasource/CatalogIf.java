@@ -30,9 +30,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
@@ -196,7 +196,7 @@ public interface CatalogIf<T extends DatabaseIf> {
      * return true if table exists,
      * return false otherwise
      */
-    boolean createTable(CreateTableCommand command) throws UserException;
+    boolean createTable(CreateTableInfo createTableInfo) throws UserException;
 
     /**
      * @return if org.apache.doris.analysis.CreateTableStmt.ifNotExists is true, return true if table exists,
