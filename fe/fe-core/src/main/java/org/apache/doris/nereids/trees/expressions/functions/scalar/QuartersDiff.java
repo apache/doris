@@ -19,15 +19,15 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
-import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateDiffMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -35,31 +35,31 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'quarters_add'.
+ * ScalarFunction 'quarters_diff'.
  */
-public class QuartersAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
+public class QuartersDiff extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
+        PropagateNullableOnDateOrTimeLikeV2Args, DateDiffMonotonic {
 
-    // When enable_date_conversion is true, we prefer to V2 signature.
-    // This preference follows original planner. refer to ScalarType.getDefaultDateType()
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
-                    IntegerType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE));
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT)
+    );
 
-    public QuartersAdd(Expression arg0, Expression arg1) {
-        super("quarters_add", arg0, arg1);
+    /**
+     * constructor with 2 arguments.
+     */
+    public QuartersDiff(Expression arg0, Expression arg1) {
+        super("quarters_diff", arg0, arg1);
     }
 
-    /** constructor for withChildren and reuse signature */
-    private QuartersAdd(ScalarFunctionParams functionParams) {
-        super(functionParams);
-    }
-
+    /**
+     * withChildren.
+     */
     @Override
-    public QuartersAdd withChildren(List<Expression> children) {
+    public QuartersDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new QuartersAdd(getFunctionParams(children));
+        return new QuartersDiff(children.get(0), children.get(1));
     }
 
     @Override
@@ -69,11 +69,15 @@ public class QuartersAdd extends ScalarFunction implements BinaryExpression, Exp
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitQuartersAdd(this, context);
+        return visitor.visitQuartersDiff(this, context);
     }
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new QuartersAdd(literal, child(1));
+        if (child(1) instanceof Literal) {
+            return new QuartersDiff(literal, child(1));
+        } else {
+            return new QuartersDiff(child(0), literal);
+        }
     }
 }
