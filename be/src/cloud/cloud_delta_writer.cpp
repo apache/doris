@@ -100,11 +100,6 @@ CloudRowsetBuilder* CloudDeltaWriter::rowset_builder() {
 }
 
 void CloudDeltaWriter::update_tablet_stats() {
-    // If the delta writer is not initialized, it means that no data has been written,
-    // and we skip updating the tablet stats when skip_writing_empty_rowset_metadata is enabled.
-    if (!_is_init && config::skip_writing_empty_rowset_metadata) {
-        return;
-    }
     rowset_builder()->update_tablet_stats();
 }
 

@@ -743,11 +743,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             }
 
             // Fill version holes
-            if (config::enable_fill_version_holes) {
-                int64_t partition_max_version =
-                        resp.has_partition_max_version() ? resp.partition_max_version() : -1;
-                RETURN_IF_ERROR(fill_version_holes(tablet, partition_max_version, wlock));
-            }
+            int64_t partition_max_version =
+                    resp.has_partition_max_version() ? resp.partition_max_version() : -1;
+            RETURN_IF_ERROR(fill_version_holes(tablet, partition_max_version, wlock));
+
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
             tablet->set_base_compaction_cnt(stats.base_compaction_cnt());
