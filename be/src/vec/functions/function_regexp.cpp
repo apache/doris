@@ -20,6 +20,7 @@
 #include <re2/stringpiece.h>
 #include <stddef.h>
 
+#include <climits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -708,6 +709,189 @@ public:
     }
 };
 
+struct ExecuteImpl {
+    static int _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                   const ColumnString* pattern_col, const size_t index_now,
+                                   const int position) {
+        re2::RE2* re = reinterpret_cast<re2::RE2*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        std::unique_ptr<re2::RE2> scoped_re;
+        if (re == nullptr) {
+            std::string error_str;
+            DCHECK(pattern_col);
+            const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, false));
+            bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
+                                                     scoped_re);
+            if (!st) {
+                context->add_warning(error_str.c_str());
+                throw Exception(Status::InvalidArgument(error_str));
+                return 0;
+            }
+            re = scoped_re.get();
+        }
+
+        const auto& str = str_col->get_data_at(index_now);
+        // start from position
+        int pos = position - 1;
+        if (pos < 0) {
+            return -1;
+        }
+        bool matched = false;
+        size_t actual_position = 0;
+        while (pos < str.size) {
+            auto str_pos = str.data + pos;
+            auto str_size = str.size - pos;
+            re2::StringPiece str_sp_current = re2::StringPiece(str_pos, str_size);
+            re2::StringPiece match;
+
+            bool success = re->Match(str_sp_current, 0, str_size, re2::RE2::UNANCHORED, &match, 1);
+            if (!success) {
+                break;
+            }
+            if (match.empty()) {
+                pos += 1;
+                continue;
+            }
+
+            // find the result
+            size_t match_start = match.data() - str_sp_current.data();
+            actual_position = pos + match_start + 1;
+            matched = true;
+            break;
+        }
+
+        if (actual_position > static_cast<size_t>(INT_MAX)) {
+            context->add_warning("Match position exceeds maximum int value");
+            throw Exception(Status::InvalidArgument("Match position exceeds maximum int value"));
+            return -1;
+        }
+        return matched ? static_cast<int>(actual_position) : -1;
+    }
+};
+
+struct RegexpPositionTwoParamImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
+    static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
+                             size_t input_rows_count, ColumnInt32::Container& result_data,
+                             bool is_const_args) {
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            // the default value of position is 1
+            result_data[i] = ExecuteImpl::_execute_inner_loop(context, str_col, pattern_col, i, 1);
+        }
+    }
+};
+
+struct RegexpPositionThreeParamImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeInt32>()};
+    }
+
+    static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
+                                        size_t input_rows_count,
+                                        ColumnInt32::Container& result_data, bool is_const_args) {
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const ColumnInt32* index_col = check_and_get_column<ColumnInt32>(argument_columns[2].get());
+
+        int position = index_col->get_element(0);
+        for (int i = 0; i < input_rows_count; ++i) {
+            if (!is_const_args) {
+                position = index_col->get_element(i);
+            }
+            result_data[i] = ExecuteImpl::_execute_inner_loop(context, str_col, pattern_col, i, position);
+        }
+    }
+};
+
+template <typename Impl>
+class FunctionRegexpPosition : public IFunction {
+public:
+    static constexpr auto name = "regexp_position";
+
+    static FunctionPtr create() { return std::make_shared<FunctionRegexpPosition>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt32>();
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            if (context->is_col_constant(1)) {
+                DCHECK(!context->get_function_state(scope));
+                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto& pattern = pattern_col->get_data_at(0);
+                if (pattern.size == 0) {
+                    return Status::OK();
+                }
+
+                std::string error_str;
+                std::unique_ptr<re2::RE2> scoped_re;
+                bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
+                                                         StringRef(), scoped_re);
+                if (!st) {
+                    context->set_error(error_str.c_str());
+                    return Status::InvalidArgument(error_str);
+                }
+                std::shared_ptr<re2::RE2> re(scoped_re.release());
+                context->set_function_state(scope, re);
+            }
+        }
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        size_t argument_size = arguments.size();
+
+        auto result_data_column = ColumnInt32::create(input_rows_count);
+        auto& result_data = result_data_column->get_data();
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < argument_size; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+        if constexpr (std::is_same_v<Impl, RegexpPositionTwoParamImpl>) {
+            default_preprocess_parameter_columns(argument_columns, col_const, {1}, block,
+                                                 arguments);
+        } else {
+            default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block,
+                                                 arguments);
+        }
+
+        if constexpr (std::is_same_v<Impl, RegexpPositionTwoParamImpl>) {
+            Impl::execute_impl(context, argument_columns, input_rows_count, result_data, col_const[1]);
+        } else {
+            Impl::execute_impl(context, argument_columns, input_rows_count, result_data, col_const[1] && col_const[2]);
+        }
+
+        block.get_by_position(result).column = std::move(result_data_column);
+        return Status::OK();
+    }
+};
+
 void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpReplace<RegexpReplaceImpl, ThreeParamTypes>>();
     factory.register_function<FunctionRegexpReplace<RegexpReplaceImpl, FourParamTypes>>();
@@ -717,6 +901,8 @@ void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<false>>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractAllImpl>>();
     factory.register_function<FunctionRegexpCount>();
+    factory.register_function<FunctionRegexpPosition<RegexpPositionTwoParamImpl>>();
+    factory.register_function<FunctionRegexpPosition<RegexpPositionThreeParamImpl>>();
 }
 
 } // namespace doris::vectorized
