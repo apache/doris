@@ -675,7 +675,7 @@ TESTING	AGAIN
 9	1991
 
 -- !aggregate --
-3566.3333333333335	50.65743333333333
+3566.3333333333335	50.65743333333334
 
 -- !aggregate --
 9	9	10	8	7	7	7	2
@@ -683,9 +683,23 @@ TESTING	AGAIN
 -- !select_quantile_percent --
 5000.0
 
+-- !aggregate --
+1	1
+1	1
+1	1
+1	1
+1	1
+2	1
+1	1
+2	1
+1	1
+1	1
+1	1
+
 -- !having_with_limit --
 7	-32767.0
 
 -- !four_phase_full_distribute --
 hello	1	1
 world	1	1
+
