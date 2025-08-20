@@ -57,7 +57,7 @@ public:
     static std::string _s_test_data_path;
 };
 
-std::string WalReaderWriterTest::_s_test_data_path = "./log/wal_reader_writer_test";
+std::string WalReaderWriterTest::_s_test_data_path = "./log/wal_reader_writer_test/0/0";
 size_t block_rows = 1024;
 
 void covert_block_to_pb(
@@ -91,8 +91,7 @@ void generate_block(PBlock& pblock, int row_index) {
 TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     std::string file_name = _s_test_data_path + "/abcd123.txt";
     auto wal_writer = WalWriter(file_name);
-    io::FileSystemSPtr fs = io::global_local_filesystem();
-    static_cast<void>(wal_writer.init(fs));
+    static_cast<void>(wal_writer.init(io::global_local_filesystem()));
     size_t file_len = 0;
     int64_t file_size = -1;
     // add 1 block

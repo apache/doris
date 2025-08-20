@@ -112,6 +112,7 @@ io::FileSystemSPtr RowsetMeta::fs() {
         }
     }();
 
+#ifndef BE_TEST
     auto algorithm = _determine_encryption_once.call([this]() -> Result<EncryptionAlgorithmPB> {
         auto maybe_tablet = ExecEnv::get_tablet(tablet_id());
         if (!maybe_tablet) {
@@ -126,6 +127,9 @@ io::FileSystemSPtr RowsetMeta::fs() {
         return nullptr;
     }
     return io::make_file_system(fs, algorithm.value());
+#else
+    return fs;
+#endif
 }
 
 Result<const StorageResource*> RowsetMeta::remote_storage_resource() {

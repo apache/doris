@@ -18,6 +18,7 @@
 #include "exec/schema_scanner/schema_encryption_keys_scanner.h"
 
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
 #include "vec/core/block.h"
@@ -30,13 +31,10 @@ class ScheamEncryptionKeysScannerTest : public testing::Test {
 };
 
 TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
-    //TEncryptionKey t_key;
-    //std::vector<TEncryptionKey> keys;
-    //keys.push_back(t_key);
-
+    SchemaEncryptionKeysScanner scnanner;
+    auto& keys = scnanner._master_keys;
     EncryptionKeyPB key;
-    SchemaEncryptionKeysScanner scanner;
-    scanner._master_keys.push_back(key);
+    keys.push_back(key);
 
     auto data_block = vectorized::Block::create_unique();
     scanner._init_block(data_block.get());

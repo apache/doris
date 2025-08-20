@@ -162,6 +162,8 @@ struct RowsetWriterContext {
 
             LOG(WARNING) << st;
             DCHECK(false) << st;
+#else
+            encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
 #endif
             return fs;
         }
