@@ -57,6 +57,7 @@ struct MockQueryContext : public QueryContext {
         llm_resource.max_tokens = 16;
         llm_resource.max_retries = 1;
         llm_resource.retry_delay_second = 1;
+        llm_resource.dimensions = 514;
 
         set_llm_resources(std::map<std::string, TLLMResource> {{"mock_resource", llm_resource}});
     }

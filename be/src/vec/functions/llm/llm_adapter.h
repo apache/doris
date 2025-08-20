@@ -68,7 +68,7 @@ public:
 protected:
     TLLMResource _config;
 
-    // Determine whether the given model supports dimension parameters
+    // return true if the model support dimension parameter
     virtual bool supports_dimension_param(const std::string& model_name) const { return false; }
 
     // Different providers may have different dimension parameter names.
