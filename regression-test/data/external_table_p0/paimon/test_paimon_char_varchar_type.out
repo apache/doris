@@ -2,12 +2,11 @@
 -- !q0 --
 c1	int	Yes	true	\N	
 c2	char(1)	Yes	true	\N	
-c3	character(255)	Yes	true	\N	
+c3	char(254)	Yes	true	\N	
 c4	text	Yes	true	\N	
-c5	text	Yes	true	\N	
-c6	varchar(1)	Yes	true	\N	
-c7	varchar(65533)	Yes	true	\N	
+c5	varchar(1)	Yes	true	\N	
+c6	varchar(65533)	Yes	true	\N	
+c7	text	Yes	true	\N	
 c8	text	Yes	true	\N	
 c9	text	Yes	true	\N	
-c10	text	Yes	true	\N	
 
