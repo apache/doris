@@ -584,6 +584,15 @@ public:
 
     void clear_subcolumns_data();
 
+    size_t can_add_subcolumns_count() const {
+        if (_max_subcolumns_count == 0) {
+            return 0;
+        }
+        size_t current_subcolumns_count =
+                subcolumns.size() - typed_path_count - nested_path_count - 1;
+        return _max_subcolumns_count - current_subcolumns_count;
+    }
+
 private:
     // May throw execption
     void try_insert(const Field& field);
