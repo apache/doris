@@ -177,7 +177,7 @@ TEST_F(AnnIndexReaderTest, TestQueryWithoutLoadIndex) {
     build_params.max_degree = 16;
     build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::L2;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     reader->_vector_index = std::move(doris_faiss_vector_index);
 
@@ -222,7 +222,7 @@ TEST_F(AnnIndexReaderTest, TestRangeSearchWithoutLoadIndex) {
     build_params.max_degree = 16;
     build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::L2;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     reader->_vector_index = std::move(doris_faiss_vector_index);
 
@@ -304,7 +304,7 @@ TEST_F(AnnIndexReaderTest, TestRangeSearchWithDifferentParameters) {
     build_params.max_degree = 16;
     build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::L2;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     reader->_vector_index = std::move(doris_faiss_vector_index);
 
@@ -391,7 +391,7 @@ TEST_F(AnnIndexReaderTest, TestWithInnerProductMetric) {
     build_params.max_degree = 16;
     build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::IP;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     reader->_vector_index = std::move(doris_faiss_vector_index);
 

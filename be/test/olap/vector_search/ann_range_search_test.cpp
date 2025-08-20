@@ -71,7 +71,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
     ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
+    range_search_ctx->prepare_ann_range_search(user_params);
     ASSERT_TRUE(range_search_ctx->_ann_range_search_runtime.is_ann_range_search == true);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.is_le_or_lt, false);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.dst_col_idx, 3);
@@ -107,7 +107,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
     doris::VectorSearchUserParams user_params;
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
+    range_search_ctx->prepare_ann_range_search(user_params);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.user_params, user_params);
     ASSERT_TRUE(range_search_ctx->_ann_range_search_runtime.is_ann_range_search == true);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.is_le_or_lt, false);
@@ -200,7 +200,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
     doris::VectorSearchUserParams user_params;
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
+    range_search_ctx->prepare_ann_range_search(user_params);
     ASSERT_TRUE(range_search_ctx->_ann_range_search_runtime.is_ann_range_search == true);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.is_le_or_lt, true);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.src_col_idx, 1);
@@ -498,7 +498,7 @@ TEST_F(VectorSearchTest, TestAnnIndexReaderQueryMethod) {
     build_params.max_degree = 16;
     build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::L2;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     reader->_vector_index = std::move(doris_faiss_vector_index);
 
@@ -553,7 +553,7 @@ TEST_F(VectorSearchTest, TestAnnIndexReaderRangeSearchEdgeCases) {
     build_params.max_degree = 16;
     build_params.index_type = doris::segment_v2::FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = doris::segment_v2::FaissBuildParameter::MetricType::L2;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     reader->_vector_index = std::move(doris_faiss_vector_index);
 
@@ -792,8 +792,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch_EarlyReturn_WrongOpcode) {
     ASSERT_TRUE(ctx->open(state.get()).ok());
 
     doris::VectorSearchUserParams user_params;
-    status = ctx->prepare_ann_range_search(user_params);
-    EXPECT_TRUE(status.ok()); // Should return OK but not set ann_range_search
+    ctx->prepare_ann_range_search(user_params);
     EXPECT_FALSE(ctx->_ann_range_search_runtime.is_ann_range_search);
 }
 
@@ -836,8 +835,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch_EarlyReturn_NonLiteralRight) 
     ASSERT_TRUE(ctx->open(state.get()).ok());
 
     doris::VectorSearchUserParams user_params;
-    status = ctx->prepare_ann_range_search(user_params);
-    EXPECT_TRUE(status.ok()); // Should return OK but not set ann_range_search
+    ctx->prepare_ann_range_search(user_params);
     EXPECT_FALSE(ctx->_ann_range_search_runtime.is_ann_range_search);
 }
 

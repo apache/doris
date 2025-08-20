@@ -291,9 +291,9 @@ public:
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
     // suitable_for_ann_index is used to indicate whether the current expr can be used for ANN range search.
     // If suitable_for_ann_index is false, the we will do exhausted search.
-    virtual Status prepare_ann_range_search(const doris::VectorSearchUserParams& params,
-                                            segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-                                            bool& suitable_for_ann_index);
+    virtual void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                          segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+                                          bool& suitable_for_ann_index);
 
     bool has_been_executed();
 

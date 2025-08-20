@@ -86,9 +86,9 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) override;
 
-    Status prepare_ann_range_search(const doris::VectorSearchUserParams& params,
-                                    segment_v2::AnnRangeSearchRuntime& runtime,
-                                    bool& suitable_for_ann_index) override;
+    void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                  segment_v2::AnnRangeSearchRuntime& runtime,
+                                  bool& suitable_for_ann_index) override;
 
 protected:
     FunctionBasePtr _function;

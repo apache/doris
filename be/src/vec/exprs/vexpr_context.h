@@ -286,7 +286,7 @@ public:
 
     [[nodiscard]] size_t get_memory_usage() const { return _memory_usage; }
 
-    Status prepare_ann_range_search(const doris::VectorSearchUserParams& params);
+    void prepare_ann_range_search(const doris::VectorSearchUserParams& params);
 
     Status evaluate_ann_range_search(
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,

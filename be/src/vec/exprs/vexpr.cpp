@@ -976,20 +976,18 @@ Status VExpr::evaluate_ann_range_search(
     return Status::OK();
 }
 
-Status VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params,
-                                       segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-                                       bool& suitable_for_ann_index) {
+void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                     segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+                                     bool& suitable_for_ann_index) {
     if (!suitable_for_ann_index) {
-        return Status::OK();
+        return;
     }
     for (auto& child : _children) {
-        RETURN_IF_ERROR(child->prepare_ann_range_search(params, range_search_runtime,
-                                                        suitable_for_ann_index));
+        child->prepare_ann_range_search(params, range_search_runtime, suitable_for_ann_index);
         if (!suitable_for_ann_index) {
-            return Status::OK();
+            return;
         }
     }
-    return Status::OK();
 }
 
 bool VExpr::has_been_executed() {

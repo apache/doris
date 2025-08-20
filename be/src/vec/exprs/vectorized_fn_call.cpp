@@ -71,6 +71,12 @@ namespace doris::vectorized {
 
 const std::string AGG_STATE_SUFFIX = "_state";
 
+// Now left child is a function call, we need to check if it is a distance function
+const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name,
+                                                     InnerProductApproximate::name};
+const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
+        TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE, TExprOpcode::GT, TExprOpcode::LT};
+
 VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
 
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
@@ -342,18 +348,17 @@ bool VectorizedFnCall::equals(const VExpr& other) {
     SlotRef
 */
 
-Status VectorizedFnCall::prepare_ann_range_search(
+void VectorizedFnCall::prepare_ann_range_search(
         const doris::VectorSearchUserParams& user_params,
         segment_v2::AnnRangeSearchRuntime& range_search_runtime, bool& suitable_for_ann_index) {
     if (!suitable_for_ann_index) {
-        return Status::OK();
+        return;
     }
-    std::set<TExprOpcode::type> ops = {TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE,
-                                       TExprOpcode::GT, TExprOpcode::LT};
-    if (ops.find(this->op()) == ops.end()) {
+
+    if (OPS_FOR_ANN_RANGE_SEARCH.find(this->op()) == OPS_FOR_ANN_RANGE_SEARCH.end()) {
         suitable_for_ann_index = false;
         // Not a range search function.
-        return Status::OK();
+        return;
     }
 
     range_search_runtime.is_le_or_lt =
@@ -369,7 +374,7 @@ Status VectorizedFnCall::prepare_ann_range_search(
     if (right_literal == nullptr) {
         suitable_for_ann_index = false;
         // Right child is not a literal.
-        return Status::OK();
+        return;
     }
 
     auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
@@ -377,7 +382,7 @@ Status VectorizedFnCall::prepare_ann_range_search(
     if (right_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
         suitable_for_ann_index = false;
         // Right child is not a Float64Literal.
-        return Status::OK();
+        return;
     }
 
     const ColumnFloat64* cf64_right = assert_cast<const ColumnFloat64*>(right_col.get());
@@ -396,26 +401,18 @@ Status VectorizedFnCall::prepare_ann_range_search(
     if (function_call == nullptr) {
         suitable_for_ann_index = false;
         // Left child is not a function call.
-        return Status::OK();
+        return;
     }
 
-    // Now left child is a function call, we need to check if it is a distance function
-    std::set<std::string> distance_functions = {L2DistanceApproximate::name,
-                                                InnerProductApproximate::name};
-    if (distance_functions.find(function_call->_function_name) == distance_functions.end()) {
+    if (DISTANCE_FUNCS.find(function_call->_function_name) == DISTANCE_FUNCS.end()) {
         // Left child is not a approximate distance function. Got function_call->_function_name
         suitable_for_ann_index = false;
-        return Status::OK();
+        return;
     } else {
         // Strip the _approximate suffix.
         std::string metric_name = function_call->_function_name;
         metric_name = metric_name.substr(0, metric_name.size() - 12);
         range_search_runtime.metric_type = segment_v2::string_to_metric(metric_name);
-    }
-
-    if (function_call->get_num_children() != 2) {
-        suitable_for_ann_index = false;
-        return Status::OK();
     }
 
     UInt16 idx_of_cast_to_array = 0;
@@ -437,7 +434,7 @@ Status VectorizedFnCall::prepare_ann_range_search(
     if (cast_to_array_expr == nullptr || array_literal == nullptr) {
         suitable_for_ann_index = false;
         // Cast to array expr or array literal is null.
-        return Status::OK();
+        return;
     }
 
     // One of the children is a slot ref, and the other is an array literal, now begin to create search params.
@@ -446,7 +443,7 @@ Status VectorizedFnCall::prepare_ann_range_search(
     if (slot_ref == nullptr) {
         suitable_for_ann_index = false;
         // Cast to array expr's child is not a slot ref.
-        return Status::OK();
+        return;
     }
 
     range_search_runtime.src_col_idx = slot_ref->column_id();
@@ -468,7 +465,7 @@ Status VectorizedFnCall::prepare_ann_range_search(
     range_search_runtime.is_ann_range_search = true;
     range_search_runtime.user_params = user_params;
     VLOG_DEBUG << fmt::format("Ann range search params: {}", range_search_runtime.to_string());
-    return Status::OK();
+    return;
 }
 
 Status VectorizedFnCall::evaluate_ann_range_search(

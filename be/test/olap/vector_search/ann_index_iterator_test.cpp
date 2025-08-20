@@ -99,7 +99,7 @@ TEST_F(AnnIndexIteratorTest, TestReadFromIndexWithValidParam) {
     build_params.max_degree = 16;
     build_params.index_type = FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = FaissBuildParameter::MetricType::L2;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     _ann_reader->_vector_index = std::move(doris_faiss_vector_index);
 
@@ -158,7 +158,7 @@ TEST_F(AnnIndexIteratorTest, TestRangeSearchWithValidReader) {
     build_params.max_degree = 16;
     build_params.index_type = FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = FaissBuildParameter::MetricType::L2;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     _ann_reader->_vector_index = std::move(doris_faiss_vector_index);
 
@@ -203,7 +203,7 @@ TEST_F(AnnIndexIteratorTest, TestRangeSearchWithDifferentParameters) {
     build_params.max_degree = 16;
     build_params.index_type = FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = FaissBuildParameter::MetricType::L2;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     _ann_reader->_vector_index = std::move(doris_faiss_vector_index);
 
@@ -265,7 +265,7 @@ TEST_F(AnnIndexIteratorTest, TestWithInnerProductMetric) {
     build_params.max_degree = 16;
     build_params.index_type = FaissBuildParameter::IndexType::HNSW;
     build_params.metric_type = FaissBuildParameter::MetricType::IP;
-    doris_faiss_vector_index->set_build_params(build_params);
+    doris_faiss_vector_index->build(build_params);
 
     ann_reader->_vector_index = std::move(doris_faiss_vector_index);
 

@@ -55,18 +55,18 @@ Status AnnIndexColumnWriter::init() {
     const auto& properties = _index_meta->properties();
     const std::string index_type = get_or_default(properties, INDEX_TYPE, "hnsw");
     const std::string metric_type = get_or_default(properties, METRIC_TYPE, "l2_distance");
-    FaissBuildParameter builderParameter;
+    FaissBuildParameter build_parameter;
     std::shared_ptr<FaissVectorIndex> faiss_index = std::make_shared<FaissVectorIndex>();
-    builderParameter.index_type = FaissBuildParameter::string_to_index_type(index_type);
-    builderParameter.dim = std::stoi(get_or_default(properties, DIM, "512"));
-    builderParameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
-    builderParameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
+    build_parameter.index_type = FaissBuildParameter::string_to_index_type(index_type);
+    build_parameter.dim = std::stoi(get_or_default(properties, DIM, "512"));
+    build_parameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
+    build_parameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
 
-    faiss_index->set_build_params(builderParameter);
+    faiss_index->build(build_parameter);
 
     _vector_index = faiss_index;
     LOG_INFO("Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}",
-             index_type, builderParameter.dim, metric_type, builderParameter.max_degree);
+             index_type, build_parameter.dim, metric_type, build_parameter.max_degree);
     return Status::OK();
 }
 

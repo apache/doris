@@ -62,7 +62,7 @@ std::unique_ptr<doris::segment_v2::VectorIndex> create_doris_index(IndexType ind
     default:
         throw std::invalid_argument("Unsupported index type");
     }
-    index->set_build_params(params);
+    index->build(params);
     return std::move(index);
 }
 

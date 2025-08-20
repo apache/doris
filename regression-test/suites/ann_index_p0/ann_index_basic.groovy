@@ -73,16 +73,16 @@ suite ("ann_index_basic") {
 		"""
 
 		// Query: inner product descending (higher score first)
-		qt_sql_ip_query "select id, inner_product_approximate(embedding, [0.1,0.2,0.3,0.4]) as score from tbl_ann_ip order by score desc limit 3;"
+		qt_sql_ip_query "select id from tbl_ann_ip order by inner_product_approximate(embedding, [0.1,0.2,0.3,0.4]) desc limit 3;"
 
 		// 3) Simple threshold filter using l2_distance_approximate
 		qt_sql_l2_threshold "select id from tbl_ann_l2 where l2_distance_approximate(embedding, [1.0,2.0,3.0]) < 5.0 order by id;"
 
         // 4) Descending l2 order (should exercise path where Desc topn for l2/cosine cannot be evaluated by ann index)
-        qt_sql_l2_desc "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ann_l2 order by dist desc limit 2;"
+        qt_sql_l2_desc "select id from tbl_ann_l2 order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) desc limit 2;"
 
         // 5) Ascending inner_product order (should exercise path where Asc topn for inner product cannot be evaluated by ann index)
-        qt_sql_ip_asc "select id, inner_product_approximate(embedding, [0.1,0.2,0.3,0.4]) as score from tbl_ann_ip order by score asc limit 2;"
+        qt_sql_ip_asc "select id from tbl_ann_ip order by inner_product_approximate(embedding, [0.1,0.2,0.3,0.4]) asc limit 2;"
 
         // 6) Large table to exercise predicate-input-ratio check (create many rows and run topn with small-range predicate)
         sql "drop table if exists tbl_ann_l2_large"
@@ -113,10 +113,10 @@ suite ("ann_index_basic") {
         sql "INSERT INTO tbl_ann_l2_large VALUES ${values.join(',')};"
 
         // topn with small predicate (id < 5) -> selects 4/50 = 8% (<30%), should exercise "will not use ann index" path
-        qt_sql_l2_small_pred "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ann_l2_large where id < 5 order by dist limit 5;"
+        qt_sql_l2_small_pred "select id from tbl_ann_l2_large where id < 5 order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 5;"
 
         // topn with large predicate (id < 40) -> selects 39/50 = 78% (>30%), more likely to use ann index
-        qt_sql_l2_large_pred "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ann_l2_large where id < 40 order by dist limit 5;"
+        qt_sql_l2_large_pred "select id from tbl_ann_l2_large where id < 40 order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 5;"
 
         // 7) Compound search: inverted index + ann index
         sql "drop table if exists ann_compound"
@@ -138,5 +138,5 @@ suite ("ann_index_basic") {
 
         sql "INSERT INTO ann_compound VALUES (1, [1.0,2.0,3.0], 'quick brown fox'), (2, [2.0,3.0,4.0], 'lazy dog fox'), (3, [10.0,10.0,10.0], 'unrelated text');"
 
-        qt_sql_compound "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from ann_compound where txt match_any 'fox' order by dist limit 3;"
+        qt_sql_compound "select id from ann_compound where txt match_any 'fox' order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 3;"
 }

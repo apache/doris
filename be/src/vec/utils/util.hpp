@@ -296,22 +296,6 @@ T read_from_json(const std::string& json_str) {
     return params;
 }
 
-template <typename T>
-void write_to_json(const std::string& path, std::string name, const T& expr) {
-    auto memBuffer = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
-    auto jsonProtocol = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBuffer);
-
-    expr.write(jsonProtocol.get());
-    uint8_t* buf;
-    uint32_t size;
-    memBuffer->getBuffer(&buf, &size);
-    std::string file_path = fmt::format("{}/{}.json", path, name);
-    std::ofstream ofs(file_path, std::ios::binary);
-    ofs.write(reinterpret_cast<const char*>(buf), size);
-    ofs.close();
-    std::cout << fmt::format("Serialized JSON written to {}\n", file_path);
-}
-
 } // namespace doris::vectorized
 
 namespace apache::thrift {

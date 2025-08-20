@@ -139,7 +139,7 @@ Status OlapScanner::prepare() {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
-        RETURN_IF_ERROR(context->prepare_ann_range_search(_vector_search_params));
+        context->prepare_ann_range_search(_vector_search_params);
     }
 
     for (auto pair : local_state->_slot_id_to_virtual_column_expr) {

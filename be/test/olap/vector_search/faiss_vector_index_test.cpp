@@ -46,7 +46,7 @@ TEST_F(VectorSearchTest, TestSaveAndLoad) {
     params.dim = 128;       // Vector dimension
     params.max_degree = 16; // HNSW max connections
     params.index_type = FaissBuildParameter::IndexType::HNSW;
-    index1->set_build_params(params);
+    index1->build(params);
 
     // Step 3: Add vectors to the index
     const int num_vectors = 100;
@@ -264,7 +264,7 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
         params.dim = 64;
         params.max_degree = 32;
         params.index_type = FaissBuildParameter::IndexType::HNSW;
-        index1->set_build_params(params);
+        index1->build(params);
 
         // Add 500 vectors
         const int num_vectors = 500;
@@ -342,7 +342,7 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
             } else {
                 throw std::runtime_error(fmt::format("Unsupported metric type: {}", metric));
             }
-            doris_index->set_build_params(params);
+            doris_index->build(params);
 
             const int num_vectors = random_n;
             std::vector<std::vector<float>> vectors;
@@ -442,7 +442,7 @@ TEST_F(VectorSearchTest, RangeSearchAllRowsAsCandidates) {
         params.dim = random_d;
         params.max_degree = random_m;
         params.index_type = FaissBuildParameter::IndexType::HNSW;
-        index1->set_build_params(params);
+        index1->build(params);
 
         const int num_vectors = random_n;
         std::vector<std::vector<float>> vectors;
@@ -563,7 +563,7 @@ TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
         params.dim = 100;
         params.max_degree = 32;
         params.index_type = FaissBuildParameter::IndexType::HNSW;
-        index1->set_build_params(params);
+        index1->build(params);
 
         const int num_vectors = 100;
         std::vector<std::vector<float>> vectors;
@@ -681,7 +681,7 @@ TEST_F(VectorSearchTest, InnerProductTopKSearch) {
                     params.max_degree = 32;
                     params.index_type = FaissBuildParameter::IndexType::HNSW;
                     params.metric_type = FaissBuildParameter::MetricType::IP;
-                    doris_index->set_build_params(params);
+                    doris_index->build(params);
 
                     // Generate normalized vectors (important for inner product)
                     std::vector<float> flat_vectors;
@@ -765,7 +765,7 @@ TEST_F(VectorSearchTest, InnerProductRangeSearchBasic) {
         params.max_degree = m;
         params.index_type = FaissBuildParameter::IndexType::HNSW;
         params.metric_type = FaissBuildParameter::MetricType::IP;
-        doris_index->set_build_params(params);
+        doris_index->build(params);
 
         // Create native index for comparison
         faiss::IndexFlatIP native_index(dim);
@@ -841,7 +841,7 @@ TEST_F(VectorSearchTest, InnerProductVsL2Comparison) {
     l2_params.max_degree = 32;
     l2_params.index_type = FaissBuildParameter::IndexType::HNSW;
     l2_params.metric_type = FaissBuildParameter::MetricType::L2;
-    l2_index->set_build_params(l2_params);
+    l2_index->build(l2_params);
     l2_index->add(n, flat_vectors.data());
 
     // Create Inner Product index
@@ -851,7 +851,7 @@ TEST_F(VectorSearchTest, InnerProductVsL2Comparison) {
     ip_params.max_degree = 32;
     ip_params.index_type = FaissBuildParameter::IndexType::HNSW;
     ip_params.metric_type = FaissBuildParameter::MetricType::IP;
-    ip_index->set_build_params(ip_params);
+    ip_index->build(ip_params);
     ip_index->add(n, flat_vectors.data());
 
     // Use first vector as query
@@ -927,7 +927,7 @@ TEST_F(VectorSearchTest, L2RangeSearchZeroAndNegativeRadius) {
     params.max_degree = m;
     params.index_type = FaissBuildParameter::IndexType::HNSW;
     params.metric_type = FaissBuildParameter::MetricType::L2;
-    index->set_build_params(params);
+    index->build(params);
 
     // Generate data
     std::vector<float> flat_vectors;
@@ -976,7 +976,7 @@ TEST_F(VectorSearchTest, InnerProductRangeSearchZeroAndNegativeRadius) {
     params.max_degree = m;
     params.index_type = FaissBuildParameter::IndexType::HNSW;
     params.metric_type = FaissBuildParameter::MetricType::IP;
-    index->set_build_params(params);
+    index->build(params);
 
     // Generate normalized vectors to keep IP in [-1, 1]
     std::vector<float> flat_vectors;

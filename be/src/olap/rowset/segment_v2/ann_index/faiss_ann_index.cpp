@@ -48,10 +48,11 @@ namespace doris::segment_v2 {
 std::unique_ptr<faiss::IDSelector> FaissVectorIndex::roaring_to_faiss_selector(
         const roaring::Roaring& roaring) {
     std::vector<faiss::idx_t> ids;
-    ids.reserve(roaring.cardinality());
+    ids.resize(roaring.cardinality());
 
-    for (roaring::Roaring::const_iterator it = roaring.begin(); it != roaring.end(); ++it) {
-        ids.push_back(static_cast<faiss::idx_t>(*it));
+    size_t i = 0;
+    for (roaring::Roaring::const_iterator it = roaring.begin(); it != roaring.end(); ++it, ++i) {
+        ids[i] = cast_set<faiss::idx_t>(*it);
     }
     // construct derived and wrap into base unique_ptr explicitly
     return std::unique_ptr<faiss::IDSelector>(new faiss::IDSelectorBatch(ids.size(), ids.data()));
@@ -158,7 +159,7 @@ doris::Status FaissVectorIndex::add(int n, const float* vec) {
     return doris::Status::OK();
 }
 
-void FaissVectorIndex::set_build_params(const FaissBuildParameter& params) {
+void FaissVectorIndex::build(const FaissBuildParameter& params) {
     _dimension = params.dim;
     switch (params.metric_type) {
     case FaissBuildParameter::MetricType::L2:
@@ -242,19 +243,20 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
         size_t roaring_cardinality = result.roaring->cardinality();
         result.distances = std::make_unique<float[]>(roaring_cardinality);
         result.row_ids = std::make_unique<std::vector<uint64_t>>();
+        result.row_ids->resize(roaring_cardinality);
 
         if (_metric == AnnIndexMetric::L2) {
             // For l2_distance, we need to convert the distance to the actual distance.
             // The distance returned by Faiss is actually the squared distance.
             // So we need to take the square root of the squared distance.
             for (size_t i = 0; i < roaring_cardinality; ++i) {
-                result.row_ids->push_back(labels[i]);
+                (*result.row_ids)[i] = labels[i];
                 result.distances[i] = std::sqrt(distances[i]);
             }
         } else if (_metric == AnnIndexMetric::IP) {
             // For inner product, we can use the distance directly.
             for (size_t i = 0; i < roaring_cardinality; ++i) {
-                result.row_ids->push_back(labels[i]);
+                (*result.row_ids)[i] = labels[i];
                 result.distances[i] = distances[i];
             }
         } else {

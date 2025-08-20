@@ -165,7 +165,7 @@ public:
      * 
      * @param params Build parameters including index type, metric, and dimensions
      */
-    void set_build_params(const FaissBuildParameter& params);
+    void build(const FaissBuildParameter& params);
 
     /**
      * @brief Performs approximate k-nearest neighbor search.
