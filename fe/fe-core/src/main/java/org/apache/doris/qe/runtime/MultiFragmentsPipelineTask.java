@@ -86,6 +86,10 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         );
     }
 
+    public Integer getInstanceNum() {
+        return coordinatorContext.instanceNum.get();
+    }
+
     public Future<PExecPlanFragmentResult> sendPhaseTwoRpc() {
         return execPlanFragmentStartAsync(backendClientProxy, backend.getBrpcAddress());
     }
