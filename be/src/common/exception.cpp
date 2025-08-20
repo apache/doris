@@ -21,13 +21,18 @@
 #include "util/stack_util.h"
 namespace doris {
 
-Exception::Exception(int code, const std::string_view& msg) {
+Exception::Exception(int code, const std::string_view& msg, bool from_status) {
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
     _err_msg->_msg = msg;
 #ifndef BE_TEST
     if (ErrorCode::error_states[abs(code)].stacktrace) {
         _err_msg->_stack = get_stack_trace();
+        // if haven't construct Status, no error stack before. so we need print.
+        if (!from_status && config::enable_stacktrace) {
+            LOG(WARNING) << "meet exception, error code: " << code << ", message: " << msg << '\n'
+                         << _err_msg->_stack;
+        }
     }
 #else
     if (ErrorCode::error_states[abs(code)].stacktrace) {
