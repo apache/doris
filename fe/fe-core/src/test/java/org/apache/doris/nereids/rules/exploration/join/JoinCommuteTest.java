@@ -112,7 +112,15 @@ public class JoinCommuteTest implements MemoPatternMatchSupported {
         }
         for (Expression expr : newJoin.getOtherJoinConjuncts()) {
             expr.collectToSet(SlotReference.class::isInstance)
-                    .forEach(slot -> Assertions.assertFalse(((SlotReference) slot).nullable()));
+                    .forEach(slot -> {
+                        if (slot.equals(scan1.getOutput().get(0))) {
+                            // the slot from scan1 should be nullable true
+                            Assertions.assertFalse(((SlotReference) slot).nullable());
+                        } else {
+                            // the slot from scan2 should be nullable false
+                            Assertions.assertTrue(((SlotReference) slot).nullable());
+                        }
+                    });
         }
     }
 }

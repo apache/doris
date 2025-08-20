@@ -170,6 +170,7 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
 
     @Test
     public void testJoinConjunctNullableWhenLAssociate() {
+        // t1 left outer join t2
         List<Expression> bottomHashJoinConjunct = ImmutableList.of(
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
@@ -181,10 +182,11 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                 bottomJoin.getOutput().stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
                 bottomJoin);
 
+        // t1 left outer join t3
         List<Expression> topHashJoinConjunct = ImmutableList.of(
                 new EqualTo(bottomProject.getOutput().get(0), scan3.getOutput().get(0).withNullable(true)));
         List<Expression> topOtherJoinConjunct = ImmutableList.of(
-                new GreaterThan(bottomProject.getOutput().get(1), scan3.getOutput().get(1).withNullable(true)));
+                new GreaterThan(bottomProject.getOutput().get(1), scan3.getOutput().get(1)));
         LogicalPlan topJoin = new LogicalPlanBuilder(bottomProject)
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
@@ -211,8 +213,10 @@ class OuterJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                             .forEach(slot -> Assertions.assertFalse(((SlotReference) slot).nullable()));
                 }
                 for (Expression expr : newJoin.getOtherJoinConjuncts()) {
-                    expr.collectToSet(SlotReference.class::isInstance)
-                            .forEach(slot -> Assertions.assertFalse(((SlotReference) slot).nullable()));
+                    if (expr instanceof GreaterThan) {
+                        Assertions.assertFalse(expr.child(0).nullable());
+                        Assertions.assertTrue(expr.child(1).nullable());
+                    }
                 }
             }
         }
