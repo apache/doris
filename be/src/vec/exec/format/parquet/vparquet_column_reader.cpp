@@ -392,7 +392,9 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
     _def_levels.resize(origin_size + parsed_values);
     if (has_def_level) {
-        _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
+        if (parsed_values != 0) {
+            _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
+        }
     } else {
         std::fill(_def_levels.begin() + origin_size, _def_levels.end(), 0);
     }
