@@ -345,8 +345,8 @@ void convert_tmp_rowsets(
 
         if (is_versioned_write) {
             TabletStatsPB stats_pb;
-            internal_get_versioned_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
-                                                stats_pb);
+            internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
+                                                tablet_idx, stats_pb);
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "update versioned tablet stats failed, code=" << code
                              << " msg=" << msg << " txn_id=" << txn_id
