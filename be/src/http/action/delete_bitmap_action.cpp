@@ -198,8 +198,8 @@ Status DeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest* req,
     return Status::OK();
 }
 
-Status DeleteBitmapAction::_handle_show_agg_cache_delete_bitmap_count(
-        HttpRequest* req, std::string* json_result) {
+Status DeleteBitmapAction::_handle_show_agg_cache_delete_bitmap_count(HttpRequest* req,
+                                                                      std::string* json_result) {
     uint64_t tablet_id = 0;
     bool verbose = false;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &verbose), "check param failed");

@@ -584,6 +584,7 @@ public:
     std::set<RowsetId> get_rowset_cache_version();
 
     DeleteBitmap agg_cache_snapshot();
+
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
 
