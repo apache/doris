@@ -660,11 +660,15 @@ public class PaimonUtil {
         return baseTable.copy(options);
     }
 
-    public static Snapshot getSnapshotByBranchOrTag(Table table, TableScanParams scanParams) {
-        String ref = extractBranchOrTagName(scanParams);
+    public static Snapshot getPaimonSnapshot(Table table, TableSnapshot snapshot) {
         DataTable dataTable = (DataTable) table;
-        Optional<Tag> tag = dataTable.tagManager().get(ref);
-        return tag.get();
+        if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
+            Optional<Tag> tag = dataTable.tagManager().get(snapshot.getValue());
+            if (tag.isEmpty()) {
+                throw new RuntimeException(String.format("Tag '%s' does not exist", snapshot.getValue()));
+            }
+        }
+        throw new RuntimeException(String.format("Invalid snapshot type: %s", snapshot.getType()));
     }
 
     /**

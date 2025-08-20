@@ -30,7 +30,6 @@ import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -103,12 +102,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         makeSureInitialized();
-        // TODO: refactor this code with iceberg
-        if (tableSnapshot.isPresent() || IcebergUtils.isIcebergBranchOrTag(scanParams)) {
+        if (tableSnapshot.isPresent()) {
             // If a snapshot is specified,
             // use the specified snapshot and the corresponding schema(not the latest
             // schema).
-            Snapshot snapshot = PaimonUtil.getSnapshotByBranchOrTag(paimonTable, scanParams.get());
+            Snapshot snapshot = PaimonUtil.getPaimonSnapshot(paimonTable, tableSnapshot.get());
             return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
                     new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), paimonTable));
         } else {
