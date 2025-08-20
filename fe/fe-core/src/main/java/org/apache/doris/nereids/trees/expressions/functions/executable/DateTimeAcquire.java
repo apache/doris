@@ -21,7 +21,6 @@ import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
@@ -114,6 +113,6 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "utc_timestamp")
     public static Expression utcTimestamp() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(ZoneId.of("UTC+0")));
+        return DateTimeV2Literal.fromJavaDateType(LocalDateTime.now(ZoneId.of("UTC+0")), 0);
     }
 }
