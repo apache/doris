@@ -345,6 +345,14 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             // for multi bytes delimiter we cannot set offset to avoid incomplete
             // delimiter
             // read from file reader
+            if (_output_buf_size > config::max_csv_line_reader_output_buffer_size) [[unlikely]] {
+                return Status::InternalError(
+                        "Output buffer size exceeds configured limit of " +
+                        std::to_string(config::max_csv_line_reader_output_buffer_size /
+                                       (1024 * 1024 * 1024)) +
+                        "GB. "
+                        "It may be due to a configuration error or a very large row of data.");
+            }
             offset = output_buf_read_remaining();
             extend_output_buf();
             if ((_input_buf_limit > _input_buf_pos) && _more_input_bytes == 0) {
