@@ -277,6 +277,7 @@ private:
     // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
     bool _not_trim_enclose = true;
     bool _keep_cr = false;
+    bool _empty_field_as_null = false;
 
     io::IOContext* _io_ctx = nullptr;
     // save source text which have been splitted.

@@ -555,6 +555,7 @@ struct TStreamLoadPutRequest {
     56: optional string group_commit_mode
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
+    59: optional bool empty_field_as_null
 
     // For cloud
     1000: optional string cloud_cluster
