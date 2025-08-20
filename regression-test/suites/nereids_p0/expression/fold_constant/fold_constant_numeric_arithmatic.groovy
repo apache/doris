@@ -62,6 +62,11 @@ suite("fold_constant_numeric_arithmatic") {
 //    testFoldConst("SELECT ACOSH(-1E308)"); // Invalid input (x < 1)
     testFoldConst("SELECT ACOSH(1), ACOSH(2), ACOSH(10)"); // Multiple values
 
+    // Add function cases
+    testFoldConst("SELECT ADD(1e1000, 1)");
+    testFoldConst("SELECT ADD(-1e1000, 1)");
+    testFoldConst("SELECT ADD(cast(\"nan\" as double), 1)");
+
 //Asin function cases
     testFoldConst("SELECT ASIN(1) AS asin_case_1") //asin(1) = π/2
     testFoldConst("SELECT ASIN(0) AS asin_case_2") //asin(0) = 0
@@ -288,6 +293,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT EXP(-1E-308)") // Very small negative number
     testFoldConst("SELECT EXP(709.782712893384)") // Near overflow boundary
     testFoldConst("SELECT EXP(-709.782712893384)") // Near underflow boundary
+    testFoldConst("SELECT EXP(1959859681)") // Result overflow become infinity
 
 //Floor function cases
     testFoldConst("SELECT FLOOR(3.7) AS floor_case_1")
@@ -338,6 +344,8 @@ suite("fold_constant_numeric_arithmatic") {
 //    testFoldConst("SELECT POWER(2, 1E308)")
     testFoldConst("SELECT POWER(1E-308, 2)") // Very small base
     testFoldConst("SELECT POWER(2, -1E308)") // Very small negative exponent
+    testFoldConst("SELECT POWER(-1.1, 3.2)") // NaN
+    testFoldConst("SELECT POWER(1, 1e1000)")
 
 //Ln function cases
     testFoldConst("SELECT LN(1) AS ln_case_1") //ln(1) = 0
@@ -505,6 +513,9 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT SQRT(16) AS sqrt_case_1") //sqrt(16) = 4
     testFoldConst("SELECT SQRT(0) AS sqrt_case_2") //sqrt(0) = 0
     testFoldConst("SELECT SQRT(2) AS sqrt_case_3") //sqrt(2)
+    testFoldConst("SELECT SQRT(1e1000)") //sqrt(2)
+    testFoldConst("SELECT SQRT(-1e1000)") //sqrt(2)
+
 
 //Tan function cases
     testFoldConst("SELECT TAN(PI() / 4) AS tan_case_1") //tan(π/4) = 1

@@ -18,11 +18,8 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -50,51 +47,6 @@ import java.util.regex.Pattern;
  */
 public abstract class AbstractS3CompatibleProperties extends StorageProperties implements ObjectStorageProperties {
     private static final Logger LOG = LogManager.getLogger(AbstractS3CompatibleProperties.class);
-    /**
-     * The maximum number of concurrent connections that can be made to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
-    @Getter
-    @ConnectorProperty(names = {"connection.maximum"}, required = false, description = "Maximum number of connections.")
-    protected String maxConnections = "100";
-
-    /**
-     * The timeout (in milliseconds) for requests made to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
-    @Getter
-    @ConnectorProperty(names = {"connection.request.timeout"}, required = false,
-            description = "Request timeout in seconds.")
-    protected String requestTimeoutS = "10000";
-
-    /**
-     * The timeout (in milliseconds) for establishing a connection to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
-    @Getter
-    @ConnectorProperty(names = {"connection.timeout"}, required = false, description = "Connection timeout in seconds.")
-    protected String connectionTimeoutS = "10000";
-
-    /**
-     * Flag indicating whether to use path-style URLs for the object storage system.
-     * This value is optional and can be configured by the user.
-     */
-    @Setter
-    @Getter
-    @ConnectorProperty(names = {"use_path_style", "s3.path-style-access"}, required = false,
-            description = "Whether to use path style URL for the storage.")
-    protected String usePathStyle = "false";
-    @ConnectorProperty(names = {"force_parsing_by_standard_uri"}, required = false,
-            description = "Whether to use path style URL for the storage.")
-    @Setter
-    @Getter
-    protected String forceParsingByStandardUrl = "false";
-
-    @Getter
-    @ConnectorProperty(names = {"s3.session_token", "session_token"},
-            required = false,
-            description = "The session token of S3.")
-    protected String sessionToken = "";
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
@@ -132,7 +84,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
      * @return a map containing AWS S3 configuration properties.
      */
     protected Map<String, String> generateBackendS3Configuration() {
-        return doBuildS3Configuration(maxConnections, requestTimeoutS, connectionTimeoutS, usePathStyle);
+        return doBuildS3Configuration(getMaxConnections(), getRequestTimeoutS(), getConnectionTimeoutS(),
+                getUsePathStyle());
     }
 
     /**
@@ -164,11 +117,11 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     public AwsCredentialsProvider getAwsCredentialsProvider() {
         if (StringUtils.isNotBlank(getAccessKey()) && StringUtils.isNotBlank(getSecretKey())) {
-            if (Strings.isNullOrEmpty(sessionToken)) {
+            if (Strings.isNullOrEmpty(getSessionToken())) {
                 return StaticCredentialsProvider.create(AwsBasicCredentials.create(getAccessKey(), getSecretKey()));
             } else {
                 return StaticCredentialsProvider.create(AwsSessionCredentials.create(getAccessKey(), getSecretKey(),
-                        sessionToken));
+                        getSessionToken()));
             }
         }
         return null;
@@ -182,6 +135,11 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
             throw new IllegalArgumentException("Invalid endpoint: " + getEndpoint());
         }
         setRegionIfPossible();
+        //Allow anonymous access if both access_key and secret_key are empty
+        //But not recommended for production use.
+        if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
+            throw new IllegalArgumentException("Both the access key and the secret key must be set.");
+        }
     }
 
     /**
@@ -207,7 +165,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         String endpoint = null;
         // 1. try getting endpoint from uri
         try {
-            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
+            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, getUsePathStyle(),
+                    getForceParsingByStandardUrl());
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Failed to construct endpoint from url: " + origProps, e);
@@ -309,7 +268,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         hadoopStorageConfig.set("fs.s3a.connection.maximum", getMaxConnections());
         hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
         hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());
-        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
+        hadoopStorageConfig.set("fs.s3a.path.style.access", getUsePathStyle());
     }
 
     @Override

@@ -436,6 +436,8 @@ message TabletSchemaPB {
     optional int32 skip_bitmap_col_idx = 29 [default = -1];
     optional int64 storage_page_size = 30 [default=65536];
     optional int64 storage_dict_page_size = 31 [default=262144];
+
+    optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
 message TabletSchemaCloudPB {
@@ -475,6 +477,8 @@ message TabletSchemaCloudPB {
 
     // FIXME(gavin): deprecate and remove in the future
     optional bool is_in_memory = 200 [default=false]; // unused, just keep align to TabletSchemaPB
+
+    optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
 enum TabletStatePB {

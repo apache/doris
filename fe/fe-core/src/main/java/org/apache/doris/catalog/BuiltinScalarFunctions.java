@@ -365,7 +365,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
@@ -858,6 +861,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(QuantileStateEmpty.class, "quantile_state_empty"),
             scalar(Quarter.class, "quarter"),
             scalar(QuartersAdd.class, "quarters_add"),
+            scalar(QuarterCeil.class, "quarter_ceil"),
+            scalar(QuartersDiff.class, "quarters_diff"),
+            scalar(QuarterFloor.class, "quarter_floor"),
             scalar(QuartersSub.class, "quarters_sub"),
             scalar(Radians.class, "radians"),
             scalar(Random.class, "rand", "random"),

@@ -36,20 +36,26 @@
 namespace doris {
 namespace vectorized {
 
+// Same with definations in threadpool.cpp
+// Why use same name:
+// We do not want to add seperate metrics for TimeSharingTaskExecutor.
+// TimeSharingTaskExecutor is actually a specialized ThreadPool, which uses a time_sharing queuing policy.
+// So we want it have same metrics ends up in the finale prometheus.
+// This is safe:
+// 1. different compile unit.
+// 2. different metric tags when registering to prometheus.
 // The name of these varialbs will be useds as metric name in prometheus.
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(split_thread_pool_active_threads, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(split_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(split_thread_pool_max_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(split_thread_pool_max_threads, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_submit_failed, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_execution_time_ns_total,
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_threads, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_submit_failed, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_time_ns_total,
                                      MetricUnit::NANOSECONDS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_execution_count_total,
-                                     MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_wait_worker_time_ns_total,
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_count_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_time_ns_total,
                                      MetricUnit::NANOSECONDS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(split_thread_pool_task_wait_worker_count_total,
-                                     MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_count_total, MetricUnit::NOUNIT);
 
 SplitThreadPoolToken::SplitThreadPoolToken(TimeSharingTaskExecutor* pool,
                                            TimeSharingTaskExecutor::ExecutionMode mode,
@@ -232,15 +238,15 @@ Status TimeSharingTaskExecutor::init() {
                                                           {"workload_group", _workload_group},
                                                           {"id", _id.to_string()}});
 
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, split_thread_pool_active_threads);
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, split_thread_pool_max_threads);
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, split_thread_pool_queue_size);
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, split_thread_pool_max_queue_size);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_execution_time_ns_total);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_execution_count_total);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_wait_worker_time_ns_total);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_task_wait_worker_count_total);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, split_thread_pool_submit_failed);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_active_threads);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_threads);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_queue_size);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_threads);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_execution_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_execution_count_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_wait_worker_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_wait_worker_count_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_submit_failed);
 
     _metric_entity->register_hook("update", [this]() {
         {
@@ -250,10 +256,10 @@ Status TimeSharingTaskExecutor::init() {
             }
         }
 
-        split_thread_pool_active_threads->set_value(num_active_threads());
-        split_thread_pool_queue_size->set_value(get_queue_size());
-        split_thread_pool_max_queue_size->set_value(get_max_queue_size());
-        split_thread_pool_max_threads->set_value(max_threads());
+        thread_pool_active_threads->set_value(num_active_threads());
+        thread_pool_queue_size->set_value(get_queue_size());
+        thread_pool_max_threads->set_value(get_max_queue_size());
+        thread_pool_max_threads->set_value(max_threads());
     });
     return Status::OK();
 }
@@ -387,7 +393,7 @@ Status TimeSharingTaskExecutor::_do_submit(std::shared_ptr<PrioritizedSplitRunne
     int64_t capacity_remaining = static_cast<int64_t>(_max_threads) - _active_threads +
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
-        split_thread_pool_submit_failed->increment(1);
+        thread_pool_submit_failed->increment(1);
         return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                 "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)",
                 _thread_name, _num_threads + _num_threads_pending_start, _max_threads,
@@ -542,9 +548,9 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
         DCHECK_EQ(SplitThreadPoolToken::State::RUNNING, _tokenless->state());
         DCHECK(_tokenless->_entries->size() > 0);
         std::shared_ptr<PrioritizedSplitRunner> split = _tokenless->_entries->take();
-        split_thread_pool_task_wait_worker_time_ns_total->increment(
+        thread_pool_task_wait_worker_time_ns_total->increment(
                 split->submit_time_watch().elapsed_time());
-        split_thread_pool_task_wait_worker_count_total->increment(1);
+        thread_pool_task_wait_worker_count_total->increment(1);
         _tokenless->_active_threads++;
         --_total_queued_tasks;
         ++_active_threads;
@@ -619,9 +625,9 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
         // with this SplitThreadPool, and produce a deadlock.
         // task.runnable.reset();
         l.lock();
-        split_thread_pool_task_execution_time_ns_total->increment(
+        thread_pool_task_execution_time_ns_total->increment(
                 task_execution_time_watch.elapsed_time());
-        split_thread_pool_task_execution_count_total->increment(1);
+        thread_pool_task_execution_count_total->increment(1);
         // Possible states:
         // 1. The token was shut down while we ran its task. Transition to QUIESCED.
         // 2. The token has no more queued tasks. Transition back to IDLE.

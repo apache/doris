@@ -96,7 +96,7 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .score_runtime {},
                                  .collection_statistics {}}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
-    _is_init = false;
+    _has_prepared = false;
 }
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
@@ -123,8 +123,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status OlapScanner::init() {
-    _is_init = true;
+Status OlapScanner::prepare() {
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -173,9 +172,11 @@ Status OlapScanner::init() {
                                                 olap_scan_node.schema_version);
             cached_schema = SchemaCache::instance()->get_schema(schema_key);
         }
-        if (cached_schema) {
+        if (cached_schema && cached_schema->num_virtual_columns() == 0) {
             tablet_schema = cached_schema;
         } else {
+            // If schema is not cached or cached schema has virtual columns,
+            // we need to create a new TabletSchema.
             tablet_schema = std::make_shared<TabletSchema>();
             tablet_schema->copy_from(*tablet->tablet_schema());
             if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
@@ -239,7 +240,9 @@ Status OlapScanner::init() {
                                   read_columns_to_string(tablet_schema, _return_columns));
     }
 
-    if (!cached_schema && !schema_key.empty()) {
+    // Add newly created tablet schema to schema cache if it does not have virtual columns.
+    if (cached_schema == nullptr && !schema_key.empty() &&
+        tablet_schema->num_virtual_columns() == 0) {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
@@ -250,6 +253,7 @@ Status OlapScanner::init() {
                 _tablet_reader_params.common_expr_ctxs_push_down));
     }
 
+    _has_prepared = true;
     return Status::OK();
 }
 
