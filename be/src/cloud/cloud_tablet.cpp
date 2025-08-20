@@ -718,7 +718,8 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
     // in the version map, so we use the max value to ensure that the approximate number
     // of rowsets is at least the size of _rs_version_map.
     // Note that this is not the exact number of rowsets, but an approximate number.
-    int64_t approximate_num_rowsets = std::max(num_rowsets, static_cast<int64_t>(_rs_version_map.size()));
+    int64_t approximate_num_rowsets =
+            std::max(num_rowsets, static_cast<int64_t>(_rs_version_map.size()));
     _approximate_num_rowsets.store(approximate_num_rowsets, std::memory_order_relaxed);
     _approximate_cumu_num_rowsets.store(cumu_num_rowsets, std::memory_order_relaxed);
     _approximate_cumu_num_deltas.store(cumu_num_deltas, std::memory_order_relaxed);

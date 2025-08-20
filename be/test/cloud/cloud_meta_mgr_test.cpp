@@ -98,12 +98,12 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {
-    CloudStorageEngine engine(EngineOptions{});
+    CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
 
-    TabletMetaSharedPtr tablet_meta(new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                    TCompressionType::LZ4F));
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
     auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
     // Add consecutive versions: 0, 1, 2, 3, 4
@@ -120,15 +120,15 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {
         rs_meta->set_num_rows(100);
         rs_meta->set_empty(false);
         rs_meta->set_tablet_schema(tablet->tablet_schema());
-        
+
         // Create rowset and add it to tablet
         RowsetSharedPtr rowset;
         auto status = RowsetFactory::create_rowset(tablet->tablet_schema(), tablet->tablet_path(),
-                                                  rs_meta, &rowset);
+                                                   rs_meta, &rowset);
         EXPECT_TRUE(status.ok());
         rowsets.push_back(rowset);
     }
-    
+
     // Add all rowsets to tablet
     {
         std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
@@ -149,12 +149,12 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
-    CloudStorageEngine engine(EngineOptions{});
+    CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
 
-    TabletMetaSharedPtr tablet_meta(new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                    TCompressionType::LZ4F));
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
     auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
     // Add non-consecutive versions: 0, 2, 4 (missing 1, 3)
@@ -172,15 +172,15 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
         rs_meta->set_num_rows(100);
         rs_meta->set_empty(false);
         rs_meta->set_tablet_schema(tablet->tablet_schema());
-        
+
         // Create rowset and add it to list
         RowsetSharedPtr rowset;
         auto status = RowsetFactory::create_rowset(tablet->tablet_schema(), tablet->tablet_path(),
-                                                  rs_meta, &rowset);
+                                                   rs_meta, &rowset);
         EXPECT_TRUE(status.ok());
         rowsets.push_back(rowset);
     }
-    
+
     // Add all rowsets to tablet
     {
         std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
@@ -225,12 +225,12 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
 
 // Test create_empty_rowset_for_hole function
 TEST_F(CloudMetaMgrTest, test_create_empty_rowset_for_hole) {
-    CloudStorageEngine engine(EngineOptions{});
+    CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
 
-    TabletMetaSharedPtr tablet_meta(new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                    TCompressionType::LZ4F));
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
     auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
     // Create a previous rowset meta to pass as reference
@@ -248,7 +248,8 @@ TEST_F(CloudMetaMgrTest, test_create_empty_rowset_for_hole) {
 
     // Test creating an empty rowset for version hole
     RowsetSharedPtr hole_rowset;
-    Status status = meta_mgr.create_empty_rowset_for_hole(tablet.get(), 2, prev_rs_meta, &hole_rowset);
+    Status status =
+            meta_mgr.create_empty_rowset_for_hole(tablet.get(), 2, prev_rs_meta, &hole_rowset);
     EXPECT_TRUE(status.ok()) << "Failed to create empty rowset for hole: " << status;
     EXPECT_NE(hole_rowset, nullptr);
 
@@ -287,20 +288,21 @@ TEST_F(CloudMetaMgrTest, test_create_empty_rowset_for_hole) {
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_edge_cases) {
-    CloudStorageEngine engine(EngineOptions{});
+    CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
 
     // Test case 1: max_version <= 0
     {
-        TabletMetaSharedPtr tablet_meta(new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                        UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                        TCompressionType::LZ4F));
-        auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
-        
+        TabletMetaSharedPtr tablet_meta(new TabletMeta(
+                1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+        auto tablet =
+                std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
+
         std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
         Status status = meta_mgr.fill_version_holes(tablet.get(), 0, wlock);
         EXPECT_TRUE(status.ok());
-        
+
         status = meta_mgr.fill_version_holes(tablet.get(), -1, wlock);
         EXPECT_TRUE(status.ok());
 
@@ -309,27 +311,28 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_edge_cases) {
 
     // Test case 2: empty tablet (no existing versions)
     {
-        TabletMetaSharedPtr tablet_meta(new TabletMeta(1002, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                        UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                        TCompressionType::LZ4F));
-        auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
-        
+        TabletMetaSharedPtr tablet_meta(new TabletMeta(
+                1002, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+        auto tablet =
+                std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
+
         std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
         Status status = meta_mgr.fill_version_holes(tablet.get(), 5, wlock);
         EXPECT_TRUE(status.ok());
-        
+
         // Should still have no rowsets
         EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 0);
     }
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
-    CloudStorageEngine engine(EngineOptions{});
+    CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
 
-    TabletMetaSharedPtr tablet_meta(new TabletMeta(1003, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                    TCompressionType::LZ4F));
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1003, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
     auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
     // Add only versions 0, 1, 2 but max_version is 5 (missing 3, 4, 5)
@@ -346,14 +349,14 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
         rs_meta->set_num_rows(100);
         rs_meta->set_empty(false);
         rs_meta->set_tablet_schema(tablet->tablet_schema());
-        
+
         RowsetSharedPtr rowset;
         auto status = RowsetFactory::create_rowset(tablet->tablet_schema(), tablet->tablet_path(),
-                                                  rs_meta, &rowset);
+                                                   rs_meta, &rowset);
         EXPECT_TRUE(status.ok());
         rowsets.push_back(rowset);
     }
-    
+
     // Add all rowsets to tablet
     {
         std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
@@ -385,23 +388,25 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
     // Verify the trailing hole rowsets (versions 3, 4, 5) are empty
     for (const auto& rs_meta : rs_metas) {
         if (rs_meta->version().first >= 3) {
-            EXPECT_TRUE(rs_meta->empty()) << "Version " << rs_meta->version().first << " should be empty";
+            EXPECT_TRUE(rs_meta->empty())
+                    << "Version " << rs_meta->version().first << " should be empty";
             EXPECT_EQ(rs_meta->num_rows(), 0);
             EXPECT_EQ(rs_meta->total_disk_size(), 0);
         } else {
-            EXPECT_FALSE(rs_meta->empty()) << "Version " << rs_meta->version().first << " should not be empty";
+            EXPECT_FALSE(rs_meta->empty())
+                    << "Version " << rs_meta->version().first << " should not be empty";
             EXPECT_EQ(rs_meta->num_rows(), 100);
         }
     }
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
-    CloudStorageEngine engine(EngineOptions{});
+    CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
 
-    TabletMetaSharedPtr tablet_meta(new TabletMeta(1004, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                    TCompressionType::LZ4F));
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1004, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
     auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
     // Add versions 0, 2 (missing only version 1)
@@ -419,14 +424,14 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
         rs_meta->set_num_rows(100);
         rs_meta->set_empty(false);
         rs_meta->set_tablet_schema(tablet->tablet_schema());
-        
+
         RowsetSharedPtr rowset;
         auto status = RowsetFactory::create_rowset(tablet->tablet_schema(), tablet->tablet_path(),
-                                                  rs_meta, &rowset);
+                                                   rs_meta, &rowset);
         EXPECT_TRUE(status.ok());
         rowsets.push_back(rowset);
     }
-    
+
     // Add all rowsets to tablet
     {
         std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
@@ -469,12 +474,12 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
-    CloudStorageEngine engine(EngineOptions{});
+    CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
 
-    TabletMetaSharedPtr tablet_meta(new TabletMeta(1005, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                    TCompressionType::LZ4F));
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1005, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
     auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
     // Add versions 0, 5 (missing 1, 2, 3, 4 - multiple consecutive holes)
@@ -492,14 +497,14 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
         rs_meta->set_num_rows(100);
         rs_meta->set_empty(false);
         rs_meta->set_tablet_schema(tablet->tablet_schema());
-        
+
         RowsetSharedPtr rowset;
         auto status = RowsetFactory::create_rowset(tablet->tablet_schema(), tablet->tablet_path(),
-                                                  rs_meta, &rowset);
+                                                   rs_meta, &rowset);
         EXPECT_TRUE(status.ok());
         rowsets.push_back(rowset);
     }
-    
+
     // Add all rowsets to tablet
     {
         std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
@@ -531,23 +536,25 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
     // Verify the hole rowsets (versions 1, 2, 3, 4) are empty
     for (const auto& rs_meta : rs_metas) {
         if (rs_meta->version().first >= 1 && rs_meta->version().first <= 4) {
-            EXPECT_TRUE(rs_meta->empty()) << "Version " << rs_meta->version().first << " should be empty";
+            EXPECT_TRUE(rs_meta->empty())
+                    << "Version " << rs_meta->version().first << " should be empty";
             EXPECT_EQ(rs_meta->num_rows(), 0);
             EXPECT_EQ(rs_meta->total_disk_size(), 0);
         } else {
-            EXPECT_FALSE(rs_meta->empty()) << "Version " << rs_meta->version().first << " should not be empty";
+            EXPECT_FALSE(rs_meta->empty())
+                    << "Version " << rs_meta->version().first << " should not be empty";
             EXPECT_EQ(rs_meta->num_rows(), 100);
         }
     }
 }
 
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
-    CloudStorageEngine engine(EngineOptions{});
+    CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
 
-    TabletMetaSharedPtr tablet_meta(new TabletMeta(1006, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
-                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
-                                                    TCompressionType::LZ4F));
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1006, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
     auto tablet = std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
     // Add versions 0, 2, 5, 6 (missing 1, 3, 4 and potential trailing holes up to max_version)
@@ -565,14 +572,14 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
         rs_meta->set_num_rows(100);
         rs_meta->set_empty(false);
         rs_meta->set_tablet_schema(tablet->tablet_schema());
-        
+
         RowsetSharedPtr rowset;
         auto status = RowsetFactory::create_rowset(tablet->tablet_schema(), tablet->tablet_path(),
-                                                  rs_meta, &rowset);
+                                                   rs_meta, &rowset);
         EXPECT_TRUE(status.ok());
         rowsets.push_back(rowset);
     }
-    
+
     // Add all rowsets to tablet
     {
         std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
