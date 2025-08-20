@@ -464,8 +464,13 @@ suite("test_date_function") {
     qt_sql_ustamp7 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
     qt_sql_ustamp8 """ SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59.999'); """
     qt_sql_ustamp9 """ SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59'); """
-    check_fold_consistency("UNIX_TIMESTAMP('9999-12-30 23:59:59.999')")
-    check_fold_consistency("UNIX_TIMESTAMP('9999-12-30 23:59:59')")
+    qt_sql_ustamp10 """ select UNIX_TIMESTAMP('2015-11-13 10:20:19.000010'); """
+    qt_sql_ustamp11 """ select UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.012' as datetime(6))); """
+    check_fold_consistency(" UNIX_TIMESTAMP('9999-12-30 23:59:59.999')")
+    check_fold_consistency(" UNIX_TIMESTAMP('9999-12-30 23:59:59')")
+    check_fold_consistency(" UNIX_TIMESTAMP('2015-11-13 10:20:19.000010')")
+    check_fold_consistency(" UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.000' as datetime(6)))")
+    check_fold_consistency(" UNIX_TIMESTAMP(cast('2015-11-13 10:20:19.012' as datetime(6)))")
     // these two functions may return different value if we call it in different time. so dont use testFoldConst here
     sql "set debug_skip_fold_constant=true;"
     sql "SELECT UNIX_TIMESTAMP(current_timestamp()) AS unix_timestamp;"
