@@ -74,10 +74,16 @@ suite("test_agg_foreach") {
    	qt_sql """
    select covar_foreach(a,a)  , covar_samp_foreach(a,a) , corr_foreach(a,a) from foreach_table ; 
    """
-    qt_sql """
-   select array_sort(array_flatten(topn_foreach(a,a))) ,array_sort(array_flatten(topn_foreach(a,a,a))) ,array_sort(array_flatten(topn_array_foreach(a,a))) ,array_sort(array_flatten(topn_array_foreach(a,a,a))) from foreach_table ;
-   """
 
+   	test {
+    	sql """select topn_foreach(a,a) from foreach_table;"""
+    	exception "errCode = 2"
+   	}
+
+    test {
+    	sql """select topn_array_foreach(a,a) from foreach_table;"""
+    	exception "errCode = 2"
+   	}
 
    	qt_sql """
    	select array_sort(array_flatten(count_foreach(a)))  , array_sort(array_flatten(count_by_enum_foreach(a)))  , array_sort(array_flatten(approx_count_distinct_foreach(a))) from foreach_table;
