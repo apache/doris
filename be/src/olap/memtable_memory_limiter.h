@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <functional>
+
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/countdown_latch.h"
@@ -39,7 +41,7 @@ public:
 
     // check if the total mem consumption exceeds limit.
     // If yes, it will flush memtable to try to reduce memory consumption.
-    void handle_memtable_flush();
+    void handle_memtable_flush(std::function<bool()> cancel_check);
 
     void register_writer(std::weak_ptr<MemTableWriter> writer);
 
