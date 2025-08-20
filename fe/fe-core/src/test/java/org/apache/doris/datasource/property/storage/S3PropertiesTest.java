@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -71,8 +70,8 @@ public class S3PropertiesTest {
         origProps = new HashMap<>();
         origProps.put("s3.endpoint", "s3-fips.dualstack.us-east-2.amazonaws.com");
         origProps.put("s3.access_key", "myS3AccessKey");
-        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
-                "Please set s3.access_key and s3.secret_key", () -> StorageProperties.createAll(origProps));
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.", () -> StorageProperties.createAll(origProps));
         origProps.put("s3.secret_key", "myS3SecretKey");
         ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createAll(origProps));
     }

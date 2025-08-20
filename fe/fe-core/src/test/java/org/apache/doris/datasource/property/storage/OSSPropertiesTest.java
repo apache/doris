@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -146,9 +145,11 @@ public class OSSPropertiesTest {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         origProps.put("oss.secret_key", "myOSSSecretKey");
-        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
-                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.",
                 () -> StorageProperties.createPrimary(origProps));
+        origProps.remove("oss.secret_key");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 
     @Test
@@ -166,9 +167,11 @@ public class OSSPropertiesTest {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         origProps.put("oss.access_key", "myOSSAccessKey");
-        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
-                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.",
                 () -> StorageProperties.createPrimary(origProps));
+        origProps.remove("oss.access_key");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 
     @Test

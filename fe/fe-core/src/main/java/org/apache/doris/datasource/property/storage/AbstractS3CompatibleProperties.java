@@ -138,7 +138,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         //Allow anonymous access if both access_key and secret_key are empty
         //But not recommended for production use.
         if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
-            throw new IllegalArgumentException("Both access key and secret key must be set.");
+            throw new IllegalArgumentException("Both the access key and the secret key must be set.");
         }
     }
 
