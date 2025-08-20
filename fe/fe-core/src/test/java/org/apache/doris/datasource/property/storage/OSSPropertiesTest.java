@@ -186,4 +186,18 @@ public class OSSPropertiesTest {
         origProps.put("uri", "https://doris-regression-hk.oss-cn-hangzhou-internal.aliyuncs.com/regression/datalake/pipeline_data/data_page_v2_gzip.parquet");
         Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com", ((OSSProperties) StorageProperties.createPrimary(origProps)).getEndpoint());
     }
+
+    @Test
+    public void testOSSProperties() throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("warehouse", "new_dlf_paimon_catalog");
+        origProps.put("uri", "http://cn-beijing-vpc.dlf.aliyuncs.com");
+        origProps.put("type", "paimon");
+        origProps.put("paimon.rest.token.provider", "dlf");
+        origProps.put("paimon.rest.dlf.access-key-secret", "XXXXX");
+        origProps.put("paimon.rest.dlf.access-key-id", "XXXXXX");
+        origProps.put("paimon.catalog.type", "rest");
+        Assertions.assertEquals(1, StorageProperties.createAll(origProps).size());
+    }
+
 }

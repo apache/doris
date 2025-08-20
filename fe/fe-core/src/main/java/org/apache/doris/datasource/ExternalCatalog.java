@@ -195,7 +195,8 @@ public abstract class ExternalCatalog
      */
     protected synchronized void initPreExecutionAuthenticator() {
         if (executionAuthenticator == null) {
-            executionAuthenticator = new ExecutionAuthenticator(){};
+            executionAuthenticator = new ExecutionAuthenticator() {
+            };
         }
     }
 
@@ -336,7 +337,7 @@ public abstract class ExternalCatalog
         } catch (Exception e) {
             this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
             throw new RuntimeException("Failed to init catalog: " + name + ", error: "
-                    + this.errorMsg, e);
+                    + this.errorMsg + " You can use 'SHOW CATALOGS' to find the root cause", e);
         } finally {
             isInitializing = false;
         }
@@ -908,7 +909,8 @@ public abstract class ExternalCatalog
      * @return
      */
     protected ExternalDatabase<? extends ExternalTable> buildDbForInit(String remoteDbName, String localDbName,
-            long dbId, InitCatalogLog.Type logType, boolean checkExists) {
+                                                                       long dbId, InitCatalogLog.Type logType,
+                                                                       boolean checkExists) {
         // Step 1: Map local database name if not already provided
         if (localDbName == null && remoteDbName != null) {
             localDbName = fromRemoteDatabaseName(remoteDbName);
@@ -1307,7 +1309,7 @@ public abstract class ExternalCatalog
 
     @Override
     public void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
-            String rawTruncateSql) throws DdlException {
+                              String rawTruncateSql) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Truncate table is not supported for catalog: " + getName());
@@ -1398,6 +1400,7 @@ public abstract class ExternalCatalog
 
     /**
      * Check if an external view exists.
+     *
      * @param dbName
      * @param viewName
      * @return

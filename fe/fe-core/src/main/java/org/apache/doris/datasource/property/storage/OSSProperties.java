@@ -202,7 +202,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         if (!value.contains("aliyuncs.com")) {
             return false;
         }
-        boolean isAliyunOss = (value.contains("oss-") || value.contains("dlf."));
+        boolean isAliyunOss = (value.contains("oss-"));
         boolean isAmazonS3 = value.contains("s3.");
         boolean isDls = value.contains("dls");
         return isAliyunOss || isAmazonS3 || isDls;
