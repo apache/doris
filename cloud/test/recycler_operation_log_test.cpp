@@ -153,9 +153,7 @@ TEST(RecycleOperationLogTest, RecycleOneOperationLog) {
         Versionstamp versionstamp(123, 0);
         std::string log_key_with_versionstamp = encode_versioned_key(log_key, versionstamp);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
 
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -208,9 +206,7 @@ TEST(RecycleOperationLogTest, RecycleCommitPartitionLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
         auto* commit_partition = operation_log.mutable_commit_partition();
         commit_partition->set_db_id(db_id);
         commit_partition->set_table_id(table_id);
@@ -240,9 +236,7 @@ TEST(RecycleOperationLogTest, RecycleCommitPartitionLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
         auto* commit_partition = operation_log.mutable_commit_partition();
         commit_partition->set_db_id(db_id);
         commit_partition->set_table_id(table_id);
@@ -302,9 +296,7 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
         auto* drop_partition = operation_log.mutable_drop_partition();
         drop_partition->set_db_id(db_id);
         drop_partition->set_table_id(table_id);
@@ -356,9 +348,7 @@ TEST(RecycleOperationLogTest, RecycleDropPartitionLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(124, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
         auto* drop_partition = operation_log.mutable_drop_partition();
         drop_partition->set_db_id(db_id);
         drop_partition->set_table_id(table_id);
@@ -477,9 +467,7 @@ TEST(RecycleOperationLogTest, RecycleCommitIndexLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
         auto* commit_index = operation_log.mutable_commit_index();
         commit_index->set_db_id(db_id);
         commit_index->set_table_id(table_id);
@@ -509,9 +497,7 @@ TEST(RecycleOperationLogTest, RecycleCommitIndexLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
         auto* commit_index = operation_log.mutable_commit_index();
         commit_index->set_db_id(db_id);
         commit_index->set_table_id(table_id);
@@ -555,9 +541,7 @@ TEST(RecycleOperationLogTest, RecycleDropIndexLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
         auto* drop_index = operation_log.mutable_drop_index();
         drop_index->set_db_id(db_id);
         drop_index->set_table_id(table_id);
@@ -711,9 +695,7 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
 
         auto* commit_txn = operation_log.mutable_commit_txn();
         commit_txn->set_txn_id(txn_id);
@@ -837,9 +819,7 @@ TEST(RecycleOperationLogTest, RecycleCommitTxnLogWhenTxnIsNotVisible) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
 
         auto* commit_txn = operation_log.mutable_commit_txn();
         commit_txn->set_txn_id(txn_id);
@@ -934,9 +914,7 @@ TEST(RecycleOperationLogTest, RecycleUpdateTabletLog) {
         std::string log_key = versioned::log_key(instance_id);
         Versionstamp versionstamp(123, 0);
         OperationLogPB operation_log;
-        operation_log.mutable_min_timestamp()->append(
-                reinterpret_cast<const char*>(versionstamp.data().data()),
-                versionstamp.data().size());
+        operation_log.set_min_timestamp(versionstamp.version());
         auto* update_tablet = operation_log.mutable_update_tablet();
         update_tablet->add_tablet_ids(tablet_id);
 

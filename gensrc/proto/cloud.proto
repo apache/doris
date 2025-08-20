@@ -725,7 +725,7 @@ message UpdateDeleteBitmapLogPB {
 // The operation log records which data needs to be recycled.
 // If the log is not referenced by any snapshot, the operation log will be recycled.
 message OperationLogPB {
-    optional bytes min_timestamp = 1;
+    optional uint64 min_timestamp = 1;
 
     optional CommitTxnLogPB commit_txn = 2;
     optional CompactionLogPB compaction = 3;
