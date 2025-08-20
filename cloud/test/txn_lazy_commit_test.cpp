@@ -2128,6 +2128,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             {
                 first_txn_id = *try_any_cast<int64_t*>(args[0]);
                 go_cv.wait(_lock, [&] { return txn_lazy_committer_wait_count == 1; });
+                go_cv.notify_all();
             }
         }
     });
@@ -2140,7 +2141,6 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             int64_t txn_id = *try_any_cast<int64_t*>(args[0]);
             second_txn_id = txn_id;
             go_cv.notify_all();
-            go_cv.wait(_lock, [&] { return immediately_finish_count == 1; });
         }
     });
 
@@ -2151,6 +2151,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             int64_t last_pending_txn_id = *try_any_cast<int64_t*>(args[0]);
             ASSERT_EQ(last_pending_txn_id, second_txn_id);
         }
+        go_cv.notify_all();
     });
 
     sp->set_call_back("commit_txn_with_sub_txn::finish", [&](auto&& args) {
@@ -2167,6 +2168,11 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
         MetaServiceCode code = *try_any_cast<MetaServiceCode*>(args[0]);
         ASSERT_EQ(code, MetaServiceCode::OK);
         eventually_finish_count++;
+    });
+
+    sp->set_call_back("TxnLazyCommitter::commit", [&](auto&& args) {
+        std::unique_lock<std::mutex> _lock(go_mutex);
+        go_cv.wait(_lock, [&] { return last_pending_txn_id_count == 1; });
     });
 
     sp->enable_processing();
@@ -2191,7 +2197,7 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase5Test) {
             req.set_cloud_unique_id("test_cloud_unique_id");
             TxnInfoPB txn_info_pb;
             txn_info_pb.set_db_id(db_id);
-            txn_info_pb.set_label("test_label_concurrent_commit_txn_eventually3441");
+            txn_info_pb.set_label("test_label_concurrent_commit_txn_eventually3442");
             txn_info_pb.add_table_ids(table_id);
             txn_info_pb.set_timeout_ms(36000);
             req.mutable_txn_info()->CopyFrom(txn_info_pb);
