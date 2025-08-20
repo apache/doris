@@ -464,14 +464,12 @@ public class InternalCatalog implements CatalogIf<Database> {
      */
     public void replayCreateDb(Database db, String newDbName) {
         tryLock(true);
-        db.writeLock();
         try {
             if (!Strings.isNullOrEmpty(newDbName)) {
-                db.setNameWithoutLock(newDbName);
+                db.setNameWithLock(newDbName);
             }
             unprotectCreateDb(db);
         } finally {
-            db.writeUnlock();
             unlock();
         }
     }
@@ -639,12 +637,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             if (!Strings.isNullOrEmpty(newDbName)) {
-                try {
-                    db.writeUnlock();
-                    db.setNameWithoutLock(newDbName);
-                } finally {
-                    db.writeLock();
-                }
+                db.setNameWithLock(newDbName);
             }
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
@@ -824,18 +817,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             // db lock
             db.writeLock();
-            // 1. rename db
-            db.setNameWithoutLock(newDbName);
+            try {
+                // 1. rename db
+                db.setNameWithoutLock(newDbName);
 
-            // 2. add to meta. check again
-            fullNameToDb.remove(dbName);
-            fullNameToDb.put(newDbName, db);
+                // 2. add to meta. check again
+                fullNameToDb.remove(dbName);
+                fullNameToDb.put(newDbName, db);
 
-            DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
-            Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
+                DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
+                Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
+            } finally {
+                // db lock
+                db.writeUnlock();
+            }
         } finally {
-            // db lock
-            db.writeUnlock();
             // catalog lock
             unlock();
         }
@@ -1210,67 +1206,57 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check if db exists
         Database db = getDbOrDdlException(dbName);
-        db.readLock();
-        try {
-            if (!db.getName().equals(dbName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, tableShowName,
-                        ErrorCode.ERR_BAD_DB_ERROR.getCode(), "db name is not match, db may be renamed, expected: "
-                        + db.getName() + ", actual: " + dbName);
-            }
-            // InfoSchemaDb and MysqlDb can not create table manually
-            if (db instanceof MysqlCompatibleDatabase) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableShowName,
-                        ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
-            }
+        // InfoSchemaDb and MysqlDb can not create table manually
+        if (db instanceof MysqlCompatibleDatabase) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableShowName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
+        }
 
-            // only internal table should check quota and cluster capacity
-            if (!createTableInfo.isExternal()) {
-                checkAvailableCapacity(db);
-            }
+        // only internal table should check quota and cluster capacity
+        if (!createTableInfo.isExternal()) {
+            checkAvailableCapacity(db);
+        }
 
-            // check if table exists in db
-            boolean isTableExist = db.isTableExist(tableName);
-            if (isTableExist) {
-                if (createTableInfo.isIfNotExists()) {
-                    LOG.info("create table[{}] which already exists", tableShowName);
-                    return true;
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
-                }
-            }
-            if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(tableName)).isPresent()) {
-                ErrorReport.reportDdlException(
-                        "table[{}] is in atomic restore, please cancel the restore operation firstly",
-                        ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-            }
-
-            if (engineName.equals("olap")) {
-                return createOlapTable(db, createTableInfo);
-            }
-            if (engineName.equals("odbc")) {
-                return createOdbcTable(db, createTableInfo);
-            }
-            if (engineName.equals("mysql")) {
-                return createMysqlTable(db, createTableInfo);
-            }
-            if (engineName.equals("broker")) {
-                return createBrokerTable(db, createTableInfo);
-            }
-            if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
-                return createEsTable(db, createTableInfo);
-            }
-            if (engineName.equalsIgnoreCase("hive")) {
-                // should use hive catalog to create external hive table
-                throw new UserException("Cannot create hive table in internal catalog, should switch to hive catalog.");
-            }
-            if (engineName.equalsIgnoreCase("jdbc")) {
-                return createJdbcTable(db, createTableInfo);
-
+        // check if table exists in db
+        boolean isTableExist = db.isTableExist(tableName);
+        if (isTableExist) {
+            if (createTableInfo.isIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableShowName);
+                return true;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
-        } finally {
-            db.readUnlock();
+        }
+        if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(tableName)).isPresent()) {
+            ErrorReport.reportDdlException(
+                    "table[{}] is in atomic restore, please cancel the restore operation firstly",
+                    ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+        }
+
+        if (engineName.equals("olap")) {
+            return createOlapTable(db, createTableInfo);
+        }
+        if (engineName.equals("odbc")) {
+            return createOdbcTable(db, createTableInfo);
+        }
+        if (engineName.equals("mysql")) {
+            return createMysqlTable(db, createTableInfo);
+        }
+        if (engineName.equals("broker")) {
+            return createBrokerTable(db, createTableInfo);
+        }
+        if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
+            return createEsTable(db, createTableInfo);
+        }
+        if (engineName.equalsIgnoreCase("hive")) {
+            // should use hive catalog to create external hive table
+            throw new UserException("Cannot create hive table in internal catalog, should switch to hive catalog.");
+        }
+        if (engineName.equalsIgnoreCase("jdbc")) {
+            return createJdbcTable(db, createTableInfo);
+
+        } else {
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
 
         Preconditions.checkState(false);
@@ -1307,67 +1293,57 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check if db exists
         Database db = getDbOrDdlException(dbName);
-        db.readLock();
-        if (!db.getName().equals(dbName)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, tableShowName,
-                    ErrorCode.ERR_BAD_DB_ERROR.getCode(), "db name is not match, db may be renamed, expected: "
-                    + db.getName() + ", actual: " + dbName);
+        // InfoSchemaDb and MysqlDb can not create table manually
+        if (db instanceof MysqlCompatibleDatabase) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableShowName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
         }
-        try {
-            // InfoSchemaDb and MysqlDb can not create table manually
-            if (db instanceof MysqlCompatibleDatabase) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableShowName,
-                        ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
-            }
 
-            // only internal table should check quota and cluster capacity
-            if (!stmt.isExternal()) {
-                checkAvailableCapacity(db);
-            }
+        // only internal table should check quota and cluster capacity
+        if (!stmt.isExternal()) {
+            checkAvailableCapacity(db);
+        }
 
-            // check if table exists in db
-            boolean isTableExist = db.isTableExist(tableName);
-            if (isTableExist) {
-                if (stmt.isSetIfNotExists()) {
-                    LOG.info("create table[{}] which already exists", tableShowName);
-                    return true;
-                } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
-                }
-            }
-            if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(tableName)).isPresent()) {
-                ErrorReport.reportDdlException(
-                        "table[{}] is in atomic restore, please cancel the restore operation firstly",
-                        ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-            }
-
-            if (engineName.equals("olap")) {
-                return createOlapTable(db, stmt);
-            }
-            if (engineName.equals("odbc")) {
-                return createOdbcTable(db, stmt);
-            }
-            if (engineName.equals("mysql")) {
-                return createMysqlTable(db, stmt);
-            }
-            if (engineName.equals("broker")) {
-                return createBrokerTable(db, stmt);
-            }
-            if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
-                return createEsTable(db, stmt);
-            }
-            if (engineName.equalsIgnoreCase("hive")) {
-                // should use hive catalog to create external hive table
-                throw new UserException("Cannot create hive table in internal catalog, should switch to hive catalog.");
-            }
-            if (engineName.equalsIgnoreCase("jdbc")) {
-                return createJdbcTable(db, stmt);
-
+        // check if table exists in db
+        boolean isTableExist = db.isTableExist(tableName);
+        if (isTableExist) {
+            if (stmt.isSetIfNotExists()) {
+                LOG.info("create table[{}] which already exists", tableShowName);
+                return true;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
-        } finally {
-            db.readUnlock();
+        }
+        if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(tableName)).isPresent()) {
+            ErrorReport.reportDdlException(
+                    "table[{}] is in atomic restore, please cancel the restore operation firstly",
+                    ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+        }
+
+        if (engineName.equals("olap")) {
+            return createOlapTable(db, stmt);
+        }
+        if (engineName.equals("odbc")) {
+            return createOdbcTable(db, stmt);
+        }
+        if (engineName.equals("mysql")) {
+            return createMysqlTable(db, stmt);
+        }
+        if (engineName.equals("broker")) {
+            return createBrokerTable(db, stmt);
+        }
+        if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
+            return createEsTable(db, stmt);
+        }
+        if (engineName.equalsIgnoreCase("hive")) {
+            // should use hive catalog to create external hive table
+            throw new UserException("Cannot create hive table in internal catalog, should switch to hive catalog.");
+        }
+        if (engineName.equalsIgnoreCase("jdbc")) {
+            return createJdbcTable(db, stmt);
+
+        } else {
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
 
         Preconditions.checkState(false);
@@ -3307,7 +3283,18 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
 
-            Pair<Boolean, Boolean> result = db.createTableWithLock(olapTable, false, createTableInfo.isIfNotExists());
+            Pair<Boolean, Boolean> result;
+            db.writeLockOrDdlException();
+            try {
+                // db name not changed
+                if (!db.getName().equals(createTableInfo.getDbName())) {
+                    throw new DdlException("Database name renamed, please check the database name");
+                }
+                // register table, write create table edit log
+                result = db.createTableWithOutLock(olapTable, false, createTableInfo.isIfNotExists());
+            } finally {
+                db.writeUnlock();
+            }
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
@@ -4196,8 +4183,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
-
-            Pair<Boolean, Boolean> result = db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists());
+            Pair<Boolean, Boolean> result;
+            db.writeLockOrDdlException();
+            try {
+                // db name not changed
+                if (!db.getName().equals(stmt.getDbName())) {
+                    throw new DdlException("Database name renamed, please check the database name");
+                }
+                // register table, write create table edit log
+                result = db.createTableWithOutLock(olapTable, false, stmt.isSetIfNotExists());
+            } finally {
+                db.writeUnlock();
+            }
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }

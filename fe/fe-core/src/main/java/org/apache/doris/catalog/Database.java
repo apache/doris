@@ -231,6 +231,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    public void setNameWithLock(String newName) {
+        writeLock();
+        try {
+            // ClusterNamespace.getNameFromFullName should be removed in 3.0
+            this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
+            for (Table table : idToTable.values()) {
+                table.setQualifiedDbName(fullQualifiedName);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public void setNameWithoutLock(String newName) {
         // ClusterNamespace.getNameFromFullName should be removed in 3.0
         this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
@@ -386,6 +399,41 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             }
         }
         return nameToTable.containsKey(tableName);
+    }
+
+    // return pair <success?, table exist?>
+    public Pair<Boolean, Boolean> createTableWithOutLock(
+            Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
+        boolean result = true;
+        // if a table is already exists, then edit log won't be executed
+        // some caller of this method may need to know this message
+        boolean isTableExist = false;
+        table.setQualifiedDbName(fullQualifiedName);
+        String tableName = table.getName();
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        if (isTableExist(tableName)) {
+            result = setIfNotExist;
+            isTableExist = true;
+        } else {
+            registerTable(table);
+            if (table.isTemporary()) {
+                Env.getCurrentEnv().registerTempTableAndSession(table);
+            }
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
+            }
+            if (!isReplay) {
+                // Write edit log
+                CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
+                Env.getCurrentEnv().getEditLog().logCreateTable(info);
+            }
+            if (table.getType() == TableType.ELASTICSEARCH) {
+                Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
+            }
+        }
+        return Pair.of(result, isTableExist);
     }
 
     // return pair <success?, table exist?>
