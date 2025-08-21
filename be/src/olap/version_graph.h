@@ -64,11 +64,11 @@ public:
     // If this version not in main version, version_path can be included expired rowset.
     // NOTE: this method may return edges which is in stale path
     Status capture_consistent_versions_with_validator(
-            int64_t start, std::vector<Version>& version_path,
+            const Version& spec_version, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
     Status capture_newest_consistent_versions_with_validator(
-            int64_t start, std::vector<Version>& version_path,
+            const Version& spec_version, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
     // See comment of TimestampedVersionTracker's get_orphan_vertex_ratio();
@@ -192,11 +192,11 @@ public:
     // If this version not in main version, version_path can be included expired rowset.
     // NOTE: this method may return edges which is in stale path
     Status capture_consistent_versions_with_validator(
-            int64_t start, std::vector<Version>& version_path,
+            const Version& spec_version, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
     Status capture_newest_consistent_versions_with_validator(
-            int64_t start, std::vector<Version>& version_path,
+            const Version& spec_version, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
     /// Capture all expired path version.

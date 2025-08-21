@@ -74,12 +74,17 @@ bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
 bvar::Adder<int64_t> g_unused_rowsets_bytes("unused_rowsets_bytes");
 
 bvar::Adder<int64_t> g_capture_prefer_cache_count("capture_prefer_cache_count");
+bvar::Adder<int64_t> g_capture_prefer_cache_count_fallback_count(
+        "capture_prefer_cache_count_fallback_count");
 bvar::Adder<int64_t> g_capture_with_freshness_tolerance_count(
         "capture_with_freshness_tolerance_count");
 bvar::Adder<int64_t> g_capture_with_freshness_tolerance_fallback_count(
         "capture_with_freshness_tolerance_fallback_count");
 bvar::Window<bvar::Adder<int64_t>> g_capture_prefer_cache_count_window(
         "capture_prefer_cache_count_window", &g_capture_prefer_cache_count, 30);
+bvar::Window<bvar::Adder<int64_t>> g_capture_prefer_cache_count_fallback_count_window(
+        "capture_prefer_cache_count_fallback_count_window",
+        &g_capture_prefer_cache_count_fallback_count, 30);
 bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_count_window(
         "capture_with_freshness_tolerance_count_window", &g_capture_with_freshness_tolerance_count,
         30);
@@ -160,7 +165,7 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
     if (opts.query_freshness_tolerance_ms > 0) {
         return capture_rs_readers_with_freshness_tolerance(spec_version, rs_splits,
                                                            opts.query_freshness_tolerance_ms);
-    } else if (opts.enable_prefer_cached_rowset && enable_unique_key_merge_on_write()) {
+    } else if (opts.enable_prefer_cached_rowset && !enable_unique_key_merge_on_write()) {
         return capture_rs_readers_prefer_cache(spec_version, rs_splits);
     }
     return capture_rs_readers_internal(spec_version, rs_splits);
@@ -196,8 +201,58 @@ Status CloudTablet::capture_rs_readers_internal(const Version& spec_version,
 Status CloudTablet::capture_rs_readers_prefer_cache(const Version& spec_version,
                                                     std::vector<RowSetSplits>* rs_splits) {
     g_capture_prefer_cache_count << 1;
-    return Status::OK();
+    Versions version_path;
+    std::shared_lock rlock(_meta_lock);
+    RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
+            spec_version, version_path,
+            [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
+    int64_t path_max_version = version_path.back().second;
+    LOG_INFO("[verbose] CloudTablet::capture_rs_readers_prefer_cache, capture path: {}",
+             fmt::join(version_path | std::views::transform([](const auto& version) {
+                           return fmt::format("{}", version.to_string());
+                       }),
+                       ", "))
+            .tag("tablet_id", tablet_id())
+            .tag("spec_version", spec_version.to_string())
+            .tag("path_max_version", path_max_version);
+    bool should_fallback = path_max_version < spec_version.second;
+    if (should_fallback) {
+        rlock.unlock();
+        LOG_INFO(
+                "[verbose] CloudTablet::capture_rs_readers_prefer_cache, fallback, spec_version={}",
+                spec_version.to_string());
+        g_capture_prefer_cache_count_fallback_count << 1;
+        // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
+        // but has not been warmuped up yet, fallback to capture rowsets as usual
+        return capture_rs_readers_internal(spec_version, rs_splits);
+    }
+    return capture_rs_readers_unlocked(version_path, rs_splits);
 }
+
+bool CloudTablet::rowset_is_warmed_up(int64_t start_version, int64_t end_version) {
+    if (start_version > end_version) {
+        return false;
+    }
+    Version version {start_version, end_version};
+    auto it = _rs_version_map.find(version);
+    if (it == _rs_version_map.end()) {
+        it = _stale_rs_version_map.find(version);
+        if (it == _stale_rs_version_map.end()) {
+            LOG_WARNING(
+                    "fail to find Rowset in rs_version or stale_rs_version for version. "
+                    "tablet={}, version={}",
+                    tablet_id(), version.to_string());
+            return false;
+        }
+    }
+    const auto& rs = it->second;
+    if (rs->visible_timestamp() < _engine.startup_timepoint()) {
+        // We only care about rowsets that are created after startup time point. For other rowsets,
+        // we assume they are warmed up.
+        return true;
+    }
+    return is_rowset_warmed_up(rs->rowset_id());
+};
 
 Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
@@ -205,32 +260,7 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
     g_capture_with_freshness_tolerance_count << 1;
     using namespace std::chrono;
     auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
-    auto startup_timepoint = _engine.startup_timepoint();
     // find a version path where every edge(rowset) has been warmuped
-    auto rowset_is_warmed_up = [&](int64_t start_version, int64_t end_version) -> bool {
-        if (start_version > end_version) {
-            return false;
-        }
-        Version version {start_version, end_version};
-        auto it = _rs_version_map.find(version);
-        if (it == _rs_version_map.end()) {
-            it = _stale_rs_version_map.find(version);
-            if (it == _stale_rs_version_map.end()) {
-                LOG_WARNING(
-                        "fail to find Rowset in rs_version or stale_rs_version for version. "
-                        "tablet={}, version={}",
-                        tablet_id(), version.to_string());
-                return false;
-            }
-        }
-        const auto& rs = it->second;
-        if (rs->visible_timestamp() < startup_timepoint) {
-            // We only care about rowsets that are created after startup time point. For other rowsets,
-            // we assume they are warmed up.
-            return true;
-        }
-        return is_rowset_warmed_up(rs->rowset_id());
-    };
     Versions version_path;
     std::shared_lock rlock(_meta_lock);
     if (enable_unique_key_merge_on_write()) {
@@ -238,10 +268,13 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
         RETURN_IF_ERROR(
                 _timestamped_version_tracker.capture_newest_consistent_versions_with_validator(
-                        0, version_path, rowset_is_warmed_up));
+                        spec_version, version_path, [&](int64_t start, int64_t end) {
+                            return rowset_is_warmed_up(start, end);
+                        }));
     } else {
         RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
-                0, version_path, rowset_is_warmed_up));
+                spec_version, version_path,
+                [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
     }
     int64_t path_max_version = version_path.back().second;
     auto should_be_visible_but_not_warmed_up = [&](const auto& rs_meta) -> bool {
@@ -258,6 +291,7 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
                            std::ranges::any_of(_tablet_meta->all_stale_rs_metas(),
                                                should_be_visible_but_not_warmed_up);
     if (should_fallback) {
+        rlock.unlock();
         g_capture_with_freshness_tolerance_fallback_count << 1;
         // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
         // but has not been warmuped up yet, fallback to capture rowsets as usual

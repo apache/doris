@@ -332,6 +332,9 @@ private:
 
     bool add_rowset_warmup_state_unlocked(const RowsetMeta& rowset, WarmUpState state);
 
+    // used by capture_rs_reader_xxx functions
+    bool rowset_is_warmed_up(int64_t start_version, int64_t end_version);
+
     CloudStorageEngine& _engine;
 
     // this mutex MUST ONLY be used when sync meta
