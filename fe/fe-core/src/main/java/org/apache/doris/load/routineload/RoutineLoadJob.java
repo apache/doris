@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.LoadStmt;
@@ -417,73 +416,6 @@ public abstract class RoutineLoadJob
 
         if (!StringUtils.isEmpty(info.getWorkloadGroupName())) {
             jobProperties.put(WORKLOAD_GROUP, info.getWorkloadGroupName());
-        }
-    }
-
-    protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
-        setRoutineLoadDesc(stmt.getRoutineLoadDesc());
-        if (stmt.getDesiredConcurrentNum() != -1) {
-            this.desireTaskConcurrentNum = stmt.getDesiredConcurrentNum();
-        }
-        if (stmt.getMaxErrorNum() != -1) {
-            this.maxErrorNum = stmt.getMaxErrorNum();
-        }
-        if (stmt.getMaxFilterRatio() != -1) {
-            this.maxFilterRatio = stmt.getMaxFilterRatio();
-        }
-        if (stmt.getMaxBatchIntervalS() != -1) {
-            this.maxBatchIntervalS = stmt.getMaxBatchIntervalS();
-        }
-        if (stmt.getMaxBatchRows() != -1) {
-            this.maxBatchRows = stmt.getMaxBatchRows();
-        }
-        if (stmt.getMaxBatchSize() != -1) {
-            this.maxBatchSizeBytes = stmt.getMaxBatchSize();
-        }
-        if (stmt.getExecMemLimit() != -1) {
-            this.execMemLimit = stmt.getExecMemLimit();
-        }
-        if (stmt.getSendBatchParallelism() > 0) {
-            this.sendBatchParallelism = stmt.getSendBatchParallelism();
-        }
-        if (stmt.isLoadToSingleTablet()) {
-            this.loadToSingleTablet = stmt.isLoadToSingleTablet();
-        }
-        jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
-        jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
-        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
-        jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
-        jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, stmt.isPartialUpdate() ? "true" : "false");
-        if (stmt.isPartialUpdate()) {
-            this.isPartialUpdate = true;
-        }
-        jobProperties.put(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
-
-        FileFormatProperties fileFormatProperties = stmt.getFileFormatProperties();
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
-            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
-            jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
-            jobProperties.put(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
-            jobProperties.put(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
-            this.enclose = csvFileFormatProperties.getEnclose();
-            this.escape = csvFileFormatProperties.getEscape();
-        } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
-            JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
-            jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
-            jobProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, jsonFileFormatProperties.getJsonPaths());
-            jobProperties.put(JsonFileFormatProperties.PROP_JSON_ROOT, jsonFileFormatProperties.getJsonRoot());
-            jobProperties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
-                    String.valueOf(jsonFileFormatProperties.isStripOuterArray()));
-            jobProperties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING,
-                    String.valueOf(jsonFileFormatProperties.isNumAsString()));
-            jobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE,
-                    String.valueOf(jsonFileFormatProperties.isFuzzyParse()));
-        } else {
-            throw new UserException("Invalid format type.");
-        }
-
-        if (!StringUtils.isEmpty(stmt.getWorkloadGroupName())) {
-            jobProperties.put(WORKLOAD_GROUP, stmt.getWorkloadGroupName());
         }
     }
 
@@ -1974,7 +1906,7 @@ public abstract class RoutineLoadJob
             isMultiTable = true;
         }
         jobProperties.forEach((k, v) -> {
-            if (k.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
+            if (k.equals(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
                 isPartialUpdate = Boolean.parseBoolean(v);
             }
         });
