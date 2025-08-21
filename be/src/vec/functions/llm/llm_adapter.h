@@ -779,6 +779,50 @@ public:
     }
 };
 
+// Mock adapter used only for UT to bypass real HTTP calls and return deterministic data.
+class MockAdapter : public LLMAdapter {
+public:
+    std::string get_type() const override { return "mock"; }
+
+    Status set_authentication(HttpClient* client) const override { return Status::OK(); }
+
+    Status build_request_payload(const std::vector<std::string>& inputs,
+                                 const char* const system_prompt,
+                                 std::string& request_body) const override {
+        return Status::OK();
+    }
+
+    Status parse_response(const std::string& response_body,
+                          std::vector<std::string>& results) const override {
+        results.emplace_back(response_body);
+        return Status::OK();
+    }
+
+    Status build_embedding_request(const std::vector<std::string>& inputs,
+                                   std::string& request_body) const override {
+        return Status::OK();
+    }
+
+    Status parse_embedding_response(const std::string& response_body,
+                                    std::vector<std::vector<float>>& results) const override {
+        rapidjson::Document doc;
+        doc.SetObject();
+        doc.Parse(response_body.c_str());
+        if (doc.HasParseError() || !doc.IsObject()) {
+            return Status::InternalError("Failed to parse embedding response");
+        }
+        if (!doc.HasMember("embedding") || !doc["embedding"].IsArray()) {
+            return Status::InternalError("Invalid embedding response format");
+        }
+
+        results.reserve(1);
+        std::transform(doc["embedding"].Begin(), doc["embedding"].End(),
+                       std::back_inserter(results.emplace_back()),
+                       [](const auto& val) { return val.GetFloat(); });
+        return Status::OK();
+    }
+};
+
 class LLMAdapterFactory {
 public:
     static std::shared_ptr<LLMAdapter> create_adapter(const std::string& provider_type) {
@@ -793,7 +837,8 @@ public:
                             {"BAICHUAN", []() { return std::make_shared<BaichuanAdapter>(); }},
                             {"ANTHROPIC", []() { return std::make_shared<AnthropicAdapter>(); }},
                             {"GEMINI", []() { return std::make_shared<GeminiAdapter>(); }},
-                            {"VOYAGEAI", []() { return std::make_shared<VoyageAIAdapter>(); }}};
+                            {"VOYAGEAI", []() { return std::make_shared<VoyageAIAdapter>(); }},
+                            {"MOCK", []() { return std::make_shared<MockAdapter>(); }}};
 
         auto it = adapters.find(provider_type);
         return (it != adapters.end()) ? it->second() : nullptr;

@@ -362,7 +362,12 @@ TEST(LLMFunctionTest, MockResourceSendRequest) {
     Status exec_status =
             sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
 
-    ASSERT_FALSE(exec_status.ok());
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& res_col =
+            assert_cast<const ColumnString&>(*block.get_by_position(result_idx).column);
+    StringRef ref = res_col.get_data_at(0);
+    std::string val(ref.data, ref.size);
+    ASSERT_EQ(val, "this is a mock response. test input");
 }
 
 TEST(LLMFunctionTest, ReturnTypeTest) {
