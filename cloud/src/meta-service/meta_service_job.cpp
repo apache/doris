@@ -1759,8 +1759,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                   hex(meta_rowset_compact_key));
                 return;
             }
-            LOG(INFO) << "put sc meta_rowset_compact_key, new_tablet_id=" << new_tablet_id
-                      << " key=" << hex(meta_rowset_compact_key);
         }
     }
 

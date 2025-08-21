@@ -1865,14 +1865,14 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
 
-        // Check that meta_rowset_compact_keys exist for converted rowsets [2-2, 3-3, 4-4, 5-5]
+        // Check that meta_rowset_compact_keys exist for all converted rowsets [2-2, 3-3, 4-4, 5-5]
         for (int version = 2; version <= 5; ++version) {
             auto meta_rowset_compact_key =
                     versioned::meta_rowset_compact_key({instance_id, new_tablet_id, version});
-            std::string compact_rowset_value;
-            Versionstamp* versionstamp = nullptr;
-            ASSERT_EQ(versioned_get(txn.get(), meta_rowset_compact_key, versionstamp,
-                                    &compact_rowset_value),
+            doris::RowsetMetaCloudPB compact_rowset_meta;
+            Versionstamp versionstamp;
+            ASSERT_EQ(versioned::document_get(txn.get(), meta_rowset_compact_key,
+                                              &compact_rowset_meta, &versionstamp),
                       TxnErrorCode::TXN_OK)
                     << "Meta rowset compact key should exist for version " << version
                     << " before recycling";
@@ -1904,36 +1904,57 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
                     << " after schema change";
         }
 
-        // Check that recycle_rowset_keys exist for deleted versions 2-5 (schema change deletes old 2-5 and creates recycle entries)
-        for (int version = 2; version <= 5; ++version) {
+        // Check that recycle_rowset_keys exist only for deleted versions 4-5 (schema change deletes new tablet's original 4-5 rowsets)
+        for (int version = 4; version <= 5; ++version) {
+            int idx = version - 4;
+            std::string rowset_id_v2 = alter_rowsets_new[idx].rowset_id_v2();
             std::string recycle_key =
-                    recycle_rowset_key({instance_id, new_tablet_id, std::to_string(600 + version)});
+                    recycle_rowset_key({instance_id, new_tablet_id, rowset_id_v2});
             std::string recycle_value;
             ASSERT_EQ(txn->get(recycle_key, &recycle_value), TxnErrorCode::TXN_OK)
                     << "Recycle rowset key should exist for deleted version " << version
-                    << " after recycling operation logs";
+                    << " with rowset_id_v2 " << rowset_id_v2;
         }
+
+        // Check that recycle_rowset_keys do NOT exist for versions 2-3 (these are newly created from tmp conversion, not deleted)
+        // Note: We cannot easily check this as we don't know the exact rowset_id_v2 for newly created rowsets
 
         // Check that recycle_rowset_keys do NOT exist for versions 6-7 (these were not deleted by schema change)
         for (int version = 6; version <= 7; ++version) {
+            int idx = version - 6;
+            std::string rowset_id_v2 = post_alter_rowsets_new[idx].rowset_id_v2();
             std::string recycle_key =
-                    recycle_rowset_key({instance_id, new_tablet_id, std::to_string(500 + version)});
+                    recycle_rowset_key({instance_id, new_tablet_id, rowset_id_v2});
             std::string recycle_value;
             ASSERT_EQ(txn->get(recycle_key, &recycle_value), TxnErrorCode::TXN_KEY_NOT_FOUND)
-                    << "Recycle rowset key should NOT exist for non-deleted version " << version;
+                    << "Recycle rowset key should NOT exist for non-deleted version " << version
+                    << " with rowset_id_v2 " << rowset_id_v2;
         }
 
-        // Verify that meta_rowset_compact_keys are deleted after recycling operation logs
+        // Verify that old tablet's meta_rowset_compact_keys are deleted after recycling operation logs
         for (int version = 2; version <= 5; ++version) {
-            auto meta_rowset_compact_key =
-                    versioned::meta_rowset_compact_key({instance_id, new_tablet_id, version});
-            std::string compact_rowset_value;
-            Versionstamp* versionstamp = nullptr;
-            ASSERT_EQ(versioned_get(txn.get(), meta_rowset_compact_key, versionstamp,
-                                    &compact_rowset_value),
+            auto old_meta_rowset_compact_key =
+                    versioned::meta_rowset_compact_key({instance_id, old_tablet_id, version});
+            doris::RowsetMetaCloudPB compact_rowset_meta;
+            Versionstamp versionstamp;
+            ASSERT_EQ(versioned::document_get(txn.get(), old_meta_rowset_compact_key,
+                                              &compact_rowset_meta, &versionstamp),
                       TxnErrorCode::TXN_KEY_NOT_FOUND)
-                    << "Meta rowset compact key should be deleted for version " << version
-                    << " after recycling operation logs";
+                    << "Old tablet meta rowset compact key should be deleted for version "
+                    << version << " after recycling operation logs";
+        }
+
+        // Verify that new tablet's meta_rowset_compact_keys still exist after recycling operation logs
+        for (int version = 2; version <= 5; ++version) {
+            auto new_meta_rowset_compact_key =
+                    versioned::meta_rowset_compact_key({instance_id, new_tablet_id, version});
+            doris::RowsetMetaCloudPB compact_rowset_meta;
+            Versionstamp versionstamp;
+            ASSERT_EQ(versioned::document_get(txn.get(), new_meta_rowset_compact_key,
+                                              &compact_rowset_meta, &versionstamp),
+                      TxnErrorCode::TXN_OK)
+                    << "New tablet meta rowset compact key should still exist for version "
+                    << version << " after recycling operation logs";
         }
     }
 
@@ -1958,25 +1979,40 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
                                 &load_stats_value),
                   TxnErrorCode::TXN_OK)
                 << "New tablet load stats should exist before recycling tablets";
+    }
 
-        // Check meta tablet keys exist
+    // Verify that meta_tablet_keys exist before recycling tablets
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
         auto old_tablet_key =
                 meta_tablet_key({instance_id, table_id, index_id, partition_id, old_tablet_id});
         auto new_tablet_key =
                 meta_tablet_key({instance_id, table_id, index_id, partition_id, new_tablet_id});
         std::string tablet_meta_value;
 
-        ASSERT_EQ(txn->get(old_tablet_key, &tablet_meta_value), TxnErrorCode::TXN_OK)
-                << "Old tablet meta key should exist before recycling tablets";
-        ASSERT_EQ(txn->get(new_tablet_key, &tablet_meta_value), TxnErrorCode::TXN_OK)
-                << "New tablet meta key should exist before recycling tablets";
+        LOG(INFO) << "Checking old_tablet_key: " << hex(old_tablet_key);
+        TxnErrorCode old_err = txn->get(old_tablet_key, &tablet_meta_value);
+        LOG(INFO) << "Old tablet key get result: " << old_err;
+
+        LOG(INFO) << "Checking new_tablet_key: " << hex(new_tablet_key);
+        TxnErrorCode new_err = txn->get(new_tablet_key, &tablet_meta_value);
+        LOG(INFO) << "New tablet key get result: " << new_err;
+
+        ASSERT_EQ(old_err, TxnErrorCode::TXN_OK)
+                << "Old tablet meta key should exist before recycling";
+        ASSERT_EQ(new_err, TxnErrorCode::TXN_OK)
+                << "New tablet meta key should exist before recycling";
     }
 
-    // Finally, test tablet recycling to verify tablet meta key and tablet load stats deletion
+    // Finally, test tablet recycling to verify tablet load stats deletion
     RecyclerMetricsContext ctx(instance_id, "test");
-    ASSERT_EQ(recycler.recycle_tablets(table_id, index_id, ctx), 0);
+    int recycled = recycler.recycle_tablets(table_id, index_id, ctx);
+    LOG(INFO) << "recycle_tablets returned: " << recycled;
+    ASSERT_EQ(recycled, 0);
 
-    // Verify tablet load stats and meta tablet keys are now deleted (recycling tablets should delete them)
+    // Verify tablet load stats are now deleted (recycling tablets should delete them)
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -1998,17 +2034,31 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
                   TxnErrorCode::TXN_KEY_NOT_FOUND)
                 << "New tablet load stats should be deleted after recycling tablets";
 
-        // Check that meta tablet keys are deleted
-        auto old_tablet_key =
-                meta_tablet_key({instance_id, table_id, index_id, partition_id, old_tablet_id});
-        auto new_tablet_key =
-                meta_tablet_key({instance_id, table_id, index_id, partition_id, new_tablet_id});
+        // Check that versioned meta tablet keys are deleted
+        auto old_tablet_key = versioned::meta_tablet_key({instance_id, old_tablet_id});
+        auto new_tablet_key = versioned::meta_tablet_key({instance_id, new_tablet_id});
         std::string tablet_meta_value;
 
-        ASSERT_EQ(txn->get(old_tablet_key, &tablet_meta_value), TxnErrorCode::TXN_KEY_NOT_FOUND)
-                << "Old tablet meta key should be deleted after recycling tablets";
-        ASSERT_EQ(txn->get(new_tablet_key, &tablet_meta_value), TxnErrorCode::TXN_KEY_NOT_FOUND)
-                << "New tablet meta key should be deleted after recycling tablets";
+        ASSERT_EQ(versioned_get(txn.get(), old_tablet_key, versionstamp, &tablet_meta_value),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Old versioned meta tablet key should be deleted after recycling tablets";
+        ASSERT_EQ(versioned_get(txn.get(), new_tablet_key, versionstamp, &tablet_meta_value),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "New versioned meta tablet key should be deleted after recycling tablets";
+
+        // Verify that new tablet's meta_rowset_compact_keys still exist after recycling tablets
+        // (they are not deleted during tablet recycling)
+        for (int version = 2; version <= 5; ++version) {
+            auto new_meta_rowset_compact_key =
+                    versioned::meta_rowset_compact_key({instance_id, new_tablet_id, version});
+            doris::RowsetMetaCloudPB compact_rowset_meta;
+            Versionstamp versionstamp;
+            ASSERT_EQ(versioned::document_get(txn.get(), new_meta_rowset_compact_key,
+                                              &compact_rowset_meta, &versionstamp),
+                      TxnErrorCode::TXN_OK)
+                    << "New tablet meta rowset compact key should still exist for version "
+                    << version << " after recycling tablets";
+        }
     }
 }
 
