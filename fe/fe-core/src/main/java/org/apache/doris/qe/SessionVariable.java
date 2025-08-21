@@ -799,6 +799,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
                                                             "default_variant_enable_typed_paths_to_sparse";
 
+    public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
 
     /**
@@ -2418,7 +2419,12 @@ public class SessionVariable implements Serializable, Writable {
             }, checker = "checkSkewRewriteAggBucketNum")
     public int skewRewriteAggBucketNum = 1024;
 
-    @VariableMgr.VarAttr(name = QUERY_FRESHNESS_TOLERANCE_MS)
+    @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
+            description = {"是否启用 prefer cached rowset 功能",
+                    "Whether to enable prefer cached rowset feature"})
+    public boolean enablePreferCachedRowset = false;
+
+    @VariableMgr.VarAttr(name = QUERY_FRESHNESS_TOLERANCE_MS, needForward = false)
     public long queryFreshnessToleranceMs = 5000;
 
     public void setSkewRewriteAggBucketNum(int num) {
@@ -3510,6 +3516,18 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public boolean getEnablePreferCachedRowset() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            boolean userEnablePreferCachedRowset = connectContext.getEnv().getAuth()
+                    .getEnablePreferCachedRowset(connectContext.getQualifiedUser());
+            if (userEnablePreferCachedRowset) {
+                return userEnablePreferCachedRowset;
+            }
+        }
+        return enablePreferCachedRowset;
+    }
+
     public long getQueryFreshnessToleranceMs() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
@@ -4447,6 +4465,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
 
+        tResult.setEnablePreferCachedRowset(getEnablePreferCachedRowset());
         tResult.setQueryFreshnessToleranceMs(getQueryFreshnessToleranceMs());
 
         // for spill

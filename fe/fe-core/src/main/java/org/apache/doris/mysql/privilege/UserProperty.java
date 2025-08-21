@@ -75,6 +75,7 @@ public class UserProperty {
     public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
     public static final String DEFAULT_COMPUTE_GROUP = "default_compute_group";
 
+    public static final String PROP_ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String PROP_QUERY_FRESHNESS_TOLERANCE = "query_freshness_tolerance";
 
     // for system user
@@ -117,6 +118,7 @@ public class UserProperty {
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_COMPUTE_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUERY_FRESHNESS_TOLERANCE + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_ENABLE_PREFER_CACHED_ROWSET + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -178,6 +180,10 @@ public class UserProperty {
         return commonProperties.getQueryFreshnessToleranceMs();
     }
 
+    public boolean getEnablePreferCachedRowset() {
+        return commonProperties.getEnablePreferCachedRowset();
+    }
+
     public void update(List<Pair<String, String>> properties) throws UserException {
         update(properties, false);
     }
@@ -196,6 +202,7 @@ public class UserProperty {
         String initCatalog = this.commonProperties.getInitCatalog();
         String workloadGroup = this.commonProperties.getWorkloadGroup();
         long queryFreshnessToleranceMs = this.commonProperties.getQueryFreshnessToleranceMs();
+        boolean enablePreferCachedRowset = this.commonProperties.getEnablePreferCachedRowset();
 
         String newDefaultCloudCluster = defaultCloudCluster;
 
@@ -334,6 +341,15 @@ public class UserProperty {
                     throw new DdlException(PROP_QUERY_FRESHNESS_TOLERANCE + " format error");
                 }
                 queryFreshnessToleranceMs = getLongProperty(key, value, keyArr, PROP_QUERY_FRESHNESS_TOLERANCE);
+            } else if (keyArr[0].equalsIgnoreCase(PROP_ENABLE_PREFER_CACHED_ROWSET)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_ENABLE_PREFER_CACHED_ROWSET + " format error");
+                }
+                try {
+                    enablePreferCachedRowset = Boolean.parseBoolean(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_ENABLE_PREFER_CACHED_ROWSET + " is not boolean");
+                }
             } else {
                 if (isReplay) {
                     // After using SET PROPERTY to modify the user property, if FE rolls back to a version without
@@ -359,6 +375,7 @@ public class UserProperty {
         this.commonProperties.setInitCatalog(initCatalog);
         this.commonProperties.setWorkloadGroup(workloadGroup);
         this.commonProperties.setQueryFreshnessToleranceMs(queryFreshnessToleranceMs);
+        this.commonProperties.setEnablePreferCachedRowset(enablePreferCachedRowset);
         defaultCloudCluster = newDefaultCloudCluster;
     }
 
@@ -456,6 +473,8 @@ public class UserProperty {
 
         result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
 
+        result.add(Lists.newArrayList(PROP_ENABLE_PREFER_CACHED_ROWSET,
+                String.valueOf(commonProperties.getEnablePreferCachedRowset())));
         result.add(Lists.newArrayList(PROP_QUERY_FRESHNESS_TOLERANCE,
                 String.valueOf(commonProperties.getQueryFreshnessToleranceMs())));
 
