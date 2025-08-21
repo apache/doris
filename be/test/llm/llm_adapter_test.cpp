@@ -396,8 +396,9 @@ TEST(LLM_ADAPTER_TEST, unsupported_provider_type) {
 }
 
 TEST(LLM_ADAPTER_TEST, adapter_factory_all_types) {
-    std::vector<std::string> types = {"LOCAL", "OPENAI", "MOONSHOT", "DEEPSEEK",  "MINIMAX",
-                                      "ZHIPU", "QWEN",   "BAICHUAN", "ANTHROPIC", "GEMINI"};
+    std::vector<std::string> types = {"LOCAL",     "OPENAI", "MOONSHOT", "DEEPSEEK",
+                                      "MINIMAX",   "ZHIPU",  "QWEN",     "BAICHUAN",
+                                      "ANTHROPIC", "GEMINI", "VOYAGEAI", "MOCK"};
     for (const auto& type : types) {
         auto adapter = doris::vectorized::LLMAdapterFactory::create_adapter(type);
         ASSERT_TRUE(adapter != nullptr) << "Adapter not found for type: " << type;

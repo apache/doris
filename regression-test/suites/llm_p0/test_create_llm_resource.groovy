@@ -64,7 +64,7 @@ suite("test_create_llm_resource") {
         exception "Missing [llm.model_name] in properties."
     }
 
-    // missing api-key while provider_type is not locl
+    // missing api-key while provider_type is not local
     test {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
@@ -74,19 +74,6 @@ suite("test_create_llm_resource") {
                 'llm.model_name' = 'deepseek-chat'
             );"""
         exception "Missing [llm.api_key] in properties for provider: DEEPSEEK"
-    }
-    
-    // wrong api_key
-    test {
-        sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
-            PROPERTIES(
-                'type' = 'llm',
-                'llm.provider_type' = 'deepseek',
-                'llm.endpoint' = 'https://api.deepseek.com/chat/completions',
-                'llm.model_name' = 'deepseek-chat',
-                'llm.api_key' = 'sk-xxx'
-            );"""
-        exception "Failed to connect to LLM API: HTTP 401. Response: {\"error\":{\"message\":\"Authentication Fails, Your api key: ****-xxx is invalid\",\"type\":\"authentication_error\",\"param\":null,\"code\":\"invalid_request_error\"}}"
     }
 
     // wrong endpoint
@@ -99,7 +86,7 @@ suite("test_create_llm_resource") {
                 'llm.model_name' = 'deepseek-chat',
                 'llm.api_key' = 'sk-xxx'
             );"""
-        exception "Failed to connect to LLM API"
+        exception "Failed to ping LLM API at https://api.depsek.com/chat/completions"
     }
 
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"

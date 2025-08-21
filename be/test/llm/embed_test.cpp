@@ -81,7 +81,18 @@ TEST(EMBED_TEST, embed_function_test) {
     Status exec_status =
             sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
 
-    ASSERT_FALSE(exec_status.ok());
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+    const auto& col_array =
+            assert_cast<const ColumnArray&>(*block.get_by_position(result_idx).column);
+    const auto& offsets = col_array.get_offsets();
+    ASSERT_EQ(offsets.size(), 1U);
+    const auto& nested_nullable_col = assert_cast<const ColumnNullable&>(col_array.get_data());
+    const auto& nested_col =
+            assert_cast<const ColumnFloat32&>(*nested_nullable_col.get_nested_column_ptr());
+    ASSERT_EQ(nested_col.size(), 5U);
+    for (int i = 0; i < 5; ++i) {
+        ASSERT_FLOAT_EQ(nested_col.get_element(i), static_cast<float>(i));
+    }
 }
 
 TEST(EMBED_TEST, local_adapter_embedding_request) {
@@ -131,21 +142,39 @@ TEST(EMBED_TEST, local_adapter_embedding_request) {
 TEST(EMBED_TEST, local_adapter_parse_embedding_response) {
     LocalAdapter adapter;
 
-    // Test various formats for compatibility
-    // Format 1: Direct embedding array (Ollama format)
     std::string resp1 = R"({
-        "embedding": [0.1, 0.2, 0.3, 0.4, 0.5]
+        "object": "list",
+        "data": [
+            {
+                "object": "embedding",
+                "embedding": [0.1, 0.2, 0.3],
+                "index": 0
+            },
+            {
+                "object": "embedding",
+                "embedding": [0.4, 0.5],
+                "index": 1
+            }
+        ],
+        "model": "mxbai-embed-large",
+        "usage": {
+            "prompt_tokens": 8,
+            "total_tokens": 8
+        }
     })";
+
     std::vector<std::vector<float>> results;
     Status st = adapter.parse_embedding_response(resp1, results);
-    ASSERT_TRUE(st.ok()) << "Format 1 failed: " << st.to_string();
-    ASSERT_EQ(results.size(), 1);
-    ASSERT_EQ(results[0].size(), 5);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(results.size(), 2);
+    ASSERT_EQ(results[0].size(), 3);
+    ASSERT_EQ(results[1].size(), 2);
     ASSERT_FLOAT_EQ(results[0][0], 0.1F);
     ASSERT_FLOAT_EQ(results[0][1], 0.2F);
-    ASSERT_FLOAT_EQ(results[0][4], 0.5F);
+    ASSERT_FLOAT_EQ(results[0][2], 0.3F);
+    ASSERT_FLOAT_EQ(results[1][0], 0.4F);
+    ASSERT_FLOAT_EQ(results[1][1], 0.5F);
 
-    // Format 2: Embeddings array (VoyageAI format)
     std::string resp2 = R"({
         "embedding": [0.1, 0.2, 0.3]
     })";

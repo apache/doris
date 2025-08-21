@@ -49,7 +49,7 @@ struct MockQueryContext : public QueryContext {
 
     void set_mock_llm_resource() {
         TLLMResource llm_resource;
-        llm_resource.provider_type = "LOCAL";
+        llm_resource.provider_type = "MOCK";
         llm_resource.model_name = "mock_model";
         llm_resource.endpoint = "http://localhost";
         llm_resource.api_key = "xxx";

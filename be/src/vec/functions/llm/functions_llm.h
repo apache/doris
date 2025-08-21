@@ -266,7 +266,12 @@ private:
                 inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
 
         std::string response;
-        RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        if (config.provider_type == "MOCK") {
+            // Mock path for UT
+            response = "this is a mock response. " + input;
+        } else {
+            RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        }
 
         Status status = adapter->parse_response(response, results);
         if (!status.ok()) {
@@ -291,7 +296,12 @@ private:
         RETURN_IF_ERROR(adapter->build_embedding_request(inputs, request_body));
 
         std::string response;
-        RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        if (config.provider_type == "MOCK") {
+            // Mock path for UT
+            response = "{\"embedding\": [0, 1, 2, 3, 4]}";
+        } else {
+            RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        }
 
         Status status = adapter->parse_embedding_response(response, results);
         if (!status.ok()) {
