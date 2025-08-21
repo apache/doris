@@ -312,7 +312,8 @@ public:
         return _warmed_up_rowsets.contains(rowset_id);
     }
 
-    // TODO: add to warm up callback when file cache donwload task is done
+    // mark a rowset that it has been warmed up
+    // must be called when file cache donwload task on this rowset is done
     void add_warmed_up_rowset(const RowsetId& rowset_id) {
         std::unique_lock wlock(_warmed_up_rowsets_mutex);
         _warmed_up_rowsets.insert(rowset_id);

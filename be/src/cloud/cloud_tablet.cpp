@@ -216,18 +216,17 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         if (it == _rs_version_map.end()) {
             it = _stale_rs_version_map.find(version);
             if (it == _stale_rs_version_map.end()) {
-                LOG_INFO(
+                LOG_WARNING(
                         "fail to find Rowset in rs_version or stale_rs_version for version. "
-                        "tablet={}, "
-                        "version={}-{}",
-                        tablet_id(), version.first, version.second);
+                        "tablet={}, version={}",
+                        tablet_id(), version.to_string());
                 return false;
             }
         }
         const auto& rs = it->second;
         if (rs->visible_timestamp() < startup_timepoint) {
             // We only care about rowsets that are created after startup time point. For other rowsets,
-            // we assume they are warmuped up.
+            // we assume they are warmed up.
             return true;
         }
         return is_rowset_warmed_up(rs->rowset_id());
@@ -640,6 +639,10 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     if (!recycled_rowsets.empty()) {
         auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
         manager.recycle_cache(tablet_id(), recycled_rowsets);
+    }
+    // these rowsets will not be choosen for query any more, so don't need to maintain if they are warmed up
+    for (const auto& rs : expired_rowsets) {
+        remove_warmed_up_rowset(rs->rowset_id());
     }
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
@@ -1602,6 +1605,7 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Stat
     _rowset_warm_up_states[rowset_id].second--;
     if (_rowset_warm_up_states[rowset_id].second <= 0) {
         g_file_cache_warm_up_rowset_complete_num << 1;
+        add_warmed_up_rowset(rowset_id);
         _rowset_warm_up_states[rowset_id].first = WarmUpState::DONE;
     }
     return _rowset_warm_up_states[rowset_id].first;
