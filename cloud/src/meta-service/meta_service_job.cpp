@@ -1234,7 +1234,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         return;
     }
 
-    // We don't actually need to parse the rowset meta
     doris::RowsetMetaCloudPB rs_meta;
     rs_meta.ParseFromString(tmp_rowset_val);
     if (rs_meta.txn_id() <= 0) {
