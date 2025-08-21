@@ -1054,65 +1054,53 @@ public:
         CHECK_EQ(arguments.size(), 3);
         auto res = ColumnFloat64::create();
 
-        bool date_consts[2];
-        date_consts[0] = is_column_const(*block.get_by_position(arguments[0]).column);
-        date_consts[1] = is_column_const(*block.get_by_position(arguments[1]).column);
-        ColumnPtr date_cols[2];
-        // convert const columns to full columns if necessary
-        default_preprocess_parameter_columns(date_cols, date_consts, {0, 1}, block, arguments);
-
-        const auto& [col3, col3_const] =
-                unpack_if_const(block.get_by_position(arguments[2]).column);
-
-        const auto& date1_col = *assert_cast<const ColumnDateV2*>(date_cols[0].get());
-        const auto& date2_col = *assert_cast<const ColumnDateV2*>(date_cols[1].get());
-        const auto& round_off_col = *assert_cast<const ColumnBool*>(col3.get());
-
-        if (date_consts[0] && date_consts[1]) {
-            execute_vector<true, false>(input_rows_count, date1_col, date2_col, round_off_col,
-                                        *res);
-        } else if (col3_const) {
-            execute_vector<false, true>(input_rows_count, date1_col, date2_col, round_off_col,
-                                        *res);
-        } else {
-            execute_vector<false, false>(input_rows_count, date1_col, date2_col, round_off_col,
-                                         *res);
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
+
+        const auto& date1_col = *assert_cast<const ColumnDateV2*>(argument_columns[0].get());
+        const auto& date2_col = *assert_cast<const ColumnDateV2*>(argument_columns[1].get());
+        const auto& round_off_col = *assert_cast<const ColumnBool*>(argument_columns[2].get());
+
+        std::visit(
+                [&](auto data1_const, auto data2_const, auto round_const) {
+                    execute_vector<data1_const, data2_const, round_const>(
+                            input_rows_count, date1_col, date2_col, round_off_col, *res);
+                },
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]));
 
         block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
 
 private:
-    template <bool is_date_const, bool is_round_off_const>
+    template <bool data1_const, bool data2_const, bool round_const>
     static void execute_vector(const size_t input_rows_count, const ColumnDateV2& date1_col,
                                const ColumnDateV2& date2_col, const ColumnBool& round_off_col,
                                ColumnFloat64& res) {
         res.reserve(input_rows_count);
         double months_between;
-        bool round_off;
-
-        if constexpr (is_date_const) {
+        if constexpr (data1_const && data2_const) {
             auto dtv1 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date1_col.get_element(0));
             auto dtv2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2_col.get_element(0));
             months_between = calc_months_between(dtv1, dtv2);
         }
 
-        if constexpr (is_round_off_const) {
-            round_off = round_off_col.get_element(0);
-        }
-
         for (int i = 0; i < input_rows_count; ++i) {
-            if constexpr (!is_date_const) {
-                auto dtv1 =
-                        binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date1_col.get_element(i));
-                auto dtv2 =
-                        binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2_col.get_element(i));
+            auto dtv1 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                    date1_col.get_element(index_check_const<data1_const>(i)));
+            auto dtv2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                    date2_col.get_element(index_check_const<data2_const>(i)));
+            if constexpr (!(data1_const && data2_const)) {
                 months_between = calc_months_between(dtv1, dtv2);
             }
-            if constexpr (!is_round_off_const) {
-                round_off = round_off_col.get_element(i);
-            }
+
+            auto round_off = round_off_col.get_element(index_check_const<round_const>(i));
             if (round_off) {
                 months_between = round_months_between(months_between);
             }
