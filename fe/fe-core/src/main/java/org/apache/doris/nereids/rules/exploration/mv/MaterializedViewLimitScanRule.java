@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -38,7 +39,7 @@ import java.util.Optional;
  * MaterializedViewLimitScanRule
  */
 public class MaterializedViewLimitScanRule extends AbstractMaterializedViewScanRule
-        implements AbstractMaterializedViewLimitRule {
+        implements AbstractMaterializedViewLimitOrTopNRule {
 
     public static final MaterializedViewLimitScanRule INSTANCE = new MaterializedViewLimitScanRule();
 
@@ -48,6 +49,12 @@ public class MaterializedViewLimitScanRule extends AbstractMaterializedViewScanR
             CascadesContext cascadesContext) {
         Plan tempRewritePlan = super.rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo,
                 viewToQuerySlotMapping, tempRewritedPlan, materializationContext, cascadesContext);
+        if (!checkTmpRewrittenPlanIsValid(tempRewritePlan)) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "Limit scan rewriteQueryByView fail because tempRewritePlan is invalid",
+                    () -> String.format("tempRewrittenPlan is %s", tempRewritePlan));
+            return null;
+        }
         Optional<LogicalLimit<Plan>> queryLimit
                 = queryStructInfo.getTopPlan().collectFirst(node -> node instanceof LogicalLimit
                 && ((LogicalLimit<Plan>) node).getPhase() == LimitPhase.GLOBAL);
@@ -71,12 +78,8 @@ public class MaterializedViewLimitScanRule extends AbstractMaterializedViewScanR
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 // because limit spit to two phases
-                logicalLimit(logicalLimit(logicalUnary(logicalCatalogRelation())
-                        .when(node -> node instanceof LogicalProject || node instanceof LogicalFilter)))
-                        .thenApplyMultiNoThrow(ctx -> {
-                            return rewrite(ctx.root, ctx.cascadesContext);
-                        }).toRule(RuleType.MATERIALIZED_VIEW_LIMIT_UNARY_SCAN),
-                logicalLimit(logicalLimit(logicalCatalogRelation()))
+                logicalLimit(logicalLimit(subTree(
+                        LogicalProject.class, LogicalFilter.class, LogicalCatalogRelation.class)))
                         .thenApplyMultiNoThrow(ctx -> {
                             return rewrite(ctx.root, ctx.cascadesContext);
                         }).toRule(RuleType.MATERIALIZED_VIEW_LIMIT_SCAN)

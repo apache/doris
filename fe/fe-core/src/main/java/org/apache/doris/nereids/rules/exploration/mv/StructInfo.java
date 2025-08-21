@@ -493,7 +493,10 @@ public class StructInfo {
                     && !(plan instanceof LogicalAggregate)
                     && !(plan instanceof LogicalWindow)
                     && !(plan instanceof LogicalSort)
-                    && !(plan instanceof LogicalRepeat)) {
+                    && !(plan instanceof LogicalRepeat)
+                    && !(plan instanceof LogicalAggregate)
+                    && !(plan instanceof LogicalLimit)
+                    && !(plan instanceof LogicalTopN)) {
                 return null;
             }
             return super.visit(plan, collectorContext);

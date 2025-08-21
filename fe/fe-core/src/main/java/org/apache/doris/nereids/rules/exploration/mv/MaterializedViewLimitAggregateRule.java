@@ -24,12 +24,10 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.ImmutableList;
 
@@ -40,7 +38,7 @@ import java.util.Optional;
  * MaterializedViewLimitJoinRule
  */
 public class MaterializedViewLimitAggregateRule extends AbstractMaterializedViewAggregateRule
-        implements AbstractMaterializedViewLimitRule {
+        implements AbstractMaterializedViewLimitOrTopNRule {
 
     public static MaterializedViewLimitAggregateRule INSTANCE = new MaterializedViewLimitAggregateRule();
 
@@ -52,7 +50,7 @@ public class MaterializedViewLimitAggregateRule extends AbstractMaterializedView
                 viewToQuerySlotMapping, tempRewritedPlan, materializationContext, cascadesContext);
         if (!checkTmpRewrittenPlanIsValid(tempRewritePlan)) {
             materializationContext.recordFailReason(queryStructInfo,
-                    "Limit aggregate rewriteQueryByView fail because aggregate roll up",
+                    "Limit aggregate rewriteQueryByView fail because tempRewritePlan is invalid",
                     () -> String.format("tempRewrittenPlan is %s", tempRewritePlan));
             return null;
         }
@@ -89,26 +87,5 @@ public class MaterializedViewLimitAggregateRule extends AbstractMaterializedView
                             return rewrite(ctx.root, ctx.cascadesContext);
                         }).toRule(RuleType.MATERIALIZED_VIEW_LIMIT_AGGREGATE)
         );
-    }
-
-    // Check the tempRewrittenPlan is valid, should only contain logical project, scan or filter
-    protected boolean checkTmpRewrittenPlanIsValid(Plan tempRewrittenPlan) {
-        return tempRewrittenPlan.accept(new DefaultPlanVisitor<Boolean, Void>() {
-            @Override
-            public Boolean visit(Plan plan, Void context) {
-                if (plan instanceof LogicalProject || plan instanceof CatalogRelation
-                        || plan instanceof LogicalFilter) {
-                    boolean isValid;
-                    for (Plan child : plan.children()) {
-                        isValid = child.accept(this, context);
-                        if (!isValid) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                return false;
-            }
-        }, null);
     }
 }

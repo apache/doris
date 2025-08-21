@@ -54,12 +54,10 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -1041,33 +1039,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * Try rewrite limit node
-     */
-    protected Plan tryRewriteLimit(LogicalLimit<Plan> queryLimitNode, LogicalLimit<Plan> viewLimitNode,
-            Plan tmpRwritePlan, StructInfo queryStructInfo,
-            MaterializationContext materializationContext) {
-        if (queryLimitNode == null || viewLimitNode == null) {
-            materializationContext.recordFailReason(queryStructInfo,
-                    "query limit rewrite fail, queryLimitNode or viewLimitNode is null",
-                    () -> String.format("queryLimitNode = %s,\n viewLimitNode = %s,\n",
-                            queryLimitNode, viewLimitNode));
-            return null;
-        }
-        Pair<Long, Long> limitAndOffset = rewriteLimitAndOffset(
-                Pair.of(queryLimitNode.getLimit(), queryLimitNode.getOffset()),
-                Pair.of(viewLimitNode.getLimit(), viewLimitNode.getOffset()));
-        if (limitAndOffset == null) {
-            materializationContext.recordFailReason(queryStructInfo,
-                    "query limit rewrite fail, query limit is not consistent with view limit",
-                    () -> String.format("query limit = %s,\n view limit = %s,\n",
-                            queryLimitNode.treeString(),
-                            viewLimitNode.treeString()));
-            return null;
-        }
-        return new LogicalLimit<>(limitAndOffset.key(), limitAndOffset.value(), LimitPhase.GLOBAL, tmpRwritePlan);
-    }
-
-    /**
      * Try rewrite topN node
      */
     protected Plan tryRewriteTopN(LogicalTopN<Plan> queryTopNode, LogicalTopN<Plan> viewTopNode,
@@ -1080,7 +1051,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                             queryTopNode, viewTopNode));
             return null;
         }
-        Pair<Long, Long> limitAndOffset = rewriteLimitAndOffset(
+        Pair<Long, Long> limitAndOffset = AbstractMaterializedViewLimitOrTopNRule.rewriteLimitAndOffset(
                 Pair.of(queryTopNode.getLimit(), queryTopNode.getOffset()),
                 Pair.of(viewTopNode.getLimit(), viewTopNode.getOffset()));
         if (limitAndOffset == null) {
@@ -1151,24 +1122,5 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     queryOrderKey.isNullFirst()));
         }
         return new LogicalTopN<>(rewrittenOrderKeys, limitAndOffset.key(), limitAndOffset.value(), tmpRwritePlan);
-    }
-
-    /**
-     * The key of pair is limit, the value of pair is offset
-     * if return null, means cannot rewrite
-     */
-    protected Pair<Long, Long> rewriteLimitAndOffset(Pair<Long, Long> queryLimitNode, Pair<Long, Long> viewLimitNode) {
-        if (queryLimitNode == null || viewLimitNode == null) {
-            return null;
-        }
-        long queryOffset = queryLimitNode.value();
-        long queryLimit = queryLimitNode.key();
-
-        long viewOffset = viewLimitNode.value();
-        long viewLimit = viewLimitNode.key();
-        if (queryOffset >= viewOffset && queryOffset + queryLimit <= viewOffset + viewLimit) {
-            return Pair.of(queryLimit, queryOffset - viewOffset);
-        }
-        return null;
     }
 }
