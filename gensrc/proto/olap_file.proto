@@ -545,7 +545,6 @@ message TabletMetaPB {
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
     optional int64 time_series_compaction_level_threshold = 33 [default = 1];
-    optional EncryptionAlgorithmPB encryption_algorithm = 34;
 
     // For cloud
     optional int64 index_id = 1000;
@@ -602,7 +601,6 @@ message TabletMetaCloudPB {
     optional int64 group_commit_data_bytes = 36 [default = 134217728];
     optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
     optional int64 time_series_compaction_level_threshold = 38 [default = 1];
-    optional EncryptionAlgorithmPB encryption_algorithm = 39;
 
     // Use for selectdb-cloud
     optional string table_name = 101;
