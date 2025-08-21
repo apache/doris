@@ -55,7 +55,7 @@ public class LLMProperties extends BaseProperties {
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, PROVIDER_TYPE, MODEL_NAME);
     public static final List<String> PROVIDERS
             = Arrays.asList("OPENAI", "LOCAL", "GEMINI", "DEEPSEEK", "ANTHROPIC",
-            "MOONSHOT", "QWEN", "MINIMAX", "ZHIPU", "BAICHUAN");
+            "MOONSHOT", "QWEN", "MINIMAX", "ZHIPU", "BAICHUAN", "VOYAGEAI");
 
     public static void requiredLLMProperties(Map<String, String> properties) throws DdlException {
         // Check required field
