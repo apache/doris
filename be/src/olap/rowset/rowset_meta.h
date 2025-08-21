@@ -25,8 +25,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "common/status.h"
-#include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
@@ -34,7 +32,6 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "util/once.h"
 
 namespace doris {
 
@@ -399,7 +396,6 @@ private:
     RowsetId _rowset_id;
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
-    DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
 };
 
 } // namespace doris

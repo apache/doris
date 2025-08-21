@@ -18,17 +18,14 @@
 #pragma once
 
 #include <common/multi_version.h>
-#include <gen_cpp/olap_file.pb.h>
 
 #include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"

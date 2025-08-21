@@ -361,7 +361,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         return Status::OK();
     } else {
         // create inverted index writer
-        const auto& fs = output_rowset_meta->fs();
+        const auto& fs = io::global_local_filesystem();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
         size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
