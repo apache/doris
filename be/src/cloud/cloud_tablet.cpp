@@ -153,7 +153,18 @@ Status CloudTablet::capture_consistent_rowsets_unlocked(
 
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
                                        std::vector<RowSetSplits>* rs_splits,
-                                       bool skip_missing_version) {
+                                       const CaptureRsReaderOptions& opts) {
+    if (opts.query_freshness_tolerance_ms > 0) {
+        return capture_rs_readers_with_freshness_tolerance(spec_version, rs_splits,
+                                                           opts.query_freshness_tolerance_ms);
+    } else if (opts.enable_prefer_cached_rowset) {
+        return capture_rs_readers_prefer_cache(spec_version, rs_splits);
+    }
+    return capture_rs_readers_internal(spec_version, rs_splits);
+}
+
+Status CloudTablet::capture_rs_readers_internal(const Version& spec_version,
+                                                std::vector<RowSetSplits>* rs_splits) {
     DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
         LOG_WARNING("CloudTablet.capture_rs_readers.return e-230").tag("tablet_id", tablet_id());
         return Status::Error<false>(-230, "injected error");
@@ -181,7 +192,7 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
 
 Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-        bool skip_missing_version, int64_t query_freshness_tolerance_ms) {
+        int64_t query_freshness_tolerance_ms) {
     g_capture_with_freshness_tolerance_count << 1;
     using namespace std::chrono;
     auto freshness_limit_tp = system_clock::now() - milliseconds(query_freshness_tolerance_ms);
@@ -240,7 +251,7 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         g_capture_with_freshness_tolerance_fallback_count << 1;
         // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
         // but has not been warmuped up yet, fallback to capture rowsets as usual
-        return capture_rs_readers(spec_version, rs_splits, skip_missing_version);
+        return capture_rs_readers_internal(spec_version, rs_splits);
     }
 
     return capture_rs_readers_unlocked(version_path, rs_splits);

@@ -50,6 +50,15 @@ struct TabletWithVersion {
     int64_t version;
 };
 
+struct CaptureRsReaderOptions {
+    // used by local mode only
+    bool skip_missing_version {false};
+
+    // used by cloud mode only
+    bool enable_prefer_cached_rowset {false};
+    int64_t query_freshness_tolerance_ms {-1};
+};
+
 enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
@@ -113,7 +122,7 @@ public:
 
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,
-                                      bool skip_missing_version) = 0;
+                                      const CaptureRsReaderOptions& opts) = 0;
 
     virtual size_t tablet_footprint() = 0;
 
