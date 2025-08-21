@@ -237,6 +237,15 @@ name	varchar(2147483647)	Yes	true	\N
 -- !query_latest_schema --
 1	\N
 
--- !time_travel_schema --
+-- !time_travel_schema_branch --
+1	\N
+
+-- !time_travel_schema_tag --
+1
+
+-- !time_travel_schema_tag2 --
+1
+
+-- !time_travel_schema_snapshot --
 1
 

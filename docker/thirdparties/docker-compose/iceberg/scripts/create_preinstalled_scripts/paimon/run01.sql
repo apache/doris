@@ -83,4 +83,5 @@ create table test_schema_change;
 alter table test_schema_change add column id int;
 insert into test_schema_change values(1);
 CALL sys.create_tag(table => 'test_schema_change', tag => 'tag1', snapshot => 1);
+CALL sys.create_branch('test_schema_change', 'branch1', 'tag1');
 alter table test_schema_change add column name string;
