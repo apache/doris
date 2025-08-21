@@ -462,6 +462,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
+        if (table == null) {
+            return;
+        }
         unregisterTable(table.getId());
     }
 
