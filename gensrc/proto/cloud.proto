@@ -1121,12 +1121,19 @@ message PartitionResponse {
 }
 
 message RestoreJobRequest {
+    enum Action {
+        UNKONWN  = 0;
+        PREPARE = 1;
+        COMMIT = 2;
+        ABORT = 3;
+        COMPLETE = 4;
+    }
     optional string cloud_unique_id = 1;
     optional int64 tablet_id = 2;
     optional doris.TabletMetaCloudPB tablet_meta = 3;
     optional int64 expiration = 4;
     optional string request_ip = 5;
-    optional bool is_completed = 6;
+    optional Action action = 6;
 }
 
 message RestoreJobResponse {
