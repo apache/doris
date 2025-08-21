@@ -531,7 +531,6 @@ void TxnLazyCommitTask::commit() {
                 LOG(WARNING) << "scan_tmp_rowset failed, txn_id=" << txn_id_ << " code=" << code_;
                 break;
             }
-
             VLOG_DEBUG << "txn_id=" << txn_id_
                        << " tmp_rowset_metas.size()=" << all_tmp_rowset_metas.size();
             if (all_tmp_rowset_metas.size() == 0) {
@@ -554,8 +553,10 @@ void TxnLazyCommitTask::commit() {
             // fdb txn limit 10MB, we use 4MB as the max size for each batch.
             size_t max_rowsets_per_batch = config::txn_lazy_max_rowsets_per_batch;
             if (max_rowset_meta_size > 0) {
-                max_rowsets_per_batch = std::min(4L << 20 / max_rowset_meta_size,
-                                                 config::txn_lazy_max_rowsets_per_batch);
+                max_rowsets_per_batch = std::min((4UL << 20) / max_rowset_meta_size,
+                                                 size_t(config::txn_lazy_max_rowsets_per_batch));
+                TEST_SYNC_POINT_CALLBACK("TxnLazyCommitTask::commit::max_rowsets_per_batch",
+                                         &max_rowsets_per_batch, &max_rowset_meta_size);
             }
 
             for (auto& [partition_id, tmp_rowset_metas] : partition_to_tmp_rowset_metas) {

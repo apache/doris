@@ -2986,6 +2986,15 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
         ASSERT_EQ(code, MetaServiceCode::OK);
         commit_txn_eventually_finish_hit = true;
     });
+
+    sp->set_call_back("TxnLazyCommitTask::commit::max_rowsets_per_batch", [&](auto&& args) {
+        size_t max_rowsets_per_batch = *try_any_cast<size_t*>(args[0]);
+        size_t max_rowset_meta_size = *try_any_cast<size_t*>(args[1]);
+        LOG(INFO) << "max_rowsets_per_batch:" << max_rowsets_per_batch
+                  << " max_rowset_meta_size:" << max_rowset_meta_size;
+        ASSERT_EQ(max_rowsets_per_batch, 134);
+    });
+
     sp->enable_processing();
 
     auto meta_service = get_meta_service(txn_kv, true);
@@ -3019,7 +3028,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
     for (int i = 1000; i < 2000; ++i) {
         create_tablet_with_db_id(meta_service.get(), db_id, table_id2, index_id2, partition_id2,
                                  tablet_id_base + i);
-        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, index_id2, partition_id2);
+        auto tmp_rowset = create_huge_rowset(txn_id, tablet_id_base + i, index_id2, partition_id2);
         CreateRowsetResponse res;
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
