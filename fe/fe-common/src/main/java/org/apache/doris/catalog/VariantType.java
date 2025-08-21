@@ -199,4 +199,12 @@ public class VariantType extends ScalarType {
     public void setEnableTypedPathsToSparse(boolean enableTypedPathsToSparse) {
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
     }
+
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        return variantMaxSparseColumnStatisticsSize;
+    }
+
+    public void setVariantMaxSparseColumnStatisticsSize(int variantMaxSparseColumnStatisticsSize) {
+        this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+    }
 }
