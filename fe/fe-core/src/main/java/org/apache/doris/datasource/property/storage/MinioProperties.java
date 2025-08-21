@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
@@ -111,22 +110,6 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
      */
     protected MinioProperties(Map<String, String> origProps) {
         super(Type.MINIO, origProps);
-    }
-
-    @Override
-    public void initNormalizeAndCheckProps() {
-        super.initNormalizeAndCheckProps();
-        // Check if credentials are provided properly - either both or neither
-        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
-            return;
-        }
-        // Allow anonymous access if both access_key and secret_key are empty
-        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            return;
-        }
-        // If only one is provided, it's an error
-        throw new StoragePropertiesException(
-                        "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {

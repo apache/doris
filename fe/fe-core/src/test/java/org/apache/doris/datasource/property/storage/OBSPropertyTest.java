@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -47,8 +46,8 @@ public class OBSPropertyTest {
         // allow both access_key and secret_key to be empty for anonymous access
         ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createAll(origProps));
         origProps.put("obs.access_key", "myOBSAccessKey");
-        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
-                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.",
                 () -> StorageProperties.createAll(origProps));
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
@@ -131,18 +130,22 @@ public class OBSPropertyTest {
     public void testmissingAccessKey() {
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         origProps.put("obs.secret_key", "myOBSSecretKey");
-        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
-                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.",
                 () -> StorageProperties.createPrimary(origProps));
+        origProps.remove("obs.secret_key");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 
     @Test
     public void testMissingSecretKey() {
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         origProps.put("obs.access_key", "myOBSAccessKey");
-        ExceptionChecker.expectThrowsWithMsg(StoragePropertiesException.class,
-                "Please set access_key and secret_key or omit both for anonymous access to public bucket.",
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.",
                 () -> StorageProperties.createPrimary(origProps));
+        origProps.remove("obs.access_key");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 
     private static String obsAccessKey = "";
