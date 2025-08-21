@@ -51,12 +51,69 @@ suite("test_date_floor_ceil") {
     qt_x4 """ select date_floor('1923-12-31 23:59:59.999999', interval -10 year); """
     // qt_x5 """ select date_floor('0000-01-01 00:00:00', interval 7 minute); """//wrong
     qt_x6 """ select date_floor('0001-01-01 00:00:00', interval 7 minute); """
-    qt_x7 """ select date_ceil('9999-12-31 23:59:59.999999', interval 5 minute); """
-    qt_x8 """ select date_ceil('9999-12-31 23:59:59.999999', interval 1 second); """
-    qt_x9 """ select date_ceil('9999-12-31 23:59:59.999999', interval 100 year); """
+    
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 5 minute); """
+        exception "Operation minute_ceil of 9999-12-31 23:59:59.999999, 5 out of range"
+    }
+
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 1 second); """
+        exception "Operation second_ceil of 9999-12-31 23:59:59.999999, 1 out of range"
+    }
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 100 year); """
+        exception "Operation year_ceil of 9999-12-31 23:59:59.999999, 100 out of range"
+    }
     // qt_x10 """ select date_ceil('0000-01-01 23:59:59.999999', interval 7 month); """//wrong
     qt_x11 """ select date_ceil('0001-01-01 23:59:59.999999', interval 7 month); """
     qt_x12 """ select date_ceil('0001-09-01 23:59:59.999999', interval -7 month); """
     qt_x13 """ select date_ceil('0002-02-01 23:59:59.999999', interval -7 month); """
     qt_x14 """ select date_ceil('9999-12-31 23:54:59.999999', interval 5 minute); """
+
+    //All flow tests are capture error of out of bound
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 5 year); """
+        exception "Operation year_ceil of 9999-12-31 23:59:59.999999, 5 out of range"
+    } 
+
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 15 minute); """
+        exception "Operation minute_ceil of 9999-12-31 23:59:59.999999, 15 out of range"
+    }
+
+    test {
+        sql """ select date_ceil('9999-12-01 00:00:00', interval 5 month); """
+        exception "Operation month_ceil of 9999-12-01 00:00:00, 5 out of range"
+    }
+
+    test {
+        sql """ select year_ceil('9999-12-01 00:00:00', 5); """
+        exception "Operation year_ceil of 9999-12-01 00:00:00, 5 out of range"
+    }
+
+    test {
+        sql """  select month_ceil('9999-12-01 00:00:00', 5); """
+        exception "Operation month_ceil of 9999-12-01 00:00:00, 5 out of range"
+    }
+    
+    test {
+        sql """ select day_ceil('9999-12-31 00:00:00', 5); """
+        exception "Operation day_ceil of 9999-12-31 00:00:00, 5 out of range"
+    }
+
+    test {
+        sql """ select hour_ceil('9999-12-31 23:59:59.999999', 5); """
+        exception "Operation hour_ceil of 9999-12-31 23:59:59.999999, 5 out of range"
+    }
+
+    test {
+        sql """ select minute_ceil('9999-12-31 23:59:59.999999', 5); """
+        exception "Operation minute_ceil of 9999-12-31 23:59:59.999999, 5 out of range"
+    }
+
+    test {
+        sql """ select second_ceil('9999-12-31 23:59:59.999999', 5); """
+        exception "Operation second_ceil of 9999-12-31 23:59:59.999999, 5 out of range"
+    }
 }
