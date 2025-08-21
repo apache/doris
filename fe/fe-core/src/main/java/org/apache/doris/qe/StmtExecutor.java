@@ -3176,7 +3176,7 @@ public class StmtExecutor {
 
     private void handleDdlStmt() {
         try {
-            DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
+            DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt, isProxy);
             if (!(parsedStmt instanceof AnalyzeStmt)) {
                 context.getState().setOk();
             }

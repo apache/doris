@@ -95,7 +95,7 @@ public class AdminSetConfigStmt extends DdlStmt implements NotFallbackInParser {
     public OriginStatement getLocalSetStmt() {
         OriginStatement stmt = this.getOrigStmt();
         Object[] keyArr = configs.keySet().toArray();
-        String sql = String.format("ADMIN SET FRONTEND CONFIG (\"%s\" = \"%s\");",
+        String sql = String.format("ADMIN SET %s CONFIG (\"%s\" = \"%s\");", applyToAll ? "ALL FRONTENDS" : "FRONTEND",
                 keyArr[0].toString(), configs.get(keyArr[0].toString()));
 
         return new OriginStatement(sql, stmt.idx);

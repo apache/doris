@@ -39,7 +39,8 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
     public void testNormal() throws Exception {
         String stmt = "admin set frontend config(\"alter_table_timeout_second\" = \"60\");";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
-        Env.getCurrentEnv().setConfig(adminSetConfigStmt);
+        Env.getCurrentEnv().setConfig(adminSetConfigStmt, false);
+        Assertions.assertTrue(adminSetConfigStmt.getLocalSetStmt().originStmt.startsWith("ADMIN SET FRONTEND CONFIG"));
     }
 
     @Test
@@ -47,7 +48,7 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
         String stmt = "admin set frontend config(\"unknown_config\" = \"unknown\");";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
         DdlException exception = Assertions.assertThrows(DdlException.class,
-                () -> Env.getCurrentEnv().setConfig(adminSetConfigStmt));
+                () -> Env.getCurrentEnv().setConfig(adminSetConfigStmt, false));
         Assertions.assertEquals("errCode = 2, detailMessage = Config 'unknown_config' does not exist",
                 exception.getMessage());
     }
@@ -66,14 +67,14 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
         boolean enableMtmv = Config.enable_mtmv;
         String stmt = "admin set frontend config('enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
-        Env.getCurrentEnv().setConfig(adminSetConfigStmt);
+        Env.getCurrentEnv().setConfig(adminSetConfigStmt, false);
         Assert.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 2. set with experimental
         enableMtmv = Config.enable_mtmv;
         stmt = "admin set frontend config('experimental_enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
         adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
-        Env.getCurrentEnv().setConfig(adminSetConfigStmt);
+        Env.getCurrentEnv().setConfig(adminSetConfigStmt, false);
         Assert.assertNotEquals(enableMtmv, Config.enable_mtmv);
 
         // 3. show config
@@ -88,6 +89,20 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
                 CaseSensibility.CONFIG.getCaseSensibility());
         results = ConfigBase.getConfigInfo(matcher);
         Assert.assertEquals(num, results.size());
+    }
+
+    @Test
+    public void testSetAllFrontendsConfig() throws Exception {
+        String stmt = "admin set all frontends config(\"alter_table_timeout_second\" = \"77\");";
+        AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
+
+        Assertions.assertTrue(adminSetConfigStmt.isApplyToAll());
+        Assertions.assertEquals(adminSetConfigStmt.getRedirectStatus(), RedirectStatus.NO_FORWARD);
+        Assertions.assertTrue(
+                adminSetConfigStmt.getLocalSetStmt().originStmt.startsWith("ADMIN SET ALL FRONTENDS CONFIG"));
+
+        Env.getCurrentEnv().setConfig(adminSetConfigStmt, true);
+        Assertions.assertEquals(77, Config.alter_table_timeout_second);
     }
 }
 

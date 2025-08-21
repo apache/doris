@@ -5955,7 +5955,7 @@ public class Env {
         }
     }
 
-    public void setConfig(AdminSetConfigStmt stmt) throws Exception {
+    public void setConfig(AdminSetConfigStmt stmt, boolean isProxy) throws Exception {
         Map<String, String> configs = stmt.getConfigs();
         Preconditions.checkState(configs.size() == 1);
 
@@ -5967,7 +5967,8 @@ public class Env {
             }
         }
 
-        if (stmt.isApplyToAll()) {
+        // if this request already come from other Frontend, do not forward it again
+        if (!isProxy && stmt.isApplyToAll()) {
             for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
                 if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
                     continue;
