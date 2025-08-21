@@ -54,10 +54,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
         |----------------
         |               |
         |               |
-        CastToArray     ArrayLiteral
-        |
-        |
-        SlotRef
+        SlotRef         ArrayLiteral
     */
     std::shared_ptr<vectorized::VirtualSlotRef> vir_slot_ref =
             std::dynamic_pointer_cast<vectorized::VirtualSlotRef>(_order_by_expr_ctx->root());
@@ -78,19 +75,11 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
                                      vir_col_expr->debug_string());
     }
 
-    std::shared_ptr<vectorized::VCastExpr> cast_to_array_expr =
-            std::dynamic_pointer_cast<vectorized::VCastExpr>(distance_fn_call->children()[0]);
-
-    if (cast_to_array_expr == nullptr) {
-        return Status::InternalError("Ann topn expr expect cast_to_array_expr, got\n{}",
-                                     distance_fn_call->children()[0]->debug_string());
-    }
-
     std::shared_ptr<vectorized::VSlotRef> slot_ref =
-            std::dynamic_pointer_cast<vectorized::VSlotRef>(cast_to_array_expr->children()[0]);
+            std::dynamic_pointer_cast<vectorized::VSlotRef>(distance_fn_call->children()[0]);
     if (slot_ref == nullptr) {
         return Status::InternalError("Ann topn expr expect SlotRef, got\n{}",
-                                     cast_to_array_expr->children()[0]->debug_string());
+                                     distance_fn_call->children()[0]->debug_string());
     }
 
     // slot_ref->column_id() is acutually the columnd idx in block.
@@ -139,11 +128,11 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
             assert_cast<const vectorized::ColumnArray*>(const_column->get_data_column_ptr().get());
     const vectorized::ColumnNullable* column_nullable =
             assert_cast<const vectorized::ColumnNullable*>(column_array->get_data_ptr().get());
-    const vectorized::ColumnFloat64* cf64 = assert_cast<const vectorized::ColumnFloat64*>(
+    const vectorized::ColumnFloat32* cf32 = assert_cast<const vectorized::ColumnFloat32*>(
             column_nullable->get_nested_column_ptr().get());
 
-    const double* query_value = cf64->get_data().data();
-    const size_t query_value_size = cf64->get_data().size();
+    const float* query_value = cf32->get_data().data();
+    const size_t query_value_size = cf32->get_data().size();
 
     std::unique_ptr<float[]> query_value_f32 = std::make_unique<float[]>(query_value_size);
     for (size_t i = 0; i < query_value_size; ++i) {
@@ -167,14 +156,14 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
     DCHECK(ann_query_params.row_ids != nullptr);
 
     size_t num_results = ann_query_params.distance->size();
-    auto result_column_double = vectorized::ColumnFloat64::create(num_results);
+    auto result_column_float = vectorized::ColumnFloat32::create(num_results);
     auto result_null_map = vectorized::ColumnUInt8::create(num_results, 0);
 
     for (size_t i = 0; i < num_results; ++i) {
-        result_column_double->get_data()[i] = (*ann_query_params.distance)[i];
+        result_column_float->get_data()[i] = (*ann_query_params.distance)[i];
     }
 
-    result_column = vectorized::ColumnNullable::create(std::move(result_column_double),
+    result_column = vectorized::ColumnNullable::create(std::move(result_column_float),
                                                        std::move(result_null_map));
     row_ids = std::move(ann_query_params.row_ids);
     ann_index_stats = *ann_query_params.stats;

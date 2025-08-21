@@ -457,10 +457,10 @@ void VectorizedFnCall::prepare_ann_range_search(
     range_search_runtime.query_value = std::make_unique<float[]>(dim);
 
     const ColumnNullable* cn = assert_cast<const ColumnNullable*>(array_col->get_data_ptr().get());
-    const ColumnFloat64* cf64 =
-            assert_cast<const ColumnFloat64*>(cn->get_nested_column_ptr().get());
+    const ColumnFloat32* cf32 =
+            assert_cast<const ColumnFloat32*>(cn->get_nested_column_ptr().get());
     for (size_t i = 0; i < dim; ++i) {
-        range_search_runtime.query_value[i] = static_cast<Float32>(cf64->get_data()[i]);
+        range_search_runtime.query_value[i] = cf32->get_data()[i];
     }
     range_search_runtime.is_ann_range_search = true;
     range_search_runtime.user_params = user_params;
@@ -551,13 +551,13 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             DCHECK(virtual_column_iterator != nullptr);
             // Now convert distance to column
             size_t size = result.roaring->cardinality();
-            auto distance_col = ColumnFloat64::create(size);
+            auto distance_col = ColumnFloat32::create(size);
             auto null_map = ColumnUInt8::create(size, 0);
             // TODO: Return type of L2DistanceApproximate/InnerProductApproximate should be changed to float.
-            const float* src = reinterpret_cast<const float*>(result.distance.get());
-            double* dst = distance_col->get_data().data();
+            const float* src = result.distance.get();
+            float* dst = distance_col->get_data().data();
             for (size_t i = 0; i < size; ++i) {
-                dst[i] = static_cast<double>(src[i]);
+                dst[i] = src[i];
             }
             auto nullable_distance_col =
                     ColumnNullable::create(std::move(distance_col), std::move(null_map));
