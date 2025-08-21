@@ -615,6 +615,8 @@ public:
 
     virtual bool is_column_dictionary() const { return false; }
 
+    virtual bool is_predicate_column() const { return false; }
+
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
