@@ -1780,7 +1780,6 @@ public class PropertyAnalyzer {
                     String.valueOf(tableReplicaCountOverrideForTest));
         }
 
-        LOG.info("rewriteReplicaAllocationProperties properties={}", newProperties);
         return newProperties;
     }
 

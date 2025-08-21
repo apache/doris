@@ -2643,6 +2643,7 @@ public class Config extends ConfigBase {
 
     @Deprecated
     @ConfField(mutable = true, masterOnly = true, description = {
+            "修改建表语句的副本数，通常用于回归测试。当前不再支持。使用 session variable table_replica_count_override 替代。",
             "Deprecated. Use session variable table_replica_count_override instead"})
     public static int force_olap_table_replication_num = 0;
 
