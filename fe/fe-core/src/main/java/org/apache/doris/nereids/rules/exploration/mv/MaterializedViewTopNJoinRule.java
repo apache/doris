@@ -37,7 +37,7 @@ import java.util.Optional;
  * MaterializedViewLimitJoinRule
  */
 public class MaterializedViewTopNJoinRule extends AbstractMaterializedViewJoinRule
-        implements AbstractMaterializedViewLimitRule {
+        implements AbstractMaterializedViewLimitOrTopNRule {
 
     public static MaterializedViewTopNJoinRule INSTANCE = new MaterializedViewTopNJoinRule();
 
@@ -47,6 +47,12 @@ public class MaterializedViewTopNJoinRule extends AbstractMaterializedViewJoinRu
             CascadesContext cascadesContext) {
         Plan tempRewritePlan = super.rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo,
                 viewToQuerySlotMapping, tempRewritedPlan, materializationContext, cascadesContext);
+        if (!checkTmpRewrittenPlanIsValid(tempRewritePlan)) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "TopN join rewriteQueryByView fail because tempRewritePlan is invalid",
+                    () -> String.format("tempRewrittenPlan is %s", tempRewritePlan));
+            return null;
+        }
         Optional<LogicalTopN<Plan>> queryTopN
                 = queryStructInfo.getTopPlan().collectFirst(LogicalTopN.class::isInstance);
         Optional<LogicalTopN<Plan>> viewTopN
