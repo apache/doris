@@ -3610,6 +3610,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
         }
 
+        if (variantMaxSubcolumnsCount == 0 && !fields.isEmpty()) {
+            throw new NotSupportedException("variant_max_subcolumns_count must be greater than 0 "
+                    + "when variant has fields, but got " + variantMaxSubcolumnsCount);
+        }
+
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse);
     }
 

@@ -17,11 +17,12 @@
 
 suite("regression_test_variant_predefine_element_at", "p0")  {
     sql """ DROP TABLE IF EXISTS element_fn_test """
+    def max_subcolumns_count = new Random().nextInt(10) + 1
     sql """
         CREATE TABLE IF NOT EXISTS element_fn_test(
             k bigint,
-            v variant<'arr1' : array<int>, 'arr2' : array<int>>,
-            v1 variant<'arr1' : array<int>, 'arr2' : array<int>> not null,
+            v variant<'arr1' : array<int>, 'arr2' : array<int>, properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")>,
+            v1 variant<'arr1' : array<int>, 'arr2' : array<int>, properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")> not null,
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
