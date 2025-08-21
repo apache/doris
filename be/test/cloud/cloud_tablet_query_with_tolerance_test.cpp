@@ -68,7 +68,7 @@ public:
         if (!rs) {
             return nullptr;
         }
-        rs->rowset_meta()->set_visible_time_ms(
+        rs->rowset_meta()->set_visible_ts_ms(
                 duration_cast<milliseconds>(visible_timestamp.time_since_epoch()).count());
         return rs;
     }
@@ -174,14 +174,14 @@ TEST_F(TestFreshnessTolerance, testVisibleTimestamp) {
     }
 
     {
-        // when visible_time_ms is set, RowsetMeta::visible_timestamp() uses visible_time_ms which is more precise
+        // when visible_ts_ms is set, RowsetMeta::visible_timestamp() uses visible_ts_ms which is more precise
         auto tp1 = system_clock::now() - seconds(100);
         auto tp2 = system_clock::now() - seconds(50);
         auto rs = create_rowset_without_visible_time({2, 2});
         auto d1 = duration_cast<seconds>(tp1.time_since_epoch()).count();
         auto d2 = duration_cast<milliseconds>(tp2.time_since_epoch()).count();
         rs->rowset_meta()->set_newest_write_timestamp(d1);
-        rs->rowset_meta()->set_visible_time_ms(d2);
+        rs->rowset_meta()->set_visible_ts_ms(d2);
         ASSERT_EQ(rs->rowset_meta()->visible_timestamp(),
                   time_point<system_clock>(milliseconds(d2)));
     }

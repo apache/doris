@@ -11927,10 +11927,10 @@ TEST(MetaServiceTest, RowsetVisibleTimeTest) {
         ASSERT_EQ(txn->get(rowset_key, &val), TxnErrorCode::TXN_OK);
         RowsetMetaCloudPB rowset_pb;
         ASSERT_TRUE(rowset_pb.ParseFromString(val));
-        ASSERT_TRUE(rowset_pb.has_visible_time_ms());
-        std::cout << rowset_pb.visible_time_ms() << "\n";
-        ASSERT_GT(rowset_pb.visible_time_ms(), 0);
-        auto visible_tp = time_point<system_clock>(milliseconds(rowset_pb.visible_time_ms()));
+        ASSERT_TRUE(rowset_pb.has_visible_ts_ms());
+        std::cout << rowset_pb.visible_ts_ms() << "\n";
+        ASSERT_GT(rowset_pb.visible_ts_ms(), 0);
+        auto visible_tp = time_point<system_clock>(milliseconds(rowset_pb.visible_ts_ms()));
         std::time_t visible_time = system_clock::to_time_t(visible_tp);
         std::cout << "visible time: "
                   << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
