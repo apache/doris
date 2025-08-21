@@ -2160,6 +2160,16 @@ TEST_F(IndexFileWriterTest, HeaderFileCountTest) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
 }
 
+class MockFileCacheAllocatorBuilder : public io::FileCacheAllocatorBuilder {
+public:
+    MockFileCacheAllocatorBuilder(bool is_cold_data, uint64_t expiration_time,
+                                  const io::UInt128Wrapper& cache_hash, io::BlockFileCache* cache)
+            : io::FileCacheAllocatorBuilder(is_cold_data, expiration_time, cache_hash, cache) {}
+
+    MOCK_METHOD(io::FileBlocksHolderPtr, allocate_cache_holder, (size_t offset, size_t size),
+                (const, override));
+};
+
 class MockFileWriter : public io::FileWriter {
 public:
     Status close(bool non_block = false) override { return Status::OK(); }
@@ -2168,14 +2178,8 @@ public:
     size_t bytes_appended() const override { return 0; }
     State state() const override { return State::OPENED; }
 
-    void init_cache_builder(const io::FileWriterOptions* opts, const io::Path& path) {
-        if (opts && opts->write_file_cache) {
-            _cache_builder = std::make_unique<io::FileCacheAllocatorBuilder>();
-            _cache_builder->_is_cold_data = opts->is_cold_data;
-            _cache_builder->_expiration_time = opts->file_cache_expiration;
-            _cache_builder->_cache_hash = io::BlockFileCache::hash(path.filename().native());
-            _cache_builder->_cache = nullptr;
-        }
+    void set_cache_builder(std::unique_ptr<io::FileCacheAllocatorBuilder> builder) {
+        _cache_builder = std::move(builder);
     }
 
 private:
@@ -2183,19 +2187,20 @@ private:
 };
 
 TEST_F(IndexFileWriterTest, AddMetaFilesToIndexCache_FullCoverage_Mock) {
-    auto old_deploy_mode = doris::config::deploy_mode;
-    doris::config::deploy_mode = "cloud";
-
     {
         IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
                                InvertedIndexStorageFormatPB::V2);
         IndexStorageFormatV2 format_v2(&writer);
 
         auto mock = std::make_unique<MockFileWriter>();
-        io::FileWriterOptions opts;
-        opts.write_file_cache = true;
-        opts.file_cache_expiration = 0;
-        mock->init_cache_builder(&opts, io::Path("test_path"));
+        auto builder = std::make_unique<::testing::StrictMock<MockFileCacheAllocatorBuilder>>(
+                false, 0, io::UInt128Wrapper(), nullptr);
+
+        EXPECT_CALL(*builder, allocate_cache_holder(0, 100))
+                .WillOnce(::testing::Return(::testing::ByMove(
+                        std::make_unique<io::FileBlocksHolder>(io::FileBlocks {}))));
+
+        mock->set_cache_builder(std::move(builder));
         writer._idx_v2_writer = std::move(mock);
 
         IndexStorageFormatV2::MetaFileRange meta_range {0, 100};
@@ -2208,17 +2213,19 @@ TEST_F(IndexFileWriterTest, AddMetaFilesToIndexCache_FullCoverage_Mock) {
         IndexStorageFormatV2 format_v2(&writer);
 
         auto mock = std::make_unique<MockFileWriter>();
-        io::FileWriterOptions opts;
-        opts.write_file_cache = true;
-        opts.file_cache_expiration = 0;
-        mock->init_cache_builder(&opts, io::Path("test_path"));
+        auto builder = std::make_unique<::testing::StrictMock<MockFileCacheAllocatorBuilder>>(
+                false, 0, io::UInt128Wrapper(), nullptr);
+
+        EXPECT_CALL(*builder, allocate_cache_holder(0, 100))
+                .WillOnce(::testing::Return(::testing::ByMove(
+                        std::make_unique<io::FileBlocksHolder>(io::FileBlocks {}))));
+
+        mock->set_cache_builder(std::move(builder));
         writer._idx_v2_writer = std::move(mock);
 
         IndexStorageFormatV2::MetaFileRange meta_range {0, 0};
         format_v2.add_meta_files_to_index_cache(meta_range);
     }
-
-    doris::config::deploy_mode = old_deploy_mode;
 }
 
 } // namespace doris::segment_v2

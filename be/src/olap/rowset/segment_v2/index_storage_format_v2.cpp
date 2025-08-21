@@ -252,19 +252,22 @@ void IndexStorageFormatV2::copy_files_data(lucene::store::IndexOutput* output,
 }
 
 void IndexStorageFormatV2::add_meta_files_to_index_cache(const MetaFileRange& meta_range) {
+#ifndef BE_TEST
+    if (!config::is_cloud_mode()) {
+        return;
+    }
+#endif
+
     if (auto* cache_builder = _index_file_writer->_idx_v2_writer->cache_builder();
-        cache_builder != nullptr && cache_builder->_expiration_time == 0 &&
-        config::is_cloud_mode()) {
+        cache_builder != nullptr && cache_builder->_expiration_time == 0) {
         int64_t meta_file_size = meta_range.end_offset - meta_range.start_offset;
         if (meta_file_size > 0) {
-#ifndef BE_TEST
             auto holder =
                     cache_builder->allocate_cache_holder(meta_range.start_offset, meta_file_size);
             for (auto& segment : holder->file_blocks) {
                 static_cast<void>(segment->change_cache_type_between_normal_and_index(
                         io::FileCacheType::INDEX));
             }
-#endif
         }
     }
 }

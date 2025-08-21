@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+#include "common/be_mock_util.h"
 #include "io/io_common.h"
 #include "vec/common/uint128.h"
 
@@ -78,12 +79,21 @@ class BlockFileCache;
 struct FileBlocksHolder;
 using FileBlocksHolderPtr = std::unique_ptr<FileBlocksHolder>;
 
-struct FileCacheAllocatorBuilder {
+class FileCacheAllocatorBuilder {
+public:
+    FileCacheAllocatorBuilder(bool is_cold_data, uint64_t expiration_time,
+                              const UInt128Wrapper& cache_hash, BlockFileCache* cache)
+            : _is_cold_data(is_cold_data),
+              _expiration_time(expiration_time),
+              _cache_hash(cache_hash),
+              _cache(cache) {}
+    virtual ~FileCacheAllocatorBuilder() = default;
+
     bool _is_cold_data;
     uint64_t _expiration_time;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache; // Only one ref, the lifetime is owned by FileCache
-    FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size) const;
+    MOCK_FUNCTION FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size) const;
 };
 
 struct KeyHash {

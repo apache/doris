@@ -31,7 +31,7 @@
 
 namespace doris::io {
 class FileSystem;
-struct FileCacheAllocatorBuilder;
+class FileCacheAllocatorBuilder;
 
 // Only affects remote file writers
 struct FileWriterOptions {
