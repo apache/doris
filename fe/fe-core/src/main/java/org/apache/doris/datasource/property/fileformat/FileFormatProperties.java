@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import java.util.Map;
@@ -161,7 +162,10 @@ public abstract class FileFormatProperties {
 
         @Override
         public TFileAttributes toTFileAttributes() {
-            return new TFileAttributes();
+            TFileAttributes fileAttributes = new TFileAttributes();
+            TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
+            fileAttributes.setTextParams(fileTextScanRangeParams);
+            return fileAttributes;
         }
     }
 }
