@@ -23,6 +23,8 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
+import com.google.common.base.Strings;
+
 import java.util.Map;
 
 public abstract class FileFormatProperties {
@@ -105,6 +107,20 @@ public abstract class FileFormatProperties {
             throws AnalysisException {
         String formatString = formatProperties.getOrDefault(PROP_FORMAT, "csv");
         return createFileFormatProperties(formatString);
+    }
+
+    /**
+     * Create a FileFormatProperties that may be AUTO if format is not specified.
+     * The actual format should be inferred later by other business logic.
+     */
+    public static FileFormatProperties createFileFormatPropertiesOrAuto(Map<String, String> formatProperties)
+            throws AnalysisException {
+        String formatString = formatProperties.get(PROP_FORMAT);
+        if (Strings.isNullOrEmpty(formatString)) {
+            return new DeferredFileFormatProperties(formatProperties)
+        } else {
+            return createFileFormatProperties(formatString);
+        }
     }
 
     protected String getOrDefault(Map<String, String> props, String key, String defaultValue,

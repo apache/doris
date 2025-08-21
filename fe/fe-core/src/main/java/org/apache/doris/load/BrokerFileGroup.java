@@ -35,7 +35,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
@@ -172,11 +171,11 @@ public class BrokerFileGroup implements Writable {
         }
 
         fileFormatProperties = dataDescription.getFileFormatProperties();
-        fileFormat = fileFormatProperties.getFormatName();
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
-            columnSeparator = ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
-            lineDelimiter = ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
-        }
+        // fileFormat = fileFormatProperties.getFormatName();
+        // if (fileFormatProperties instanceof CsvFileFormatProperties) {
+        //     columnSeparator = ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
+        //     lineDelimiter = ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
+        // }
 
         isNegative = dataDescription.isNegative();
 
