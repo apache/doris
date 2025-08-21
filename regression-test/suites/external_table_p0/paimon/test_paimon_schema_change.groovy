@@ -84,8 +84,12 @@ suite("test_paimon_schema_change", "p0,external,doris,external_docker,external_d
         // should get latest schema
         qt_desc_latest_schema """ desc test_paimon_spark.test_schema_change; """
         qt_query_latest_schema """ SELECT * FROM test_paimon_spark.test_schema_change; """
+        // shoudle get latest schme for branch
+        qt_time_travel_schema_branch """ select * from test_paimon_spark.test_schema_change@branch(branch1); """
         // should get the schema in tag
-        qt_time_travel_schema """ select * from test_paimon_spark.test_schema_change for version as of 'tag1'; """
+        qt_time_travel_schema_tag """ select * from test_paimon_spark.test_schema_change for version as of 'tag1'; """
+        qt_time_travel_schema_tag2 """ select * from test_paimon_spark.test_schema_change@tag(tag1); """
+        qt_time_travel_schema_snapshot """ select * from test_paimon_spark.test_schema_change for version as of '1'; """
     }
 }
 
