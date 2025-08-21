@@ -21,8 +21,6 @@
 
 #include <sstream>
 
-#include "gen_cpp/FrontendService.h"
-#include "io/fs/encrypted_fs_factory.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -42,7 +40,6 @@ VWalWriter::VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id,
 VWalWriter::~VWalWriter() {}
 
 Status VWalWriter::init() {
-    io::FileSystemSPtr wal_fs = io::global_local_filesystem();
 #ifndef BE_TEST
     if (config::group_commit_wait_replay_wal_finish) {
         std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
@@ -52,9 +49,8 @@ Status VWalWriter::init() {
             LOG(WARNING) << "fail to add wal_id " << _wal_id << " to wal_cv_map";
         }
     }
-    RETURN_IF_ERROR(determine_wal_fs(_db_id, _tb_id, wal_fs));
 #endif
-    RETURN_IF_ERROR(_create_wal_writer(_wal_id, wal_fs, _wal_writer));
+    RETURN_IF_ERROR(_create_wal_writer(_wal_id, _wal_writer));
     _wal_manager->add_wal_queue(_tb_id, _wal_id);
     std::stringstream ss;
     for (auto slot_desc : _slot_descs) {
@@ -94,12 +90,11 @@ Status VWalWriter::close() {
     return Status::OK();
 }
 
-Status VWalWriter::_create_wal_writer(int64_t wal_id, const io::FileSystemSPtr& fs,
-                                      std::shared_ptr<WalWriter>& wal_writer) {
+Status VWalWriter::_create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>& wal_writer) {
     std::string wal_path;
     RETURN_IF_ERROR(_wal_manager->get_wal_path(wal_id, wal_path));
     wal_writer = std::make_shared<WalWriter>(wal_path);
-    RETURN_IF_ERROR(wal_writer->init(fs));
+    RETURN_IF_ERROR(wal_writer->init());
     return Status::OK();
 }
 } // namespace vectorized

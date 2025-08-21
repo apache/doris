@@ -254,7 +254,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getInvertedIndexFileStorageFormat(),
                                             tbl.rowStorePageSize(),
                                             tbl.variantEnableFlattenNested(), clusterKeyUids,
-                                            tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
+                                            tbl.storagePageSize(),
                                             tbl.storageDictPageSize(), true);
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets

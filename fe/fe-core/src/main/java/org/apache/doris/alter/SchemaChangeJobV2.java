@@ -323,7 +323,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     objectPool,
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(),
-                                    tbl.storagePageSize(), tbl.getTDEAlgorithm(),
+                                    tbl.storagePageSize(),
                                     tbl.storageDictPageSize());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)

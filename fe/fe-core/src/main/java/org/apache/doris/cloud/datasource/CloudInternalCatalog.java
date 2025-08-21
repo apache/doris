@@ -58,7 +58,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
-import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
@@ -183,7 +182,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
-                        tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
+                        tbl.storagePageSize(),
                         tbl.storageDictPageSize(), true);
                 requestBuilder.addTabletMetas(builder);
             }
@@ -217,8 +216,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Integer> rowStoreColumnUniqueIds,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
-            long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-            boolean createInitialRowset) throws DdlException {
+            long storagePageSize, long storageDictPageSize, boolean createInitialRowset) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -374,7 +372,6 @@ public class CloudInternalCatalog extends InternalCatalog {
             OlapFile.RowsetMetaCloudPB.Builder rowsetBuilder = createInitialRowset(tablet, partitionId,
                     schemaHash, schema);
             builder.addRsMetas(rowsetBuilder);
-            builder.setEncryptionAlgorithm(encryptionAlgorithm);
         }
         return builder;
     }
