@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,8 +38,8 @@ public class L2DistanceApproximate extends ScalarFunction implements ExplicitlyC
         BinaryExpression, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(ArrayType.of(DoubleType.INSTANCE), ArrayType.of(DoubleType.INSTANCE))
+            FunctionSignature.ret(FloatType.INSTANCE)
+                    .args(ArrayType.of(FloatType.INSTANCE), ArrayType.of(FloatType.INSTANCE))
     );
 
     /**
