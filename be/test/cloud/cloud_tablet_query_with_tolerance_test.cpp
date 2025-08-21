@@ -128,10 +128,9 @@ public:
                               int64_t query_freshness_tolerance_ms,
                               const std::vector<Version>& expected_versions) {
         std::vector<RowSetSplits> rs_splits;
-        CaptureRsReaderOptions opts {
-            .skip_missing_version = false, .enable_prefer_cached_rowset = false,
-            .query_freshness_tolerance_ms = query_freshness_tolerance_ms
-        }
+        CaptureRsReaderOptions opts {.skip_missing_version = false,
+                                     .enable_prefer_cached_rowset = false,
+                                     .query_freshness_tolerance_ms = query_freshness_tolerance_ms};
         auto st = tablet->capture_rs_readers(spec_version, &rs_splits, opts);
         ASSERT_TRUE(st.ok());
         auto dump_versions = [](const std::vector<Version>& expected_versions,
