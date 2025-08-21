@@ -17,21 +17,11 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.DropUserStmt;
-import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
-import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.SetUserPropertyStmt;
-import org.apache.doris.analysis.SyncStmt;
-import org.apache.doris.analysis.UninstallPluginStmt;
-import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -50,9 +40,7 @@ public class DdlExecutor {
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
         checkDdlStmtSupported(ddlStmt);
-        if (ddlStmt instanceof CreateEncryptKeyStmt) {
-            EncryptKeyHelper.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateTableStmt) {
+        if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
@@ -60,27 +48,6 @@ public class DdlExecutor {
             env.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropUserStmt) {
-            DropUserStmt stmt = (DropUserStmt) ddlStmt;
-            env.getAuth().dropUser(stmt);
-        } else if (ddlStmt instanceof SetUserPropertyStmt) {
-            env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
-
-        } else if (ddlStmt instanceof RecoverDbStmt) {
-            env.recoverDatabase((RecoverDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof SyncStmt) {
-            return;
-        } else if (ddlStmt instanceof UninstallPluginStmt) {
-            env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
-            env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
-        } else if (ddlStmt instanceof RefreshTableStmt) {
-            RefreshTableStmt refreshTableStmt = (RefreshTableStmt) ddlStmt;
-            env.getRefreshManager().handleRefreshTable(refreshTableStmt.getCtl(), refreshTableStmt.getDbName(),
-                    refreshTableStmt.getTblName(), false);
-        } else if (ddlStmt instanceof RefreshDbStmt) {
-            RefreshDbStmt refreshDbStmt = (RefreshDbStmt) ddlStmt;
-            env.getRefreshManager().handleRefreshDb(refreshDbStmt.getCatalogName(), refreshDbStmt.getDbName());
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");

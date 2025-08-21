@@ -17,7 +17,6 @@
 
 package org.apache.doris.indexpolicy;
 
-import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -358,12 +357,6 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         } finally {
             readUnlock();
         }
-    }
-
-    public ShowResultSet showIndexPolicy(ShowIndexPolicyStmt showStmt) throws AnalysisException {
-        IndexPolicyTypeEnum type = showStmt.getType();
-
-        return showIndexPolicy(type);
     }
 
     public void replayCreateIndexPolicy(IndexPolicy indexPolicy) {

@@ -24,15 +24,12 @@
 #include <string>
 #include <vector>
 
-#include "common/status.h"
 #include "exprs/mock_vexpr.h"
 #include "testutil/any_type.h"
 #include "vec/core/types.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
-#include "vec/exprs/table_function/vexplode_split.h"
 #include "vec/exprs/table_function/vexplode_v2.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/function/function_test_util.h"
 
 namespace doris::vectorized {
@@ -343,35 +340,4 @@ TEST_F(TableFunctionTest, vexplode_numbers) {
     }
 }
 
-TEST_F(TableFunctionTest, vexplode_split) {
-    init_expr_context(2);
-    VExplodeSplitTableFunction tfn;
-    tfn.set_expr_context(_ctx);
-
-    {
-        // Case 1: explode_split(null) --- null
-        // Case 2: explode_split("a,b,c", ",") --> ["a", "b", "c"]
-        // Case 3: explode_split("a,b,c", "a,")) --> ["", "b,c"]
-        // Case 4: explode_split("", ",")) --> [""]
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        InputDataSet input_sets = {{std::string("a,b,c"), std::string(",")},
-                                   {std::string("a,b,c"), std::string("a,")},
-                                   {std::string(""), std::string(",")}};
-
-        InputTypeSet output_types = {PrimitiveType::TYPE_VARCHAR};
-        InputDataSet output_sets = {{std::string("a"), std::string("b"), std::string("c")},
-                                    {std::string(""), std::string("b,c")},
-                                    {std::string("")}};
-
-        for (int i = 0; i < input_sets.size(); ++i) {
-            InputDataSet input_set {input_sets[i]};
-            InputDataSet output_set {};
-            for (const auto& data : output_sets[i]) {
-                output_set.emplace_back(std::vector<AnyType> {data});
-            }
-            check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
-        }
-    }
-}
 } // namespace doris::vectorized

@@ -52,11 +52,22 @@ public:
     std::string debug_string() const override;
 
 private:
+    std::string get_function_name() const {
+        std::string res = FUNCTION_NAME;
+        if (_has_case_expr) {
+            res += "_has_case";
+        }
+        if (_has_else_expr) {
+            res += "_has_else";
+        }
+        return res;
+    }
+
     bool _has_case_expr;
     bool _has_else_expr;
 
     FunctionBasePtr _function;
-    std::string _function_name = "case";
-    const std::string _expr_name = "vcase expr";
+    inline static const std::string FUNCTION_NAME = "case";
+    inline static const std::string EXPR_NAME = "vcase expr";
 };
 } // namespace doris::vectorized
