@@ -1251,7 +1251,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     using namespace std::chrono;
     auto rowset_visible_time =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    rs_meta.set_visible_time_ms(rowset_visible_time);
+    rs_meta.set_visible_ts_ms(rowset_visible_time);
     std::string rowset_val;
     if (!rs_meta.SerializeToString(&rowset_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1891,7 +1891,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         using namespace std::chrono;
         auto rowset_visible_time =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        tmp_rowset_meta.set_visible_time_ms(rowset_visible_time);
+        tmp_rowset_meta.set_visible_ts_ms(rowset_visible_time);
         std::string rowset_val;
         if (!tmp_rowset_meta.SerializeToString(&rowset_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

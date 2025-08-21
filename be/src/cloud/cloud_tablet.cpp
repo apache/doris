@@ -73,10 +73,13 @@ bvar::LatencyRecorder g_base_compaction_get_delete_bitmap_lock_time_ms(
 bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
 bvar::Adder<int64_t> g_unused_rowsets_bytes("unused_rowsets_bytes");
 
+bvar::Adder<int64_t> g_capture_prefer_cache_count("capture_prefer_cache_count");
 bvar::Adder<int64_t> g_capture_with_freshness_tolerance_count(
         "capture_with_freshness_tolerance_count");
 bvar::Adder<int64_t> g_capture_with_freshness_tolerance_fallback_count(
         "capture_with_freshness_tolerance_fallback_count");
+bvar::Window<bvar::Adder<int64_t>> g_capture_prefer_cache_count_window(
+        "capture_prefer_cache_count_window", &g_capture_prefer_cache_count, 30);
 bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_count_window(
         "capture_with_freshness_tolerance_count_window", &g_capture_with_freshness_tolerance_count,
         30);
@@ -188,6 +191,12 @@ Status CloudTablet::capture_rs_readers_internal(const Version& spec_version,
     }
     VLOG_DEBUG << "capture consitent versions: " << version_path;
     return capture_rs_readers_unlocked(version_path, rs_splits);
+}
+
+Status CloudTablet::capture_rs_readers_prefer_cache(const Version& spec_version,
+                                                    std::vector<RowSetSplits>* rs_splits) {
+    g_capture_prefer_cache_count << 1;
+    return Status::OK();
 }
 
 Status CloudTablet::capture_rs_readers_with_freshness_tolerance(

@@ -147,7 +147,7 @@ void convert_tmp_rowsets(
     // tablet_id -> stats
     std::unordered_map<int64_t, TabletStats> tablet_stats;
 
-    int64_t rowsets_visible_time_ms =
+    int64_t rowsets_visible_ts_ms =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     for (auto& [tmp_rowset_key, tmp_rowset_pb] : tmp_rowsets_meta) {
@@ -312,7 +312,7 @@ void convert_tmp_rowsets(
 
         tmp_rowset_pb.set_start_version(version);
         tmp_rowset_pb.set_end_version(version);
-        tmp_rowset_pb.set_visible_time_ms(rowsets_visible_time_ms);
+        tmp_rowset_pb.set_visible_ts_ms(rowsets_visible_ts_ms);
 
         rowset_val.clear();
         if (!tmp_rowset_pb.SerializeToString(&rowset_val)) {
