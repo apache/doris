@@ -825,4 +825,20 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(23, 3), smallIntString.getCompareExpr().getDataType());
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(23, 3), smallIntString.getOptions().get(0).getDataType());
     }
+
+    @Test
+    public void testCharacterLiteralTypeCoercion() {
+        // datev2
+        Assertions.assertEquals(DateV2Type.INSTANCE,
+                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateV2Type.INSTANCE).get().getDataType());
+        // datetimev2
+        Assertions.assertEquals(DateTimeV2Type.of(0),
+                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeV2Type.of(0)).get().getDataType());
+        // date
+        Assertions.assertEquals(DateType.INSTANCE,
+                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateType.INSTANCE).get().getDataType());
+        // datetime
+        Assertions.assertEquals(DateTimeType.INSTANCE,
+                TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeType.INSTANCE).get().getDataType());
+    }
 }
