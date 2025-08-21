@@ -199,7 +199,7 @@ public class MysqlDataDescription {
         analyzeLoadAttributes();
         analyzeColumns();
 
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        fileFormatProperties = FileFormatProperties.createFileFormatPropertiesOrAuto(analysisMap);
         fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 

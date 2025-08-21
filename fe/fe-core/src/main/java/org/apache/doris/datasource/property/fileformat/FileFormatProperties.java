@@ -107,6 +107,19 @@ public abstract class FileFormatProperties {
         return createFileFormatProperties(formatString);
     }
 
+    /**
+     * Create a FileFormatProperties that may be AUTO if format is not specified.
+     * The actual format should be inferred later by other business logic.
+     */
+    public static FileFormatProperties createFileFormatPropertiesOrAuto(Map<String, String> formatProperties)
+            throws AnalysisException {
+        String formatString = formatProperties.get(PROP_FORMAT); // 不用 getOrDefault
+        if (formatString == null || formatString.isEmpty()) {
+            return new AutoFileFormatProperties();
+        }
+        return createFileFormatProperties(formatString);
+    }
+
     protected String getOrDefault(Map<String, String> props, String key, String defaultValue,
             boolean isRemove) {
         String value = props.getOrDefault(key, defaultValue);
@@ -126,5 +139,29 @@ public abstract class FileFormatProperties {
 
     public String getFormatName() {
         return formatName;
+    }
+
+    // Static inner class for AUTO format
+    public static class AutoFileFormatProperties extends FileFormatProperties {
+        public AutoFileFormatProperties() {
+            super(null, null);
+            compressionType = TFileCompressType.UNKNOWN;
+        }
+
+        @Override
+        public void analyzeFileFormatProperties(Map<String, String> formatProperties,
+                                                boolean removeOriginProperty) {
+            // No operation, format will be inferred later
+        }
+
+        @Override
+        public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
+            // No default options
+        }
+
+        @Override
+        public TFileAttributes toTFileAttributes() {
+            return new TFileAttributes();
+        }
     }
 }
