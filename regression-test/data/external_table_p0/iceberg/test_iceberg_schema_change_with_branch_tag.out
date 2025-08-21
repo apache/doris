@@ -13,7 +13,17 @@ name	text	Yes	true	\N
 2	\N
 3	\N
 
+-- !select_branch2 --
+1	\N
+2	\N
+3	\N
+
 -- !select_tag --
+1
+2
+3
+
+-- !select_tag2 --
 1
 2
 3
