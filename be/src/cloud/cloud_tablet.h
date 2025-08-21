@@ -68,11 +68,13 @@ public:
                                                                bool vertical) override;
 
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) override;
-
+                              const CaptureRsReaderOptions& opts) override;
+    Status capture_rs_readers_internal(const Version& spec_version,
+                                       std::vector<RowSetSplits>* rs_splits);
+    Status capture_rs_readers_prefer_cache(const Version& spec_version,
+                                           std::vector<RowSetSplits>* rs_splits);
     Status capture_rs_readers_with_freshness_tolerance(const Version& spec_version,
                                                        std::vector<RowSetSplits>* rs_splits,
-                                                       bool skip_missing_version,
                                                        int64_t query_freshness_tolerance_ms);
 
     Status capture_consistent_rowsets_unlocked(

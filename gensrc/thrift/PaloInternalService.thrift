@@ -402,7 +402,8 @@ struct TQueryOptions {
   169: optional bool hnsw_check_relative_distance = true;
   170: optional bool hnsw_bounded_queue = true; 
 
-  171: optional i64 query_freshness_tolerance_ms
+  171: optional bool enable_prefer_cached_rowset
+  172: optional i64 query_freshness_tolerance_ms
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
