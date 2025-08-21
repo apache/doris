@@ -423,6 +423,11 @@ public:
 
     bool enable_page_cache() const;
 
+    bool enable_prefer_cached_rowset() const {
+        return _query_options.__isset.enable_prefer_cached_rowset &&
+               _query_options.enable_prefer_cached_rowset;
+    }
+
     int64_t query_freshness_tolerance_ms() const {
         return _query_options.query_freshness_tolerance_ms;
     }

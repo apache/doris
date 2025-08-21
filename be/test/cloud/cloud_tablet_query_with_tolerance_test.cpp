@@ -26,6 +26,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "olap/base_tablet.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
@@ -127,8 +128,11 @@ public:
                               int64_t query_freshness_tolerance_ms,
                               const std::vector<Version>& expected_versions) {
         std::vector<RowSetSplits> rs_splits;
-        auto st = tablet->capture_rs_readers_with_freshness_tolerance(
-                spec_version, &rs_splits, false, query_freshness_tolerance_ms);
+        CaptureRsReaderOptions opts {
+            .skip_missing_version = false, .enable_prefer_cached_rowset = false,
+            .query_freshness_tolerance_ms = query_freshness_tolerance_ms
+        }
+        auto st = tablet->capture_rs_readers(spec_version, &rs_splits, opts);
         ASSERT_TRUE(st.ok());
         auto dump_versions = [](const std::vector<Version>& expected_versions,
                                 const std::vector<RowSetSplits>& splits) {
