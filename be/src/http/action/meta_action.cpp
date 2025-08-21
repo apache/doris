@@ -95,7 +95,6 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
             json_options.pretty_json = true;
             json_options.bytes_to_base64 = enable_byte_to_base64;
             tablet_meta.to_json(json_meta, json_options);
-
         } else if (operation == DATA_SIZE) {
             EasyJson data_size;
             {
