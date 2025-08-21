@@ -110,6 +110,16 @@ public:
 
     bool is_variadic() const override { return true; }
 
+    static void throw_if_out_bound(NativeType date, bool in_bound, Int32 period = 1) {
+        auto date_value = binary_cast<NativeType, DateValueType>(date);
+        char buf[40];
+        char* end = date_value.to_string(buf);
+        if (!in_bound) {
+            throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {} out of range", name,
+                            std::string_view {buf, end - 1}, period);
+        }
+    }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         // for V1 our argument is datetime. exactly equal to the return type we want.
         return make_nullable(std::make_shared<DateType>());
@@ -231,7 +241,7 @@ private:
                        NullMap& null_map) {
         // time_round(datetime)
         for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_one_arg(dates[i], res[i])));
+            throw_if_out_bound(dates[i], time_round_reinterpret_one_arg(dates[i], res[i]));
         }
     }
 
@@ -239,8 +249,8 @@ private:
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, const(origin))
         for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], 1, origin_date, res[i])));
+            throw_if_out_bound(dates[i],
+                               time_round_reinterpret_three_args(dates[i], 1, origin_date, res[i]));
         }
     }
 
@@ -253,12 +263,14 @@ private:
         }
 
         // expand codes for const input periods
-#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                            \
-    case X: {                                                                                     \
-        for (int i = 0; i < dates.size(); ++i) {                                                  \
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args<X>(dates[i], period, res[i]))); \
-        }                                                                                         \
-        return;                                                                                   \
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                         \
+    case X: {                                                                                  \
+        for (int i = 0; i < dates.size(); ++i) {                                               \
+            throw_if_out_bound(dates[i],                                                       \
+                               (time_round_reinterpret_two_args<X>(dates[i], period, res[i])), \
+                               period);                                                        \
+        }                                                                                      \
+        return;                                                                                \
     }
 #define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
         switch (period) {
@@ -266,7 +278,9 @@ private:
             BOOST_PP_REPEAT(12, EXPANDER, ~)
         default:
             for (int i = 0; i < dates.size(); ++i) {
-                SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], period, res[i])));
+                throw_if_out_bound(dates[i],
+                                   (time_round_reinterpret_two_args(dates[i], period, res[i])),
+                                   period);
             }
         }
 #undef EXPAND_CODE_FOR_CONST_INPUT
@@ -288,16 +302,16 @@ private:
         }
 
         // expand codes for const input periods
-#define EXPAND_CODE_FOR_CONST_INPUT(X)                                   \
-    case X: {                                                            \
-        for (int i = 0; i < dates.size(); ++i) {                         \
-            /* expand time_round_reinterpret_three_args*/                \
-            res[i] = origin_date;                                        \
-            auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]); \
-            auto& ts1 = (DateValueType&)(res[i]);                        \
-            SET_NULLMAP_IF_FALSE(time_round_two_args<X>(ts2, X, ts1))    \
-        }                                                                \
-        return;                                                          \
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                 \
+    case X: {                                                                          \
+        for (int i = 0; i < dates.size(); ++i) {                                       \
+            /* expand time_round_reinterpret_three_args*/                              \
+            res[i] = origin_date;                                                      \
+            auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]);               \
+            auto& ts1 = (DateValueType&)(res[i]);                                      \
+            throw_if_out_bound(dates[i], time_round_two_args<X>(ts2, X, ts1), period); \
+        }                                                                              \
+        return;                                                                        \
     }
 #define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
         switch (period) {
@@ -306,8 +320,10 @@ private:
         default:
             for (int i = 0; i < dates.size(); ++i) {
                 // always inline here
-                SET_NULLMAP_IF_FALSE(
-                        (time_round_reinterpret_three_args(dates[i], period, origin_date, res[i])))
+                throw_if_out_bound(
+                        dates[i],
+                        (time_round_reinterpret_three_args(dates[i], period, origin_date, res[i])),
+                        period);
             }
         }
 #undef EXPAND_CODE_FOR_CONST_INPUT
@@ -322,8 +338,10 @@ private:
             return;
         }
         for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], period, origin_dates[i], res[i])));
+            throw_if_out_bound(
+                    dates[i],
+                    (time_round_reinterpret_three_args(dates[i], period, origin_dates[i], res[i])),
+                    period);
         }
     }
 
@@ -335,8 +353,10 @@ private:
                 null_map[i] = true;
                 continue;
             }
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], periods[i], origin_date, res[i])));
+            throw_if_out_bound(
+                    dates[i],
+                    (time_round_reinterpret_three_args(dates[i], periods[i], origin_date, res[i])),
+                    periods[i]);
         }
     }
 
@@ -345,8 +365,8 @@ private:
                                      PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, origin)
         for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], 1, origin_dates[i], res[i])));
+            throw_if_out_bound(dates[i], (time_round_reinterpret_three_args(
+                                                 dates[i], 1, origin_dates[i], res[i])));
         }
     }
 
@@ -359,7 +379,9 @@ private:
                 null_map[i] = true;
                 continue;
             }
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], periods[i], res[i])));
+            throw_if_out_bound(dates[i],
+                               (time_round_reinterpret_two_args(dates[i], periods[i], res[i])),
+                               periods[i]);
         }
     }
 
@@ -373,8 +395,10 @@ private:
                 null_map[i] = true;
                 continue;
             }
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_three_args(dates[i], periods[i],
-                                                                    origin_dates[i], res[i])));
+            throw_if_out_bound(dates[i],
+                               (time_round_reinterpret_three_args(dates[i], periods[i],
+                                                                  origin_dates[i], res[i])),
+                               periods[i]);
         }
     }
 
