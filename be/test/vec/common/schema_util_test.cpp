@@ -1514,7 +1514,9 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns) {
     output_schema = std::make_shared<TabletSchema>();
     sparse_paths.clear();
 
-    for (int i = 0; i < config::variant_max_sparse_column_statistics_size + 1; ++i) {
+    // default 10000
+    size_t max_sparse_column_statistics_size = 10000;
+    for (int i = 0; i < max_sparse_column_statistics_size + 1; ++i) {
         sparse_paths.insert("dummy" + std::to_string(i));
     }
     schema_util::VariantCompactionUtil::get_compaction_subcolumns(
@@ -1606,7 +1608,9 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
     output_schema = std::make_shared<TabletSchema>();
     sparse_paths.clear();
 
-    for (int i = 0; i < config::variant_max_sparse_column_statistics_size + 1; ++i) {
+    // default 10000
+    size_t max_sparse_column_statistics_size = 10000;
+    for (int i = 0; i < max_sparse_column_statistics_size + 1; ++i) {
         sparse_paths.insert("dummy" + std::to_string(i));
     }
     schema_util::VariantCompactionUtil::get_compaction_subcolumns(

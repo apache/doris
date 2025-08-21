@@ -251,6 +251,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
 
+    public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+            "variant_max_sparse_column_statistics_size";
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property
@@ -371,6 +374,12 @@ public class PropertyAnalyzer {
                 newStoragePolicy = value;
             } else if (key.equalsIgnoreCase(PROPERTIES_IS_BEING_SYNCED)) {
                 isBeingSynced = Boolean.parseBoolean(value);
+            } else if (key.equalsIgnoreCase(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+                int variantMaxSparseColumnStatisticsSize = Integer.parseInt(value);
+                if (variantMaxSparseColumnStatisticsSize < 0) {
+                    throw new AnalysisException("variant_max_sparse_column_statistics_size should be >= 0");
+                }
+                properties.put(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, value);
             }
         } // end for properties
 
@@ -1867,5 +1876,25 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
         }
         return enableTypedPathsToSparse;
+    }
+
+    public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSparseColumnStatisticsSize = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+            String maxSparseColumnStatisticsSizeStr =
+                    properties.get(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+            try {
+                maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
+                if (maxSparseColumnStatisticsSize < 0 || maxSparseColumnStatisticsSize > 10000) {
+                    throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 10000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size format error");
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+        }
+        return maxSparseColumnStatisticsSize;
     }
 }

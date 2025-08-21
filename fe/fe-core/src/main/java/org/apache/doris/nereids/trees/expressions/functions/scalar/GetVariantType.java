@@ -38,7 +38,7 @@ public class GetVariantType extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(StringType.INSTANCE).args(new VariantType(0))
+            FunctionSignature.ret(StringType.INSTANCE).args(new VariantType(0, 0))
     );
 
     /**

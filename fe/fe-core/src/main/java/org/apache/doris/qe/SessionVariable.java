@@ -792,6 +792,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
                                                             "default_variant_enable_typed_paths_to_sparse";
 
+    public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+                                                            "default_variant_max_sparse_column_statistics_size";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2804,6 +2807,13 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public boolean defaultEnableTypedPathsToSparse = false;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            needForward = true,
+            fuzzy = true
+    )
+    public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -5151,6 +5161,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantMaxSubcolumnsCount() {
         return defaultVariantMaxSubcolumnsCount;
+    }
+
+    public int getDefaultVariantMaxSparseColumnStatisticsSize() {
+        return defaultVariantMaxSparseColumnStatisticsSize;
     }
 
     public static boolean isFeDebug() {

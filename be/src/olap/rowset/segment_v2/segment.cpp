@@ -629,7 +629,8 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // 2. OR It's a leaf in the physical column structure AND it doesn't *also* exist
     //    in the sparse column (meaning it's purely a materialized leaf).
     if (read_flat_leaves || (is_physical_leaf && !exist_in_sparse &&
-                             !variant_reader->is_exceeded_sparse_column_limit())) {
+                             !variant_reader->is_exceeded_sparse_column_limit(
+                                     column.variant_max_sparse_column_statistics_size()))) {
         return node->data.file_column_type;
     }
     return column.is_nullable()

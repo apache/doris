@@ -74,10 +74,10 @@ bool VariantColumnReader::exist_in_sparse_column(
     return existed_in_sparse_column || prefix_existed_in_sparse_column;
 }
 
-bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
+bool VariantColumnReader::is_exceeded_sparse_column_limit(
+        size_t max_sparse_column_statistics_size) const {
     return !_statistics->sparse_column_non_null_size.empty() &&
-           _statistics->sparse_column_non_null_size.size() >=
-                   config::variant_max_sparse_column_statistics_size;
+           _statistics->sparse_column_non_null_size.size() >= max_sparse_column_statistics_size;
 }
 
 int64_t VariantColumnReader::get_metadata_size() const {
@@ -276,9 +276,10 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
 
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
-    bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
-                                        _statistics->sparse_column_non_null_size.size() >=
-                                                config::variant_max_sparse_column_statistics_size;
+    bool exceeded_sparse_column_limit =
+            !_statistics->sparse_column_non_null_size.empty() &&
+            _statistics->sparse_column_non_null_size.size() >=
+                    target_col->variant_max_sparse_column_statistics_size();
 
     // If the variant column has extracted columns and is a compaction reader, then read flat leaves
     // Otherwise read hierarchical data, since the variant subcolumns are flattened in schema_util::VariantCompactionUtil::get_extended_compaction_schema

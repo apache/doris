@@ -450,6 +450,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     subcolumn.set_parent_unique_id(parent_column.unique_id());
     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key10"));
     subcolumn.set_is_nullable(true);
+    // default 10000
+    size_t max_sparse_column_statistics_size = 10000;
     ColumnIteratorUPtr it1;
     st = variant_column_reader->new_iterator(&it1, &subcolumn, &storage_read_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -458,16 +460,17 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // 13. check statistics size == limit
     auto& variant_stats = variant_column_reader->_statistics;
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() <
-                config::variant_max_sparse_column_statistics_size);
-    auto limit = config::variant_max_sparse_column_statistics_size -
-                 variant_stats->sparse_column_non_null_size.size();
+                max_sparse_column_statistics_size);
+    auto limit =
+            max_sparse_column_statistics_size - variant_stats->sparse_column_non_null_size.size();
     for (int i = 0; i < limit; ++i) {
         std::string key = parent_column.name_lower_case() + ".key10" + std::to_string(i);
         variant_stats->sparse_column_non_null_size[key] = 10000;
     }
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() ==
-                config::variant_max_sparse_column_statistics_size);
-    EXPECT_TRUE(variant_column_reader->is_exceeded_sparse_column_limit());
+                max_sparse_column_statistics_size);
+    EXPECT_TRUE(variant_column_reader->is_exceeded_sparse_column_limit(
+            max_sparse_column_statistics_size));
 
     ColumnIteratorUPtr it2;
     st = variant_column_reader->new_iterator(&it2, &subcolumn, &storage_read_opts);

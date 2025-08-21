@@ -1412,9 +1412,6 @@ DECLARE_Bool(enable_snapshot_action);
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
-// The max sparse column statistics size for a variant column
-DECLARE_mInt32(variant_max_sparse_column_statistics_size);
-
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
 DECLARE_mInt64(enable_debug_log_timeout_secs);
