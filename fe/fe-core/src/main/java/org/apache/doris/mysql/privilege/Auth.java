@@ -18,13 +18,11 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.alter.AlterUserOpType;
-import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetPassVar;
-import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
@@ -544,11 +542,6 @@ public class Auth implements Writable {
 
     public void dropUser(UserIdentity userIdent, boolean ignoreIfNonExists)  throws DdlException {
         dropUserInternal(userIdent, ignoreIfNonExists, false);
-    }
-
-    // drop user
-    public void dropUser(DropUserStmt stmt) throws DdlException {
-        dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
     }
 
     public void replayDropUser(UserIdentity userIdent) {
@@ -1137,12 +1130,6 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    // update user property
-    public void updateUserProperty(SetUserPropertyStmt stmt) throws UserException {
-        List<Pair<String, String>> properties = stmt.getPropertyPairList();
-        updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
     }
 
     public void replayUpdateUserProperty(UserPropertyInfo propInfo) {
