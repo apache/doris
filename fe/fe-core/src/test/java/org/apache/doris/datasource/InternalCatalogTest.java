@@ -23,6 +23,7 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FakeEditLog;
@@ -30,17 +31,28 @@ import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Status;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -49,6 +61,7 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
@@ -57,6 +70,7 @@ import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class InternalCatalogTest {
@@ -80,7 +94,14 @@ public class InternalCatalogTest {
         EnvFactory envFactory = EnvFactory.getInstance();
         masterEnv = envFactory.createEnv(false);
         fakeEnv = new FakeEnv();
-        FakeEnv.setSystemInfo(Env.getCurrentSystemInfo());
+
+        // Create SystemInfoService with a live backend
+        SystemInfoService systemInfoService = new SystemInfoService();
+        Backend backend = new Backend(0, "127.0.0.1", 9050);
+        backend.updateOnce(9060, 8040, 9070); // bePort, httpPort, beRpcPort
+        systemInfoService.addBackend(backend);
+
+        FakeEnv.setSystemInfo(systemInfoService);
 
         fakeEditLog = new FakeEditLog();
         testEditLog = null;
@@ -121,28 +142,43 @@ public class InternalCatalogTest {
         Config.enable_new_partition_inverted_index_v2_format = false;
         Map<Long, TInvertedIndexFileStorageFormat> partitionFormats = Maps.newHashMap();
 
-        // Mock createPartitionWithIndices to capture formats for each partition
+        // Mock MarkedCountDownLatch to immediately return success
+        new MockUp<MarkedCountDownLatch>() {
+            @Mock
+            public boolean await(long time, java.util.concurrent.TimeUnit unit) {
+                return true; // Immediately return success
+            }
+
+            @Mock
+            public Status getStatus() {
+                return Status.OK;
+            }
+        };
+
         new MockUp<InternalCatalog>() {
             @Mock
-            public void createPartitionWithIndices(
-                    long dbId, OlapTable table, long partitionId, String partitionName,
-                    Map<Long, MaterializedIndexMeta> indexIdToMeta,
-                    HashDistributionInfo distributionInfo, DataProperty dataProperty,
-                    ReplicaAllocation replicaAlloc, long versionHash,
-                    java.util.Set<String> bfColumns, java.util.Set<String> bfFpp,
-                    boolean isInMemory, TTabletType tabletType,
-                    String storagePolicy, java.util.Set<Long> tabletIdSet,
-                    java.util.Map<String, String> properties, boolean createInitialRowset)
-                    throws DdlException {
-
-                // Determine format based on config and table format
-                TInvertedIndexFileStorageFormat format = table.getInvertedIndexFileStorageFormat();
-                if (Config.enable_new_partition_inverted_index_v2_format
-                        && format == TInvertedIndexFileStorageFormat.V1) {
-                    format = TInvertedIndexFileStorageFormat.V2;
-                }
-
-                partitionFormats.put(partitionId, format);
+            public TStorageMedium createTablets(MaterializedIndex index, ReplicaState replicaState,
+                    DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
+                    TabletMeta tabletMeta, Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer,
+                    boolean isStorageMediumSpecified) throws DdlException {
+                Tablet tablet = new org.apache.doris.catalog.Tablet(10001);
+                Replica replica = new Replica(10031, 0, 0, replicaState);
+                tablet.addReplica(replica, true);
+                index.addTablet(tablet, tabletMeta);
+                tabletIdSet.add(tablet.getId());
+                return TStorageMedium.HDD;
+            }
+        };
+        // Mock CreateReplicaTask to capture the format set for each partition
+        new MockUp<CreateReplicaTask>() {
+            @Mock
+            public void setInvertedIndexFileStorageFormat(Invocation inv, TInvertedIndexFileStorageFormat format) {
+                // Capture the format for this partition
+                // We'll use a simple approach to capture the format without calling the real method
+                // since we're in a mock context
+                CreateReplicaTask self = inv.getInvokedInstance();
+                long pid = self.getPartitionId();
+                partitionFormats.put(pid, format); // Use a default key for now
             }
         };
 
@@ -223,6 +259,7 @@ public class InternalCatalogTest {
                     TTabletType.TABLET_TYPE_DISK,
                     "", null, null, false);
         } catch (Exception e) {
+            e.printStackTrace();
             // Expected in test environment
         }
 
@@ -247,6 +284,7 @@ public class InternalCatalogTest {
                     TTabletType.TABLET_TYPE_DISK,
                     "", null, null, false);
         } catch (Exception e) {
+            e.printStackTrace();
             // Expected in test environment
         }
 
@@ -264,23 +302,41 @@ public class InternalCatalogTest {
 
         AtomicReference<TInvertedIndexFileStorageFormat> capturedFormat = new AtomicReference<>();
 
-        // Mock createPartitionWithIndices to capture the actual format used during partition creation
+        // Mock MarkedCountDownLatch to immediately return success
+        new MockUp<MarkedCountDownLatch>() {
+            @Mock
+            public boolean await(long time, java.util.concurrent.TimeUnit unit) {
+                return true; // Immediately return success
+            }
+
+            @Mock
+            public Status getStatus() {
+                return Status.OK;
+            }
+        };
+
         new MockUp<InternalCatalog>() {
             @Mock
-            public void createPartitionWithIndices(
-                    long dbId, OlapTable table, long partitionId, String partitionName,
-                    Map<Long, MaterializedIndexMeta> indexIdToMeta,
-                    HashDistributionInfo distributionInfo, DataProperty dataProperty,
-                    ReplicaAllocation replicaAlloc, long versionHash,
-                    java.util.Set<String> bfColumns, java.util.Set<String> bfFpp,
-                    boolean isInMemory, TTabletType tabletType,
-                    String storagePolicy, java.util.Set<Long> tabletIdSet,
-                    java.util.Map<String, String> properties, boolean createInitialRowset)
-                    throws DdlException {
-
-                // Capture the actual format passed to createPartitionWithIndices
-                TInvertedIndexFileStorageFormat format = table.getInvertedIndexFileStorageFormat();
-                capturedFormat.set(format);
+            public TStorageMedium createTablets(MaterializedIndex index, ReplicaState replicaState,
+                    DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
+                    TabletMeta tabletMeta, Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer,
+                    boolean isStorageMediumSpecified) throws DdlException {
+                Tablet tablet = new org.apache.doris.catalog.Tablet(10001);
+                Replica replica = new Replica(10031, 0, 0, replicaState);
+                tablet.addReplica(replica, true);
+                index.addTablet(tablet, tabletMeta);
+                tabletIdSet.add(tablet.getId());
+                return TStorageMedium.HDD;
+            }
+        };
+        // Mock CreateReplicaTask to capture the format set for each partition
+        new MockUp<CreateReplicaTask>() {
+            @Mock
+            public void setInvertedIndexFileStorageFormat(Invocation inv, TInvertedIndexFileStorageFormat format) {
+                // Capture the format for this partition
+                // We'll use a simple approach to capture the format without calling the real method
+                // since we're in a mock context
+                capturedFormat.set(format); // Use a default key for now
             }
         };
 
@@ -361,6 +417,7 @@ public class InternalCatalogTest {
                     TTabletType.TABLET_TYPE_DISK,
                     "", null, null, false);
         } catch (Exception e) {
+            e.printStackTrace();
             // It's expected to fail in test environment, we only care about the format capture
         }
 
@@ -375,23 +432,41 @@ public class InternalCatalogTest {
         Config.enable_new_partition_inverted_index_v2_format = true;
         AtomicReference<TInvertedIndexFileStorageFormat> capturedFormat = new AtomicReference<>();
 
-        // Mock createPartitionWithIndices to capture the actual format used during partition creation
+        // Mock MarkedCountDownLatch to immediately return success
+        new MockUp<MarkedCountDownLatch>() {
+            @Mock
+            public boolean await(long time, java.util.concurrent.TimeUnit unit) {
+                return true; // Immediately return success
+            }
+
+            @Mock
+            public Status getStatus() {
+                return Status.OK;
+            }
+        };
+
         new MockUp<InternalCatalog>() {
             @Mock
-            public void createPartitionWithIndices(
-                    long dbId, OlapTable table, long partitionId, String partitionName,
-                    Map<Long, MaterializedIndexMeta> indexIdToMeta,
-                    HashDistributionInfo distributionInfo, DataProperty dataProperty,
-                    ReplicaAllocation replicaAlloc, long versionHash,
-                    java.util.Set<String> bfColumns, java.util.Set<String> bfFpp,
-                    boolean isInMemory, TTabletType tabletType,
-                    String storagePolicy, java.util.Set<Long> tabletIdSet,
-                    java.util.Map<String, String> properties, boolean createInitialRowset)
-                    throws DdlException {
-
-                // Capture the actual format passed to createPartitionWithIndices
-                TInvertedIndexFileStorageFormat format = table.getInvertedIndexFileStorageFormat();
-                capturedFormat.set(format);
+            public TStorageMedium createTablets(MaterializedIndex index, ReplicaState replicaState,
+                    DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
+                    TabletMeta tabletMeta, Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer,
+                    boolean isStorageMediumSpecified) throws DdlException {
+                Tablet tablet = new org.apache.doris.catalog.Tablet(10001);
+                Replica replica = new Replica(10031, 0, 0, replicaState);
+                tablet.addReplica(replica, true);
+                index.addTablet(tablet, tabletMeta);
+                tabletIdSet.add(tablet.getId());
+                return TStorageMedium.HDD;
+            }
+        };
+        // Mock CreateReplicaTask to capture the format set for each partition
+        new MockUp<CreateReplicaTask>() {
+            @Mock
+            public void setInvertedIndexFileStorageFormat(Invocation inv, TInvertedIndexFileStorageFormat format) {
+                // Capture the format for this partition
+                // We'll use a simple approach to capture the format without calling the real method
+                // since we're in a mock context
+                capturedFormat.set(format); // Use a default key for now
             }
         };
 
@@ -472,6 +547,7 @@ public class InternalCatalogTest {
                     TTabletType.TABLET_TYPE_DISK,
                     "", null, null, false);
         } catch (Exception e) {
+            e.printStackTrace();
             // It's expected to fail in test environment, we only care about the format capture
         }
 
@@ -496,6 +572,7 @@ public class InternalCatalogTest {
                     TTabletType.TABLET_TYPE_DISK,
                     "", null, null, false);
         } catch (Exception e) {
+            e.printStackTrace();
             // It's expected to fail in test environment, we only care about the format capture
         }
 
