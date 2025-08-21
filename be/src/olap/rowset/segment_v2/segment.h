@@ -175,9 +175,6 @@ public:
     // nullptr will returned if storage type does not contains such column
     std::shared_ptr<const vectorized::IDataType> get_data_type_of(const TabletColumn& column,
                                                                   bool read_flat_leaves) const;
-    // Check is schema read type equals storage column type
-    bool same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves) const;
-
     // If column in segment is the same type in schema, then it is safe to apply predicate
     template <typename Predicate>
     bool can_apply_predicate_safely(int cid, Predicate* pred, const Schema& schema,

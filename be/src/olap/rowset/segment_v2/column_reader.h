@@ -565,6 +565,53 @@ private:
     Status _seek_by_offsets(ordinal_t ord);
 };
 
+class CastColumnIterator : public ColumnIterator {
+public:
+    CastColumnIterator(std::unique_ptr<ColumnIterator> child_iterator,
+                       const vectorized::DataTypePtr& src_type,
+                       const vectorized::DataTypePtr& dst_type);
+
+    Status init(const ColumnIteratorOptions& opts) override { return _child_iterator->init(opts); }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    Status seek_to_ordinal(ordinal_t ord) override;
+
+    ordinal_t get_current_ordinal() const override {
+        return _child_iterator->get_current_ordinal();
+    }
+
+    Status get_row_ranges_by_zone_map(const AndBlockColumnPredicate* col_predicates,
+                                      const std::vector<const ColumnPredicate*>* delete_predicates,
+                                      RowRanges* row_ranges) override {
+        return _child_iterator->get_row_ranges_by_zone_map(col_predicates, delete_predicates,
+                                                           row_ranges);
+    }
+
+    Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
+                                          RowRanges* row_ranges) override {
+        return _child_iterator->get_row_ranges_by_bloom_filter(col_predicates, row_ranges);
+    }
+
+    Status get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
+                                  RowRanges* row_ranges) override {
+        return _child_iterator->get_row_ranges_by_dict(col_predicates, row_ranges);
+    }
+
+    bool is_all_dict_encoding() const override { return _child_iterator->is_all_dict_encoding(); }
+
+private:
+    Status _perform_cast(vectorized::MutableColumnPtr& dst);
+
+    std::shared_ptr<ColumnIterator> _child_iterator;
+    vectorized::DataTypePtr _src_type;
+    vectorized::DataTypePtr _dst_type;
+    vectorized::Block _src_block;
+};
+
 class RowIdColumnIterator : public ColumnIterator {
 public:
     RowIdColumnIterator() = delete;
