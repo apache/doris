@@ -27,6 +27,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropPartitionRangeClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.KeysDesc;
@@ -1990,6 +1991,41 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
+    }
+
+    public void dropPartitionRange(Database db, OlapTable olapTable,
+                                   DropPartitionRangeClause dropRangeClause) throws DdlException {
+        Set<String> intersection;
+        try {
+            MultiPartitionDesc multiPartitionDesc = new MultiPartitionDesc(dropRangeClause.getPartitionKeyDesc(),
+                    null);
+            List<SinglePartitionDesc> singlePartitionDescs = multiPartitionDesc.getSinglePartitionDescList();
+            Set<String> singlePartitionNameSet = singlePartitionDescs.stream()
+                    .map(SinglePartitionDesc::getPartitionName)
+                    .collect(Collectors.toSet());
+            Set<String> allParitionNameSet = olapTable.getPartitionNames();
+
+            // Compute intersection - Partitions that actually exist and need to be deleted
+            intersection = new HashSet<>(singlePartitionNameSet);
+            intersection.retainAll(allParitionNameSet);
+
+            // Check if no partitions found to delete
+            if (intersection.isEmpty()) {
+                throw new DdlException("No partitions found in the specified range to drop");
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException("Failed to analyze drop partition range clause: " + e.getMessage());
+        }
+
+        for (String singlePartitionName : intersection) {
+            DropPartitionClause dropPartitionClause = new DropPartitionClause(
+                    dropRangeClause.isSetIfExists(),
+                    singlePartitionName,
+                    dropRangeClause.isTempPartition(),
+                    dropRangeClause.isForceDrop()
+            );
+            dropPartition(db, olapTable, dropPartitionClause);
+        }
     }
 
     // drop partition without any check, the caller should hold the table write lock.

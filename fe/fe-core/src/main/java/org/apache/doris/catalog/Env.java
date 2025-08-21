@@ -33,6 +33,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.DropPartitionRangeClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionRenameClause;
@@ -3532,6 +3533,11 @@ public class Env {
 
     public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
         getInternalCatalog().dropPartition(db, olapTable, clause);
+    }
+
+    public void dropPartitionRange(Database db, OlapTable olapTable,
+                                   DropPartitionRangeClause clause) throws DdlException {
+        getInternalCatalog().dropPartitionRange(db, olapTable, clause);
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {

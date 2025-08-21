@@ -32,6 +32,7 @@ import org.apache.doris.analysis.DropBranchClause;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
+import org.apache.doris.analysis.DropPartitionRangeClause;
 import org.apache.doris.analysis.DropTagClause;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
@@ -295,6 +296,12 @@ public class Alter {
                             DynamicPartitionUtil.checkAlterAllowed(olapTable);
                         }
                         Env.getCurrentEnv().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
+                    } else if (alterClause instanceof DropPartitionRangeClause) {
+                        if (!((DropPartitionRangeClause ) alterClause).isTempPartition()) {
+                            DynamicPartitionUtil.checkAlterAllowed(olapTable);
+                        }
+                        Env.getCurrentEnv().dropPartitionRange(db, olapTable,
+                                ((DropPartitionRangeClause ) alterClause));
                     } else if (alterClause instanceof ReplacePartitionClause) {
                         Env.getCurrentEnv().replaceTempPartition(db, olapTable, (ReplacePartitionClause) alterClause);
                     } else if (alterClause instanceof ModifyPartitionClause) {
