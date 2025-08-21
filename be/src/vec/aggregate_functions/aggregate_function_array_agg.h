@@ -131,12 +131,12 @@ struct AggregateFunctionArrayAggData {
         const auto begin = null_map->size();
         const auto size = rhs.null_map->size();
         null_map->resize(begin + size);
-        nested_column->reserve(begin + size);
+        nested_column->resize(begin + size);
         for (size_t i = 0; i < size; i++) {
             const auto null_value = rhs.null_map->data()[i];
             const auto data_value = rhs.nested_column->get_data()[i];
             null_map->data()[begin + i] = null_value;
-            nested_column->get_data().push_back(data_value);
+            nested_column->get_data()[begin + i] = data_value;
         }
     }
 };

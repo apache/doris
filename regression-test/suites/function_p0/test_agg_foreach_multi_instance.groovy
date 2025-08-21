@@ -35,13 +35,13 @@ suite("test_agg_foreach_multi_instance") {
     );
     """
     sql """
-    insert into foreach_table values
+    insert into foreach_table_m values
     (1,[1,2,3],[[1],[1,2,3],[2]],["ab","123","114514"]),
     (2,[20],[[2]],["cd"]),
     (3,[100],[[1]],["efg"]) , 
     (4,null,[null],null),
     (5,[null,2],[[2],null],[null,'c']);
    """
-    qt_sql """select array_sort(array_flatten(array_agg_foreach(a))) from foreach_table;"""
-   	qt_sql """select array_sort(array_flatten(array_agg_foreach(s))) from foreach_table;"""
+    qt_sql """select array_sort(array_flatten(array_agg_foreach(a))) from foreach_table_m;"""
+   	qt_sql """select array_sort(array_flatten(array_agg_foreach(s))) from foreach_table_m;"""
 }
