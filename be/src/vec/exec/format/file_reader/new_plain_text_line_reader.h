@@ -96,6 +96,7 @@ public:
         if (p) {
             size_t i = p - start;
             if (i > 0 and start[i - 1] == '\r') {
+                line_crlf = true;
                 return p - 1;
             }
             return p;
