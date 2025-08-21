@@ -3510,6 +3510,18 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public long getQueryFreshnessToleranceMs() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            long userQueryFreshnessToleranceMs = connectContext.getEnv().getAuth()
+                    .getQueryFreshnessToleranceMs(connectContext.getQualifiedUser());
+            if (userQueryFreshnessToleranceMs > 0) {
+                return userQueryFreshnessToleranceMs;
+            }
+        }
+        return queryFreshnessToleranceMs;
+    }
+
     public int getExchangeInstanceParallel() {
         return exchangeInstanceParallel;
     }
@@ -4435,7 +4447,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
 
-        tResult.setQueryFreshnessToleranceMs(queryFreshnessToleranceMs);
+        tResult.setQueryFreshnessToleranceMs(getQueryFreshnessToleranceMs());
 
         // for spill
         tResult.setEnableSpill(enableSpill);

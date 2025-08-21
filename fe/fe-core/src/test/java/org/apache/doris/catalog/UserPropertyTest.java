@@ -82,6 +82,7 @@ public class UserPropertyTest {
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
         properties.add(Pair.of("cpu_resource_limit", "2"));
         properties.add(Pair.of("query_timeout", "500"));
+        properties.add(Pair.of("query_freshness_tolerance_ms", "4500"));
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
@@ -92,6 +93,7 @@ public class UserPropertyTest {
         Assert.assertEquals(2, userProperty.getCpuResourceLimit());
         Assert.assertEquals(500, userProperty.getQueryTimeout());
         Assert.assertEquals(Sets.newHashSet(), userProperty.getCopiedResourceTags());
+        Assert.assertEquals(4500, userProperty.getQueryFreshnessToleranceMs());
 
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();
