@@ -690,18 +690,16 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
     }
 
+    CaptureRsReaderOptions opts {
+            .skip_missing_version = _state->skip_missing_version(),
+            .enable_prefer_cached_rowset =
+                    config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+            .query_freshness_tolerance_ms =
+                    config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
+    };
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        if (config::is_cloud_mode() && _state->enable_query_freshness_tolerance()) {
-            RETURN_IF_ERROR(std::static_pointer_cast<CloudTablet>(_tablets[i].tablet)
-                                    ->capture_rs_readers_with_freshness_tolerance(
-                                            {0, _tablets[i].version}, &_read_sources[i].rs_splits,
-                                            _state->skip_missing_version(),
-                                            _state->query_freshness_tolerance_ms()));
-        } else {
-            RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
-                                                                   &_read_sources[i].rs_splits,
-                                                                   _state->skip_missing_version()));
-        }
+        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
+                                                               &_read_sources[i].rs_splits, opts));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
