@@ -61,5 +61,7 @@ suite("iceberg_schema_change_with_branch_tag", "p0,external,doris,external_docke
     qt_select_table """ select * from test_schema_change_with_branch_tag order by id; """
 
     qt_select_branch """ select * from test_schema_change_with_branch_tag FOR VERSION AS OF 'test_branch' """
+    qt_select_branch2 """ select * from test_schema_change_with_branch_tag@branch(test_branch) """
     qt_select_tag """ select * from test_schema_change_with_branch_tag FOR VERSION AS OF 'test_tag' """
+    qt_select_tag2 """ select * from test_schema_change_with_branch_tag@tag(test_tag) """
 }

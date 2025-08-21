@@ -707,7 +707,6 @@ public class PaimonUtil {
             if (timestampMillis < 0) {
                 throw new DateTimeException("can't parse time: " + timestamp);
             }
-            return tag.get();
         }
         Snapshot snapshot = table.snapshotManager().earlierOrEqualTimeMills(timestampMillis);
         if (snapshot == null) {
