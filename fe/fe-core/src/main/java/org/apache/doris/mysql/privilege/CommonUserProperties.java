@@ -68,6 +68,9 @@ public class CommonUserProperties implements GsonPostProcessable {
     @SerializedName(value = "wg", alternate = {"workloadGroup"})
     private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
 
+    @SerializedName(value = "epcr", alternate = {"enablePreferCachedRowset"})
+    private boolean enablePreferCachedRowset = false;
+
     @SerializedName(value = "qft", alternate = {"queryFreshnessTolerance"})
     private long queryFreshnessToleranceMs = -1;
 
@@ -177,6 +180,14 @@ public class CommonUserProperties implements GsonPostProcessable {
 
     public void setQueryFreshnessToleranceMs(long queryFreshnessToleranceMs) {
         this.queryFreshnessToleranceMs = queryFreshnessToleranceMs;
+    }
+
+    public boolean getEnablePreferCachedRowset() {
+        return enablePreferCachedRowset;
+    }
+
+    public void setEnablePreferCachedRowset(boolean enablePreferCachedRowset) {
+        this.enablePreferCachedRowset = enablePreferCachedRowset;
     }
 
     @Override
