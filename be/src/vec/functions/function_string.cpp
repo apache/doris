@@ -721,8 +721,8 @@ struct TrimInUtil {
         const size_t offset_size = str_offsets.size();
         res_offsets.resize(offset_size);
         res_data.reserve(str_data.size());
-        // If remove_str contains only ASCII characters, there is no need to consider whether str contains UTF-8 characters,
-        // since UTF-8 bytes will not conflict with ASCII bytes.
+        // Since UTF-8 encoding ensures that ASCII bytes (0x00-0x7F) never appear within multi-byte sequences,
+        // if the string to remove contains only ASCII, byte-level removal is safe and will not corrupt any UTF-8 characters.
         bool all_ascii = simd::VStringFunctions::is_ascii(remove_str);
 
         if (all_ascii) {
