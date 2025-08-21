@@ -245,6 +245,15 @@ public class UserPropertyMgr implements Writable {
         return Pair.of(false, "");
     }
 
+    public boolean getEnablePreferCachedRowset(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return false;
+        }
+        return existProperty.getEnablePreferCachedRowset();
+    }
+
     public long getQueryFreshnessToleranceMs(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getPropertyIfNull(qualifiedUser, existProperty);
