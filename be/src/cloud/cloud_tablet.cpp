@@ -157,7 +157,7 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
     if (opts.query_freshness_tolerance_ms > 0) {
         return capture_rs_readers_with_freshness_tolerance(spec_version, rs_splits,
                                                            opts.query_freshness_tolerance_ms);
-    } else if (opts.enable_prefer_cached_rowset) {
+    } else if (opts.enable_prefer_cached_rowset && enable_unique_key_merge_on_write()) {
         return capture_rs_readers_prefer_cache(spec_version, rs_splits);
     }
     return capture_rs_readers_internal(spec_version, rs_splits);
@@ -207,10 +207,12 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         if (it == _rs_version_map.end()) {
             it = _stale_rs_version_map.find(version);
             if (it == _stale_rs_version_map.end()) {
-                return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
-                        "fail to find Rowset in stale_rs_version for version. tablet={}, "
+                LOG_INFO(
+                        "fail to find Rowset in rs_version or stale_rs_version for version. "
+                        "tablet={}, "
                         "version={}-{}",
                         tablet_id(), version.first, version.second);
+                return false;
             }
         }
         const auto& rs = it->second;
