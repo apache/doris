@@ -1317,7 +1317,7 @@ void MetaServiceImpl::commit_txn_immediately(
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
         rowsets.reserve(tmp_rowsets_meta.size());
 
-        int64_t rowsets_visible_time_ms =
+        int64_t rowsets_visible_ts_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
         for (auto& [_, i] : tmp_rowsets_meta) {
@@ -1342,7 +1342,7 @@ void MetaServiceImpl::commit_txn_immediately(
             int64_t new_version = versions[partition_id] + 1;
             i.set_start_version(new_version);
             i.set_end_version(new_version);
-            i.set_visible_time_ms(rowsets_visible_time_ms);
+            i.set_visible_ts_ms(rowsets_visible_ts_ms);
 
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
@@ -2374,7 +2374,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
     std::unordered_map<int64_t, TabletStats> tablet_stats;    // tablet_id -> stats
     rowsets.reserve(sub_txn_to_tmp_rowsets_meta.size() * 10); // rough estimate
 
-    int64_t rowsets_visible_time_ms =
+    int64_t rowsets_visible_ts_ms =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     for (const auto& sub_txn_info : sub_txn_infos) {
@@ -2406,7 +2406,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             }
             i.set_start_version(new_version);
             i.set_end_version(new_version);
-            i.set_visible_time_ms(rowsets_visible_time_ms);
+            i.set_visible_ts_ms(rowsets_visible_ts_ms);
             LOG(INFO) << "xxx update rowset version, txn_id=" << txn_id
                       << ", sub_txn_id=" << sub_txn_id << ", table_id=" << table_id
                       << ", partition_id=" << partition_id << ", tablet_id=" << tablet_id

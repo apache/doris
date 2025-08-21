@@ -96,8 +96,8 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
     }
-    if (in.has_visible_time_ms()) {
-        out->set_visible_time_ms(in.visible_time_ms());
+    if (in.has_visible_ts_ms()) {
+        out->set_visible_ts_ms(in.visible_ts_ms());
     }
 }
 
@@ -162,8 +162,8 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     if (in.has___split_schema()) {
         out->mutable___split_schema()->Swap(in.mutable___split_schema());
     }
-    if (in.has_visible_time_ms()) {
-        out->set_visible_time_ms(in.visible_time_ms());
+    if (in.has_visible_ts_ms()) {
+        out->set_visible_ts_ms(in.visible_ts_ms());
     }
 }
 
@@ -238,8 +238,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
     }
-    if (in.has_visible_time_ms()) {
-        out->set_visible_time_ms(in.visible_time_ms());
+    if (in.has_visible_ts_ms()) {
+        out->set_visible_ts_ms(in.visible_ts_ms());
     }
 }
 
@@ -303,8 +303,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     if (in.has___split_schema()) {
         out->mutable___split_schema()->Swap(in.mutable___split_schema());
     }
-    if (in.has_visible_time_ms()) {
-        out->set_visible_time_ms(in.visible_time_ms());
+    if (in.has_visible_ts_ms()) {
+        out->set_visible_ts_ms(in.visible_ts_ms());
     }
 }
 
