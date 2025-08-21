@@ -1034,7 +1034,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     }
 
     RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
-                                             next_visible_version));
+                                             next_visible_version, rowset));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -1065,7 +1065,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
 Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                              DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                             int64_t next_visible_version) {
+                                             int64_t next_visible_version, RowsetSharedPtr rowset) {
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
@@ -1079,10 +1079,11 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
     // lock_id != -1 means this is in an explict txn
     bool is_explicit_txn = (lock_id != -1);
     auto ms_lock_id = !is_explicit_txn ? txn_id : lock_id;
-
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
-                                                            new_delete_bitmap.get(), txn_id,
-                                                            is_explicit_txn, next_visible_version));
+    auto storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
+            *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
+            rowset->rowset_id().to_string(), storage_resource, txn_id, is_explicit_txn,
+            next_visible_version));
     return Status::OK();
 }
 
@@ -1202,14 +1203,38 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     int64_t t5 = MonotonicMicros();
 
     // 3. store delete bitmap
-    auto st = _engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
-                                                      output_rowset_delete_bitmap.get());
+    DeleteBitmapPtr delete_bitmap_v2 = std::make_shared<DeleteBitmap>(*output_rowset_delete_bitmap);
+    auto delete_bitmap_size = output_rowset_delete_bitmap->delete_bitmap.size();
+    if (config::delete_bitmap_store_version >= 2) {
+        std::vector<std::pair<RowsetId, int64_t>> pre_rowsets_to_segment_num;
+        {
+            std::shared_lock rlock(get_header_lock());
+            for (const auto& [rowset_version, rowset_ptr] : rowset_map()) {
+                if (rowset_version.second < output_rowset->start_version() ||
+                    rowset_version.first > output_rowset->end_version()) {
+                    pre_rowsets_to_segment_num.emplace_back(
+                            std::make_pair(rowset_ptr->rowset_id(), rowset_ptr->num_segments()));
+                }
+            }
+        }
+        tablet_meta()->delete_bitmap().subset(pre_rowsets_to_segment_num,
+                                              output_rowset->start_version(),
+                                              output_rowset->end_version(), delete_bitmap_v2.get());
+    }
+    auto storage_resource = *DORIS_TRY(output_rowset->rowset_meta()->remote_storage_resource());
+    auto st = _engine.meta_mgr().update_delete_bitmap(
+            *this, -1, initiator, output_rowset_delete_bitmap.get(), delete_bitmap_v2.get(),
+            output_rowset->rowset_id().to_string(), storage_resource);
     int64_t t6 = MonotonicMicros();
     LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()
               << ", get lock cost " << (t2 - t1) << " us, sync rowsets cost " << (t3 - t2)
               << " us, calc delete bitmap cost " << (t4 - t3) << " us, check rowid conversion cost "
               << (t5 - t4) << " us, store delete bitmap cost " << (t6 - t5)
-              << " us, st=" << st.to_string();
+              << " us, st=" << st.to_string()
+              << ". store_version=" << config::delete_bitmap_store_version
+              << ", calculated delete bitmap size=" << delete_bitmap_size
+              << ", update delete bitmap size="
+              << output_rowset_delete_bitmap->delete_bitmap.size();
     return st;
 }
 

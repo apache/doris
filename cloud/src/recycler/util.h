@@ -66,6 +66,10 @@ inline std::string segment_path(int64_t tablet_id, const std::string& rowset_id,
     return fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, segment_id);
 }
 
+inline std::string delete_bitmap_path(int64_t tablet_id, const std::string& rowset_id) {
+    return fmt::format("data/{}/{}/delete_bitmap.dat", tablet_id, rowset_id);
+}
+
 inline std::string inverted_index_path_v2(int64_t tablet_id, const std::string& rowset_id,
                                           int64_t segment_id) {
     return fmt::format("data/{}/{}_{}.idx", tablet_id, rowset_id, segment_id);

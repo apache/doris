@@ -61,6 +61,7 @@
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-store/codec.h"
 #include "meta-store/keys.h"
 #include "recycler/recycler_service.h"
 #include "recycler/sync_executor.h"
@@ -794,6 +795,9 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string start_vault_key = storage_vault_key(key_info0);
     std::string end_vault_key = storage_vault_key(key_info1);
     txn->remove(start_vault_key, end_vault_key);
+    std::string dbm_start_key = versioned::meta_delete_bitmap_key({instance_id_, 0, ""});
+    std::string dbm_end_key = versioned::meta_delete_bitmap_key({instance_id_, INT64_MAX, ""});
+    txn->remove(dbm_start_key, dbm_end_key);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete all kv, instance_id=" << instance_id_ << ", err=" << err;
@@ -1843,6 +1847,8 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         }
     }
 
+    // Process delete bitmap
+    file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
     // TODO(AlexYue): seems could do do batch
     return accessor->delete_files(file_paths);
 }
@@ -1886,6 +1892,9 @@ int InstanceRecycler::delete_rowset_data(
             metrics_context.total_recycled_data_size += rs.total_disk_size();
             continue;
         }
+
+        // Process delete bitmap
+        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
 
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;
@@ -2071,7 +2080,14 @@ int InstanceRecycler::delete_rowset_data(const std::string& resource_id, int64_t
         return -1;
     }
     auto& accessor = it->second;
-    return accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
+    auto ret = accessor->delete_prefix(rowset_path_prefix(tablet_id, rowset_id));
+    if (ret != 0) return ret;
+
+    auto dbm_path = delete_bitmap_path(tablet_id, rowset_id);
+    ret = accessor->exists(dbm_path);
+    if (ret == 0) return accessor->delete_file(dbm_path);
+    if (ret == 1) return 0;
+    return ret;
 }
 
 int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t index_id,
@@ -2453,6 +2469,12 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);
 
+    std::string dbm_start_key = versioned::meta_delete_bitmap_key({instance_id_, tablet_id, ""});
+    std::string dbm_end_key = versioned::meta_delete_bitmap_key({instance_id_, tablet_id + 1, ""});
+    txn->remove(dbm_start_key, dbm_end_key);
+    LOG(INFO) << "remove delete bitmap kv, tablet=" << tablet_id << ", begin=" << hex(dbm_start_key)
+              << " end=" << hex(dbm_end_key);
+
     TxnErrorCode err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete rowset kv of tablet " << tablet_id << ", err=" << err;
@@ -2657,6 +2679,12 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);
 
+    std::string dbm_start_key = versioned::meta_delete_bitmap_key({instance_id_, tablet_id, ""});
+    std::string dbm_end_key = versioned::meta_delete_bitmap_key({instance_id_, tablet_id + 1, ""});
+    txn->remove(dbm_start_key, dbm_end_key);
+    LOG(INFO) << "remove delete bitmap kv, tablet=" << tablet_id << ", begin=" << hex(dbm_start_key)
+              << " end=" << hex(dbm_end_key);
+
     std::string versioned_idx_key = versioned::tablet_index_key({instance_id_, tablet_id});
     std::string tablet_index_val;
     TxnErrorCode err = txn->get(versioned_idx_key, &tablet_index_val);
@@ -2757,6 +2785,19 @@ int InstanceRecycler::recycle_rowsets() {
     auto worker_pool = std::make_unique<SimpleThreadPool>(
             config::instance_recycler_worker_pool_size, "recycle_rowsets");
     worker_pool->start();
+    // TODO bacth delete
+    auto delete_versioned_delete_bitmap_kvs = [&](int64_t tablet_id, const std::string& rowset_id) {
+        std::string dbm_start_key =
+                versioned::meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id});
+        std::string dbm_end_key = dbm_start_key;
+        encode_int64(INT64_MAX, &dbm_end_key);
+        auto ret = txn_remove(txn_kv_.get(), dbm_start_key, dbm_end_key);
+        if (ret != 0) {
+            LOG(WARNING) << "failed to delete versioned delete bitmap kv, instance_id="
+                         << instance_id_;
+        }
+        return ret;
+    };
     auto delete_rowset_data_by_prefix = [&](std::string key, const std::string& resource_id,
                                             int64_t tablet_id, const std::string& rowset_id) {
         // Try to delete rowset data in background thread
@@ -2774,6 +2815,7 @@ int InstanceRecycler::recycle_rowsets() {
                             keys.swap(async_recycled_rowset_keys);
                         }
                     }
+                    delete_versioned_delete_bitmap_kvs(tablet_id, rowset_id);
                     if (keys.empty()) return;
                     if (txn_remove(txn_kv_.get(), keys) != 0) {
                         LOG(WARNING) << "failed to delete recycle rowset kv, instance_id="
@@ -2789,6 +2831,9 @@ int InstanceRecycler::recycle_rowsets() {
         // Submit task failed, delete rowset data in current thread
         if (delete_rowset_data(resource_id, tablet_id, rowset_id) != 0) {
             LOG(WARNING) << "failed to delete rowset data, key=" << hex(key);
+            return -1;
+        }
+        if (delete_versioned_delete_bitmap_kvs(tablet_id, rowset_id) != 0) {
             return -1;
         }
         rowset_keys.push_back(std::move(key));
@@ -2897,6 +2942,11 @@ int InstanceRecycler::recycle_rowsets() {
                                    metrics_context) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
                 return;
+            }
+            for (const auto& [_, rs] : rowsets_to_delete) {
+                if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+                    return;
+                }
             }
             if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
                 LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
@@ -3544,8 +3594,23 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         return 0;
     };
 
+    // TODO bacth delete
+    auto delete_versioned_delete_bitmap_kvs = [&](int64_t tablet_id, const std::string& rowset_id) {
+        std::string dbm_start_key =
+                versioned::meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id});
+        std::string dbm_end_key = dbm_start_key;
+        encode_int64(INT64_MAX, &dbm_end_key);
+        auto ret = txn_remove(txn_kv_.get(), dbm_start_key, dbm_end_key);
+        if (ret != 0) {
+            LOG(WARNING) << "failed to delete versioned delete bitmap kv, instance_id="
+                         << instance_id_;
+        }
+        return ret;
+    };
+
     auto loop_done = [&tmp_rowset_keys, &tmp_rowsets, &num_recycled, &metrics_context,
-                      &tmp_rowset_ref_count_keys, this]() -> int {
+                      &tmp_rowset_ref_count_keys, &delete_versioned_delete_bitmap_kvs,
+                      this]() -> int {
         DORIS_CLOUD_DEFER {
             tmp_rowset_keys.clear();
             tmp_rowsets.clear();
@@ -3555,6 +3620,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             0) {
             LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
             return -1;
+        }
+        for (const auto& [_, rs] : tmp_rowsets) {
+            if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+                return -1;
+            }
         }
         if (txn_remove(txn_kv_.get(), tmp_rowset_keys) != 0) {
             LOG(WARNING) << "failed to delete tmp rowset kv, instance_id=" << instance_id_;

@@ -240,6 +240,19 @@ std::string StorageResource::remote_tablet_path(int64_t tablet_id) const {
     }
 }
 
+std::string StorageResource::remote_delete_bitmap_path(int64_t tablet_id,
+                                                       std::string_view rowset_id) const {
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}/delete_bitmap.dat", DATA_PREFIX, tablet_id, rowset_id);
+    case 1:
+        return fmt::format("{}/{}/{}/{}/delete_bitmap.dat", DATA_PREFIX, shard_fn(tablet_id),
+                           tablet_id, rowset_id);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
 std::string StorageResource::cooldown_tablet_meta_path(int64_t tablet_id, int64_t replica_id,
                                                        int64_t cooldown_term) const {
     return remote_tablet_path(tablet_id) + '/' +

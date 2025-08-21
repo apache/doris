@@ -300,6 +300,12 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_EQ(db_upper.delete_bitmap.size(), 21);
     }
 
+    /*{
+        for(auto& [k, v] : *dbmp) {
+            std::cout << "rowset=" << k << std::endl;
+        }
+    }*/
+
     {
         auto old_size = dbmp->delete_bitmap.size();
         // test merge
@@ -361,6 +367,46 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_TRUE(bm->contains(1104));
         ASSERT_EQ(bm->cardinality(), cached_cardinality);
     }
+
+    dbmp.reset(new DeleteBitmap(10086));
+    auto gen2 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_version,
+                        uint32_t max_row) {
+        for (int64_t i = 0; i < max_rst_id; ++i) {
+            for (uint32_t j = 0; j < max_seg_id; ++j) {
+                for (uint32_t version = 0; version < max_version; ++version) {
+                    for (uint32_t k = 0; k < max_row; ++k) {
+                        if (k % max_version == version) {
+                            dbmp->add({RowsetId {2, 0, 1, i}, j, version}, k);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    gen2(2, 2, 10, 1000);
+    for (uint32_t version = 0; version < 10; ++version) {
+        auto bm = dbmp->get_agg({RowsetId {2, 0, 1, 0}, 0, version});
+        ASSERT_EQ(bm->cardinality(), 100 * (version + 1));
+    }
+
+    std::vector<std::pair<RowsetId, int64_t>> rowset_ids;
+    auto rowset_id1 = RowsetId {2, 0, 1, 0};
+    auto rowset_id2 = RowsetId {2, 0, 1, 1};
+    rowset_ids.emplace_back(std::make_pair(rowset_id1, 2));
+    rowset_ids.emplace_back(std::make_pair(rowset_id2, 2));
+    DeleteBitmap subset_delete_map(10086);
+    dbmp->subset_and_agg(rowset_ids, 5, 9, &subset_delete_map);
+    ASSERT_EQ(subset_delete_map.delete_bitmap.size(), 4);
+
+    roaring::Roaring d;
+    subset_delete_map.get({rowset_id1, 0, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id1, 1, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id2, 0, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
+    subset_delete_map.get({rowset_id2, 1, 9}, &d);
+    EXPECT_EQ(d.cardinality(), 500);
 }
 
 } // namespace doris
