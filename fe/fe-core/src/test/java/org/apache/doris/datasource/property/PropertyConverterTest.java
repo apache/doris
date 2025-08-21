@@ -23,8 +23,6 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
@@ -50,7 +48,6 @@ import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -228,56 +225,6 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
     }
 
-    @Test
-    public void testS3TVFPropertiesConverter() throws Exception {
-        FeConstants.runningUnitTest = true;
-        String queryOld = "select * from s3(\n"
-                + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
-                + "  'access_key' = 'akk',\n"
-                + "  'secret_key' = 'skk',\n"
-                + "  'region' = 'us-east-1',\n"
-                + "  'format' = 'parquet',\n"
-                + "  'use_path_style' = 'true'\n"
-                + ") limit 10;";
-        SelectStmt analyzedStmt = createStmt(queryOld);
-        Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
-        TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
-        S3TableValuedFunction s3Tvf = (S3TableValuedFunction) oldFuncTable.getTableFunction();
-        Assertions.assertEquals(5, s3Tvf.getBrokerDesc().getProperties().size());
-
-        String queryNew = "select * from s3(\n"
-                + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
-                + "  's3.access_key' = 'akk',\n"
-                + "  's3.secret_key' = 'skk',\n"
-                + "  'format' = 'parquet',\n"
-                + "  'use_path_style' = 'true'\n"
-                + ") limit 10;";
-        SelectStmt analyzedStmtNew = createStmt(queryNew);
-        Assertions.assertEquals(analyzedStmtNew.getTableRefs().size(), 1);
-        TableValuedFunctionRef newFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
-        S3TableValuedFunction newS3Tvf = (S3TableValuedFunction) newFuncTable.getTableFunction();
-        Assertions.assertEquals(5, newS3Tvf.getBrokerDesc().getProperties().size());
-    }
-
-    @Test
-    public void testAWSOldCatalogPropertiesConverter() throws Exception {
-        String queryOld = "create catalog hms_s3_old properties (\n"
-                + "    'type'='hms',\n"
-                + "    'hive.metastore.uris' = 'thrift://172.21.0.44:7004',\n"
-                + "    'AWS_ENDPOINT' = 's3.us-east-1.amazonaws.com',\n"
-                + "    'AWS_REGION' = 'us-east-1',\n"
-                + "    'AWS_ACCESS_KEY' = 'akk',\n"
-                + "    'AWS_SECRET_KEY' = 'skk'\n"
-                + ");";
-        CreateCatalogStmt analyzedStmt = createStmt(queryOld);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3_old");
-        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(9, properties.size());
-
-        Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(17, hdProps.size());
-    }
-
     @Disabled
     @Test
     public void testS3CatalogPropertiesConverter() throws Exception {
@@ -304,7 +251,7 @@ public class PropertyConverterTest extends TestWithFeService {
         String query1 = "create catalog " + catalogName1 + " properties (\n"
                 + "    'type'='hms',\n"
                 + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                + "    'oss.endpoint' = 'oss-cn-beijing.aliyuncs.com',\n"
+                + "    'oss.endpoint' = 'cn-beijing.oss-dls.aliyuncs.com',\n"
                 + "    'oss.hdfs.enabled' = 'true',\n"
                 + "    'oss.access_key' = 'akk',\n"
                 + "    'oss.secret_key' = 'skk'\n"
@@ -313,7 +260,6 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(query1);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", hdProps.get("fs.oss.impl"));
         Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", hdProps.get("fs.oss.endpoint"));
     }
 

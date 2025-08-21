@@ -2824,7 +2824,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             CloudWarmUpJob job = ((CloudEnv) Env.getCurrentEnv())
                     .getCacheHotspotMgr()
                     .getCloudWarmUpJob(request.getWarmUpJobId());
-            if (job == null) {
+            if (job == null || job.isDone()) {
                 LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
                         job.getJobId(), clientAddr);
                 // notify client to cancel this job
