@@ -186,14 +186,10 @@ struct EncryptionAndDecryptTwoImpl {
         bool col_const[argument_size];
         ColumnPtr argument_columns[argument_size];
         for (int i = 0; i < argument_size; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
-
-        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
+        argument_columns[0] = argument_columns[0]->convert_to_full_column_if_const();
 
         auto& result_data = result_column->get_chars();
         auto& result_offset = result_column->get_offsets();
@@ -297,20 +293,10 @@ struct EncryptionAndDecryptMultiImpl {
         bool col_const[argument_size];
         ColumnPtr argument_columns[argument_size];
         for (int i = 0; i < argument_size; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
-
-        if constexpr (arg_num == 5) {
-            default_preprocess_parameter_columns(argument_columns, col_const, {1, 2, 3, 4}, block,
-                                                 arguments);
-        } else {
-            default_preprocess_parameter_columns(argument_columns, col_const, {1, 2, 3}, block,
-                                                 arguments);
-        }
+        argument_columns[0] = argument_columns[0]->convert_to_full_column_if_const();
 
         auto& result_data = result_column->get_chars();
         auto& result_offset = result_column->get_offsets();
