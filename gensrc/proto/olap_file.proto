@@ -149,7 +149,7 @@ message RowsetMetaPB {
 
     optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
 
-    optional int64 visible_time_ms = 1010;
+    optional int64 visible_ts_ms = 1010;
 }
 
 message SchemaDictKeyList {
@@ -246,7 +246,7 @@ message RowsetMetaCloudPB {
 
     optional SplitSchemaPB __split_schema = 108;  // A special field, DO NOT change it.
 
-    optional int64 visible_time_ms = 109;
+    optional int64 visible_ts_ms = 109;
 }
 
 message SegmentStatisticsPB {
