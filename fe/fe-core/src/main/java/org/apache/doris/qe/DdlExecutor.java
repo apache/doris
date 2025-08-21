@@ -161,6 +161,10 @@ public class DdlExecutor {
      * Execute ddl.
      **/
     public static void execute(Env env, DdlStmt ddlStmt) throws Exception {
+        execute(env, ddlStmt, false);
+    }
+
+    public static void execute(Env env, DdlStmt ddlStmt, boolean isProxy) throws Exception {
         checkDdlStmtSupported(ddlStmt);
         if (ddlStmt instanceof CreateDbStmt) {
             env.createDb((CreateDbStmt) ddlStmt);
@@ -297,7 +301,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AdminCompactTableStmt) {
             env.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
-            env.setConfig((AdminSetConfigStmt) ddlStmt);
+            env.setConfig((AdminSetConfigStmt) ddlStmt, isProxy);
         } else if (ddlStmt instanceof AdminSetTableStatusStmt) {
             env.setTableStatus((AdminSetTableStatusStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFileStmt) {

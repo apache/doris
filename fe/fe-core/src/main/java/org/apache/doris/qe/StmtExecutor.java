@@ -149,6 +149,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -290,6 +291,8 @@ public class StmtExecutor {
     // The profile of this execution
     private final Profile profile;
     private Boolean isForwardedToMaster = null;
+    // Flag for execute prepare statement, need to use binary protocol resultset
+    private boolean isComStmtExecute = false;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -322,9 +325,14 @@ public class StmtExecutor {
 
     // constructor for receiving parsed stmt from connect processor
     public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt) {
+        this(ctx, parsedStmt, false);
+    }
+
+    public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt, boolean isComStmtExecute) {
         this.context = ctx;
         this.parsedStmt = parsedStmt;
         this.originStmt = parsedStmt.getOrigStmt();
+        this.isComStmtExecute = isComStmtExecute;
         if (context.getConnectType() == ConnectType.MYSQL) {
             this.serializer = context.getMysqlChannel().getSerializer();
         } else {
@@ -2898,18 +2906,14 @@ public class StmtExecutor {
             sendMetaData(resultSet.getMetaData(), fieldInfos);
 
             // Send result set.
-            for (List<String> row : resultSet.getResultRows()) {
-                serializer.reset();
-                for (String item : row) {
-                    if (item == null || item.equals(FeConstants.null_string)) {
-                        serializer.writeNull();
-                    } else {
-                        serializer.writeLenEncodedString(item);
-                    }
+            if (isComStmtExecute) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Use binary protocol to set result.");
                 }
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+                sendBinaryResultRow(resultSet);
+            } else {
+                sendTextResultRow(resultSet);
             }
-
             context.getState().setEof();
         } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
             context.updateReturnRows(resultSet.getResultRows().size());
@@ -2918,6 +2922,79 @@ public class StmtExecutor {
             context.getState().setEof();
         } else {
             LOG.error("sendResultSet error connect type");
+        }
+    }
+
+    protected void sendTextResultRow(ResultSet resultSet) throws IOException {
+        for (List<String> row : resultSet.getResultRows()) {
+            serializer.reset();
+            for (String item : row) {
+                if (item == null || item.equals(FeConstants.null_string)) {
+                    serializer.writeNull();
+                } else {
+                    serializer.writeLenEncodedString(item);
+                }
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        }
+    }
+
+    protected void sendBinaryResultRow(ResultSet resultSet) throws IOException {
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html#sect_protocol_binary_resultset_row_value
+        ResultSetMetaData metaData = resultSet.getMetaData();
+        int nullBitmapLength = (metaData.getColumnCount() + 7 + 2) / 8;
+        for (List<String> row : resultSet.getResultRows()) {
+            serializer.reset();
+            // Reserved one byte.
+            serializer.writeByte((byte) 0x00);
+            byte[] nullBitmap = new byte[nullBitmapLength];
+            // Generate null bitmap
+            for (int i = 0; i < row.size(); i++) {
+                String item = row.get(i);
+                if (item == null || item.equals(FeConstants.null_string)) {
+                    // The first 2 bits are reserved.
+                    int byteIndex = (i + 2) / 8;  // Index of the byte in the bitmap array
+                    int bitInByte = (i + 2) % 8;  // Position within the target byte (0-7)
+                    nullBitmap[byteIndex] |= (1 << bitInByte);
+                }
+            }
+            // Null bitmap
+            serializer.writeBytes(nullBitmap);
+            // Non-null columns
+            for (int i = 0; i < row.size(); i++) {
+                String item = row.get(i);
+                if (item != null && !item.equals(FeConstants.null_string)) {
+                    Column col = metaData.getColumn(i);
+                    switch (col.getType().getPrimitiveType()) {
+                        case INT:
+                            serializer.writeInt4(Integer.parseInt(item));
+                            break;
+                        case BIGINT:
+                            serializer.writeInt8(Long.parseLong(item));
+                            break;
+                        case DATETIME:
+                        case DATETIMEV2:
+                            DateTimeV2Literal datetime = new DateTimeV2Literal(item);
+                            long microSecond = datetime.getMicroSecond();
+                            // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
+                            int length = microSecond == 0 ? 7 : 11;
+                            serializer.writeInt1(length);
+                            serializer.writeInt2((int) (datetime.getYear()));
+                            serializer.writeInt1((int) datetime.getMonth());
+                            serializer.writeInt1((int) datetime.getDay());
+                            serializer.writeInt1((int) datetime.getHour());
+                            serializer.writeInt1((int) datetime.getMinute());
+                            serializer.writeInt1((int) datetime.getSecond());
+                            if (microSecond > 0) {
+                                serializer.writeInt4((int) microSecond);
+                            }
+                            break;
+                        default:
+                            serializer.writeLenEncodedString(item);
+                    }
+                }
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
     }
 
@@ -3091,7 +3168,7 @@ public class StmtExecutor {
 
     private void handleDdlStmt() {
         try {
-            DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
+            DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt, isProxy);
             if (!(parsedStmt instanceof AnalyzeStmt)) {
                 context.getState().setOk();
             }

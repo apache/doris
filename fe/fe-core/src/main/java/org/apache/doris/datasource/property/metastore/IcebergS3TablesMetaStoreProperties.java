@@ -22,12 +22,9 @@ import org.apache.doris.datasource.iceberg.s3tables.CustomAwsCredentialsProvider
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import org.apache.commons.lang3.StringUtils;
-import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -51,14 +48,15 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         checkInitialized();
 
-        Map<String, String> props = buildS3CatalogProperties();
+        buildS3CatalogProperties(catalogProps);
 
         S3TablesCatalog catalog = new S3TablesCatalog();
         try {
-            catalog.initialize(catalogName, props);
+            catalog.initialize(catalogName, catalogProps);
             return catalog;
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize S3TablesCatalog for Iceberg. "
@@ -66,19 +64,12 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
         }
     }
 
-    private Map<String, String> buildS3CatalogProperties() {
-        Map<String, String> props = new HashMap<>();
+    private void buildS3CatalogProperties(Map<String, String> props) {
         props.put("client.credentials-provider", CustomAwsCredentialsProvider.class.getName());
         props.put("client.credentials-provider.s3.access-key-id", s3Properties.getAccessKey());
         props.put("client.credentials-provider.s3.secret-access-key", s3Properties.getSecretKey());
         props.put("client.credentials-provider.s3.session-token", s3Properties.getSessionToken());
         props.put("client.region", s3Properties.getRegion());
-
-        if (StringUtils.isNotBlank(warehouse)) {
-            props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        }
-
-        return props;
     }
 
     private void checkInitialized() {

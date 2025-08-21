@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Getter;
@@ -59,40 +58,13 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
 
     public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
 
-    /**
-     * Adapt S3 storage properties for Apache Paimon's S3 file system.
-     *
-     * <p>Paimon's S3 file system does not follow the standard Hadoop-compatible
-     * configuration keys (like fs.s3a.access.key). Instead, it expects specific
-     * keys such as "s3.access.key", "s3.secret.key", etc.
-     *
-     * <p>Therefore, we explicitly map our internal S3 configuration (usually designed
-     * for HDFS-compatible systems) to Paimon's expected format.
-     *
-     * <p>See: org.apache.paimon.s3.S3Loader
-     *
-     * @param storagePropertiesList the list of configured storage backends
-     */
-    protected void appendS3PropertiesIsNeeded(List<StorageProperties> storagePropertiesList) {
-
-        S3Properties s3Properties = (S3Properties) storagePropertiesList.stream()
-                .filter(storageProperties -> storageProperties.getType() == StorageProperties.Type.S3)
-                .findFirst()
-                .orElse(null);
-        if (s3Properties != null) {
-            catalogOptions.set("s3.access.key", s3Properties.getSecretKey());
-            catalogOptions.set("s3.secret.key", s3Properties.getAccessKey());
-            catalogOptions.set("s3.endpoint", s3Properties.getEndpoint());
-            catalogOptions.set("s3.region", s3Properties.getRegion());
-        }
-
-    }
-
     protected void appendCatalogOptions(List<StorageProperties> storagePropertiesList) {
         if (StringUtils.isNotBlank(warehouse)) {
             catalogOptions.set(CatalogOptions.WAREHOUSE.key(), warehouse);
         }
         catalogOptions.set(CatalogOptions.METASTORE.key(), getMetastoreType());
+
+        // FIXME(cmy): Rethink these custom properties
         origProps.forEach((k, v) -> {
             if (k.toLowerCase().startsWith(USER_PROPERTY_PREFIX)) {
                 String newKey = k.substring(USER_PROPERTY_PREFIX.length());
@@ -101,7 +73,6 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
                 }
             }
         });
-        appendS3PropertiesIsNeeded(storagePropertiesList);
     }
 
     /**

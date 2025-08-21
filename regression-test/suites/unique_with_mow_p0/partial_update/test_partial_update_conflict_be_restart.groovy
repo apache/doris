@@ -30,7 +30,6 @@ import org.apache.http.protocol.HttpContext
 import org.apache.http.HttpRequest
 import org.apache.http.impl.client.LaxRedirectStrategy
 import org.apache.http.client.methods.RequestBuilder
-import org.apache.http.entity.StringEntity
 import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 import org.apache.doris.regression.suite.ClusterOptions

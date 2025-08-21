@@ -164,7 +164,7 @@ suite('test_warm_up_cluster_periodic', 'docker') {
             sql """SELECT * FROM customer"""
         }
 
-        sleep(5000)
+        sleep(10000)
 
         def hotspot = sql """select * from __internal_schema.cloud_cache_hotspot;"""
         logger.info("hotspot: {}", hotspot)

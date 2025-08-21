@@ -67,14 +67,14 @@ Status VMetaScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
     if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
         // TODO: refactor this code
-        auto reader = IcebergSysTableJniReader::create_unique(
-                _tuple_desc->slots(), state, _profile, _scan_range.meta_scan_range.iceberg_params);
+        auto reader = IcebergSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
+                                                              _scan_range.meta_scan_range);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
         _reader = std::move(reader);
     } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PAIMON) {
-        auto reader = PaimonSysTableJniReader::create_unique(
-                _tuple_desc->slots(), state, _profile, _scan_range.meta_scan_range.paimon_params);
+        auto reader = PaimonSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
+                                                             _scan_range.meta_scan_range);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
         _reader = std::move(reader);
@@ -251,9 +251,6 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     VLOG_CRITICAL << "VMetaScanner::_fetch_metadata";
     TFetchSchemaTableDataRequest request;
     switch (meta_scan_range.metadata_type) {
-    case TMetadataType::ICEBERG:
-        RETURN_IF_ERROR(_build_iceberg_metadata_request(meta_scan_range, &request));
-        break;
     case TMetadataType::HUDI:
         RETURN_IF_ERROR(_build_hudi_metadata_request(meta_scan_range, &request));
         break;
@@ -316,26 +313,6 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return status;
     }
     _batch_data = std::move(result.data_batch);
-    return Status::OK();
-}
-
-Status VMetaScanner::_build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                     TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_iceberg_metadata_request";
-    if (!meta_scan_range.__isset.iceberg_params) {
-        return Status::InternalError("Can not find TIcebergMetadataParams from meta_scan_range.");
-    }
-
-    // create request
-    request->__set_cluster_name("");
-    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
-
-    // create TMetadataTableRequestParams
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::ICEBERG);
-    metadata_table_params.__set_iceberg_metadata_params(meta_scan_range.iceberg_params);
-
-    request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
 }
 

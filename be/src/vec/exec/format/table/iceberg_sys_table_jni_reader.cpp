@@ -27,8 +27,8 @@ static const std::string HADOOP_OPTION_PREFIX = "hadoop.";
 
 IcebergSysTableJniReader::IcebergSysTableJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-        RuntimeProfile* profile, const TIcebergMetadataParams& range_params)
-        : JniReader(file_slot_descs, state, profile), _range_params(range_params) {}
+        RuntimeProfile* profile, const TMetaScanRange& meta_scan_range)
+        : JniReader(file_slot_descs, state, profile), _meta_scan_range(meta_scan_range) {}
 
 Status IcebergSysTableJniReader::init_reader(
         const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
@@ -39,11 +39,12 @@ Status IcebergSysTableJniReader::init_reader(
         required_types.emplace_back(JniConnector::get_jni_type(desc->type()));
     }
     std::map<std::string, std::string> params;
-    params["serialized_task"] = _range_params.serialized_task;
+    // "," is not in base64
+    params["serialized_splits"] = join(_meta_scan_range.serialized_splits, ",");
     params["required_fields"] = join(required_fields, ",");
     params["required_types"] = join(required_types, "#");
-    params["time_zone"] = _state->timezone_obj().name();
-    for (const auto& kv : _range_params.hadoop_props) {
+    params["time_zone"] = _state->timezone();
+    for (const auto& kv : _meta_scan_range.hadoop_props) {
         params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
     }
     _jni_connector =
