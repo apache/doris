@@ -147,7 +147,7 @@ suite("regression_test_variant_github_events_p0", "p0"){
 
     qt_sql_select_count """ select count(*) from github_events_2; """
 
-    trigger_and_wait_compaction("github_events", "full")
+    trigger_and_wait_compaction("github_events", "full", 1200) // 20min compaction
 
     // query and filterd by inverted index
     profile("test_profile_1") {
