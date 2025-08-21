@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -84,15 +83,6 @@ public class TopNArray extends NullableAggregateFunction
     /** constructor for withChildren and reuse signature */
     private TopNArray(NullableAggregateFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        if (!getArgument(children.size() - 1).isConstant()) {
-            throw new AnalysisException(
-                    "topn_array requires the third parameter must be a constant: "
-                            + this.toSql());
-        }
     }
 
     /**

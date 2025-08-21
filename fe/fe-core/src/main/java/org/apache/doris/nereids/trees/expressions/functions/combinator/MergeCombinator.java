@@ -114,9 +114,4 @@ public class MergeCombinator extends AggregateFunction
     public boolean canRollUp() {
         return false;
     }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        nested.checkLegalityBeforeTypeCoercion();
-    }
 }

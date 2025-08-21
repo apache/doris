@@ -47,7 +47,7 @@ suite("test_agg_foreach") {
               `s` array<String>  null  COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
-            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "storage_format" = "V2"
@@ -74,23 +74,17 @@ suite("test_agg_foreach") {
    	qt_sql """
    select covar_foreach(a,a)  , covar_samp_foreach(a,a) , corr_foreach(a,a) from foreach_table ; 
    """
+    qt_sql """
+   select topn_foreach(a,a) ,topn_foreach(a,a,a)  , topn_array_foreach(a,a) ,topn_array_foreach(a,a,a)from foreach_table ;
+   """
 
-   	test {
-    	sql """select topn_foreach(a,a) from foreach_table;"""
-    	exception "errCode = 2"
-   	}
-
-    test {
-    	sql """select topn_array_foreach(a,a) from foreach_table;"""
-    	exception "errCode = 2"
-   	}
 
    	qt_sql """
-   	select array_sort(array_flatten(count_foreach(a)))  , array_sort(array_flatten(count_by_enum_foreach(a)))  , array_sort(array_flatten(approx_count_distinct_foreach(a))) from foreach_table;
+   	select count_foreach(a)  , count_by_enum_foreach(a)  , approx_count_distinct_foreach(a) from foreach_table;
    	"""
 
-    qt_sql """select array_sort(array_flatten(array_agg_foreach(a))) from foreach_table;"""
-   	qt_sql """select array_sort(array_flatten(array_agg_foreach(s))) from foreach_table;"""
+    qt_sql """select array_agg_foreach(a) from foreach_table;"""
+   	qt_sql """select array_agg_foreach(s) from foreach_table;"""
 
    	test {
     	sql """select array_agg_foreach(b) from foreach_table;"""

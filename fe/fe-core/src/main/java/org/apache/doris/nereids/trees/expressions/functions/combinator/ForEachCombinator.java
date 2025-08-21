@@ -136,9 +136,4 @@ public class ForEachCombinator extends NullableAggregateFunction
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
         return new ForEachCombinator(getAlwaysNullableFunctionParams(alwaysNullable), nested);
     }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        nested.checkLegalityBeforeTypeCoercion();
-    }
 }

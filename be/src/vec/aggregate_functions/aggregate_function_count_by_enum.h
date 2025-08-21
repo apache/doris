@@ -47,19 +47,10 @@ void build_json_from_vec(rapidjson::StringBuffer& buffer,
         rapidjson::Value obj(rapidjson::kObjectType);
 
         rapidjson::Value obj_cbe(rapidjson::kObjectType);
-        const auto& unordered_map = data_vec[idx].cbe;
-
-        // get ordered keys
-        std::vector<std::string_view> keys;
-        keys.reserve(unordered_map.size());
-        for (auto&& [k, _] : unordered_map) {
-            keys.emplace_back(k);
-        }
-        std::ranges::sort(keys);
-
-        for (auto&& k : keys) {
-            rapidjson::Value key_cbe(k.data(), allocator);
-            rapidjson::Value value_cbe(unordered_map.at(std::string(k)));
+        std::unordered_map<std::string, uint64_t> unordered_map = data_vec[idx].cbe;
+        for (auto it : unordered_map) {
+            rapidjson::Value key_cbe(it.first.c_str(), allocator);
+            rapidjson::Value value_cbe(it.second);
             obj_cbe.AddMember(key_cbe, value_cbe, allocator);
         }
         obj.AddMember("cbe", obj_cbe, allocator);
