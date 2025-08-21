@@ -306,31 +306,27 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK(arguments.size() == 3);
 
-        bool cols_const[2];
-        ColumnPtr cols[2];
-        for (size_t i = 0; i < 2; ++i) {
-            cols_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        // convert to full column if necessary
-        default_preprocess_parameter_columns(cols, cols_const, {0, 1}, block, arguments);
-        const auto& [col3, col3_const] =
-                unpack_if_const(block.get_by_position(arguments[2]).column);
 
-        const auto& str_column = assert_cast<const ColumnString*>(cols[0].get());
-        const auto& pair_delim_column = assert_cast<const ColumnString*>(cols[1].get());
-        const auto& kv_delim_column = assert_cast<const ColumnString*>(col3.get());
+        const auto& str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto& pair_delim_column = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const auto& kv_delim_column = assert_cast<const ColumnString*>(argument_columns[2].get());
 
         ColumnPtr result_col;
-        if (cols_const[0] && cols_const[1]) {
-            result_col = execute_vector<true, false>(input_rows_count, *str_column,
-                                                     *pair_delim_column, *kv_delim_column);
-        } else if (col3_const) {
-            result_col = execute_vector<false, true>(input_rows_count, *str_column,
-                                                     *pair_delim_column, *kv_delim_column);
-        } else {
-            result_col = execute_vector<false, false>(input_rows_count, *str_column,
-                                                      *pair_delim_column, *kv_delim_column);
-        }
+
+        std::visit(
+                [&](auto str_const, auto pair_const, auto kv_const) {
+                    result_col = execute_vector<str_const, pair_const, kv_const>(
+                            input_rows_count, *str_column, *pair_delim_column, *kv_delim_column);
+                },
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]));
 
         block.replace_by_position(result, std::move(result_col));
 
@@ -338,7 +334,7 @@ public:
     }
 
 private:
-    template <bool is_str_and_pair_delim_const, bool is_kv_delim_const>
+    template <bool str_const, bool pair_const, bool kv_const>
     static ColumnPtr execute_vector(const size_t input_rows_count, const ColumnString& str_col,
                                     const ColumnString& pair_delim_col,
                                     const ColumnString& kv_delim_col) {
@@ -354,26 +350,13 @@ private:
         auto result_col_map_offsets = ColumnOffset64::create();
         result_col_map_offsets->reserve(input_rows_count);
 
-        std::vector<std::string_view> kvs;
-        std::string_view kv_delim;
-        if constexpr (is_str_and_pair_delim_const) {
-            auto str = str_col.get_data_at(0).to_string_view();
-            auto pair_delim = pair_delim_col.get_data_at(0).to_string_view();
-            kvs = split_pair_by_delim(str, pair_delim);
-        }
-        if constexpr (is_kv_delim_const) {
-            kv_delim = kv_delim_col.get_data_at(0).to_string_view();
-        }
-
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if constexpr (!is_str_and_pair_delim_const) {
-                auto str = str_col.get_data_at(i).to_string_view();
-                auto pair_delim = pair_delim_col.get_data_at(i).to_string_view();
-                kvs = split_pair_by_delim(str, pair_delim);
-            }
-            if constexpr (!is_kv_delim_const) {
-                kv_delim = kv_delim_col.get_data_at(i).to_string_view();
-            }
+            auto str = str_col.get_data_at(index_check_const<str_const>(i)).to_string_view();
+            auto pair_delim =
+                    pair_delim_col.get_data_at(index_check_const<pair_const>(i)).to_string_view();
+            auto kv_delim =
+                    kv_delim_col.get_data_at(index_check_const<kv_const>(i)).to_string_view();
+            auto kvs = split_pair_by_delim(str, pair_delim);
 
             for (const auto& kv : kvs) {
                 auto kv_parts = split_kv_by_delim(kv, kv_delim);
