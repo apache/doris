@@ -1853,6 +1853,7 @@ nonReserved
     | ALIAS
     | ALWAYS
     | ANALYZED
+    | ANN
     | ARRAY
     | AT
     | AUTHORS
@@ -2048,7 +2049,6 @@ nonReserved
     | NEVER
     | NEXT
     | NGRAM_BF
-    | ANN
     | NO
     | NON_NULLABLE
     | NULLS

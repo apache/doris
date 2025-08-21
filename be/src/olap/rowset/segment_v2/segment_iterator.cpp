@@ -947,6 +947,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     return true;
 }
 
+// TODO: optimization when all expr can not evaluate by inverted/ann index,
 Status SegmentIterator::_apply_index_expr() {
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
