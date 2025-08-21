@@ -95,7 +95,7 @@ public:
         const auto* p = (const uint8_t*)memchr(start, '\n', length);
         if (p) {
             size_t i = p - start;
-            if (i > 0 and start[i - 1] == '\r') {
+            if (i > 0 && start[i - 1] == '\r') {
                 line_crlf = true;
                 return p - 1;
             }
