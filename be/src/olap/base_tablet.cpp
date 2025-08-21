@@ -1916,7 +1916,10 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
     }
     useless_rowset_count = useless_rowsets.size();
     useless_rowset_version_count = useless_rowset_versions.size();
-    if (!useless_rowsets.empty() || !useless_rowset_versions.empty()) {
+    bool check_useless_rowset_versions =
+            (!config::is_cloud_mode() || config::delete_bitmap_store_version == 1) &&
+            !useless_rowset_versions.empty();
+    if (!useless_rowsets.empty() || check_useless_rowset_versions) {
         std::stringstream ss;
         if (!useless_rowsets.empty()) {
             ss << "useless rowsets: {";
@@ -1928,7 +1931,7 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rows
             }
             ss << "}. ";
         }
-        if (!useless_rowset_versions.empty()) {
+        if (check_useless_rowset_versions) {
             ss << "useless rowset versions: {";
             for (auto iter = useless_rowset_versions.begin(); iter != useless_rowset_versions.end();
                  ++iter) {
