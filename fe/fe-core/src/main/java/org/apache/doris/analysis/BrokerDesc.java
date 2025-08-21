@@ -112,6 +112,10 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
+        if (StorageType.BROKER.equals(storageType)) {
+            this.storageProperties = BrokerProperties.of(name, properties);
+            return;
+        }
         if (MapUtils.isNotEmpty(this.properties) && StorageType.REFACTOR_STORAGE_TYPES.contains(storageType)) {
             this.storageProperties = StorageProperties.createPrimary(properties);
         }
