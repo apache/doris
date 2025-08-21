@@ -1047,9 +1047,10 @@ struct SubBitmap {
     using TData1 = std::vector<BitmapValue>;
     using TData2 = typename ColumnInt64::Container;
 
-    static void vector3(const TData1& bitmap_data, const TData2& offset_data,
-                        const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
-                        TData1& res) {
+    template <bool bitmap_const, bool offset_const, bool limit_const>
+    static void vector(const TData1& bitmap_data, const TData2& offset_data,
+                       const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
+                       TData1& res) {
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 continue;
@@ -1058,25 +1059,11 @@ struct SubBitmap {
                 null_map[i] = 1;
                 continue;
             }
-            if (const_cast<TData1&>(bitmap_data)[i].offset_limit(offset_data[i], limit_data[i],
-                                                                 &res[i]) == 0) {
-                null_map[i] = 1;
-            }
-        }
-    }
-    static void vector_scalars(const TData1& bitmap_data, const Int64& offset_data,
-                               const Int64& limit_data, NullMap& null_map, size_t input_rows_count,
-                               TData1& res) {
-        for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                continue;
-            }
-            if (limit_data <= 0) {
-                null_map[i] = 1;
-                continue;
-            }
-            if (const_cast<TData1&>(bitmap_data)[i].offset_limit(offset_data, limit_data,
-                                                                 &res[i]) == 0) {
+            const auto& bitmap = bitmap_data[index_check_const<bitmap_const>(i)];
+            const auto& offset = offset_data[index_check_const<offset_const>(i)];
+            const auto& limit = limit_data[index_check_const<limit_const>(i)];
+
+            if (bitmap.offset_limit(offset, limit, &res[i]) == 0) {
                 null_map[i] = 1;
             }
         }
@@ -1087,10 +1074,10 @@ struct BitmapSubsetLimit {
     static constexpr auto name = "bitmap_subset_limit";
     using TData1 = std::vector<BitmapValue>;
     using TData2 = typename ColumnInt64::Container;
-
-    static void vector3(const TData1& bitmap_data, const TData2& offset_data,
-                        const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
-                        TData1& res) {
+    template <bool bitmap_const, bool offset_const, bool limit_const>
+    static void vector(const TData1& bitmap_data, const TData2& offset_data,
+                       const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
+                       TData1& res) {
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 continue;
@@ -1099,21 +1086,11 @@ struct BitmapSubsetLimit {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data[i], limit_data[i], &res[i]);
-        }
-    }
-    static void vector_scalars(const TData1& bitmap_data, const Int64& offset_data,
-                               const Int64& limit_data, NullMap& null_map, size_t input_rows_count,
-                               TData1& res) {
-        for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                continue;
-            }
-            if (offset_data < 0 || limit_data < 0) {
-                null_map[i] = 1;
-                continue;
-            }
-            const_cast<TData1&>(bitmap_data)[i].sub_limit(offset_data, limit_data, &res[i]);
+
+            const auto& bitmap = bitmap_data[index_check_const<bitmap_const>(i)];
+            const auto& offset = offset_data[index_check_const<offset_const>(i)];
+            const auto& limit = limit_data[index_check_const<limit_const>(i)];
+            bitmap.sub_limit(offset, limit, &res[i]);
         }
     }
 };
@@ -1123,9 +1100,10 @@ struct BitmapSubsetInRange {
     using TData1 = std::vector<BitmapValue>;
     using TData2 = typename ColumnInt64::Container;
 
-    static void vector3(const TData1& bitmap_data, const TData2& range_start,
-                        const TData2& range_end, NullMap& null_map, size_t input_rows_count,
-                        TData1& res) {
+    template <bool bitmap_const, bool start_const, bool end_const>
+    static void vector(const TData1& bitmap_data, const TData2& range_start,
+                       const TData2& range_end, NullMap& null_map, size_t input_rows_count,
+                       TData1& res) {
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 continue;
@@ -1134,21 +1112,11 @@ struct BitmapSubsetInRange {
                 null_map[i] = 1;
                 continue;
             }
-            const_cast<TData1&>(bitmap_data)[i].sub_range(range_start[i], range_end[i], &res[i]);
-        }
-    }
-    static void vector_scalars(const TData1& bitmap_data, const Int64& range_start,
-                               const Int64& range_end, NullMap& null_map, size_t input_rows_count,
-                               TData1& res) {
-        for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                continue;
-            }
-            if (range_start >= range_end || range_start < 0 || range_end < 0) {
-                null_map[i] = 1;
-                continue;
-            }
-            const_cast<TData1&>(bitmap_data)[i].sub_range(range_start, range_end, &res[i]);
+
+            const auto& bitmap = bitmap_data[index_check_const<bitmap_const>(i)];
+            const auto& start = range_start[index_check_const<start_const>(i)];
+            const auto& end = range_end[index_check_const<end_const>(i)];
+            bitmap.sub_range(start, end, &res[i]);
         }
     }
 };
@@ -1175,29 +1143,25 @@ public:
 
         bool col_const[3];
         ColumnPtr argument_columns[3];
-        for (int i = 0; i < 3; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        for (size_t i = 0; i < 3; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
 
-        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
+        const auto* bitmap_column = assert_cast<const ColumnBitmap*>(argument_columns[0].get());
+        const auto* offset_column = assert_cast<const ColumnInt64*>(argument_columns[1].get());
+        const auto* limit_column = assert_cast<const ColumnInt64*>(argument_columns[2].get());
 
-        auto bitmap_column = assert_cast<const ColumnBitmap*>(argument_columns[0].get());
-        auto offset_column = assert_cast<const ColumnInt64*>(argument_columns[1].get());
-        auto limit_column = assert_cast<const ColumnInt64*>(argument_columns[2].get());
-
-        if (col_const[1] && col_const[2]) {
-            Impl::vector_scalars(bitmap_column->get_data(), offset_column->get_element(0),
-                                 limit_column->get_element(0), res_null_map->get_data(),
-                                 input_rows_count, res_data_column->get_data());
-        } else {
-            Impl::vector3(bitmap_column->get_data(), offset_column->get_data(),
-                          limit_column->get_data(), res_null_map->get_data(), input_rows_count,
-                          res_data_column->get_data());
-        }
+        std::visit(
+                [&](auto bitmap_const, auto offset_const, auto limit_const) {
+                    Impl::template vector<bitmap_const, offset_const, limit_const>(
+                            bitmap_column->get_data(), offset_column->get_data(),
+                            limit_column->get_data(), res_null_map->get_data(), input_rows_count,
+                            res_data_column->get_data());
+                },
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]));
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res_data_column), std::move(res_null_map));
