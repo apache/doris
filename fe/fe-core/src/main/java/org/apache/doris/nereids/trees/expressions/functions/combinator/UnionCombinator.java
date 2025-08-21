@@ -109,4 +109,9 @@ public class UnionCombinator extends AggregateFunction
     public boolean canRollUp() {
         return true;
     }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        nested.checkLegalityBeforeTypeCoercion();
+    }
 }
