@@ -473,7 +473,9 @@ public class StructInfo {
             // Just collect the filter in top plan, if meet other node except project and filter, return
             if (!(plan instanceof LogicalProject)
                     && !(plan instanceof LogicalFilter)
-                    && !(plan instanceof LogicalAggregate)) {
+                    && !(plan instanceof LogicalAggregate)
+                    && !(plan instanceof LogicalLimit)
+                    && !(plan instanceof LogicalTopN)) {
                 return null;
             }
             if (plan instanceof LogicalFilter) {
