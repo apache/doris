@@ -441,7 +441,7 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
-if [[ "${DISABLE_BUILD_AZURE^^}" == "ON" ]]; then
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
 fi
 

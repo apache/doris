@@ -23,14 +23,10 @@ import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SetStmt;
-import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.SetVar.SetVarType;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.UnsetVariableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -49,7 +45,6 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
@@ -954,19 +949,6 @@ public class StmtExecutor {
             setStmt.modifySetVarsForExecute();
             for (SetVar var : setStmt.getSetVars()) {
                 VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
-            }
-        } else if (parsedStmt instanceof UnsetVariableStmt) {
-            UnsetVariableStmt unsetStmt = (UnsetVariableStmt) parsedStmt;
-            if (unsetStmt.isApplyToAll()) {
-                VariableMgr.setAllVarsToDefaultValue(context.getSessionVariable(), SetType.SESSION);
-            } else {
-                String defaultValue = VariableMgr.getDefaultValue(unsetStmt.getVariable());
-                if (defaultValue == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, unsetStmt.getVariable());
-                }
-                SetVar var = new SetVar(SetType.SESSION, unsetStmt.getVariable(),
-                        new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
-                VariableMgr.setVar(context.getSessionVariable(), var);
             }
         }
     }
