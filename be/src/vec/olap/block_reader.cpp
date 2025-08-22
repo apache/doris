@@ -450,7 +450,7 @@ void BlockReader::_update_agg_data(MutableColumns& columns) {
 
     // calculate has_null_tag
     for (auto idx : _agg_columns_idx) {
-        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(copy_size);
+        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(0, copy_size);
     }
 
     // calculate aggregate and insert
