@@ -73,7 +73,9 @@ suite('test_query_freshness_tolerance', 'docker') {
         def metrics = new URL(url).text
         def matcher = metrics =~ ~"${name}\\s+(\\d+)"
         if (matcher.find()) {
-            return matcher[0][1] as long
+            def ret = matcher[0][1] as long
+            logger.info("getBrpcMetrics, ${url}, name:${name}, value:${ret}")
+            return ret
         } else {
             throw new RuntimeException("${name} not found for ${ip}:${port}")
         }
@@ -137,36 +139,48 @@ suite('test_query_freshness_tolerance', 'docker') {
         sql """insert into test values (4, '{"a" : 1111111111}')"""
         sql """insert into test values (5, '{"a" : 1111.11111}')"""
 
+        sql """use @${clusterName1}"""
+        qt_cluster1 """select * from test"""
+
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
-        qt_sql """select * from test"""
+        qt_cluster2 """select * from test"""
+
+        // sleep for 5s to let these rowsets meet the requirement of query freshness tolerance
+        sleep(5000)
 
         // switch to source cluster and trigger compaction
         sql """use @${clusterName1}"""
         trigger_and_wait_compaction("test", "cumulative")
         // load new data to increase the version
         sql """insert into test values (6, '{"a" : 1111.11111}')"""
+        qt_cluster1_new_data "select * from test;"
         
-        sleep(5000)
-
         // inject to let cluster2 read compaction rowset data slowly
         injectS3FileReadSlow(clusterName2, 10)
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
-        // sql "set query_freshness_tolerance_ms = 5000"
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
+
+        /*
+            def t1 = System.currentTimeMillis()
+            qt_sql """select * from test"""
+            def t2 = System.currentTimeMillis()
+            logger.info("query in cluster2 cost=${t2 - t1} ms")
+
+            when don't set query_freshness_tolerance_ms, this will have to read 2 rowsets data and will last for more than 10s+10s=20s
+        */
+        sql "set query_freshness_tolerance_ms = 5000"
         def t1 = System.currentTimeMillis()
-        qt_sql """select * from test"""
+        def queryFreshnessToleranceCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_count")
+        def fallbackCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_fallback_count")
+        qt_cluster2 """select * from test"""
         def t2 = System.currentTimeMillis()
         logger.info("query in cluster2 cost=${t2 - t1} ms")
-        // wait until the injection complete
-        // sleep(1000)
-
-        // assertEquals(7, getBrpcMetricsByCluster(clusterName2, "file_cache_download_submitted_num"))
-        // assertEquals(7, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_rowset_triggered_by_sync_rowset_num"))
-        // assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_rowset_triggered_by_job_num"))
-        // sleep(5000)
-        // assertEquals(7, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_rowset_complete_num"))
+        assert t2 - t1 < 3000
+        assert getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_count") == queryFreshnessToleranceCount + 1
+        // query with freshness tolerance should not fallback
+        assert getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_fallback_count") == fallbackCount
     }
 }

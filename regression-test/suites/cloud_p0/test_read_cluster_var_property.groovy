@@ -91,20 +91,20 @@ suite('test_read_cluster_var_property') {
         try {
             // 2. test query_freshness_tolerance_ms
             sql "set query_freshness_tolerance_ms=1000;"
-            def queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count")
+            def queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count") == queryFreshnessTolerance + 1
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance + 1
 
             sql "set query_freshness_tolerance_ms=-1;"
-            queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count")
+            queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count") == queryFreshnessTolerance
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance
 
             // user property has higher prioroty than session variable
             sql "set property for 'root' query_freshness_tolerance_ms=2000;"
-            queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count")
+            queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count") == queryFreshnessTolerance + 1
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance + 1
         } finally {
             sql "set query_freshness_tolerance_ms=-1;"
             sql "set property for 'root' query_freshness_tolerance_ms=-1;"
@@ -177,20 +177,20 @@ suite('test_read_cluster_var_property') {
         try {
             // 2. test query_freshness_tolerance_ms
             sql "set query_freshness_tolerance_ms=1000;"
-            def queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count")
+            def queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count") == queryFreshnessTolerance + 1
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance + 1
 
             sql "set query_freshness_tolerance_ms=-1;"
-            queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count")
+            queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count") == queryFreshnessTolerance
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance
 
             // user property has higher prioroty than session variable
             sql "set property for 'root' query_freshness_tolerance_ms=2000;"
-            queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count")
+            queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
             sql "select * from ${tableName};"
-            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_fallback_count") == queryFreshnessTolerance + 1
+            assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance + 1
         } finally {
             sql "set query_freshness_tolerance_ms=-1;"
             sql "set property for 'root' query_freshness_tolerance_ms=-1;"
