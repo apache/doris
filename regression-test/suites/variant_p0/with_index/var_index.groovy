@@ -18,11 +18,13 @@
 suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     def table_name = "var_index"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+
+    def max_subcolumns_count = new Random().nextInt(10) + 1
     sql "DROP TABLE IF EXISTS var_index"
     sql """
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
-            v variant<'timestamp' : double, 'a' : int, 'b' : string, 'c' : int>,
+            v variant<'timestamp' : double, 'a' : int, 'b' : string, 'c' : int, properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")>,
             INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)

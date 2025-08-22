@@ -367,4 +367,28 @@ suite("test_predefine_ddl", "p0"){
 
     sql "create index idx_ab4 on test_ddl_table (var2) using inverted properties(\"parser\"=\"unicode\")"
     wait_for_latest_op_on_table_finish("test_ddl_table", timeout)
+
+
+    sql "DROP TABLE IF EXISTS test_ddl_table"
+    test {
+        sql """CREATE TABLE test_ddl_table (
+            `id` bigint NULL,
+            `var` variant<'a' : int, 'b' : array<int>, 'c' : double, properties("variant_max_subcolumns_count" = "0")> NULL,
+            INDEX idx_ab (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT ''
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+        exception("variant_max_subcolumns_count must be greater than 0 when variant has fields, but got 0")
+    }
+
+    sql """ CREATE TABLE test_ddl_table (
+        `id` bigint NULL,
+        `var` variant<properties("variant_max_subcolumns_count" = "0")> NULL,
+        INDEX idx_ab (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT ''
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+    BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
+
+    test {
+        sql """ alter table test_ddl_table add column var2 variant<'a' : int, 'b' : array<int>, 'c' : double, properties("variant_max_subcolumns_count" = "0")> NULL """
+        exception("variant_max_subcolumns_count must be greater than 0 when variant has fields, but got 0")
+    }
 }
