@@ -482,7 +482,7 @@ class IndexCompactionUtils {
     }
 
     static void check_idx_file_writer_closed(BaseBetaRowsetWriter* writer, bool closed) {
-        for (const auto& [seg_id, idx_file_writer] : writer->inverted_index_file_writers()) {
+        for (const auto& [seg_id, idx_file_writer] : writer->index_file_writers()) {
             EXPECT_EQ(idx_file_writer->_closed, closed);
         }
     }

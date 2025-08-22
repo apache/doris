@@ -40,6 +40,7 @@
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
 #include "olap/row_cursor_cell.h"
+#include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -171,6 +172,8 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_index_iterators();
+
+    Status _apply_ann_topn_predicate();
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -485,6 +488,8 @@ private:
             _common_expr_inverted_index_status;
 
     vectorized::ScoreRuntimeSPtr _score_runtime;
+
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
 
     // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;

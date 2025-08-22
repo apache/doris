@@ -51,6 +51,7 @@ class TDataSink;
 namespace vectorized {
 class AsyncResultWriter;
 class ScoreRuntime;
+class AnnTopNRuntime;
 } // namespace vectorized
 } // namespace doris
 
@@ -275,6 +276,7 @@ protected:
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
     std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
