@@ -333,6 +333,10 @@ public class Index implements Writable {
                 builder.setIndexType(OlapFile.IndexType.BLOOMFILTER);
                 break;
 
+            case ANN:
+                builder.setIndexType(OlapFile.IndexType.ANN);
+                break;
+
             default:
                 throw new RuntimeException("indexType " + indexType + " is not processed in toPb");
         }
