@@ -803,13 +803,11 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     }
 
     // RowsetMetaPB is separated from TabletMetaPB
-    if (!config::is_cloud_mode()) {
-        for (auto& rs : _rs_metas) {
-            rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
-        }
-        for (auto rs : _stale_rs_metas) {
-            rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
-        }
+    for (auto& rs : _rs_metas) {
+        rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+    }
+    for (auto rs : _stale_rs_metas) {
+        rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
