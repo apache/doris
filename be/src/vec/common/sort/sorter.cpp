@@ -126,7 +126,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
 
         if (offset_ == 0) {
             for (size_t i = 0; i < num_columns; ++i)
-                merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
+                merged_columns[i]->insert_from(*current->columns[i], current->pos);
             ++merged_rows;
         } else {
             offset_--;
@@ -226,9 +226,14 @@ Status FullSorter::append_block(Block* block) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
-            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-            data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
+            if (is_column_const(*arrival_data[i].column)) {
+                data[i].column->assume_mutable()->insert_many_from(
+                       assert_cast<const ColumnConst*>(arrival_data[i].column.get())
+                               ->get_data_column(),
+                       0, sz);
+            } else {
+                data[i].column->assume_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
+            }
         }
         block->clear_column_data();
     }

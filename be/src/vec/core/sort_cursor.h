@@ -123,6 +123,7 @@ struct MergeSortCursorImpl {
     ENABLE_FACTORY_CREATOR(MergeSortCursorImpl);
     std::shared_ptr<Block> block;
     ColumnRawPtrs sort_columns;
+    ColumnRawPtrs columns;
     SortDescription desc;
     size_t sort_columns_size = 0;
     size_t pos = 0;
@@ -132,25 +133,32 @@ struct MergeSortCursorImpl {
     virtual ~MergeSortCursorImpl() = default;
 
     MergeSortCursorImpl(std::shared_ptr<Block> block_, const SortDescription& desc_)
-            : block(block_), desc(desc_), sort_columns_size(desc.size()) {
+            : block(std::move(block_)),
+              desc(std::move(desc_)),
+              sort_columns_size(desc.size()) {
         reset();
     }
 
     MergeSortCursorImpl(const SortDescription& desc_)
-            : block(Block::create_shared()), desc(desc_), sort_columns_size(desc.size()) {}
+            : block(Block::create_shared()),
+              desc(std::move(desc_)),
+              sort_columns_size(desc.size()) {}
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
     void reset() {
         sort_columns.clear();
-
-        auto columns = block->get_columns_and_convert();
-        for (size_t j = 0, size = desc.size(); j < size; ++j) {
-            auto& column_desc = desc[j];
+        columns.clear();
+        auto tmp_columns = block->get_columns_and_convert();
+        columns.reserve(tmp_columns.size());
+        for (auto col : tmp_columns) {
+            columns.push_back(col.get());
+        }
+        for (auto& column_desc : desc) {
             size_t column_number = !column_desc.column_name.empty()
                                            ? block->get_position_by_name(column_desc.column_name)
                                            : column_desc.column_number;
-            sort_columns.push_back(columns[column_number].get());
+            sort_columns.push_back(columns[column_number]);
         }
 
         pos = 0;
