@@ -91,7 +91,7 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
         }
 
         def table_exist = sql """select * from information_schema.tables where  TABLE_SCHEMA = "${realDb}" and TABLE_NAME = "${tableName}";"""
-        assertTrue(table_exist.size == 1)
+        assertTrue(table_exist.size() == 1)
         dir_file_exist("""${dirPath}/${part_type}""")
 
         for (int i = 0; i < data_count; i++) {

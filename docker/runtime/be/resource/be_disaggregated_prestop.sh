@@ -18,6 +18,27 @@
 
 #
 
-DORIS_HOME=${DORIS_HOME:="/opt/apache-doris"}
+DORIS_ROOT=${DORIS_HOME:="/opt/apache-doris"}
+DORIS_HOME=${DORIS_ROOT}/be
+BE_CONFFILE=${DORIS_HOME}/conf/be.conf
 
-$DORIS_HOME/be/bin/stop_be.sh --grace
+parse_confval_from_be_conf()
+{
+    local confkey=$1
+    local confvalue=`grep "^\s*$confkey" $BE_CONFFILE | grep -v "^\s\#" | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
+    echo $confvalue
+}
+
+log_dir=`parse_confval_from_be_conf "LOG_DIR"`
+
+if [[ "x$log_dir" == "x" ]]; then
+    log_dir="/opt/apache-doris/be/log"
+fi
+
+log_replace_var_dir=`eval echo "$log_dir"`
+kill_time=$(date  "+%Y-%m-%d %H:%M:%S")
+eval echo "[be_disaggregated_prestop.sh] ${kill_time} kubelet kill call the be_prestop.sh to stop be service." >> "$log_replace_var_dir/be.out"
+#eval echo "[be_disaggregated_prestop.sh] ${kill_time} kubelet kill call the be_prestop.sh to stop be service." 2>&1
+eval echo "[be_disaggregated_prestop.sh] ${kill_time} kubelet kill call the be_prestop.sh to stop be service ." >> "/proc/1/fd/1"
+
+$DORIS_HOME/bin/stop_be.sh --grace

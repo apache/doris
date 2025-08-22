@@ -143,19 +143,29 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             return;
         }
         CHECK(stats.ParseFromString(stats_val));
-        if (compaction.base_compaction_cnt() < stats.base_compaction_cnt() ||
-            compaction.cumulative_compaction_cnt() < stats.cumulative_compaction_cnt()) {
-            code = MetaServiceCode::STALE_TABLET_CACHE;
-            SS << "could not perform compaction on expired tablet cache."
-               << " req_base_compaction_cnt=" << compaction.base_compaction_cnt()
-               << ", base_compaction_cnt=" << stats.base_compaction_cnt()
-               << ", req_cumulative_compaction_cnt=" << compaction.cumulative_compaction_cnt()
-               << ", cumulative_compaction_cnt=" << stats.cumulative_compaction_cnt();
+    } else {
+        MetaReader reader(instance_id);
+        TxnErrorCode err = reader.get_tablet_compact_stats(txn.get(), tablet_id, &stats, nullptr);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            SS << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "not found" : "get kv error")
+               << " when get tablet compact stats, tablet_id=" << tablet_id << " err=" << err;
             msg = ss.str();
             return;
         }
-    } else {
-        CHECK(true) << "versioned read is not supported yet";
+    }
+
+    if (compaction.base_compaction_cnt() < stats.base_compaction_cnt() ||
+        compaction.cumulative_compaction_cnt() < stats.cumulative_compaction_cnt()) {
+        code = MetaServiceCode::STALE_TABLET_CACHE;
+        SS << "could not perform compaction on expired tablet cache."
+           << " req_base_compaction_cnt=" << compaction.base_compaction_cnt()
+           << ", base_compaction_cnt=" << stats.base_compaction_cnt()
+           << ", req_cumulative_compaction_cnt=" << compaction.cumulative_compaction_cnt()
+           << ", cumulative_compaction_cnt=" << stats.cumulative_compaction_cnt();
+        msg = ss.str();
+        return;
     }
 
     auto job_key = job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
@@ -317,6 +327,8 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
         msg = "not allow new_tablet_id same with base_tablet_id";
         return;
     }
+
+    MetaReader reader(instance_id);
     auto& new_tablet_idx = const_cast<TabletIndexPB&>(schema_change.new_tablet_idx());
     if (!new_tablet_idx.has_table_id() || !new_tablet_idx.has_index_id() ||
         !new_tablet_idx.has_partition_id()) {
@@ -324,7 +336,15 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
             get_tablet_idx(code, msg, txn.get(), instance_id, new_tablet_id, new_tablet_idx);
             if (code != MetaServiceCode::OK) return;
         } else {
-            CHECK(false) << "versioned read is not supported yet";
+            TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &new_tablet_idx);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                              : cast_as<ErrCategory::READ>(err);
+                SS << "failed to get new tablet index, instance_id=" << instance_id
+                   << " tablet_id=" << new_tablet_id << " err=" << err;
+                msg = ss.str();
+                return;
+            }
         }
     }
     doris::TabletMetaCloudPB new_tablet_meta;
@@ -350,7 +370,16 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
             return;
         }
     } else {
-        CHECK(false) << "versioned read is not supported yet";
+        TxnErrorCode err =
+                reader.get_tablet_meta(txn.get(), new_tablet_id, &new_tablet_meta, nullptr);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            SS << "failed to get new versioned tablet meta, instance_id=" << instance_id
+               << " tablet_id=" << new_tablet_id << " err=" << err;
+            msg = ss.str();
+            return;
+        }
     }
     if (new_tablet_meta.tablet_state() == doris::TabletStatePB::PB_RUNNING) {
         code = MetaServiceCode::JOB_ALREADY_SUCCESS;
@@ -460,7 +489,16 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
             get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
             if (code != MetaServiceCode::OK) return;
         } else {
-            CHECK(false) << "versioned read is not supported yet";
+            MetaReader reader(instance_id);
+            err = reader.get_tablet_index(txn.get(), tablet_id, &tablet_idx);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                              : cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet index, tablet_id={}, err={}", tablet_id,
+                                  err);
+                LOG(WARNING) << msg;
+                return;
+            }
         }
     }
     // Check if tablet has been dropped
@@ -872,6 +910,14 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     //  with `config::split_tablet_stats = true` can meet the condition.
     internal_get_tablet_stats(code, msg, txn.get(), instance_id, request->job().idx(), *stats,
                               detached_stats, config::snapshot_get_tablet_stats);
+    if (code != MetaServiceCode::OK) {
+        LOG_WARNING("failed to get tablet stats")
+                .tag("instance_id", instance_id)
+                .tag("tablet_id", tablet_id)
+                .tag("code", code)
+                .tag("msg", msg);
+        return;
+    }
 
     if (is_versioned_write) {
         // read old TabletCompactStatsKey -> TabletStatsPB
@@ -1236,6 +1282,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         msg = "not allow new_tablet_id same with base_tablet_id";
         return;
     }
+    MetaReader reader(instance_id);
     auto& new_tablet_idx = const_cast<TabletIndexPB&>(schema_change.new_tablet_idx());
     if (!new_tablet_idx.has_table_id() || !new_tablet_idx.has_index_id() ||
         !new_tablet_idx.has_partition_id()) {
@@ -1243,7 +1290,14 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             get_tablet_idx(code, msg, txn.get(), instance_id, new_tablet_id, new_tablet_idx);
             if (code != MetaServiceCode::OK) return;
         } else {
-            CHECK(false) << "versioned read is not supported yet";
+            TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &new_tablet_idx);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                              : cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get new tablet index, tablet_id={}, err={}", tablet_id,
+                                  err);
+                return;
+            }
         }
     }
     int64_t new_table_id = new_tablet_idx.table_id();
@@ -1272,7 +1326,18 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             return;
         }
     } else {
-        CHECK(true) << "versioned read is not supported yet";
+        TxnErrorCode err =
+                reader.get_tablet_meta(txn.get(), new_tablet_id, &new_tablet_meta, nullptr);
+        if (err != TxnErrorCode::TXN_OK) {
+            SS << "failed to get new tablet meta"
+               << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
+               << " instance_id=" << instance_id << " tablet_id=" << new_tablet_id
+               << " err=" << err;
+            msg = ss.str();
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            return;
+        }
     }
 
     if (new_tablet_meta.tablet_state() == doris::TabletStatePB::PB_RUNNING) {
@@ -1532,6 +1597,15 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     //  with `config::split_tablet_stats = true` can meet the condition.
     internal_get_tablet_stats(code, msg, txn.get(), instance_id, new_tablet_idx, *stats,
                               detached_stats, config::snapshot_get_tablet_stats);
+    if (code != MetaServiceCode::OK) {
+        LOG_WARNING("failed to get tablet stats")
+                .tag("instance_id", instance_id)
+                .tag("tablet_id", tablet_id)
+                .tag("code", code)
+                .tag("msg", msg);
+        return;
+    }
+
     // clang-format off
     // ATTN: cumu point in job is from base tablet which may be fetched long time ago
     //       since the new tablet may have done cumu compactions with alter_version as initial cumu point
@@ -1665,7 +1739,17 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                 get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
                 if (code != MetaServiceCode::OK) return;
             } else {
-                CHECK(false) << "versioned read is not supported yet";
+                MetaReader reader(instance_id);
+                err = reader.get_tablet_index(txn.get(), tablet_id, &tablet_idx);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::TABLET_NOT_FOUND
+                                   : cast_as<ErrCategory::READ>(err);
+                    msg = fmt::format("failed to get tablet index, tablet_id={}, err={}", tablet_id,
+                                      err);
+                    LOG(WARNING) << msg;
+                    return;
+                }
             }
         }
         // Check if tablet has been dropped

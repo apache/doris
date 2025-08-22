@@ -737,7 +737,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
-                                    options.warmup_delta_data);
+                                    options.warmup_delta_data ||
+                                            config::enable_warmup_immediately_on_new_rowset);
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
@@ -1154,6 +1155,7 @@ Status CloudMetaMgr::prepare_restore_job(const TabletMetaPB& tablet_meta) {
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_meta.tablet_id());
     req.set_expiration(config::snapshot_expire_time_sec);
+    req.set_action(RestoreJobRequest::PREPARE);
 
     doris_tablet_meta_to_cloud(req.mutable_tablet_meta(), std::move(tablet_meta));
     return retry_rpc("prepare restore job", req, &resp, &MetaService_Stub::prepare_restore_job);
@@ -1165,6 +1167,7 @@ Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
     RestoreJobResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_id);
+    req.set_action(RestoreJobRequest::COMMIT);
 
     return retry_rpc("commit restore job", req, &resp, &MetaService_Stub::commit_restore_job);
 }
@@ -1176,7 +1179,7 @@ Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_complet
     RestoreJobResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_id);
-    req.set_is_completed(is_completed);
+    req.set_action(is_completed ? RestoreJobRequest::COMPLETE : RestoreJobRequest::ABORT);
 
     return retry_rpc("finish restore job", req, &resp, &MetaService_Stub::finish_restore_job);
 }

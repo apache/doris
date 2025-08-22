@@ -116,7 +116,7 @@ struct FunctionPoseExplode {
         DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
-        fieldTypes[0] = make_nullable(std::make_shared<DataTypeInt32>());
+        fieldTypes[0] = std::make_shared<DataTypeInt32>();
         fieldTypes[1] =
                 check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type();
         auto struct_type = std::make_shared<vectorized::DataTypeStruct>(fieldTypes);

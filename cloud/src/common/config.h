@@ -118,6 +118,7 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+CONF_mBool(enable_restore_job_check, "false");
 
 CONF_mBool(enable_checker_for_meta_key_check, "false");
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
@@ -346,6 +347,8 @@ CONF_mString(ca_cert_file_paths,
 
 CONF_Bool(enable_split_rowset_meta_pb, "false");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+CONF_Bool(enable_split_tablet_schema_pb, "false");
+CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K
 CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 
 } // namespace doris::cloud::config
