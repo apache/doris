@@ -369,7 +369,7 @@ void VectorizedFnCall::prepare_ann_range_search(
     auto left_child = get_child(0);
     auto right_child = get_child(1);
 
-    // Return type of L2Distance is always double.
+    // Return type of L2Distance is always float.
     auto right_literal = std::dynamic_pointer_cast<VLiteral>(right_child);
     if (right_literal == nullptr) {
         suitable_for_ann_index = false;
@@ -552,16 +552,12 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             // Now convert distance to column
             size_t size = result.roaring->cardinality();
             auto distance_col = ColumnFloat32::create(size);
-            auto null_map = ColumnUInt8::create(size, 0);
-            // TODO: Return type of L2DistanceApproximate/InnerProductApproximate should be changed to float.
             const float* src = result.distance.get();
             float* dst = distance_col->get_data().data();
             for (size_t i = 0; i < size; ++i) {
                 dst[i] = src[i];
             }
-            auto nullable_distance_col =
-                    ColumnNullable::create(std::move(distance_col), std::move(null_map));
-            virtual_column_iterator->prepare_materialization(std::move(nullable_distance_col),
+            virtual_column_iterator->prepare_materialization(std::move(distance_col),
                                                              std::move(result.row_ids));
         } else {
             DCHECK(this->op() != TExprOpcode::LE && this->op() != TExprOpcode::LT)
