@@ -2981,6 +2981,10 @@ int InstanceRecycler::recycle_expired_txn_label() {
             if (err == TxnErrorCode::TXN_CONFLICT) {
                 TEST_SYNC_POINT_CALLBACK(
                         "InstanceRecycler::recycle_expired_txn_label.txn_conflict");
+                // log the txn_id and label
+                LOG(WARNING) << "txn conflict, txn_id=" << txn_id
+                             << " txn_label_pb=" << txn_label.ShortDebugString()
+                             << " txn_label=" << txn_info.label();
                 return 1;
             }
             LOG(WARNING) << "failed to delete expired txn, err=" << err << " key=" << hex(k);
@@ -3005,16 +3009,21 @@ int InstanceRecycler::recycle_expired_txn_label() {
                 int ret = delete_recycle_txn_kv(k);
                 if (ret == 1) {
                     constexpr int MAX_RETRY = 10;
-                    for (size_t i = 0; i < MAX_RETRY; ++i) {
-                        ret = delete_recycle_txn_kv(k);
+                    for (size_t i = 1; i <= MAX_RETRY; ++i) {
                         LOG(WARNING) << "txn conflict, retry times=" << i << " key=" << hex(k);
+                        ret = delete_recycle_txn_kv(k);
+                        // clang-format off
+                        TEST_SYNC_POINT_CALLBACK(
+                                "InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_error", &ret);
+                        // clang-format off
                         if (ret != 1) {
                             break;
                         }
                         // random sleep 0-100 ms to retry
                         std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 100));
                     }
-                } else if (ret == -1) {
+                }
+                if (ret != 0) {
                     LOG_WARNING("failed to delete recycle txn kv")
                             .tag("instance id", instance_id_)
                             .tag("key", hex(k));
