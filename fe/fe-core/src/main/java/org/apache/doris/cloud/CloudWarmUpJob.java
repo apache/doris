@@ -220,6 +220,7 @@ public class CloudWarmUpJob implements Writable {
         String clusterName = isEventDriven() ? srcClusterName : dstClusterName;
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName);
+        this.beToThriftAddress = new HashMap<>();
         for (Backend backend : backends) {
             beToThriftAddress.put(backend.getId(), backend.getHost() + ":" + backend.getBePort());
         }
@@ -597,6 +598,10 @@ public class CloudWarmUpJob implements Writable {
         this.setJobDone = false;
         this.lastBatchId = -1;
         this.startTimeMs = System.currentTimeMillis();
+        // reset clients to ensure we have the latest BE info
+        this.beToThriftAddress = null;
+        this.beToClient = null;
+        this.beToAddr = null;
         MetricRepo.updateClusterWarmUpJobLatestStartTime(String.valueOf(jobId), srcClusterName,
                 dstClusterName, startTimeMs);
         this.fetchBeToTabletIdBatches();
