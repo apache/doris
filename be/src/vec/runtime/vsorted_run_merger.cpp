@@ -97,7 +97,7 @@ Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
     return Status::OK();
 }
 
-Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
+Status VSortedRunMerger::_get_next_internal(Block* output_block, bool* eos) {
     ScopedTimer<MonotonicStopWatch> timer(_get_next_timer);
     // Only have one receive data queue of data, no need to do merge and
     // copy the data of block.
@@ -211,6 +211,10 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         *eos = true;
     }
     return Status::OK();
+}
+
+Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
+    RETURN_IF_CATCH_EXCEPTION(return _get_next_internal(output_block, eos));
 }
 
 bool VSortedRunMerger::next_heap(MergeSortCursor& current) {
