@@ -1837,7 +1837,9 @@ TEST(RecyclerTest, recycle_restore_jobs) {
     for (int i = 0; i < 20; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         ASSERT_EQ(create_tablet(txn_kv.get(), table_id, i, partition_id, tablet_id), 0);
-        create_restore_job_tablet(txn_kv.get(), tablet_id);
+        // create restore job for recycle
+        ASSERT_EQ(create_restore_job_tablet(txn_kv.get(), tablet_id, RestoreJobCloudPB::COMPLETED),
+                  0);
         for (int j = 0; j < 5; ++j) {
             ASSERT_EQ(
                     create_restore_job_rowset(txn_kv.get(), accessor.get(), "recycle_restore_jobs",
@@ -1846,6 +1848,7 @@ TEST(RecyclerTest, recycle_restore_jobs) {
         }
     }
 
+    // not recycle and change restore job from COMPLETED to RECYCLING
     ASSERT_EQ(recycler.recycle_restore_jobs(), 0);
 
     std::unique_ptr<Transaction> txn;
@@ -1862,6 +1865,7 @@ TEST(RecyclerTest, recycle_restore_jobs) {
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 100);
 
+    // recycle restore job with status RECYCLING
     ASSERT_EQ(recycler.recycle_restore_jobs(), 0);
 
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
