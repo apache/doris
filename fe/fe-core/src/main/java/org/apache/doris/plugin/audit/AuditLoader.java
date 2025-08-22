@@ -175,6 +175,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.returnRows).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.shuffleSendRows).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.shuffleSendBytes).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.spillWriteBytesToLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.spillReadBytesFromLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.scanBytesFromLocalStorage).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.scanBytesFromRemoteStorage).append(AUDIT_TABLE_COL_SEPARATOR);
 
