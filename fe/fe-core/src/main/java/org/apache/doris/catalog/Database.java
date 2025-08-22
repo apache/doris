@@ -166,6 +166,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public Database(String ctlName, String dbName) {
         this.ctlName = ctlName;
         this.fullQualifiedName = dbName;
+        this.idToTable = Maps.newConcurrentMap();
+        this.lowerCaseToTableName = Maps.newConcurrentMap();
     }
 
     // DO NOT use it except for replaying OP_CREATE_DB
