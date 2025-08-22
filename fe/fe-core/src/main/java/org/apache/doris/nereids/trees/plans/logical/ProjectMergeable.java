@@ -22,6 +22,8 @@ import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -42,27 +44,31 @@ public interface ProjectMergeable extends ProjectProcessor, OutputPrunable, Plan
 
     /** merge project until can not merge */
     static Optional<Plan> mergeContinuedProjects(List<NamedExpression> parentProject, Plan plan) {
-        if (!(plan instanceof ProjectMergeable)
-                || !((ProjectMergeable) plan).canProcessProject(parentProject)) {
-            return Optional.empty();
-        }
+        Optional<Plan> result = Optional.empty();
         List<NamedExpression> mergedProjects = parentProject;
-        ProjectMergeable child = (ProjectMergeable) plan;
-        while (true) {
-            mergedProjects = new ArrayList<>(PlanUtils.mergeProjections(child.getProjects(), mergedProjects));
-            for (NamedExpression expression : child.getProjects()) {
+        for (Plan child = plan; child instanceof ProjectMergeable; child = child.child(0)) {
+            ProjectMergeable projectable = (ProjectMergeable) child;
+            if (!projectable.canProcessProject(mergedProjects)) {
+                break;
+            }
+            Optional<List<NamedExpression>> newMergeProjectsOpt
+                    = PlanUtils.mergeProjections(projectable.getProjects(), mergedProjects);
+            if (!newMergeProjectsOpt.isPresent()) {
+                break;
+            }
+            ImmutableList.Builder<NamedExpression> newProjectsBuilder
+                    = ImmutableList.builderWithExpectedSize(newMergeProjectsOpt.get().size());
+            newProjectsBuilder.addAll(newMergeProjectsOpt.get());
+            for (NamedExpression expression : projectable.getProjects()) {
                 // keep NoneMovableFunction for later use
                 if (expression.containsType(NoneMovableFunction.class)) {
-                    mergedProjects.add(expression);
+                    newProjectsBuilder.add(expression);
                 }
             }
-            if (child.arity() == 1 && child.child(0) instanceof ProjectMergeable
-                    && ((ProjectMergeable) child.child(0)).canProcessProject(mergedProjects)) {
-                child = (ProjectMergeable) child.child(0);
-                continue;
-            }
-            return Optional.of(child.withProjects(mergedProjects));
+            mergedProjects = newProjectsBuilder.build();
+            result = Optional.of(projectable.withProjects(mergedProjects));
         }
+        return result;
     }
 
     List<NamedExpression> getProjects();

@@ -23,35 +23,46 @@ import java.util.Optional;
 
 /** Nereids's AnalysisException. */
 public class AnalysisException extends RuntimeException {
+    private final ErrorCode errorCode;
     private final String message;
     private final Optional<Integer> line;
     private final Optional<Integer> startPosition;
     private final Optional<LogicalPlan> plan;
 
-    public AnalysisException(String message, Throwable cause, Optional<Integer> line,
+    public AnalysisException(ErrorCode errorCode, String message, Throwable cause, Optional<Integer> line,
             Optional<Integer> startPosition, Optional<LogicalPlan> plan) {
         super(message, cause);
+        this.errorCode = errorCode;
         this.message = message;
         this.line = line;
         this.startPosition = startPosition;
         this.plan = plan;
     }
 
-    public AnalysisException(String message, Optional<Integer> line,
+    public AnalysisException(ErrorCode errorCode, String message, Optional<Integer> line,
             Optional<Integer> startPosition, Optional<LogicalPlan> plan) {
         super(message);
+        this.errorCode = errorCode;
         this.message = message;
         this.line = line;
         this.startPosition = startPosition;
         this.plan = plan;
+    }
+
+    public AnalysisException(ErrorCode errorCode, String message, Throwable cause) {
+        this(errorCode, message, cause, Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    public AnalysisException(ErrorCode errorCode, String message) {
+        this(errorCode, message, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public AnalysisException(String message, Throwable cause) {
-        this(message, cause, Optional.empty(), Optional.empty(), Optional.empty());
+        this(ErrorCode.NONE, message, cause);
     }
 
     public AnalysisException(String message) {
-        this(message, Optional.empty(), Optional.empty(), Optional.empty());
+        this(ErrorCode.NONE, message);
     }
 
     @Override
@@ -70,5 +81,12 @@ public class AnalysisException extends RuntimeException {
         }
     }
 
-    // TODO: support ErrorCode
+    public ErrorCode getErrorCode() {
+        return errorCode;
+    }
+
+    public enum ErrorCode {
+        NONE,
+        EXPRESSION_EXCEEDS_LIMIT,
+    }
 }

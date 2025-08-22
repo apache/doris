@@ -49,6 +49,7 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -256,9 +257,13 @@ public class PlanReceiver implements AbstractReceiver {
             if (complexProjects.isEmpty()) {
                 complexProjects.addAll(complexProjectMap.get(bitmap));
             } else {
+                Optional<List<NamedExpression>> mergedProjectsOpt
+                        = PlanUtils.mergeProjections(complexProjects, complexProjectMap.get(bitmap));
+                if (!mergedProjectsOpt.isPresent()) {
+                    return join;
+                }
                 // Rewrite project expression by its children
-                complexProjects.addAll(
-                        PlanUtils.mergeProjections(complexProjects, complexProjectMap.get(bitmap)));
+                complexProjects.addAll(mergedProjectsOpt.get());
             }
         }
 

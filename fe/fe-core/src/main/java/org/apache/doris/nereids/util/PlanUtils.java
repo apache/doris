@@ -25,6 +25,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -143,12 +144,20 @@ public class PlanUtils {
     }
 
     /**
-     * merge childProjects with parentProjects
+     * merge childProjects with parentProjects. if merged expression exceeds limit, return empty.
      */
-    public static List<NamedExpression> mergeProjections(List<? extends NamedExpression> childProjects,
+    public static Optional<List<NamedExpression>> mergeProjections(List<? extends NamedExpression> childProjects,
             List<? extends NamedExpression> parentProjects) {
         Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(childProjects);
-        return ExpressionUtils.replaceNamedExpressions(parentProjects, replaceMap);
+        try {
+            return Optional.of(ExpressionUtils.replaceNamedExpressions(parentProjects, replaceMap));
+        } catch (AnalysisException e) {
+            if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                return Optional.empty();
+            } else {
+                throw e;
+            }
+        }
     }
 
     public static List<Expression> replaceExpressionByProjections(List<NamedExpression> childProjects,
