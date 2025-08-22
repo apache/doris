@@ -1,4 +1,4 @@
-package mv.limit_or_topN
+package mv.limit
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,7 +16,7 @@ package mv.limit_or_topN
 // specific language governing permissions and limitations
 // under the License.
 
-suite("limit_or_topN_rewrite") {
+suite("limit_rewrite") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";
@@ -109,44 +109,58 @@ suite("limit_or_topN_rewrite") {
     (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
+    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx'),
+    (6, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-13', '2023-12-13', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
 
     sql """
     insert into orders values
     (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
     (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
     (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
     (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
     (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 33.5, '2023-12-10', 'a', 'b', 1, 'yy'),
-    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
-    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
     (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
     (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
     (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
-    (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
+    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
+    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
+    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
+    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
+    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
+    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi'),
+    (6, 2, 'o', 1.2, '2023-12-13', 'c','d',2, 'mi');  
     """
 
     sql """
     insert into partsupp values
-    (2, 3, 9, 10.01, 'supply1'),
-    (2, 3, 10, 11.01, 'supply2');
+    (2, 3, 9, 5.01, 'supply1'),
+    (4, 3, 9, 10.01, 'supply2'),
+    (2, 4, 9, 15.01, 'supply3'),
+    (3, 3, 9, 20.01, 'supply4');
     """
 
     sql """analyze table partsupp with sync"""
     sql """analyze table lineitem with sync"""
     sql """analyze table orders with sync"""
 
-    sql """alter table orders modify column O_COMMENT set stats ('row_count'='18');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='23');"""
     sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
-    sql """alter table partsupp modify column ps_comment set stats ('row_count'='3');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='1');"""
+
+    // limit can not ensure the return data is stable, so we compare the size before and after the rewrite.
+    // each partition data size is different, so this check is effective
+    def checkRewriteSize = { query_sql, expect_size ->
+        def beforeSize = sql """${query_sql}"""
+        assert beforeSize.size() == expect_size
+    }
 
     //  limit + filter(project) + aggregate
     def mv1_0 =
@@ -181,9 +195,9 @@ suite("limit_or_topN_rewrite") {
             group by o_orderdate, l_orderkey
             limit 4 offset 2;
             """
-    order_qt_query1_0_before "${query1_0}"
+    def result1_0 = sql """${query1_0}"""
     async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
-    order_qt_query1_0_after "${query1_0}"
+    checkRewriteSize(query1_0, result1_0.size())
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
     def mv1_1 =
@@ -218,10 +232,8 @@ suite("limit_or_topN_rewrite") {
             group by o_orderdate, l_orderkey
             limit 4 offset 2;
             """
-    order_qt_query1_1_before "${query1_1}"
     // the filter in query and view is different, shoule fail
     async_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
-    order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
     def mv1_2 =
@@ -256,10 +268,8 @@ suite("limit_or_topN_rewrite") {
             group by o_orderdate, l_orderkey
             limit 4 offset 12;
             """
-    order_qt_query1_2_before "${query1_2}"
     // limit and offset in query is larger than the view, should fail
     async_mv_rewrite_fail(db, mv1_2, query1_2, "mv1_2")
-    order_qt_query1_2_after "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
 
@@ -294,9 +304,9 @@ suite("limit_or_topN_rewrite") {
             group by o_orderdate, l_orderkey
             limit 4 offset 2;
             """
-    order_qt_query2_0_before "${query2_0}"
+    def result2_0 = sql """${query2_0}"""
     async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
-    order_qt_query2_0_after "${query2_0}"
+    checkRewriteSize(query2_0, result2_0.size())
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
 
@@ -330,9 +340,7 @@ suite("limit_or_topN_rewrite") {
             group by o_orderdate, l_orderkey
             limit 4 offset 12;
             """
-    order_qt_query2_1_before "${query2_1}"
     async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
-    order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
 
@@ -368,9 +376,9 @@ suite("limit_or_topN_rewrite") {
             where o_orderdate > '2023-12-08'
             limit 2 offset 3;
             """
-    order_qt_query3_0_before "${query3_0}"
+    def result3_0 = sql """${query3_0}"""
     async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
-    order_qt_query3_0_after "${query3_0}"
+    checkRewriteSize(query3_0, result3_0.size())
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
 
@@ -404,9 +412,7 @@ suite("limit_or_topN_rewrite") {
             where o_orderdate > '2023-12-08'
             limit 2 offset 5;
             """
-    order_qt_query3_1_before "${query3_1}"
     async_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
-    order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
 
@@ -440,9 +446,7 @@ suite("limit_or_topN_rewrite") {
             where o_orderdate > '2023-12-09'
             limit 4 offset 2;
             """
-    order_qt_query3_2_before "${query3_2}"
     async_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
-    order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
 
@@ -475,9 +479,9 @@ suite("limit_or_topN_rewrite") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             limit 2 offset 3;
             """
-    order_qt_query4_0_before "${query4_0}"
+    def result4_0 = sql """${query4_0}"""
     async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
-    order_qt_query4_0_after "${query4_0}"
+    checkRewriteSize(query4_0, result4_0.size())
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
 
@@ -509,9 +513,7 @@ suite("limit_or_topN_rewrite") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             limit 2 offset 5;
             """
-    order_qt_query4_1_before "${query4_1}"
     async_mv_rewrite_fail(db, mv4_1, query4_1, "mv4_1")
-    order_qt_query4_1_after "${query4_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1"""
 
 
@@ -538,9 +540,9 @@ suite("limit_or_topN_rewrite") {
             where o_orderdate > '2023-12-08'
             limit 2 offset 3;
             """
-    order_qt_query5_0_before "${query5_0}"
+    def result5_0 = sql """${query5_0}"""
     async_mv_rewrite_success(db, mv5_0, query5_0, "mv5_0")
-    order_qt_query5_0_after "${query5_0}"
+    checkRewriteSize(query5_0, result5_0.size())
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
 
 
@@ -566,9 +568,7 @@ suite("limit_or_topN_rewrite") {
             where o_orderdate > '2023-12-08'
             limit 2 offset 5;
             """
-    order_qt_query5_1_before "${query5_1}"
     async_mv_rewrite_fail(db, mv5_1, query5_1, "mv5_1")
-    order_qt_query5_1_after "${query5_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_1"""
 
 
@@ -594,9 +594,7 @@ suite("limit_or_topN_rewrite") {
             where o_orderdate > '2023-12-09'
             limit 4 offset 2;
             """
-    order_qt_query5_2_before "${query5_2}"
     async_mv_rewrite_fail(db, mv5_2, query5_2, "mv5_2")
-    order_qt_query5_2_after "${query5_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_2"""
 
 
@@ -621,9 +619,9 @@ suite("limit_or_topN_rewrite") {
             orders
             limit 2 offset 3;
             """
-    order_qt_query6_0_before "${query6_0}"
+    def result6_0 = sql """${query6_0}"""
     async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
-    order_qt_query6_0_after "${query6_0}"
+    checkRewriteSize(query6_0, result6_0.size())
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
 
@@ -647,9 +645,7 @@ suite("limit_or_topN_rewrite") {
             orders
             limit 2 offset 5;
             """
-    order_qt_query6_1_before "${query6_1}"
     async_mv_rewrite_fail(db, mv6_1, query6_1, "mv6_1")
-    order_qt_query6_1_after "${query6_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_1"""
 
 }
