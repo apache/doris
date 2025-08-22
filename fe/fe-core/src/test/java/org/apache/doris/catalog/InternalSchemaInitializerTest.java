@@ -21,9 +21,8 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.ModifyColumnClause;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
@@ -37,7 +36,7 @@ import java.util.List;
 
 class InternalSchemaInitializerTest {
     @Test
-    public void testGetModifyColumn() throws UserException {
+    public void testGetModifyColumn() throws AnalysisException {
         InternalSchemaInitializer initializer = new InternalSchemaInitializer();
         OlapTable table = Mockito.mock(OlapTable.class);
         Column key1 = new Column("key1", ScalarType.createVarcharType(100), true, null, false, null, "");
@@ -59,18 +58,17 @@ class InternalSchemaInitializerTest {
         schema.add(value3);
         Mockito.when(table.getFullSchema()).thenReturn(schema);
         Mockito.when(table.getBaseSchema()).thenReturn(schema);
+        List<AlterClause> modifyColumnClauses = initializer.getModifyColumnClauses(table);
+        Assertions.assertEquals(16, modifyColumnClauses.size());
+        ModifyColumnClause clause1 = (ModifyColumnClause) modifyColumnClauses.get(14);
+        Assertions.assertEquals("key1", clause1.getColumn().getName());
+        Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, clause1.getColumn().getType().getLength());
+        Assertions.assertFalse(clause1.getColumn().isAllowNull());
 
-        List<AlterTableOp> ops = initializer.getModifyColumnOp(table);
-        Assertions.assertEquals(16, ops.size());
-        ModifyColumnOp modifyColumnOp = (ModifyColumnOp) ops.get(14);
-        Assertions.assertEquals("key1", modifyColumnOp.getColumnDef().translateToCatalogStyle().getName());
-        Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, modifyColumnOp.getColumnDef().translateToCatalogStyle().getType().getLength());
-        Assertions.assertFalse(modifyColumnOp.getColumnDef().translateToCatalogStyle().isAllowNull());
-
-        modifyColumnOp = (ModifyColumnOp) ops.get(15);
-        Assertions.assertEquals("key2", modifyColumnOp.getColumnDef().translateToCatalogStyle().getName());
-        Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, modifyColumnOp.getColumnDef().translateToCatalogStyle().getType().getLength());
-        Assertions.assertTrue(modifyColumnOp.getColumnDef().translateToCatalogStyle().isAllowNull());
+        ModifyColumnClause clause2 = (ModifyColumnClause) modifyColumnClauses.get(15);
+        Assertions.assertEquals("key2", clause2.getColumn().getName());
+        Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, clause2.getColumn().getType().getLength());
+        Assertions.assertTrue(clause2.getColumn().isAllowNull());
     }
 
     @Test
