@@ -157,14 +157,12 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
 
     size_t num_results = ann_query_params.distance->size();
     auto result_column_float = vectorized::ColumnFloat32::create(num_results);
-    auto result_null_map = vectorized::ColumnUInt8::create(num_results, 0);
 
     for (size_t i = 0; i < num_results; ++i) {
         result_column_float->get_data()[i] = (*ann_query_params.distance)[i];
     }
 
-    result_column = vectorized::ColumnNullable::create(std::move(result_column_float),
-                                                       std::move(result_null_map));
+    result_column = std::move(result_column_float);
     row_ids = std::move(ann_query_params.row_ids);
     ann_index_stats = *ann_query_params.stats;
     return Status::OK();
