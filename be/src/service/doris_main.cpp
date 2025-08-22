@@ -615,6 +615,13 @@ int main(int argc, char** argv) {
 #endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
+#ifndef(LEAK_SANITIZER)
+    // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
+    // It will make sure that graceful shutdown can be done definitely.
+    LOG(INFO) << "Doris main exited.";
+    exit(0);
+    return 0;
+#endif
     daemon.stop();
     flight_server.reset();
     LOG(INFO) << "Flight server stopped.";
