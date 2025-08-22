@@ -18,13 +18,13 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.MapUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,7 +78,7 @@ public class CatalogProperty {
 
     public void modifyCatalogProps(Map<String, String> props) {
         synchronized (this) {
-            properties.putAll(PropertyConverter.convertToMetaProperties(props));
+            properties.putAll(props);
             resetAllCaches();
         }
     }
@@ -190,9 +190,21 @@ public class CatalogProperty {
         if (hadoopProperties == null) {
             synchronized (this) {
                 if (hadoopProperties == null) {
-                    Map<String, String> result = getProperties();
-                    result.putAll(PropertyConverter.convertToHadoopFSProperties(getProperties()));
-                    this.hadoopProperties = result;
+                    hadoopProperties = new HashMap<>();
+                    Map<StorageProperties.Type, StorageProperties> storageMap = getStoragePropertiesMap();
+
+                    for (StorageProperties sp : storageMap.values()) {
+                        Configuration configuration = sp.getHadoopStorageConfig();
+                        if (configuration != null) {
+                            configuration.forEach(entry -> {
+                                String key = entry.getKey();
+                                String value = entry.getValue();
+                                if (value != null) {
+                                    hadoopProperties.put(key, value);
+                                }
+                            });
+                        }
+                    }
                 }
             }
         }

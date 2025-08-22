@@ -650,7 +650,7 @@ public class DateTimeExtractAndTransform {
         if (duration.getNano() == 0) {
             return String.valueOf(duration.getSeconds());
         } else {
-            return duration.getSeconds() + "." + (duration.getNano() / 1000);
+            return duration.getSeconds() + "." + String.format("%06d", duration.getNano() / 1000);
         }
     }
 
@@ -1226,6 +1226,16 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+    }
+
+    @ExecFunction(name = "quarters_diff")
+    public static Expression quartersDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
+        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+    }
+
+    @ExecFunction(name = "quarters_diff")
+    public static Expression quartersDiff(DateV2Literal t1, DateV2Literal t2) {
+        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
     }
 
     @ExecFunction(name = "years_diff")

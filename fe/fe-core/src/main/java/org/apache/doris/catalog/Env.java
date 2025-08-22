@@ -26,9 +26,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -5364,14 +5362,6 @@ public class Env {
         return shortKeyColumnCount;
     }
 
-    /*
-     * used for handling AlterTableStmt (for client is the ALTER TABLE command).
-     * including SchemaChangeHandler and RollupHandler
-     */
-    public void alterTable(AlterTableStmt stmt) throws UserException {
-        this.alter.processAlterTable(stmt);
-    }
-
     public void alterTable(AlterTableCommand command) throws UserException {
         this.alter.processAlterTable(command);
     }
@@ -6569,7 +6559,7 @@ public class Env {
         }
     }
 
-    public void setConfig(AdminSetFrontendConfigCommand command) throws Exception {
+    public void setConfig(AdminSetFrontendConfigCommand command, boolean isProxy) throws Exception {
         Map<String, String> configs = command.getConfigs();
         Preconditions.checkState(configs.size() == 1);
 
@@ -6581,7 +6571,8 @@ public class Env {
             }
         }
 
-        if (command.isApplyToAll()) {
+        // if this request already come from other Frontend, do not forward it again
+        if (!isProxy && command.isApplyToAll()) {
             for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
                 if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
                     continue;
@@ -7035,18 +7026,6 @@ public class Env {
         }
 
         getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
-    }
-
-    public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
-        String database = stmt.getDatabase();
-        String table = stmt.getTable();
-        long partitionId = stmt.getPartitionId();
-        long visibleVersion = stmt.getVisibleVersion();
-        int setSuccess = setPartitionVersionInternal(database, table, partitionId, visibleVersion, false);
-        if (setSuccess == -1) {
-            throw new DdlException("Failed to set partition visible version to " + visibleVersion + ". " + "Partition "
-                    + partitionId + " not exists. Database " + database + ", Table " + table + ".");
-        }
     }
 
     public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {

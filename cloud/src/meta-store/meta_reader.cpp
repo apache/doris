@@ -55,7 +55,7 @@ TxnErrorCode MetaReader::get_table_version(Transaction* txn, int64_t table_id,
         if (table_version) {
             *table_version = key_version;
         }
-        min_read_version_ = std::min(min_read_version_, key_version);
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
     }
     return err;
 }
@@ -83,7 +83,7 @@ TxnErrorCode MetaReader::get_tablet_meta(Transaction* txn, int64_t tablet_id,
         if (versionstamp) {
             *versionstamp = key_version;
         }
-        min_read_version_ = std::min(min_read_version_, key_version);
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
     }
     return err;
 }
@@ -116,7 +116,7 @@ TxnErrorCode MetaReader::get_partition_version(Transaction* txn, int64_t partiti
     if (partition_version) {
         *partition_version = key_version;
     }
-    min_read_version_ = std::min(min_read_version_, key_version);
+    min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
 
     if (version && !version->ParseFromString(partition_version_value)) {
         LOG_ERROR("Failed to parse VersionPB")
@@ -155,7 +155,7 @@ TxnErrorCode MetaReader::get_tablet_load_stats(Transaction* txn, int64_t tablet_
     if (versionstamp) {
         *versionstamp = key_version;
     }
-    min_read_version_ = std::min(min_read_version_, key_version);
+    min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
 
     if (tablet_stats && !tablet_stats->ParseFromString(tablet_load_stats_value)) {
         LOG_ERROR("Failed to parse TabletStatsPB")
@@ -195,7 +195,7 @@ TxnErrorCode MetaReader::get_tablet_compact_stats(Transaction* txn, int64_t tabl
     if (versionstamp) {
         *versionstamp = key_version;
     }
-    min_read_version_ = std::min(min_read_version_, key_version);
+    min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
 
     if (tablet_stats && !tablet_stats->ParseFromString(tablet_compact_stats_value)) {
         LOG_ERROR("Failed to parse TabletStatsPB")
@@ -255,7 +255,7 @@ TxnErrorCode MetaReader::get_tablet_merged_stats(Transaction* txn, int64_t table
     if (versionstamp) {
         *versionstamp = read_version;
     }
-    min_read_version_ = std::min(min_read_version_, read_version);
+    min_read_versionstamp_ = std::min(min_read_versionstamp_, read_version);
     return TxnErrorCode::TXN_OK;
 }
 
@@ -333,7 +333,7 @@ TxnErrorCode MetaReader::get_table_versions(
         Versionstamp version = kv->second;
         int64_t table_id = table_ids[i];
         table_versions->emplace(table_id, version);
-        min_read_version_ = std::min(min_read_version_, version);
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
     }
 
     return TxnErrorCode::TXN_OK;
@@ -387,7 +387,7 @@ TxnErrorCode MetaReader::get_partition_versions(
         if (versionstamps) {
             versionstamps->emplace(partition_id, versionstamp);
         }
-        min_read_version_ = std::min(min_read_version_, versionstamp);
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
 
         if (versions) {
             VersionPB version;
@@ -472,7 +472,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
         for (auto&& kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
             auto&& [key, version, rowset_meta] = *kvp;
             rowset_graph.emplace(rowset_meta.end_version(), std::move(rowset_meta));
-            min_read_version_ = std::min(min_read_version_, version);
+            min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
             DCHECK(version < snapshot_version_)
                     << "version: " << version.to_string()
                     << ", snapshot_version: " << snapshot_version_.to_string();
@@ -517,7 +517,7 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
                 continue;
             }
 
-            min_read_version_ = std::min(min_read_version_, version);
+            min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
             last_start_version = start_version;
             // erase the rowsets that are covered by this compact rowset
             rowset_graph.erase(rowset_graph.lower_bound(start_version),
@@ -563,7 +563,7 @@ TxnErrorCode MetaReader::get_load_rowset_meta(Transaction* txn, int64_t tablet_i
     TxnErrorCode err = versioned::document_get(txn, load_rowset_key, snapshot_version_, rowset_meta,
                                                &versionstamp, snapshot);
     if (err == TxnErrorCode::TXN_OK) {
-        min_read_version_ = std::min(min_read_version_, versionstamp);
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
     }
     return err;
 }
@@ -653,7 +653,7 @@ TxnErrorCode MetaReader::get_partition_pending_txn_id(Transaction* txn, int64_t 
         return err;
     }
 
-    min_read_version_ = std::min(min_read_version_, versionstamp);
+    min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
     if (version_pb.pending_txn_ids_size() > 0) {
         *first_txn_id = version_pb.pending_txn_ids(0);
     }
@@ -719,6 +719,49 @@ TxnErrorCode MetaReader::get_partition_index(Transaction* txn, int64_t partition
         return TxnErrorCode::TXN_INVALID_DATA;
     }
 
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::is_index_exists(int64_t index_id, bool snapshot) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return is_index_exists(txn.get(), index_id, snapshot);
+}
+
+TxnErrorCode MetaReader::is_index_exists(Transaction* txn, int64_t index_id, bool snapshot) {
+    std::string key = versioned::meta_index_key({instance_id_, index_id});
+    std::string value;
+    Versionstamp key_version;
+    TxnErrorCode err = versioned_get(txn, key, snapshot_version_, &key_version, &value, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode MetaReader::is_partition_exists(int64_t partition_id, bool snapshot) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return is_partition_exists(txn.get(), partition_id, snapshot);
+}
+
+TxnErrorCode MetaReader::is_partition_exists(Transaction* txn, int64_t partition_id,
+                                             bool snapshot) {
+    std::string key = versioned::meta_partition_key({instance_id_, partition_id});
+    std::string value;
+    Versionstamp key_version;
+    TxnErrorCode err = versioned_get(txn, key, snapshot_version_, &key_version, &value, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    min_read_versionstamp_ = std::min(min_read_versionstamp_, key_version);
     return TxnErrorCode::TXN_OK;
 }
 

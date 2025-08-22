@@ -1328,6 +1328,13 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
                                           RestoreJobResponse* response,
                                           ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(prepare_restore_job);
+    if (request->action() != RestoreJobRequest::PREPARE) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid action, expected PREPARE but got " +
+              RestoreJobRequest::Action_Name(request->action());
+        return;
+    }
+
     if (!request->has_tablet_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty tablet_id";
@@ -1509,6 +1516,13 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
                                          RestoreJobResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_restore_job);
+    if (request->action() != RestoreJobRequest::COMMIT) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid action, expected COMMIT but got " +
+              RestoreJobRequest::Action_Name(request->action());
+        return;
+    }
+
     if (!request->has_tablet_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty tablet_id";
@@ -1846,6 +1860,14 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
                                          RestoreJobResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(finish_restore_job);
+    if (request->action() != RestoreJobRequest::COMPLETE &&
+        request->action() != RestoreJobRequest::ABORT) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid action, expected COMPLETE or ABORT but got " +
+              RestoreJobRequest::Action_Name(request->action());
+        return;
+    }
+
     if (!request->has_tablet_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty tablet_id";
@@ -1900,7 +1922,6 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
         return;
     }
 
-    bool is_completed = request->has_is_completed() && request->is_completed();
     if (restore_job_pb.state() == RestoreJobCloudPB::DROPPED ||
         restore_job_pb.state() == RestoreJobCloudPB::COMPLETED) {
         LOG_INFO("restore job already finished")
@@ -1917,10 +1938,21 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
         return;
     } else {
         // PREPARED, COMMITTED state
-        if (is_completed && restore_job_pb.state() != RestoreJobCloudPB::COMMITTED) {
+        if (request->action() == RestoreJobRequest::COMPLETE &&
+            restore_job_pb.state() != RestoreJobCloudPB::COMMITTED) {
             // Only allow COMMITTED -> COMPLETED
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = fmt::format("restore tablet {} in invalid state to complete, state: {}",
+                              tablet_idx.tablet_id(),
+                              RestoreJobCloudPB::State_Name(restore_job_pb.state()));
+            return;
+        }
+        if (request->action() == RestoreJobRequest::ABORT &&
+            (restore_job_pb.state() != RestoreJobCloudPB::PREPARED &&
+             restore_job_pb.state() != RestoreJobCloudPB::COMMITTED)) {
+            // Only allow PREPARED/COMMITTED -> DROPPED
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("restore tablet {} in invalid state to abort, state: {}",
                               tablet_idx.tablet_id(),
                               RestoreJobCloudPB::State_Name(restore_job_pb.state()));
             return;
@@ -1929,6 +1961,7 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
 
     // 2. update restore job
     std::string to_save_val;
+    bool is_completed = request->action() == RestoreJobRequest::COMPLETE;
     restore_job_pb.set_state(is_completed ? RestoreJobCloudPB::COMPLETED
                                           : RestoreJobCloudPB::DROPPED);
     restore_job_pb.set_need_recycle_data(!is_completed);

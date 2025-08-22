@@ -53,7 +53,7 @@ public:
 
     int column_id() const { return _column_id; }
 
-    int slot_id() const { return _slot_id; }
+    MOCK_FUNCTION int slot_id() const { return _slot_id; }
 
     bool equals(const VExpr& other) override;
 

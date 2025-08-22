@@ -158,7 +158,7 @@ suite("test_bm25_score", "p0") {
 
         test {
             sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """
-            exception " score() function can only be used in SELECT clause, not in WHERE clause"
+            exception "score() function can only be used in SELECT clause, not in WHERE clause"
         }
 
         test {
@@ -168,5 +168,85 @@ suite("test_bm25_score", "p0") {
 
         log.info("All exception test cases completed successfully")
     } finally {
+    }
+
+    def timeout = 300000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
+
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(10000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
+
+    def wait_for_last_build_index_on_table_running = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
+
+            if (alter_res.size() == 0) {
+                logger.info(table_name + " last index job finished")
+                return "SKIPPED"
+            }
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "RUNNING" || last_job_state == "FINISHED") {
+                    logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        logger.info("wait_for_last_build_index_on_table_running debug: " + alter_res)
+        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_running timeout")
+        return "wait_timeout"
+    }
+    
+    if (!isCloudMode()) {
+        try {
+            sql "DROP TABLE IF EXISTS t1"
+            sql """ create table t1(a int, b int, v variant) DISTRIBUTED BY HASH(a) buckets 1 PROPERTIES ("replication_allocation" = "tag.location.default: 1"); """
+            sql """ insert into t1 values(2, 2, '{"key": "abc hhh"}'); """
+
+            sql """ sync """
+            sql """ set enable_common_expr_pushdown = true; """
+
+            sql """ alter table t1  add index idx_v(v) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
+            wait_for_latest_op_on_table_finish("t1", timeout)
+            qt_sql """ select *, score() from t1 where cast(v["key"] as string) match_phrase "abc"  order by score() asc limit 11; """
+        } finally {
+        }
+
+        try {
+            sql "DROP TABLE IF EXISTS t2"
+            sql """ create table t2(a int, b int, s text) unique key(a) DISTRIBUTED BY HASH(a) buckets 1 PROPERTIES ("replication_allocation" = "tag.location.default: 1"); """
+            sql """ insert into t2 values(3,3, "abc def"); """
+            sql """ insert into t2 values(4,4, "hello world"); """
+
+            sql """ sync """
+            sql """ set enable_common_expr_pushdown = true; """
+
+            sql """ alter table t2 add index idx_s(s) USING INVERTED PROPERTIES("parser"="english", "support_phrase"=true); """
+            wait_for_latest_op_on_table_finish("t2", timeout)
+            sql """ build index idx_s on t2; """
+            wait_for_last_build_index_on_table_running("t2", timeout)
+
+            sql """ update t2 set s = "this is a test" where a = 3; """
+            qt_sql """ select * from t2; """
+            qt_sql """ select *, score() from t2 where s match_any  "hello abc abc" order by score() limit 11; """
+            qt_sql """ select * from t2 where s match_any  "hello abc abc"; """
+        } finally {
+        }
     }
 }
