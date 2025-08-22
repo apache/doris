@@ -688,3 +688,34 @@ message PartialUpdateInfoPB {
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
 }
+
+message FileEncryptionInfoPB {
+    optional EncryptionKeyPB data_key_info = 1;
+    optional bytes data_iv_nonce = 2;
+}
+
+message EncryptionKeyPB {
+    optional string id = 1;
+    optional int32 version = 2;
+    optional string parent_id = 3;
+    optional int32 parent_version = 4;
+    optional EncryptionKeyTypePB type = 5;
+    optional EncryptionAlgorithmPB algorithm = 6;
+    optional string ciphertext_base64 = 7;
+    optional bytes plaintext = 8;
+    optional string iv_base64 = 9;
+    optional int64 crc32 = 10;
+    optional int64 ctime = 11;
+    optional int64 mtime = 12;
+}
+
+enum EncryptionKeyTypePB {
+    MASTER_KEY = 0;
+    DATA_KEY = 1;
+}
+
+enum EncryptionAlgorithmPB {
+    PLAINTEXT = 0;
+    AES_256_CTR = 1;
+    SM4_128_CTR = 2;
+}
