@@ -1584,6 +1584,9 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum number of threads supported when executing LLMFunction
 DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
+// The maximum csv line reader output buffer size
+DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
