@@ -8,3 +8,48 @@
 -- !sql_v1_original_numeric --
 1	alice	alice loves programming	95
 
+-- !sql_mixed_all --
+1	alice	alice loves programming	95
+2	bob	bob enjoys coding	88
+50	charlie	charlie studies algorithms	92
+150	david	david develops applications	89
+180	eve	eve explores databases	94
+
+-- !sql_mixed_p1 --
+1	alice	alice loves programming	95
+
+-- !sql_mixed_p2 --
+150	david	david develops applications	89
+
+-- !sql_mixed_text --
+1	alice	alice loves programming	95
+180	eve	eve explores databases	94
+
+-- !sql_v1_preserve --
+1	test content for V1 format
+
+-- !sql_v1_preserve_new --
+1	test content for V1 format
+150	new content in second partition
+
+-- !sql_v2_enabled --
+1	test content for V2 format
+
+-- !sql_v2_disabled_config --
+1	test content for V2 format
+150	new content should still use V2
+
+-- !sql_v1_func --
+1	apple	red apple is sweet
+
+-- !sql_v2_func --
+1	apple	red apple is sweet
+
+-- !sql_v1_text_func --
+1	apple	red apple is sweet
+4	date	brown date is sweet
+
+-- !sql_v2_text_func --
+1	apple	red apple is sweet
+4	date	brown date is sweet
+

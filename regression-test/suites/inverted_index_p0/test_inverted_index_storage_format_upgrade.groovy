@@ -179,7 +179,7 @@ suite("test_inverted_index_storage_format_upgrade", "nonConcurrent") {
         qt_sql_mixed_all "SELECT * FROM ${tableName} ORDER BY id"
         qt_sql_mixed_p1 "SELECT * FROM ${tableName} WHERE id < 100 AND name MATCH 'alice' ORDER BY id"
         qt_sql_mixed_p2 "SELECT * FROM ${tableName} WHERE id >= 100 AND name MATCH 'david' ORDER BY id"
-        qt_sql_mixed_text "SELECT * FROM ${tableName} WHERE description MATCH 'programming OR databases' ORDER BY id"
+        qt_sql_mixed_text "SELECT * FROM ${tableName} WHERE description MATCH 'programming databases' ORDER BY id"
         
         // Verify formats through API - this is the key validation
         def p1_format_after = get_tablet_inverted_index_format(tableName, "p1")
@@ -201,7 +201,7 @@ suite("test_inverted_index_storage_format_upgrade", "nonConcurrent") {
             CREATE TABLE ${tableName2} (
                 id int(11) NOT NULL,
                 content varchar(255),
-                INDEX idx_content (content) USING INVERTED
+                INDEX idx_content (content) USING INVERTED PROPERTIES("parser"="unicode")
             )
             DUPLICATE KEY(id)
             PARTITION BY RANGE(id) (
@@ -257,7 +257,7 @@ suite("test_inverted_index_storage_format_upgrade", "nonConcurrent") {
             CREATE TABLE ${tableName3} (
                 id int(11) NOT NULL,
                 content varchar(255),
-                INDEX idx_content (content) USING INVERTED
+                INDEX idx_content (content) USING INVERTED PROPERTIES("parser"="unicode")
             )
             DUPLICATE KEY(id)
             PARTITION BY RANGE(id) (
