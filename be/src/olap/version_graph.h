@@ -56,6 +56,10 @@ public:
     Status capture_consistent_versions(const Version& spec_version,
                                        std::vector<Version>* version_path) const;
 
+    Status capture_consistent_versions_prefer_cache(
+            const Version& spec_version, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
     // Given a start, this method can find a version path which satisfy the following conditions:
     // 1. all edges satisfy the conditions specified by `validator` in the graph.
     // 2. the destination version is as far as possible.
@@ -67,7 +71,7 @@ public:
             const Version& spec_version, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
-    Status capture_newest_consistent_versions_with_validator(
+    Status capture_consistent_versions_with_validator_mow(
             const Version& spec_version, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
@@ -184,6 +188,10 @@ public:
     Status capture_consistent_versions(const Version& spec_version,
                                        std::vector<Version>* version_path) const;
 
+    Status capture_consistent_versions_prefer_cache(
+            const Version& spec_version, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
     // Given a start, this method can find a version path which satisfy the following conditions:
     // 1. all edges satisfy the conditions specified by `validator` in the graph.
     // 2. the destination version is as far as possible.
@@ -195,7 +203,7 @@ public:
             const Version& spec_version, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
-    Status capture_newest_consistent_versions_with_validator(
+    Status capture_consistent_versions_with_validator_mow(
             const Version& spec_version, std::vector<Version>& version_path,
             const std::function<bool(int64_t, int64_t)>& validator) const;
 
