@@ -78,7 +78,8 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
-static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
+static const re2::RE2 JSON_PATTERN(
+        R"(^([^\"\[\]]*)(?:\[([0-9]+|\*|last(?:\s*-\s*([0-9]+)\s*)?)\])?)");
 
 template <typename T, typename U>
 void char_split(std::vector<T>& res, const U& var, char p) {
@@ -112,18 +113,28 @@ void get_parsed_paths(const T& path_exprs, std::vector<JsonPath>* parsed_paths) 
     for (int i = 1; i < path_exprs.size(); i++) {
         std::string col;
         std::string index;
-        if (UNLIKELY(!RE2::FullMatch(path_exprs[i], JSON_PATTERN, &col, &index))) {
+        std::string last_index_offset;
+        if (UNLIKELY(!RE2::FullMatch(path_exprs[i], JSON_PATTERN, &col, &index,
+                                     &last_index_offset))) {
             parsed_paths->emplace_back("", -1, false);
         } else {
             int idx = -1;
+            bool is_reverse_index = false;
             if (!index.empty()) {
                 if (index == "*") {
                     idx = -2;
+                } else if (index.starts_with("last")) {
+                    is_reverse_index = true;
+                    if (!last_index_offset.empty()) {
+                        idx = atoi(last_index_offset.c_str());
+                    } else {
+                        idx = 0;
+                    }
                 } else {
                     idx = atoi(index.c_str());
                 }
             }
-            parsed_paths->emplace_back(col, idx, true);
+            parsed_paths->emplace_back(col, idx, true, is_reverse_index);
         }
     }
 }
@@ -177,6 +188,8 @@ rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths, rapidjs
                     root = array_obj;
                 } else if (index >= root->Size()) {
                     return nullptr;
+                } else if (parsed_paths[i].is_reverse_index) {
+                    root = &((*root)[root->Size() - index - 1]);
                 } else {
                     root = &((*root)[index]);
                 }
@@ -1259,21 +1272,31 @@ private:
         for (int i = 1; i < path_exprs.size(); i++) {
             std::string col;
             std::string index;
-            if (UNLIKELY(!RE2::FullMatch(path_exprs[i], JSON_PATTERN, &col, &index))) {
+            std::string last_index_offset;
+            if (UNLIKELY(!RE2::FullMatch(path_exprs[i], JSON_PATTERN, &col, &index,
+                                         &last_index_offset))) {
                 return Status::RuntimeError(
                         "Invalid JSON path expression. The error is around character position {}",
                         i + 1);
             } else {
                 int idx = -1;
+                bool is_reverse_index = false;
                 if (!index.empty()) {
                     if (index == "*") {
                         return Status::RuntimeError(
                                 "In this situation, path expressions may not contain the * token");
+                    } else if (index.starts_with("last")) {
+                        is_reverse_index = true;
+                        if (!last_index_offset.empty()) {
+                            idx = atoi(last_index_offset.c_str());
+                        } else {
+                            idx = 0;
+                        }
                     } else {
                         idx = atoi(index.c_str());
                     }
                 }
-                parsed_paths->emplace_back(col, idx, true);
+                parsed_paths->emplace_back(col, idx, true, is_reverse_index);
             }
         }
         return Status::OK();
@@ -1467,11 +1490,15 @@ public:
                 if (root->IsArray()) {
                     if (index >= root->Size()) {
                         // array append new value
-                        if (is_insert && i + 1 == parsed_paths.size()) {
+                        if (is_insert && i + 1 == parsed_paths.size() &&
+                            !parsed_paths[i].is_reverse_index) {
                             root->PushBack(*value, mem_allocator);
                         }
                         return;
                     } else {
+                        if (parsed_paths[i].is_reverse_index) {
+                            index = root->Size() - index - 1;
+                        }
                         root = &((*root)[index]);
                     }
                 } else {
