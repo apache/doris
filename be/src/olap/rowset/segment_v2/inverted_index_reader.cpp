@@ -44,6 +44,7 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_factory.h"
@@ -343,7 +344,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         }
         cache_key = {index_file_key, column_name, query_type, std::move(str_tokens)};
 
-        if (is_need_similarity_score(query_type)) {
+        if (IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta)) {
             query_info.is_similarity_score = true;
         }
 
