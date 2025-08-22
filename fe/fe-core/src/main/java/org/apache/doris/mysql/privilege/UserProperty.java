@@ -76,7 +76,7 @@ public class UserProperty {
     public static final String DEFAULT_COMPUTE_GROUP = "default_compute_group";
 
     public static final String PROP_ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
-    public static final String PROP_QUERY_FRESHNESS_TOLERANCE = "query_freshness_tolerance";
+    public static final String PROP_QUERY_FRESHNESS_TOLERANCE = "query_freshness_tolerance_ms";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
