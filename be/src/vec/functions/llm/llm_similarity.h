@@ -20,7 +20,7 @@
 #include "vec/functions/llm/functions_llm.h"
 
 namespace doris::vectorized {
-class FunctionLLMSimilarity : public LLMFunction<FunctionLLMSimilarity, ColumnFloat32> {
+class FunctionLLMSimilarity : public LLMFunction<FunctionLLMSimilarity> {
 public:
     static constexpr auto name = "llm_similarity";
 
@@ -44,7 +44,7 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionLLMSimilarity>(); }
 
     Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
-                        std::string& prompt) const;
+                        std::string& prompt) const override;
 };
 
 } // namespace doris::vectorized
