@@ -131,6 +131,10 @@ public:
         return _cache->insert(key, value, charge, priority);
     }
 
+    void for_each_entry(const std::function<void(const LRUHandle*)>& visitor) {
+        _cache->for_each_entry(visitor);
+    }
+
     Cache::Handle* lookup(const CacheKey& key) { return _cache->lookup(key); }
 
     void release(Cache::Handle* handle) { _cache->release(handle); }
