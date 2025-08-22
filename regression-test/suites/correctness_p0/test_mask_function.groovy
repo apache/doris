@@ -113,4 +113,23 @@ suite("test_mask_function") {
         sql """ select mask_first_n("12345", id) from table_mask_test; """
         exception "mask_first_n must accept literal for 2nd argument"
     }
+
+    test {
+        sql """
+            SELECT mask('Ivy', 'G', 'g', '0', ')') AS result;
+        """
+        exception "Can not find the compatibility function signature: mask(VARCHAR(3), VARCHAR(1), VARCHAR(1), VARCHAR(1), VARCHAR(1))"
+    }
+
+    test {
+        sql """ SELECT mask() AS result;
+        """
+        exception "Can not found function 'mask' which has 0 arity. Candidate functions are: [mask(Expression, Expression...)]"
+    }
+
+    test {
+        sql """  SELECT mask('Ivy', 'G', 'g', '0', ')','ss','ada') AS result;
+        """
+        exception "Can not find the compatibility function signature: mask(VARCHAR(3), VARCHAR(1), VARCHAR(1), VARCHAR(1), VARCHAR(1), VARCHAR(2), VARCHAR(3))"
+    }
 }
