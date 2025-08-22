@@ -164,10 +164,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // Only used for creating external database.
     // DO NOT use it for internal database
     public Database(String ctlName, String dbName) {
+        this(0, dbName);
+        Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), dbName);
         this.ctlName = ctlName;
-        this.fullQualifiedName = dbName;
-        this.idToTable = Maps.newConcurrentMap();
-        this.lowerCaseToTableName = Maps.newConcurrentMap();
     }
 
     // DO NOT use it except for replaying OP_CREATE_DB
