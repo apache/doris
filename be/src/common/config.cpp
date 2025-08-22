@@ -1584,6 +1584,12 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum number of threads supported when executing LLMFunction
 DEFINE_mInt32(llm_max_concurrent_requests, "1");
 
+// Maximum number of openmp threads can be used by each doris threads.
+// This configuration controls the parallelism level for OpenMP operations within Doris,
+// helping to prevent resource contention and ensure stable performance when multiple
+// Doris threads are executing OpenMP-accelerated operations simultaneously.
+DEFINE_mInt32(omp_threads_limit, "8");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
