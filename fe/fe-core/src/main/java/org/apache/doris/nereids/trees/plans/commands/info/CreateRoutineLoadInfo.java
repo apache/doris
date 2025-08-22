@@ -444,6 +444,9 @@ public class CreateRoutineLoadInfo {
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
+    /**
+     * checkJobProperties
+     */
     public void checkJobProperties() throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
