@@ -187,9 +187,9 @@ suite("window_above_join") {
             where o_orderkey > 3;
             """
     order_qt_query1_0_before "${query1_0}"
-    async_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_fail(db, mv1_0, query1_0, "join_mv1_0")
     order_qt_query1_0_after "${query1_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv1_0"""
 
 
     def mv1_1 =
@@ -241,9 +241,9 @@ suite("window_above_join") {
             where o_orderkey > 6;
             """
     order_qt_query1_1_before "${query1_1}"
-    async_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_fail(db, mv1_1, query1_1, "join_mv1_1")
     order_qt_query1_1_after "${query1_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv1_1"""
 
 
     // query has only top filter, view has only top filter
@@ -294,9 +294,9 @@ suite("window_above_join") {
             where o_orderkey > 2;
             """
     order_qt_query2_0_before "${query2_0}"
-    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success(db, mv2_0, query2_0, "join_mv2_0")
     order_qt_query2_0_after "${query2_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv2_0"""
 
 
     def mv2_1 =
@@ -348,9 +348,9 @@ suite("window_above_join") {
             where o_orderdate > '2023-12-10';
             """
     order_qt_query2_1_before "${query2_1}"
-    async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_fail(db, mv2_1, query2_1, "join_mv2_1")
     order_qt_query2_1_after "${query2_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv2_1"""
 
 
     def mv2_2 =
@@ -426,9 +426,9 @@ suite("window_above_join") {
             where o_orderkey > 2;
             """
     order_qt_query2_2_before "${query2_2}"
-    async_mv_rewrite_success(db, mv2_2, query2_2, "mv2_2")
+    async_mv_rewrite_success(db, mv2_2, query2_2, "join_mv2_2")
     order_qt_query2_2_after "${query2_2}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv2_2"""
 
 
     def mv2_3 =
@@ -509,9 +509,9 @@ suite("window_above_join") {
             """
     order_qt_query2_3_before "${query2_3}"
     // the filter ps_suppkey > 1 on the partsupp2 can not be pushed down, so fail
-    async_mv_rewrite_fail(db, mv2_3, query2_3, "mv2_3")
+    async_mv_rewrite_fail(db, mv2_3, query2_3, "join_mv2_3")
     order_qt_query2_3_after "${query2_3}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv2_3"""
 
 
     // query has only top filter, view has only bottom filter
@@ -562,9 +562,9 @@ suite("window_above_join") {
             """
     order_qt_query3_0_before "${query3_0}"
     // filter can be pushed down, should success
-    async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+    async_mv_rewrite_success(db, mv3_0, query3_0, "join_mv3_0")
     order_qt_query3_0_after "${query3_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv3_0"""
 
 
     def mv3_1 =
@@ -614,9 +614,9 @@ suite("window_above_join") {
             """
     order_qt_query3_1_before "${query3_1}"
     // filter can not be pushed down, should success
-    async_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_fail(db, mv3_1, query3_1, "join_mv3_1")
     order_qt_query3_1after "${query3_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv3_1"""
 
 
     // query has only top filter, view has no filter
@@ -665,9 +665,9 @@ suite("window_above_join") {
             where o_orderkey > 3;
             """
     order_qt_query4_0_before "${query4_0}"
-    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
+    async_mv_rewrite_success(db, mv4_0, query4_0, "join_mv4_0")
     order_qt_query4_0after "${query4_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv4_0"""
 
 
     // query has only bottom filter, view has both top and bottom filter
@@ -715,9 +715,9 @@ suite("window_above_join") {
             where o_orderkey > 6;
             """
     order_qt_query5_0_before "${query5_0}"
-    async_mv_rewrite_fail(db, mv5_0, query5_0, "mv5_0")
+    async_mv_rewrite_fail(db, mv5_0, query5_0, "join_mv5_0")
     order_qt_query5_0_after "${query5_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv5_0"""
 
 
     def mv5_1 =
@@ -764,9 +764,9 @@ suite("window_above_join") {
             where o_orderkey > 6;
             """
     order_qt_query5_1_before "${query5_1}"
-    async_mv_rewrite_fail(db, mv5_1, query5_1, "mv5_1")
+    async_mv_rewrite_fail(db, mv5_1, query5_1, "join_mv5_1")
     order_qt_query5_1_after "${query5_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv5_1"""
 
     // query has only bottom filter, view has only top filter
     def mv6_0 =
@@ -813,9 +813,9 @@ suite("window_above_join") {
             where o_orderkey > 2;
             """
     order_qt_query6_0_before "${query6_0}"
-    async_mv_rewrite_fail(db, mv6_0, query6_0, "mv6_0")
+    async_mv_rewrite_fail(db, mv6_0, query6_0, "join_mv6_0")
     order_qt_query6_0_after "${query6_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv6_0"""
 
 
     def mv6_1 =
@@ -864,9 +864,9 @@ suite("window_above_join") {
             where o_orderdate > '2023-12-10';
             """
     order_qt_query6_1_before "${query6_1}"
-    async_mv_rewrite_fail(db, mv6_1, query6_1, "mv6_1")
+    async_mv_rewrite_fail(db, mv6_1, query6_1, "join_mv6_1")
     order_qt_query6_1_after "${query6_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv6_1"""
 
     // query has only bottom filter, view has only bottom filter
     def mv7_0 =
@@ -913,9 +913,9 @@ suite("window_above_join") {
             """
     order_qt_query7_0_before "${query7_0}"
     // filter can be pushed down, should success
-    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
+    async_mv_rewrite_success(db, mv7_0, query7_0, "join_mv7_0")
     order_qt_query7_0_after "${query3_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv7_0"""
 
     def mv7_1 =
             """
@@ -961,9 +961,9 @@ suite("window_above_join") {
             """
     order_qt_query7_1_before "${query7_1}"
     // filter can not be pushed down, should success
-    async_mv_rewrite_success(db, mv7_1, query7_1, "mv7_1")
+    async_mv_rewrite_success(db, mv7_1, query7_1, "join_mv7_1")
     order_qt_query7_1after "${query7_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv7_1"""
 
 
     def mv7_2 =
@@ -1010,9 +1010,9 @@ suite("window_above_join") {
             """
     order_qt_query7_2_before "${query7_2}"
     // filter can not be pushed down, should success
-    async_mv_rewrite_fail(db, mv7_2, query7_2, "mv7_2")
+    async_mv_rewrite_fail(db, mv7_2, query7_2, "join_mv7_2")
     order_qt_query7_2after "${query7_2}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_2"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv7_2"""
 
     // query has only bottom filter, view has no filter
     def mv8_0 =
@@ -1057,9 +1057,9 @@ suite("window_above_join") {
             where o_orderkey > 3;
             """
     order_qt_query8_0_before "${query8_0}"
-    async_mv_rewrite_fail(db, mv8_0, query8_0, "mv8_0")
+    async_mv_rewrite_fail(db, mv8_0, query8_0, "join_mv8_0")
     order_qt_query8_0after "${query8_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv8_0"""
 
 
     def mv8_1 =
@@ -1104,9 +1104,9 @@ suite("window_above_join") {
             where o_orderdate > '2023-12-10';
             """
     order_qt_query8_1_before "${query8_1}"
-    async_mv_rewrite_success(db, mv8_1, query8_1, "mv8_1")
+    async_mv_rewrite_success(db, mv8_1, query8_1, "join_mv8_1")
     order_qt_query8_1after "${query8_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv8_1"""
 
 
     // query has both top and bottom filter, view has both top and bottom filter
@@ -1157,9 +1157,9 @@ suite("window_above_join") {
             where o_orderkey > 6
             """
     order_qt_query9_0_before "${query9_0}"
-    async_mv_rewrite_success(db, mv9_0, query9_0, "mv9_0")
+    async_mv_rewrite_success(db, mv9_0, query9_0, "join_mv9_0")
     order_qt_query9_0_after "${query9_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv9_0"""
 
 
     def mv9_1 =
@@ -1209,9 +1209,9 @@ suite("window_above_join") {
             where o_orderkey > 7
             """
     order_qt_query9_1_before "${query9_1}"
-    async_mv_rewrite_success(db, mv9_1, query9_1, "mv9_1")
+    async_mv_rewrite_success(db, mv9_1, query9_1, "join_mv9_1")
     order_qt_query9_1_after "${query9_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv9_1"""
 
 
     def mv9_2 =
@@ -1261,9 +1261,9 @@ suite("window_above_join") {
             where o_orderkey > 6
             """
     order_qt_query9_2_before "${query9_2}"
-    async_mv_rewrite_fail(db, mv9_2, query9_2, "mv9_2")
+    async_mv_rewrite_fail(db, mv9_2, query9_2, "join_mv9_2")
     order_qt_query9_2_after "${query9_2}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_2"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv9_2"""
 
 
     // query has both top and bottom filter, view has only top filter
@@ -1317,9 +1317,9 @@ suite("window_above_join") {
             where o_orderkey > 2;
             """
     order_qt_query10_0_before "${query10_0}"
-    async_mv_rewrite_success(db, mv10_0, query10_0, "mv10_0")
+    async_mv_rewrite_success(db, mv10_0, query10_0, "join_mv10_0")
     order_qt_query10_0_after "${query10_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv10_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv10_0"""
 
 
     def mv10_1 =
@@ -1372,9 +1372,9 @@ suite("window_above_join") {
             where o_orderdate > '2023-12-10';
             """
     order_qt_query10_1_before "${query10_1}"
-    async_mv_rewrite_fail(db, mv10_1, query10_1, "mv10_1")
+    async_mv_rewrite_fail(db, mv10_1, query10_1, "join_mv10_1")
     order_qt_query10_1_after "${query10_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv10_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv10_1"""
 
 
     // query has both top and bottom filter, view has only bottom filter
@@ -1426,9 +1426,9 @@ suite("window_above_join") {
             """
     order_qt_query11_0_before "${query11_0}"
     // filter can be pushed down, should success
-    async_mv_rewrite_fail(db, mv11_0, query11_0, "mv11_0")
+    async_mv_rewrite_fail(db, mv11_0, query11_0, "join_mv11_0")
     order_qt_query11_0_after "${query11_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv11_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv11_0"""
 
 
     def mv11_1 =
@@ -1479,9 +1479,9 @@ suite("window_above_join") {
             """
     order_qt_query11_1_before "${query11_1}"
     // filter can not be pushed down, should success
-    async_mv_rewrite_success(db, mv11_1, query11_1, "mv11_1")
+    async_mv_rewrite_success(db, mv11_1, query11_1, "join_mv11_1")
     order_qt_query11_1after "${query11_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv11_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv11_1"""
 
     // query has both top and bottom filter, view has no filter
     def mv12_0 =
@@ -1532,9 +1532,9 @@ suite("window_above_join") {
             where o_orderkey > 3;
             """
     order_qt_query12_0_before "${query12_0}"
-    async_mv_rewrite_success(db, mv12_0, query12_0, "mv12_0")
+    async_mv_rewrite_success(db, mv12_0, query12_0, "join_mv12_0")
     order_qt_query12_0after "${query12_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv12_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv12_0"""
 
 
     def mv12_1 =
@@ -1585,7 +1585,7 @@ suite("window_above_join") {
             where o_orderdate > '2023-12-10';
             """
     order_qt_query12_1_before "${query12_1}"
-    async_mv_rewrite_fail(db, mv12_1, query12_1, "mv12_1")
+    async_mv_rewrite_fail(db, mv12_1, query12_1, "join_mv12_1")
     order_qt_query12_1after "${query12_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv12_1"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS join_mv12_1"""
 }
