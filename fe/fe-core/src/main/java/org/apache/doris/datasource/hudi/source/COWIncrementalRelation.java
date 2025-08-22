@@ -89,10 +89,15 @@ public class COWIncrementalRelation implements IncrementalRelation {
         if (EARLIEST_TIME.equals(startInstantTime)) {
             startInstantTime = "000";
         }
-        String endInstantTime = optParams.getOrDefault("hoodie.datasource.read.end.instanttime",
-                hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
-                        ? commitTimeline.lastInstant().get().getCompletionTime()
-                        : commitTimeline.lastInstant().get().requestedTime());
+
+        String latestTime = hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
+                ? commitTimeline.lastInstant().get().getCompletionTime()
+                : commitTimeline.lastInstant().get().requestedTime();
+        String endInstantTime = optParams.getOrDefault("hoodie.datasource.read.end.instanttime", latestTime);
+        if (LATEST_TIME.equals(endInstantTime)) {
+            endInstantTime = latestTime;
+        }
+
         startInstantArchived = commitTimeline.isBeforeTimelineStarts(startInstantTime);
         endInstantArchived = commitTimeline.isBeforeTimelineStarts(endInstantTime);
 
