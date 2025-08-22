@@ -53,6 +53,7 @@ jobs:
           filters: |
             thirdparty_changes:
               - 'thirdparty/**'
+              - 'env.sh'
 
   build_linux:
     name: Build Third Party Libraries (Linux)

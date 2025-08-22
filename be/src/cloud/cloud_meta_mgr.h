@@ -27,6 +27,7 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/s3_util.h"
 
@@ -148,6 +149,15 @@ public:
     void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
                                           int64_t tablet_id);
 
+    // Fill version holes by creating empty rowsets for missing versions
+    Status fill_version_holes(CloudTablet* tablet, int64_t max_version,
+                              std::unique_lock<std::shared_mutex>& wlock);
+
+    // Create an empty rowset to fill a version hole
+    Status create_empty_rowset_for_hole(CloudTablet* tablet, int64_t version,
+                                        RowsetMetaSharedPtr prev_rowset_meta,
+                                        RowsetSharedPtr* rowset);
+
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
                                             std::ranges::range auto&& rs_metas,
@@ -157,6 +167,7 @@ private:
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
                                      bool full_sync = false, SyncRowsetStats* sync_stats = nullptr);
+
     void check_table_size_correctness(const RowsetMeta& rs_meta);
     int64_t get_segment_file_size(const RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);

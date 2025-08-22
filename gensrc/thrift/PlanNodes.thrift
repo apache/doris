@@ -825,6 +825,8 @@ struct TOlapScanNode {
   18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
   19: optional TSortInfo score_sort_info
   20: optional i64 score_sort_limit
+  21: optional TSortInfo ann_sort_info
+  22: optional i64 ann_sort_limit
 }
 
 struct TEqJoinCondition {
