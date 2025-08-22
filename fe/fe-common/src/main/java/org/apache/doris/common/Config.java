@@ -1283,6 +1283,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static String[] force_skip_journal_ids = {};
 
+    @ConfField(description = {"当回放 editlog 时遇到特定操作类型的异常导致 FE 无法启动时，可以配置需要忽略的 editlog 操作类型枚举值，"
+            + "从而跳过这些异常，让 replay 线程可以继续回放其他日志",
+        "When replaying editlog encounters exceptions with specific operation types that prevent FE from starting, "
+            + "you can configure the editlog operation type enum values to be ignored, "
+            + "thereby skipping these exceptions and allowing the replay thread to continue replaying other logs"})
+    public static short[] skip_operation_types_on_replay_exception =  {-1, -1};
+
     /**
      * Decide how often to check dynamic partition
      */
@@ -2357,7 +2364,7 @@ public class Config extends ConfigBase {
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
      * we may delete the DecimalV2 and DateV1 types in the future.
-     * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
+     * At this stage, we use 'disable_decimalv2' and 'disable_datev1'
      * to determine whether these two types take effect.
      */
     @ConfField(mutable = true)
