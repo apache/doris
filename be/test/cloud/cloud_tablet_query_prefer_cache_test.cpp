@@ -73,7 +73,8 @@ public:
         return rs;
     }
 
-    CloudTabletSPtr create_tablet_with_initial_rowsets(int max_version, bool is_mow = false) {
+    CloudTabletSPtr create_tablet_with_initial_rowsets(int max_version, bool is_mow = false,
+                                                       bool warmup = true) {
         CloudTabletSPtr tablet =
                 std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*_tablet_meta));
         tablet->tablet_meta()->set_enable_unique_key_merge_on_write(is_mow);
@@ -83,7 +84,9 @@ public:
         tablet->add_warmed_up_rowset(rs1->rowset_id());
         for (int ver = 2; ver <= max_version; ver++) {
             auto rs = create_rowset(Version {ver, ver});
-            tablet->add_warmed_up_rowset(rs->rowset_id());
+            if (warmup) {
+                tablet->add_warmed_up_rowset(rs->rowset_id());
+            }
             rowsets.emplace_back(rs);
         }
         {
@@ -161,14 +164,14 @@ private:
     CloudStorageEngine _engine;
 };
 
-TEST_F(TestQueryPreferCache, testCapture_1_4) {
+TEST_F(TestQueryPreferCache, testCapture_1_1) {
     /*
     be startup time                now-10s                     now
        now - 30s                                                  
           │                         │           10s             │ 
           │                         ◄───────────────────────────┤ 
 ┌────────┐│ ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │ 
-│        ││ │ in cache│  │in cache ││  │in cache│   │       │   │ 
+│        ││ │ in cache│  │in cache ││  │in cache│   │incache│   │ 
 │        ││ │         │  │         ││  │        │   │       │   │ 
 │ [2-10] ││ │ [11-15] │  │ [16-16] ││  │ [17-17]│   │[18-18]│   │ 
 └────────┘│ └─────────┘  └─────────┘│  └────────┘   └───────┘   │ 
@@ -177,7 +180,7 @@ TEST_F(TestQueryPreferCache, testCapture_1_4) {
           │                         │                           │ 
           │                         │                           │           
           
- return: [2-10],[11-15],[16-16],[17-17]
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
  note: We only care about rowsets that are created after startup time point. For other historical rowsets,
        we just assume that they are warmuped up.
 */
@@ -198,7 +201,7 @@ TEST_F(TestQueryPreferCache, testCapture_1_4) {
     check_capture_result(tablet, Version {0, 18}, expected_versions);
 }
 
-TEST_F(TestQueryPreferCache, testCapture_2_3) {
+TEST_F(TestQueryPreferCache, testCapture_1_2) {
     /*
                                         now-10s                    now     
                                            │          10s           │      
@@ -243,7 +246,7 @@ TEST_F(TestQueryPreferCache, testCapture_2_3) {
     check_capture_result(tablet, Version {0, 18}, expected_versions);
 }
 
-TEST_F(TestQueryPreferCache, testCapture_2_4) {
+TEST_F(TestQueryPreferCache, testCapture_1_3) {
     /*
                                         now-10s                    now   
                                            │          10s           │    
@@ -290,6 +293,510 @@ TEST_F(TestQueryPreferCache, testCapture_2_4) {
 
     std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
                                               {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_1_4) {
+    /*
+                                        now-10s                    now   
+                                           │          10s           │    
+                                           ◄────────────────────────┼    
+                                           │                        │    
+                                           │ ┌────────┐   ┌────────┐│    
+                                           │ │        │   │        ││    
+                                           │ │        │   │in cache││    
+                                           │ │ [2-17] │   │[18-18] ││    
+                                           │ └────────┘   └────────┘│    
+                                           │                        │    
+                                           │  now-1s        now-3s  │    
+                                           │                        │    
+                                           │                        │    
+┌───────────────────────────────────────────────────────────────────────┐
+│                                          │                        │   │
+│  stale rowsets                           │                        │   │
+│                                          │                        │   │
+│                       ┌────────┐         │                        │   │
+│                       │        │         │                        │   │
+│                       │        │         │                        │   │
+│                       │ [2-16] │         │                        │   │
+│                       └────────┘         │                        │   │
+│                                          │                        │   │
+│                        now-13s           │                        │   │
+│                                          │                        │   │
+│                                          │                        │   │
+│    ┌────────┐   ┌─────────┐  ┌─────────┐ │┌────────┐              │   │
+│    │in cache│   │ in cache│  │in cache │ ││in cache│              │   │
+│    │        │   │         │  │         │ ││        │              │   │
+│    │ [2-10] │   │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │
+│    └────────┘   └─────────┘  └─────────┘ │└────────┘              │   │
+│                                          │                        │   │
+│     now-40s       now-20s      now-15s   │ now-7s                 │   │
+│                                          │                        │   │
+│                                          │                        │   │
+└───────────────────────────────────────────────────────────────────────┘
+                                           │                        │    
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, true, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 2, 16, false, system_clock::now() - seconds(13));
+    do_cumu_compaction(tablet, 2, 17, false, system_clock::now() - seconds(1));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_2_1) {
+    /*
+    be startup time                now-10s                     now
+       now - 30s                                                  
+          │                         │           10s             │ 
+          │                         ◄───────────────────────────┤ 
+┌────────┐│ ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │ 
+│        ││ │ in cache│  │in cache ││  │in cache│   │       │   │ 
+│        ││ │         │  │         ││  │        │   │       │   │ 
+│ [2-10] ││ │ [11-15] │  │ [16-16] ││  │ [17-17]│   │[18-18]│   │ 
+└────────┘│ └─────────┘  └─────────┘│  └────────┘   └───────┘   │ 
+          │                         │                           │ 
+ now-40s  │   now-20s      now-15s  │   now-7s        now-3s    │ 
+          │                         │                           │ 
+          │                         │                           │           
+          
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
+ note: We only care about rowsets that are created after startup time point. For other historical rowsets,
+       we just assume that they are warmuped up.
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(30));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, false, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_2_2) {
+    /*
+                                        now-10s                    now     
+                                           │          10s           │      
+                                           ◄────────────────────────┼      
+                                           │                        │      
+    ┌────────┐                             │┌────────┐    ┌────────┐│      
+    │in cache│                             ││        │    │        ││      
+    │        │                             ││        │    │        ││      
+    │ [2-10] │                             ││ [11-17]│    │[18-18] ││      
+    └────────┘                             │└────────┘    └────────┘│      
+                                           │                        │      
+     now-40s                               │ now-1s         now-3s  │      
+┌───────────────────────────────────────────────────────────────────────┐  
+│                                          │                        │   │  
+│  stale rowsets                           │                        │   │  
+│                 ┌─────────┐  ┌─────────┐ │┌────────┐              │   │  
+│                 │ in cache│  │in cache │ ││in cache│              │   │  
+│                 │         │  │         │ ││        │              │   │  
+│                 │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │  
+│                 └─────────┘  └─────────┘ │└────────┘              │   │  
+│                                          │                        │   │  
+│                   now-20s      now-15s   │ now-7s                 │   │  
+└───────────────────────────────────────────────────────────────────────┘  
+                                           │                        │      
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]                                                                     
+ */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 11, 17, false, system_clock::now() - seconds(1));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_2_3) {
+    /*
+                                        now-10s                    now   
+                                           │          10s           │    
+                                           ◄────────────────────────┼    
+                                           │                        │    
+                         ┌────────┐        │              ┌────────┐│    
+                         │        │        │              │        ││    
+                         │        │        │              │        ││    
+                         │ [2-16] │        │              │[18-18] ││    
+                         └────────┘        │              └────────┘│    
+                                           │                        │    
+                          now-13s          │                now-3s  │    
+                                           │                        │    
+                                           │                        │    
+┌───────────────────────────────────────────────────────────────────────┐
+│                                          │                        │   │
+│  stale rowsets                           │                        │   │
+│    ┌────────┐   ┌─────────┐  ┌─────────┐ │┌────────┐              │   │
+│    │in cache│   │ in cache│  │in cache │ ││in cache│              │   │
+│    │        │   │         │  │         │ ││        │              │   │
+│    │ [2-10] │   │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │
+│    └────────┘   └─────────┘  └─────────┘ │└────────┘              │   │
+│                                          │                        │   │
+│     now-40s       now-20s      now-15s   │ now-7s                 │   │
+│                                          │                        │   │
+│                                          │                        │   │
+└───────────────────────────────────────────────────────────────────────┘
+                                           │                        │    
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
+ note: should not capture [2-16], otherwise we will meet cache miss
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 2, 16, false, system_clock::now() - seconds(13));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_2_4) {
+    /*
+                                        now-10s                    now   
+                                           │          10s           │    
+                                           ◄────────────────────────┼    
+                                           │                        │    
+                                           │ ┌────────┐   ┌────────┐│    
+                                           │ │        │   │        ││    
+                                           │ │        │   │        ││    
+                                           │ │ [2-17] │   │[18-18] ││    
+                                           │ └────────┘   └────────┘│    
+                                           │                        │    
+                                           │  now-1s        now-3s  │    
+                                           │                        │    
+                                           │                        │    
+┌───────────────────────────────────────────────────────────────────────┐
+│                                          │                        │   │
+│  stale rowsets                           │                        │   │
+│                                          │                        │   │
+│                       ┌────────┐         │                        │   │
+│                       │        │         │                        │   │
+│                       │        │         │                        │   │
+│                       │ [2-16] │         │                        │   │
+│                       └────────┘         │                        │   │
+│                                          │                        │   │
+│                        now-13s           │                        │   │
+│                                          │                        │   │
+│                                          │                        │   │
+│    ┌────────┐   ┌─────────┐  ┌─────────┐ │┌────────┐              │   │
+│    │in cache│   │ in cache│  │in cache │ ││in cache│              │   │
+│    │        │   │         │  │         │ ││        │              │   │
+│    │ [2-10] │   │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │
+│    └────────┘   └─────────┘  └─────────┘ │└────────┘              │   │
+│                                          │                        │   │
+│     now-40s       now-20s      now-15s   │ now-7s                 │   │
+│                                          │                        │   │
+│                                          │                        │   │
+└───────────────────────────────────────────────────────────────────────┘
+                                           │                        │    
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 2, 16, false, system_clock::now() - seconds(13));
+    do_cumu_compaction(tablet, 2, 17, false, system_clock::now() - seconds(1));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_3_1) {
+    /*
+    be startup time                now-10s                     now
+       now - 30s                                                  
+          │                         │           10s             │ 
+          │                         ◄───────────────────────────┤ 
+┌────────┐│ ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │ 
+│        ││ │ in cache│  │in cache ││  │        │   │       │   │ 
+│        ││ │         │  │         ││  │        │   │       │   │ 
+│ [2-10] ││ │ [11-15] │  │ [16-16] ││  │ [17-17]│   │[18-18]│   │ 
+└────────┘│ └─────────┘  └─────────┘│  └────────┘   └───────┘   │ 
+          │                         │                           │ 
+ now-40s  │   now-20s      now-15s  │   now-7s        now-3s    │ 
+          │                         │                           │ 
+          │                         │                           │           
+          
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
+ note: We only care about rowsets that are created after startup time point. For other historical rowsets,
+       we just assume that they are warmuped up.
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(30));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, false, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, false, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_3_2) {
+    /*
+                                        now-10s                    now     
+                                           │          10s           │      
+                                           ◄────────────────────────┼      
+                                           │                        │      
+    ┌────────┐                             │┌────────┐    ┌────────┐│      
+    │in cache│                             ││        │    │        ││      
+    │        │                             ││        │    │        ││      
+    │ [2-10] │                             ││ [11-17]│    │[18-18] ││      
+    └────────┘                             │└────────┘    └────────┘│      
+                                           │                        │      
+     now-40s                               │ now-1s         now-3s  │      
+┌───────────────────────────────────────────────────────────────────────┐  
+│                                          │                        │   │  
+│  stale rowsets                           │                        │   │  
+│                 ┌─────────┐  ┌─────────┐ │┌────────┐              │   │  
+│                 │ in cache│  │in cache │ ││        │              │   │  
+│                 │         │  │         │ ││        │              │   │  
+│                 │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │  
+│                 └─────────┘  └─────────┘ │└────────┘              │   │  
+│                                          │                        │   │  
+│                   now-20s      now-15s   │ now-7s                 │   │  
+└───────────────────────────────────────────────────────────────────────┘  
+                                           │                        │      
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]                                                                     
+ */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, false, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 11, 17, false, system_clock::now() - seconds(1));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_3_3) {
+    /*
+                                        now-10s                    now   
+                                           │          10s           │    
+                                           ◄────────────────────────┼    
+                                           │                        │    
+                         ┌────────┐        │              ┌────────┐│    
+                         │        │        │              │        ││    
+                         │        │        │              │        ││    
+                         │ [2-16] │        │              │[18-18] ││    
+                         └────────┘        │              └────────┘│    
+                                           │                        │    
+                          now-13s          │                now-3s  │    
+                                           │                        │    
+                                           │                        │    
+┌───────────────────────────────────────────────────────────────────────┐
+│                                          │                        │   │
+│  stale rowsets                           │                        │   │
+│    ┌────────┐   ┌─────────┐  ┌─────────┐ │┌────────┐              │   │
+│    │in cache│   │ in cache│  │in cache │ ││        │              │   │
+│    │        │   │         │  │         │ ││        │              │   │
+│    │ [2-10] │   │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │
+│    └────────┘   └─────────┘  └─────────┘ │└────────┘              │   │
+│                                          │                        │   │
+│     now-40s       now-20s      now-15s   │ now-7s                 │   │
+│                                          │                        │   │
+│                                          │                        │   │
+└───────────────────────────────────────────────────────────────────────┘
+                                           │                        │    
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
+ note: should not capture [2-16], otherwise we will meet cache miss
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, false, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 2, 16, false, system_clock::now() - seconds(13));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_3_4) {
+    /*
+                                        now-10s                    now   
+                                           │          10s           │    
+                                           ◄────────────────────────┼    
+                                           │                        │    
+                                           │ ┌────────┐   ┌────────┐│    
+                                           │ │        │   │        ││    
+                                           │ │        │   │        ││    
+                                           │ │ [2-17] │   │[18-18] ││    
+                                           │ └────────┘   └────────┘│    
+                                           │                        │    
+                                           │  now-1s        now-3s  │    
+                                           │                        │    
+                                           │                        │    
+┌───────────────────────────────────────────────────────────────────────┐
+│                                          │                        │   │
+│  stale rowsets                           │                        │   │
+│                                          │                        │   │
+│                       ┌────────┐         │                        │   │
+│                       │        │         │                        │   │
+│                       │        │         │                        │   │
+│                       │ [2-16] │         │                        │   │
+│                       └────────┘         │                        │   │
+│                                          │                        │   │
+│                        now-13s           │                        │   │
+│                                          │                        │   │
+│                                          │                        │   │
+│    ┌────────┐   ┌─────────┐  ┌─────────┐ │┌────────┐              │   │
+│    │in cache│   │ in cache│  │in cache │ ││        │              │   │
+│    │        │   │         │  │         │ ││        │              │   │
+│    │ [2-10] │   │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │
+│    └────────┘   └─────────┘  └─────────┘ │└────────┘              │   │
+│                                          │                        │   │
+│     now-40s       now-20s      now-15s   │ now-7s                 │   │
+│                                          │                        │   │
+│                                          │                        │   │
+└───────────────────────────────────────────────────────────────────────┘
+                                           │                        │    
+ return: [2-10],[11-15],[16-16],[17-17],[18-18]
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, false, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 2, 16, false, system_clock::now() - seconds(13));
+    do_cumu_compaction(tablet, 2, 17, false, system_clock::now() - seconds(1));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, expected_versions);
+}
+
+TEST_F(TestQueryPreferCache, testCapture_4_1) {
+    /*
+                                        now-10s                    now   
+                                           │          10s           │    
+                                           ◄────────────────────────┼    
+                                           │                        │    
+                                           │ ┌────────┐   ┌────────┐│    
+                                           │ │        │   │        ││    
+                                           │ │        │   │        ││    
+                                           │ │ [2-17] │   │[18-18] ││    
+                                           │ └────────┘   └────────┘│    
+                                           │                        │    
+                                           │  now-1s        now-3s  │    
+                                           │                        │    
+                                           │                        │    
+┌───────────────────────────────────────────────────────────────────────┐
+│                                          │                        │   │
+│  stale rowsets                           │                        │   │
+│                                          │                        │   │
+│                       ┌────────┐         │                        │   │
+│                       │        │         │                        │   │
+│                       │        │         │                        │   │
+│                       │ [11-16]│         │                        │   │
+│                       └────────┘         │                        │   │
+│                                          │                        │   │
+│                        now-13s           │                        │   │
+│                                          │                        │   │
+│                                          │                        │   │
+│    ┌────────┐   ┌─────────┐  ┌─────────┐ │┌────────┐              │   │
+│    │in cache│   │         │  │         │ ││        │              │   │
+│    │        │   │         │  │         │ ││        │              │   │
+│    │ [2-10] │   │ [11-15] │  │ [16-16] │ ││ [17-17]│              │   │
+│    └────────┘   └─────────┘  └─────────┘ │└────────┘              │   │
+│                                          │                        │   │
+│     now-40s       now-20s      now-15s   │ now-7s                 │   │
+│                                          │                        │   │
+│                                          │                        │   │
+└───────────────────────────────────────────────────────────────────────┘
+                                           │                        │    
+ return: [2-10],[11-16],[17-17],[18-18]
+ note: when there are no warmed up rowset at some vertex, choose the latest edge
+*/
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15, false, false);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, false, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, false, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, false, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, false, system_clock::now() - seconds(3));
+    do_cumu_compaction(tablet, 11, 16, false, system_clock::now() - seconds(13));
+    do_cumu_compaction(tablet, 2, 17, false, system_clock::now() - seconds(1));
+
+    std::string compaction_status;
+    tablet->get_compaction_status(&compaction_status);
+    std::cout << compaction_status << std::endl;
+
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 16}, {17, 17}, {18, 18}};
     check_capture_result(tablet, Version {0, 18}, expected_versions);
 }
 
