@@ -21,7 +21,10 @@ This suite is a one dimensional test case file.
 suite("partition_mv_rewrite_dimension_1") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
+
+    if (preStrategyIsIn([NOT_IN_RBO])) {
+        sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
+    }
 
     sql """
     drop table if exists orders_1
@@ -411,7 +414,9 @@ suite("partition_mv_rewrite_dimension_1") {
         count(*) 
         from orders_1
         """
-    mv_rewrite_fail(agg_sql_1, agg_mv_name_1)
+    mv_rewrite_success(agg_sql_1, agg_mv_name_1, true,
+            [TRY_IN_RBO, FORCE_IN_RBO])
+    mv_rewrite_fail(agg_sql_1, agg_mv_name_1, [NOT_IN_RBO])
     compare_res(agg_sql_1 + " order by 1,2,3,4,5,6")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${agg_mv_name_1};"""
 
