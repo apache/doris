@@ -1541,8 +1541,16 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     }
 
     // Use the storage resource of the previous rowset
-    ctx.storage_resource =
-            *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
+    // when multiple hole rowsets doing compaction, those rowsets may not have a storage resource.
+    // case:
+    // [0-1, 2-2, 3-3, 4-4, 5-5], 2-5 are hole rowsets.
+    //  0-1 current doesn't have a resource_id, so 2-5 also have no resource_id.
+    // Because there is no data to write, so we can skip setting the storage resource.
+    if (!_input_rowsets.back()->is_hole_rowset() ||
+        !_input_rowsets.back()->rowset_meta()->resource_id().empty()) {
+        ctx.storage_resource =
+                *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
+    }
 
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
@@ -1595,6 +1603,17 @@ void CloudCompactionMixin::update_compaction_level() {
                 cumu_policy->get_compaction_level(cloud_tablet(), _input_rowsets, _output_rowset);
         _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
     }
+}
+
+// should skip hole rowsets, ortherwise the count will be wrong in ms
+int64_t CloudCompactionMixin::num_input_rowsets() const {
+    int64_t count = 0;
+    for (const auto& r : _input_rowsets) {
+        if (!r->is_hole_rowset()) {
+            count++;
+        }
+    }
+    return count;
 }
 
 #include "common/compile_check_end.h"
