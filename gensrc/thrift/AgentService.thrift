@@ -62,6 +62,12 @@ enum TStorageFormat {
     V2
 }
 
+enum TEncryptionAlgorithm {
+    PLAINTEXT = 0,
+    AES256 = 1,
+    SM4 = 2
+}
+
 enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
