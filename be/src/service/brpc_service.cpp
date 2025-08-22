@@ -101,7 +101,8 @@ Status BRpcService::start(int port, int num_threads) {
 }
 
 void BRpcService::join() {
-    int stop_succeed = _server->Stop(1000);
+    _server->Stop(1000);
+    // int stop_succeed = _server->Stop(1000);
     /**
     if (stop_succeed == 0) {
         _server->Join();
