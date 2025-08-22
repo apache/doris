@@ -2513,7 +2513,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enablePreferCachedRowset = false;
 
     @VariableMgr.VarAttr(name = QUERY_FRESHNESS_TOLERANCE_MS, needForward = false)
-    public long queryFreshnessToleranceMs = 5000;
+    public long queryFreshnessToleranceMs = -1;
 
     public void setSkewRewriteAggBucketNum(int num) {
         this.skewRewriteAggBucketNum = num;
