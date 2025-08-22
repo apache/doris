@@ -394,7 +394,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     }
     // agg delete bitmap for pre rowsets
     if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&
-        config::delete_bitmap_store_version == 1 && _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
         OlapStopWatch watch;
         std::vector<RowsetSharedPtr> pre_rowsets {};

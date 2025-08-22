@@ -26,7 +26,6 @@
 #include <vector>
 
 #include "cloud/cloud_tablet.h"
-#include "cloud/config.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
@@ -137,8 +136,8 @@ public:
 
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
                                 DeleteBitmap* delete_bitmap, DeleteBitmap* delete_bitmap_v2,
-                                std::string rowset_id = "",
-                                std::optional<StorageResource> storage_resource = std::nullopt,
+                                std::string rowset_id,
+                                std::optional<StorageResource> storage_resource,
                                 int64_t txn_id = -1, bool is_explicit_txn = false,
                                 int64_t next_visible_version = -1);
 
@@ -170,15 +169,17 @@ private:
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
-                                     bool full_sync = false, SyncRowsetStats* sync_stats = nullptr,
-                                     int version = config::delete_bitmap_store_version);
-    Status sync_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t old_max_version,
-                                        std::ranges::range auto&& rs_metas,
-                                        const TabletStatsPB& stats, const TabletIndexPB& idx,
-                                        DeleteBitmap* delete_bitmap, bool full_sync,
-                                        SyncRowsetStats* sync_stats,
-                                        std::map<std::string, std::string> rowset_to_resource = {},
-                                        bool all_sync = false);
+                                     bool full_sync, SyncRowsetStats* sync_stats,
+                                     int32_t read_version, bool full_sync_v2);
+    Status _read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t old_max_version,
+                                         std::ranges::range auto&& rs_metas,
+                                         DeleteBitmap* delete_bitmap, GetDeleteBitmapResponse& res,
+                                         int64_t& remote_delete_bitmap_bytes, bool full_sync_v2);
+    Status _log_mow_delete_bitmap(CloudTablet* tablet, GetRowsetResponse& resp,
+                                  DeleteBitmap& delete_bitmap, int64_t old_max_version,
+                                  bool full_sync, int32_t read_version);
+    Status _check_delete_bitmap_v2_correctness(CloudTablet* tablet, GetRowsetRequest& req,
+                                               GetRowsetResponse& resp, int64_t old_max_version);
 
     void check_table_size_correctness(const RowsetMeta& rs_meta);
     int64_t get_segment_file_size(const RowsetMeta& rs_meta);

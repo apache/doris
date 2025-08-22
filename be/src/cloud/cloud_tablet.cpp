@@ -1205,21 +1205,27 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     // 3. store delete bitmap
     DeleteBitmapPtr delete_bitmap_v2 = std::make_shared<DeleteBitmap>(*output_rowset_delete_bitmap);
     auto delete_bitmap_size = output_rowset_delete_bitmap->delete_bitmap.size();
-    if (config::delete_bitmap_store_version >= 2) {
-        std::vector<std::pair<RowsetId, int64_t>> pre_rowsets_to_segment_num;
+    if (config::delete_bitmap_store_write_version == 2 ||
+        config::delete_bitmap_store_write_version == 3) {
+        std::vector<std::pair<RowsetId, int64_t>> retained_rowsets_to_seg_num;
         {
             std::shared_lock rlock(get_header_lock());
             for (const auto& [rowset_version, rowset_ptr] : rowset_map()) {
-                if (rowset_version.second < output_rowset->start_version() ||
-                    rowset_version.first > output_rowset->end_version()) {
-                    pre_rowsets_to_segment_num.emplace_back(
+                if (rowset_version.second < output_rowset->start_version()) {
+                    retained_rowsets_to_seg_num.emplace_back(
                             std::make_pair(rowset_ptr->rowset_id(), rowset_ptr->num_segments()));
                 }
             }
         }
-        tablet_meta()->delete_bitmap().subset(pre_rowsets_to_segment_num,
-                                              output_rowset->start_version(),
-                                              output_rowset->end_version(), delete_bitmap_v2.get());
+        if (config::enable_agg_delta_delete_bitmap_for_store_v2) {
+            tablet_meta()->delete_bitmap().subset_and_agg(
+                    retained_rowsets_to_seg_num, output_rowset->start_version(),
+                    output_rowset->end_version(), delete_bitmap_v2.get());
+        } else {
+            tablet_meta()->delete_bitmap().subset(
+                    retained_rowsets_to_seg_num, output_rowset->start_version(),
+                    output_rowset->end_version(), delete_bitmap_v2.get());
+        }
     }
     auto storage_resource = *DORIS_TRY(output_rowset->rowset_meta()->remote_storage_resource());
     auto st = _engine.meta_mgr().update_delete_bitmap(
@@ -1231,7 +1237,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
               << " us, calc delete bitmap cost " << (t4 - t3) << " us, check rowid conversion cost "
               << (t5 - t4) << " us, store delete bitmap cost " << (t6 - t5)
               << " us, st=" << st.to_string()
-              << ". store_version=" << config::delete_bitmap_store_version
+              << ". store_version=" << config::delete_bitmap_store_write_version
               << ", calculated delete bitmap size=" << delete_bitmap_size
               << ", update delete bitmap size="
               << output_rowset_delete_bitmap->delete_bitmap.size();
