@@ -372,22 +372,6 @@ TEST(LLM_ADAPTER_TEST, anthropic_adapter_parse_response) {
     ASSERT_EQ(results[0], "anthropic result");
 }
 
-TEST(LLM_ADAPTER_TEST, adapter_type_names) {
-    LocalAdapter local;
-    OpenAIAdapter openai;
-    DeepSeekAdapter deepseek;
-    MoonShotAdapter moonshot;
-    GeminiAdapter gemini;
-    AnthropicAdapter anthropic;
-
-    ASSERT_EQ(local.get_type(), "local");
-    ASSERT_EQ(openai.get_type(), "openai");
-    ASSERT_EQ(deepseek.get_type(), "deepseek");
-    ASSERT_EQ(moonshot.get_type(), "moonshot");
-    ASSERT_EQ(gemini.get_type(), "gemini");
-    ASSERT_EQ(anthropic.get_type(), "anthropic");
-}
-
 TEST(LLM_ADAPTER_TEST, unsupported_provider_type) {
     TLLMResource config;
     config.provider_type = "not_exist";

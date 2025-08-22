@@ -304,18 +304,15 @@ TEST(EMBED_TEST, gemini_adapter_embedding_request) {
     ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
     ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
 
-    ASSERT_TRUE(doc.HasMember("requests")) << "Missing requests field";
-    ASSERT_TRUE(doc["requests"].IsArray());
+    ASSERT_TRUE(doc.HasMember("model")) << "Missing model field";
+    ASSERT_TRUE(doc.HasMember("contents")) << "Missing contents field";
+    ASSERT_TRUE(doc["contents"].IsArray()) << request_body;
 
-    auto& request = doc["requests"][0];
-    ASSERT_TRUE(request.HasMember("model")) << "Missing model field";
-    ASSERT_STREQ(request["model"].GetString(), "models/embedding-001");
-    ASSERT_TRUE(request.HasMember("content")) << "Missing content field";
-    ASSERT_TRUE(request["content"].IsObject());
-    ASSERT_TRUE(request["content"].HasMember("parts")) << "Missing parts field";
-    ASSERT_TRUE(request["content"]["parts"].IsArray());
-    ASSERT_TRUE(request["content"]["parts"][0].HasMember("text")) << "Missing text field";
-    ASSERT_STREQ(request["content"]["parts"][0]["text"].GetString(), "embed with gemini");
+    auto& content = doc["contents"][0];
+    ASSERT_TRUE(content.HasMember("parts")) << "Missing parts field";
+    ASSERT_TRUE(content["parts"].IsArray());
+    ASSERT_TRUE(content["parts"][0].HasMember("text")) << "Missing text field";
+    ASSERT_STREQ(content["parts"][0]["text"].GetString(), "embed with gemini");
 
     // should not have dimension param;
     ASSERT_FALSE(doc.HasMember("outputDimensionality"));
@@ -327,13 +324,8 @@ TEST(EMBED_TEST, gemini_adapter_embedding_request) {
     doc.Parse(request_body.c_str());
     ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
     ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
-    ASSERT_TRUE(doc.HasMember("requests")) << "Missing requests field";
-    ASSERT_TRUE(doc["requests"].IsArray());
-    request = doc["requests"][0];
-    ASSERT_TRUE(request.HasMember("model")) << "Missing model field";
-    ASSERT_STREQ(request["model"].GetString(), "models/gemini-embedding-001");
-    ASSERT_TRUE(request.HasMember("outputDimensionality")) << request_body;
-    ASSERT_EQ(request["outputDimensionality"].GetInt(), 768);
+    ASSERT_TRUE(doc.HasMember("outputDimensionality")) << request_body;
+    ASSERT_EQ(doc["outputDimensionality"].GetInt(), 768) << request_body;
 }
 
 TEST(EMBED_TEST, gemini_adapter_parse_embedding_response) {

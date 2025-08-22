@@ -21,20 +21,19 @@
 #include "vec/functions/llm/functions_llm.h"
 
 namespace doris::vectorized {
-class FunctionEmbed : public LLMFunction<FunctionEmbed, ColumnArray> {
+class FunctionEmbed : public LLMFunction<FunctionEmbed> {
 public:
     static constexpr auto name = "embed";
 
     static constexpr size_t number_of_arguments = 2;
+
+    static constexpr auto system_prompt = "";
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>()));
     }
 
     static FunctionPtr create() { return std::make_shared<FunctionEmbed>(); }
-
-    Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
-                        std::string& prompt) const;
 };
 
 }; // namespace doris::vectorized

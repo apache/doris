@@ -44,7 +44,7 @@
 
 namespace doris::vectorized {
 // Base class for LLM-based functions
-template <typename Derived, typename ReturnType = ColumnString>
+template <typename Derived>
 class LLMFunction : public IFunction {
 public:
     std::string get_name() const override { return assert_cast<const Derived&>(*this).name; }
@@ -56,16 +56,20 @@ public:
         return assert_cast<const Derived&>(*this).number_of_arguments;
     }
 
+    virtual Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
+                                std::string& prompt) const {
+        const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
+        StringRef text_ref = text_column.column->get_data_at(row_num);
+        prompt = std::string(text_ref.data, text_ref.size);
+
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        MutableColumnPtr col_result;
-        if constexpr (std::is_same_v<ReturnType, ColumnArray>) {
-            col_result = ColumnArray::create(
-                    make_nullable(std::make_shared<DataTypeFloat32>()->create_column()),
-                    ColumnArray::ColumnOffsets::create());
-        } else {
-            col_result = ReturnType::create();
-        }
+        DataTypePtr return_type_impl =
+                assert_cast<const Derived&>(*this).get_return_type_impl(DataTypes());
+        MutableColumnPtr col_result = return_type_impl->create_column();
 
         std::unique_ptr<ThreadPool> thread_pool;
         Status st = ThreadPoolBuilder("LLMRequestPool")
@@ -96,10 +100,8 @@ public:
         std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
             Status submit_status = thread_pool->submit_func([this, i, &block, &arguments, &results,
-                                                             &adapter, &config, context]() {
-                using ResultType = std::conditional_t<std::is_same_v<ReturnType, ColumnArray>,
-                                                      std::vector<float>, std::string>;
-
+                                                             &adapter, &config, context,
+                                                             &return_type_impl]() {
                 RowResult& row_result = results[i];
 
                 try {
@@ -115,14 +117,27 @@ public:
                     }
 
                     // Execute a single LLM request and get the result
-                    ResultType result_data;
-                    status = execute_single_request(prompt, result_data, config, adapter, context);
-                    if (!status.ok()) {
-                        row_result.status = status;
-                        row_result.is_null = true;
-                        return;
+                    if (return_type_impl->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+                        std::vector<float> float_result;
+                        status = execute_single_request(prompt, float_result, config, adapter,
+                                                        context);
+                        if (!status.ok()) {
+                            row_result.status = status;
+                            row_result.is_null = true;
+                            return;
+                        }
+                        row_result.data = std::move(float_result);
+                    } else {
+                        std::string string_result;
+                        status = execute_single_request(prompt, string_result, config, adapter,
+                                                        context);
+                        if (!status.ok()) {
+                            row_result.status = status;
+                            row_result.is_null = true;
+                            return;
+                        }
+                        row_result.data = std::move(string_result);
                     }
-                    row_result.data = std::move(result_data);
                     row_result.status = Status::OK();
                 } catch (const std::exception& e) {
                     row_result.status = Status::InternalError("Exception in LLM request: " +
@@ -147,25 +162,28 @@ public:
             }
 
             if (!row_result.is_null) {
-                if constexpr (std::is_same_v<ReturnType, ColumnString>) {
-                    // string
+                switch (return_type_impl->get_primitive_type()) {
+                case PrimitiveType::TYPE_STRING: { // string
                     const auto& str_data = std::get<std::string>(row_result.data);
                     assert_cast<ColumnString&>(*col_result)
                             .insert_data(str_data.data(), str_data.size());
-                } else if constexpr (std::is_same_v<ReturnType, ColumnUInt8>) {
-                    // bool
-                    const auto& str_data = std::get<std::string>(row_result.data);
-                    if (str_data != "1" && str_data != "0") {
-                        return Status::RuntimeError("Failed to parse boolean value: " + str_data);
+                    break;
+                }
+                case PrimitiveType::TYPE_BOOLEAN: { // boolean
+                    const auto& bool_data = std::get<std::string>(row_result.data);
+                    if (bool_data != "true" && bool_data != "false") {
+                        return Status::RuntimeError("Failed to parse boolean value: " + bool_data);
                     }
                     assert_cast<ColumnUInt8&>(*col_result)
-                            .insert_value(static_cast<UInt8>(str_data == "1"));
-                } else if constexpr (std::is_same_v<ReturnType, ColumnFloat32>) {
-                    // float
+                            .insert_value(static_cast<UInt8>(bool_data == "true"));
+                    break;
+                }
+                case PrimitiveType::TYPE_FLOAT: { // float
                     const auto& str_data = std::get<std::string>(row_result.data);
                     assert_cast<ColumnFloat32&>(*col_result).insert_value(std::stof(str_data));
-                } else if constexpr (std::is_same_v<ReturnType, ColumnArray>) {
-                    // // array of floats
+                    break;
+                }
+                case PrimitiveType::TYPE_ARRAY: { // array of floats
                     const auto& float_data = std::get<std::vector<float>>(row_result.data);
                     auto& col_array = assert_cast<ColumnArray&>(*col_result);
                     auto& offsets = col_array.get_offsets();
@@ -180,7 +198,9 @@ public:
                     offsets.push_back(current_offset + float_data.size());
                     auto& null_map = nested_nullable_col.get_null_map_column();
                     null_map.insert_many_vals(0, float_data.size());
-                } else {
+                    break;
+                }
+                default:
                     return Status::InternalError("Unsupported ReturnType for LLMFunction");
                 }
             } else {
@@ -273,16 +293,12 @@ private:
             RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
         }
 
-        Status status = adapter->parse_response(response, results);
-        if (!status.ok()) {
-            return status;
-        }
-
+        RETURN_IF_ERROR(adapter->parse_response(response, results));
         if (results.empty()) {
             return Status::InternalError("LLM returned empty result");
         }
 
-        result = results[0];
+        result = std::move(results[0]);
         return Status::OK();
     }
 
@@ -303,16 +319,12 @@ private:
             RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
         }
 
-        Status status = adapter->parse_embedding_response(response, results);
-        if (!status.ok()) {
-            return status;
-        }
-
+        RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
         if (results.empty()) {
             return Status::InternalError("LLM returned empty result");
         }
 
-        result = results[0];
+        result = std::move(results[0]);
         return Status::OK();
     }
 };

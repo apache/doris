@@ -54,16 +54,16 @@ public:
 
     virtual Status build_embedding_request(const std::vector<std::string>& inputs,
                                            std::string& request_body) const {
-        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+        return Status::NotSupported("{} does not support the Embed feature.",
+                                    _config.provider_type);
     }
 
     virtual Status parse_embedding_response(const std::string& response_body,
                                             std::vector<std::vector<float>>& results) const {
-        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+        return Status::NotSupported("{} does not support the Embed feature.",
+                                    _config.provider_type);
     }
 
-    // Get the adapter type identifier
-    virtual std::string get_type() const = 0;
 
 protected:
     TLLMResource _config;
@@ -85,10 +85,9 @@ protected:
 };
 
 // Most LLM-providers' Embedding formats are based on VoyageAI.
+// The following adapters inherit from VoyageAIAdapter to directly reuse its embedding logic.
 class VoyageAIAdapter : public LLMAdapter {
 public:
-    std::string get_type() const override { return "voyageai"; }
-
     Status set_authentication(HttpClient* client) const override {
         client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
         client->set_content_type("application/json");
@@ -113,11 +112,20 @@ public:
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
+        /*{
+            "model": "xxx",
+            "input": [
+              "xxx",
+              "xxx",
+              ...
+            ],
+            "output_dimensions": 512
+        }*/
         doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
         add_dimension_params(doc, allocator);
 
         rapidjson::Value input(rapidjson::kArrayType);
-        for (auto msg : inputs) {
+        for (const auto& msg : inputs) {
             input.PushBack(rapidjson::Value(msg.c_str(), allocator), allocator);
         }
         doc.AddMember("input", input, allocator);
@@ -136,17 +144,32 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response", get_type());
+            return Status::InternalError("Failed to parse {} response", _config.provider_type);
         }
         if (!doc.HasMember("data") || !doc["data"].IsArray()) {
-            return Status::InternalError("Invalid {} response format", get_type());
+            return Status::InternalError("Invalid {} response format", _config.provider_type);
         }
 
+        /*{
+            "data":[
+              {
+                "object": "embedding",
+                "embedding": [...], <- only need this
+                "index": 0
+              },
+              {
+                "object": "embedding",
+                "embedding": [...],
+                "index": 1
+              }, ...
+            ],
+            "model"....
+        }*/
         const auto& data = doc["data"];
         results.reserve(data.Size());
         for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
             if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
-                return Status::InternalError("Invalid {} response format", get_type());
+                return Status::InternalError("Invalid {} response format", _config.provider_type);
             }
 
             std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
@@ -171,8 +194,6 @@ protected:
 // Local LLM adapter for locally hosted models (Ollama, LLaMA, etc.)
 class LocalAdapter : public LLMAdapter {
 public:
-    std::string get_type() const override { return "local"; }
-
     // Local deployments typically don't need authentication
     Status set_authentication(HttpClient* client) const override {
         client->set_content_type("application/json");
@@ -228,7 +249,7 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response", get_type());
+            return Status::InternalError("Failed to parse {} response", _config.provider_type);
         }
 
         // Handle various response formats from local LLMs
@@ -286,7 +307,7 @@ public:
         add_dimension_params(doc, allocator);
 
         rapidjson::Value input(rapidjson::kArrayType);
-        for (auto msg : inputs) {
+        for (const auto& msg : inputs) {
             input.PushBack(rapidjson::Value(msg.c_str(), allocator), allocator);
         }
         doc.AddMember("input", input, allocator);
@@ -305,7 +326,7 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response", get_type());
+            return Status::InternalError("Failed to parse {} response", _config.provider_type);
         }
 
         // parse different response format
@@ -316,7 +337,8 @@ public:
             results.reserve(data.Size());
             for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
                 if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
-                    return Status::InternalError("Invalid {} response format", get_type());
+                    return Status::InternalError("Invalid {} response format",
+                                                 _config.provider_type);
                 }
 
                 std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
@@ -331,7 +353,7 @@ public:
                            std::back_inserter(results.emplace_back()),
                            [](const auto& val) { return val.GetFloat(); });
         } else {
-            return Status::InternalError("Invalid {} response format", get_type());
+            return Status::InternalError("Invalid {} response format", _config.provider_type);
         }
 
         return Status::OK();
@@ -341,8 +363,6 @@ public:
 // The OpenAI API format can be reused with some compatible LLMs.
 class OpenAIAdapter : public VoyageAIAdapter {
 public:
-    std::string get_type() const override { return "openai"; }
-
     Status set_authentication(HttpClient* client) const override {
         client->set_header(HttpHeaders::AUTHORIZATION, "Bearer " + _config.api_key);
         client->set_content_type("application/json");
@@ -350,6 +370,7 @@ public:
         return Status::OK();
     }
 
+    // TODO: Only supports GPT-4 and earlier; GPT-5 and newer are not supported yet.
     Status build_request_payload(const std::vector<std::string>& inputs,
                                  const char* const system_prompt,
                                  std::string& request_body) const override {
@@ -357,6 +378,15 @@ public:
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
+        /*{
+          "model": "gpt-4",
+          "messages": [
+            {"role": "system", "content": "xxx"},
+            {"role": "user", "content": "xxx"}
+          ],
+          "temperature": x,
+          "max_tokens": x,
+        }*/
         doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
 
         // If 'temperature' and 'max_tokens' are set, add them to the request body.
@@ -396,20 +426,36 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response", get_type());
+            return Status::InternalError("Failed to parse {} response", _config.provider_type);
         }
 
         if (!doc.HasMember("choices") || !doc["choices"].IsArray()) {
-            return Status::InternalError("Invalid {} response format", get_type());
+            return Status::InternalError("Invalid {} response format", _config.provider_type);
         }
 
+        /*{
+          "object": "chat.completion",
+          "model": "gpt-4",
+          "choices": [
+            {
+              ...
+              "message": {
+                "role": "assistant",
+                "content": "xxx"      <- result
+              },
+              ...
+            }
+          ],
+          ...
+        }*/
         const auto& choices = doc["choices"];
         results.reserve(choices.Size());
 
         for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
             if (!choices[i].HasMember("message") || !choices[i]["message"].HasMember("content") ||
                 !choices[i]["message"]["content"].IsString()) {
-                return Status::InternalError("Invalid choice format in {} response", get_type());
+                return Status::InternalError("Invalid choice format in {} response",
+                                             _config.provider_type);
             }
 
             results.emplace_back(choices[i]["message"]["content"].GetString());
@@ -428,44 +474,49 @@ protected:
 
 class DeepSeekAdapter : public OpenAIAdapter {
 public:
-    std::string get_type() const override { return "deepseek"; }
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
-        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+        return Status::NotSupported("{} does not support the Embed feature.",
+                                    _config.provider_type);
     }
 
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
-        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+        return Status::NotSupported("{} does not support the Embed feature.",
+                                    _config.provider_type);
     }
 };
 
 class MoonShotAdapter : public OpenAIAdapter {
 public:
-    std::string get_type() const override { return "moonshot"; }
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
-        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+        return Status::NotSupported("{} does not support the Embed feature.",
+                                    _config.provider_type);
     }
 
     Status parse_embedding_response(const std::string& response_body,
                                     std::vector<std::vector<float>>& results) const override {
-        return Status::NotSupported("{} does not support the Embed feature.", get_type());
+        return Status::NotSupported("{} does not support the Embed feature.",
+                                    _config.provider_type);
     }
 };
 
 class MinimaxAdapter : public OpenAIAdapter {
 public:
-    std::string get_type() const override { return "minimax"; }
-
     Status build_embedding_request(const std::vector<std::string>& inputs,
                                    std::string& request_body) const override {
         rapidjson::Document doc;
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
+        /*{
+          "text": ["xxx", "xxx", ...],
+          "model": "embo-1",
+          "type": "db"
+        }*/
         rapidjson::Value texts(rapidjson::kArrayType);
-        for (auto input : inputs) {
+        for (const auto& input : inputs) {
             texts.PushBack(rapidjson::Value(input.c_str(), allocator), allocator);
         }
         doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
@@ -482,9 +533,6 @@ public:
 };
 
 class ZhipuAdapter : public OpenAIAdapter {
-public:
-    std::string get_type() const override { return "zhipu"; }
-
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
         return !(model_name == "embedding-2");
@@ -492,9 +540,6 @@ protected:
 };
 
 class QwenAdapter : public OpenAIAdapter {
-public:
-    std::string get_type() const override { return "qwen"; }
-
 protected:
     bool supports_dimension_param(const std::string& model_name) const override {
         static const std::unordered_set<std::string> no_dimension_models = {
@@ -506,17 +551,13 @@ protected:
 };
 
 class BaichuanAdapter : public OpenAIAdapter {
-public:
-    std::string get_type() const override { return "baichuan"; }
-
 protected:
     bool supports_dimension_param(const std::string& model_name) const override { return false; }
 };
 
+// Gemini's embedding format is different from VoyageAI, so it requires a separate adapter
 class GeminiAdapter : public LLMAdapter {
 public:
-    std::string get_type() const override { return "gemini"; }
-
     Status set_authentication(HttpClient* client) const override {
         client->set_header("x-goog-api-key", _config.api_key);
         client->set_content_type("application/json");
@@ -530,6 +571,29 @@ public:
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
+        /*{
+          "system_instruction": [
+            {
+              "parts": {
+                "text": "xxx"
+              }
+            }
+          ],
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": "xxx"
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+          "temperature": 0.7,
+          "maxOutputTokens": 1024
+          }
+
+        }*/
         if (system_prompt && *system_prompt) {
             rapidjson::Value system_instruction(rapidjson::kArrayType);
             rapidjson::Value content(rapidjson::kObjectType);
@@ -582,13 +646,26 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response", get_type());
+            return Status::InternalError("Failed to parse {} response", _config.provider_type);
         }
 
         if (!doc.HasMember("candidates") || !doc["candidates"].IsArray()) {
-            return Status::InternalError("Invalid {} response format", get_type());
+            return Status::InternalError("Invalid {} response format", _config.provider_type);
         }
 
+        /*{
+          "candidates":[
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "xxx"
+                  }
+                ]
+              }
+            }
+          ]
+        }*/
         const auto& candidates = doc["candidates"];
         results.reserve(candidates.Size());
 
@@ -599,7 +676,8 @@ public:
                 candidates[i]["content"]["parts"].Empty() ||
                 !candidates[i]["content"]["parts"][0].HasMember("text") ||
                 !candidates[i]["content"]["parts"][0]["text"].IsString()) {
-                return Status::InternalError("Invalid candidate format in {} response", get_type());
+                return Status::InternalError("Invalid candidate format in {} response",
+                                             _config.provider_type);
             }
 
             results.emplace_back(candidates[i]["content"]["parts"][0]["text"].GetString());
@@ -614,29 +692,47 @@ public:
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
-        rapidjson::Value requests(rapidjson::kArrayType);
-        for (auto input : inputs) {
-            rapidjson::Value request(rapidjson::kObjectType);
+        /*{
+          "model": "models/gemini-embedding-001",
+          "contents": [
+            {
+              "parts": [
+                {
+                  "text": "xxx"
+                }
+              ]
+            },
+            {
+              "parts": [
+                {
+                  "text": "xxx"
+                }
+              ]
+            },
+            ...
+          ]
+          "outputDimensionality": 1024
+        }*/
 
-            // gemini requires the model format as `models/{model}`
-            std::string model_name = _config.model_name;
-            if (!model_name.starts_with("models/")) {
-                model_name = "models/" + model_name;
-            }
+        // gemini requires the model format as `models/{model}`
+        std::string model_name = _config.model_name;
+        if (!model_name.starts_with("models/")) {
+            model_name = "models/" + model_name;
+        }
+        doc.AddMember("model", rapidjson::Value(model_name.c_str(), allocator), allocator);
+        add_dimension_params(doc, allocator);
 
-            request.AddMember("model", rapidjson::Value(model_name.c_str(), allocator), allocator);
-
+        rapidjson::Value contents(rapidjson::kArrayType);
+        for (const auto& input : inputs) {
             rapidjson::Value content(rapidjson::kObjectType);
             rapidjson::Value parts(rapidjson::kArrayType);
             rapidjson::Value part(rapidjson::kObjectType);
             part.AddMember("text", rapidjson::Value(input.c_str(), allocator), allocator);
             parts.PushBack(part, allocator);
             content.AddMember("parts", parts, allocator);
-            request.AddMember("content", content, allocator);
-            add_dimension_params(request, allocator);
-            requests.PushBack(request, allocator);
+            contents.PushBack(content, allocator);
         }
-        doc.AddMember("requests", requests, allocator);
+        doc.AddMember("contents", contents, allocator);
 
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -652,17 +748,27 @@ public:
         doc.Parse(response_body.c_str());
 
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response", get_type());
+            return Status::InternalError("Failed to parse {} response", _config.provider_type);
         }
         if (!doc.HasMember("embeddings") || !doc["embeddings"].IsArray()) {
-            return Status::InternalError("Invalid {} response format", get_type());
+            return Status::InternalError("Invalid {} response format", _config.provider_type);
         }
 
+        /*{
+          "embeddings": [
+            {
+              "value": [0.1, 0.2, 0.3]
+            },
+            {
+              "value": [0.4, 0.5, 0.6]
+            }
+          ]
+        }*/
         const auto& embeddings = doc["embeddings"];
         results.reserve(embeddings.Size());
         for (rapidjson::SizeType i = 0; i < embeddings.Size(); ++i) {
             if (!embeddings[i].HasMember("value") || !embeddings[i]["value"].IsArray()) {
-                return Status::InternalError("Invalid {} response format", get_type());
+                return Status::InternalError("Invalid {} response format", _config.provider_type);
             }
 
             std::transform(embeddings[i]["value"].Begin(), embeddings[i]["value"].End(),
@@ -685,8 +791,6 @@ protected:
 
 class AnthropicAdapter : public VoyageAIAdapter {
 public:
-    std::string get_type() const override { return "anthropic"; }
-
     Status set_authentication(HttpClient* client) const override {
         client->set_header("x-api-key", _config.api_key);
         client->set_header("anthropic-version", _config.anthropic_version);
@@ -702,9 +806,19 @@ public:
         doc.SetObject();
         auto& allocator = doc.GetAllocator();
 
+        /*
+            "model": "claude-opus-4-1-20250805",
+            "max_tokens": 1024,
+            "system"
+            "messages": [
+              {"role": "user", "content": {"type": "text", "text": "xxx"}},
+              {"role": "user", "content": {"type": "text", "text": "xxx"}}
+            ],
+            "temperature": 0.7
+        */
+
         // If 'temperature' and 'max_tokens' are set, add them to the request body.
         doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator), allocator);
-
         if (_config.temperature != -1) {
             doc.AddMember("temperature", _config.temperature, allocator);
         }
@@ -747,15 +861,21 @@ public:
                           std::vector<std::string>& results) const override {
         rapidjson::Document doc;
         doc.Parse(response_body.c_str());
-
         if (doc.HasParseError() || !doc.IsObject()) {
-            return Status::InternalError("Failed to parse {} response", get_type());
+            return Status::InternalError("Failed to parse {} response", _config.provider_type);
         }
-
         if (!doc.HasMember("content") || !doc["content"].IsArray()) {
-            return Status::InternalError("Invalid {} response format", get_type());
+            return Status::InternalError("Invalid {} response format", _config.provider_type);
         }
 
+        /*{
+            "content": [
+              {
+                "text": "xxx",
+                "type": "text"
+              }
+            ]
+        }*/
         const auto& content = doc["content"];
         results.reserve(1);
 
@@ -782,8 +902,6 @@ public:
 // Mock adapter used only for UT to bypass real HTTP calls and return deterministic data.
 class MockAdapter : public LLMAdapter {
 public:
-    std::string get_type() const override { return "mock"; }
-
     Status set_authentication(HttpClient* client) const override { return Status::OK(); }
 
     Status build_request_payload(const std::vector<std::string>& inputs,
