@@ -21,9 +21,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 
 import com.google.common.collect.Maps;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
