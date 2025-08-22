@@ -360,6 +360,11 @@ public class TypeDef implements ParseNode {
                             + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE
                             + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
                 }
+
+                if (variantMaxSubcolumnsCount == 0 && !variantType.getPredefinedFields().isEmpty()) {
+                    throw new AnalysisException("variant_max_subcolumns_count must be greater than 0 "
+                            + "when variant has fields, but got " + variantMaxSubcolumnsCount);
+                }
                 break;
             }
             case INVALID_TYPE:
