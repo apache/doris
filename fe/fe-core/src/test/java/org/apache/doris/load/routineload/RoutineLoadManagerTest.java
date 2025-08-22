@@ -125,9 +125,8 @@ public class RoutineLoadManagerTest {
             }
         };
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        ConnectContext context = new ConnectContext();
-        createRoutineLoadInfo.validate(context);
-        routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, context);
+        createRoutineLoadInfo.checkJobProperties();
+        routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
 
         Map<String, RoutineLoadJob> idToRoutineLoadJob =
                 Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
@@ -187,9 +186,8 @@ public class RoutineLoadManagerTest {
         };
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         try {
-            ConnectContext context = new ConnectContext();
-            createRoutineLoadInfo.validate(context);
-            routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, context);
+            createRoutineLoadInfo.checkJobProperties();
+            routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
             Assert.fail();
         } catch (LoadException | DdlException e) {
             Assert.fail();
