@@ -442,6 +442,20 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                     },
                             .download_done {[=](Status st) {
+                                DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_data.callback.block_compaction_rowset", {
+                                            // clang-format on
+                                            if (rs->version().second > rs->version().first) {
+                                                auto sleep_time = dp->param<int>("sleep", 3);
+                                                LOG_INFO(
+                                                        "[verbose] block download for rowset={}, "
+                                                        "version={}, sleep={}",
+                                                        rs->rowset_id().to_string(),
+                                                        rs->version().to_string(), sleep_time);
+                                                std::this_thread::sleep_for(
+                                                        std::chrono::seconds(sleep_time));
+                                            }
+                                            // clang-format off
+                                });
                                 self->complete_rowset_segment_warmup(rowset_meta->rowset_id(), st);
                                 if (!st) {
                                     LOG_WARNING("add rowset warm up error ").error(st);
