@@ -878,6 +878,13 @@ public class ConnectContext {
         }
     }
 
+    public void resetQueryId() {
+        if (this.queryId != null) {
+            this.lastQueryId = this.queryId.deepCopy();
+        }
+        this.queryId = null;
+    }
+
     public void setTraceId(String traceId) {
         this.traceId = traceId;
     }
