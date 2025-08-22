@@ -49,7 +49,7 @@ public class MORIncrementalRelation implements IncrementalRelation {
     private final HoodieTimeline timeline;
     private final HollowCommitHandling hollowCommitHandling;
     private String startTimestamp;
-    private final String endTimestamp;
+    private String endTimestamp;
     private final boolean startInstantArchived;
     private final boolean endInstantArchived;
     private final List<HoodieInstant> includedCommits;
@@ -84,10 +84,14 @@ public class MORIncrementalRelation implements IncrementalRelation {
         if (EARLIEST_TIME.equals(startTimestamp)) {
             startTimestamp = "000";
         }
-        endTimestamp = optParams.getOrDefault("hoodie.datasource.read.end.instanttime",
-                hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
+
+        String latestTime = hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
                         ? timeline.lastInstant().get().getCompletionTime()
-                        : timeline.lastInstant().get().requestedTime());
+                : timeline.lastInstant().get().requestedTime();
+        endTimestamp = optParams.getOrDefault("hoodie.datasource.read.end.instanttime", latestTime);
+        if (LATEST_TIME.equals(latestTime)) {
+            endTimestamp = latestTime;
+        }
 
         startInstantArchived = timeline.isBeforeTimelineStarts(startTimestamp);
         endInstantArchived = timeline.isBeforeTimelineStarts(endTimestamp);
