@@ -863,7 +863,7 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-DEFINE_Int32(aws_log_level, "3");
+DEFINE_Int32(aws_log_level, "2");
 DEFINE_Validator(aws_log_level,
                  [](const int config) -> bool { return config >= 0 && config <= 6; });
 
@@ -872,7 +872,7 @@ DEFINE_Validator(aws_log_level,
 //    Informational = 2,
 //    Warning = 3,
 //    Error = 4
-DEFINE_Int32(azure_log_level, "3");
+DEFINE_Int32(azure_log_level, "4");
 DEFINE_Validator(azure_log_level,
                  [](const int config) -> bool { return config >= 1 && config <= 4; });
 
