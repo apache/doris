@@ -344,11 +344,18 @@ Status TimestampedVersionTracker::capture_consistent_versions_with_validator(
                                                                      validator);
 }
 
-Status TimestampedVersionTracker::capture_newest_consistent_versions_with_validator(
+Status TimestampedVersionTracker::capture_consistent_versions_prefer_cache(
         const Version& spec_version, std::vector<Version>& version_path,
         const std::function<bool(int64_t, int64_t)>& validator) const {
-    return _version_graph.capture_newest_consistent_versions_with_validator(
-            spec_version, version_path, validator);
+    return _version_graph.capture_consistent_versions_prefer_cache(spec_version, version_path,
+                                                                   validator);
+}
+
+Status TimestampedVersionTracker::capture_consistent_versions_with_validator_mow(
+        const Version& spec_version, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    return _version_graph.capture_consistent_versions_with_validator_mow(spec_version, version_path,
+                                                                         validator);
 }
 
 void TimestampedVersionTracker::capture_expired_paths(
@@ -650,6 +657,66 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
     return Status::OK();
 }
 
+Status VersionGraph::capture_consistent_versions_prefer_cache(
+        const Version& spec_version, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    if (spec_version.first > spec_version.second) {
+        return Status::Error<INVALID_ARGUMENT, false>(
+                "invalid specified version. spec_version={}-{}", spec_version.first,
+                spec_version.second);
+    }
+
+    int64_t cur_idx = -1;
+    for (size_t i = 0; i < _version_graph.size(); i++) {
+        if (_version_graph[i].value == spec_version.first) {
+            cur_idx = i;
+            break;
+        }
+    }
+
+    if (cur_idx < 0) {
+        return Status::InternalError<false>("failed to find path in version_graph. spec_version={}",
+                                            spec_version.to_string());
+    }
+
+    int64_t end_value = spec_version.second + 1;
+    while (_version_graph[cur_idx].value < end_value) {
+        int64_t next_idx = -1;
+        int64_t first_idx = -1;
+        for (const auto& it : _version_graph[cur_idx].edges) {
+            // Only consider incremental versions.
+            if (_version_graph[it].value < _version_graph[cur_idx].value) {
+                break;
+            }
+            if (first_idx == -1) {
+                first_idx = it;
+            }
+
+            if (!validator(_version_graph[cur_idx].value, _version_graph[it].value - 1)) {
+                continue;
+            }
+
+            next_idx = it;
+            break;
+        }
+
+        if (next_idx > -1) {
+            version_path.emplace_back(_version_graph[cur_idx].value,
+                                      _version_graph[next_idx].value - 1);
+
+            cur_idx = next_idx;
+        } else if (first_idx != -1) {
+            // if all edges are not in cache, use the first edge if possible
+            version_path.emplace_back(_version_graph[cur_idx].value,
+                                      _version_graph[first_idx].value - 1);
+            cur_idx = first_idx;
+        } else {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
 Status VersionGraph::capture_consistent_versions_with_validator(
         const Version& spec_version, std::vector<Version>& version_path,
         const std::function<bool(int64_t, int64_t)>& validator) const {
@@ -701,7 +768,7 @@ Status VersionGraph::capture_consistent_versions_with_validator(
     return Status::OK();
 }
 
-Status VersionGraph::capture_newest_consistent_versions_with_validator(
+Status VersionGraph::capture_consistent_versions_with_validator_mow(
         const Version& spec_version, std::vector<Version>& version_path,
         const std::function<bool(int64_t, int64_t)>& validator) const {
     if (spec_version.first > spec_version.second) {

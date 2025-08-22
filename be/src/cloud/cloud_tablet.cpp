@@ -203,7 +203,7 @@ Status CloudTablet::capture_rs_readers_prefer_cache(const Version& spec_version,
     g_capture_prefer_cache_count << 1;
     Versions version_path;
     std::shared_lock rlock(_meta_lock);
-    RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
+    RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_prefer_cache(
             spec_version, version_path,
             [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
     int64_t path_max_version = version_path.back().second;
@@ -266,11 +266,9 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
     if (enable_unique_key_merge_on_write()) {
         // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
         // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
-        RETURN_IF_ERROR(
-                _timestamped_version_tracker.capture_newest_consistent_versions_with_validator(
-                        spec_version, version_path, [&](int64_t start, int64_t end) {
-                            return rowset_is_warmed_up(start, end);
-                        }));
+        RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator_mow(
+                spec_version, version_path,
+                [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
     } else {
         RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
                 spec_version, version_path,
