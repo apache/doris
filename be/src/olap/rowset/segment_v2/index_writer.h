@@ -75,6 +75,8 @@ public:
     // check if the column is valid for inverted index, some columns
     // are generated from variant, but not all of them are supported
     static bool check_support_inverted_index(const TabletColumn& column);
+
+    static bool check_support_ann_index(const TabletColumn& column);
 };
 
 class TmpFileDirs {

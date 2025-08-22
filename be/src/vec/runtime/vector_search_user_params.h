@@ -15,23 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#pragma once
 
-import org.apache.doris.common.UserException;
+#include <string>
 
-public class SyncStmt extends DdlStmt implements NotFallbackInParser {
-    @Override
-    public void analyze() throws UserException {
+namespace doris {
+#include "common/compile_check_begin.h"
+// Constructed from session variables.
+struct VectorSearchUserParams {
+    int hnsw_ef_search = 32;
+    bool hnsw_check_relative_distance = true;
+    bool hnsw_bounded_queue = true;
 
-    }
+    bool operator==(const VectorSearchUserParams& other) const;
 
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_WITH_SYNC;
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.SYNC;
-    }
-}
+    std::string to_string() const;
+};
+#include "common/compile_check_end.h"
+} // namespace doris

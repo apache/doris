@@ -15,16 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#include "vec/runtime/vector_search_user_params.h"
 
-public class UnlockTablesStmt extends StatementBase implements NotFallbackInParser {
-    @Override
-    public String toSql() {
-        return "UNLOCK TABLES";
-    }
+#include <fmt/format.h>
 
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
-    }
+namespace doris {
+#include "common/compile_check_begin.h"
+bool VectorSearchUserParams::operator==(const VectorSearchUserParams& other) const {
+    return hnsw_ef_search == other.hnsw_ef_search &&
+           hnsw_check_relative_distance == other.hnsw_check_relative_distance &&
+           hnsw_bounded_queue == other.hnsw_bounded_queue;
 }
+
+std::string VectorSearchUserParams::to_string() const {
+    return fmt::format(
+            "hnsw_ef_search: {}, hnsw_check_relative_distance: {}, "
+            "hnsw_bounded_queue: {}",
+            hnsw_ef_search, hnsw_check_relative_distance, hnsw_bounded_queue);
+}
+} // namespace doris

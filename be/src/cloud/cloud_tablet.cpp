@@ -354,7 +354,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                             download_idx_file(idx_path, index_size_map[index->index_id()]);
                         }
                     } else {
-                        if (schema_ptr->has_inverted_index()) {
+                        if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                             auto&& inverted_index_info =
                                     rowset_meta->inverted_index_file_info(seg_id);
                             int64_t idx_size = 0;
@@ -503,9 +503,9 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
                     stale_rowsets.push_back(rs_it->second);
-                    LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
-                              << " rowset_id=" << rs_it->second->rowset_id().to_string()
-                              << " version=" << rs_it->first.to_string();
+                    VLOG_DEBUG << "erase stale rowset, tablet_id=" << tablet_id()
+                               << " rowset_id=" << rs_it->second->rowset_id().to_string()
+                               << " version=" << rs_it->first.to_string();
                     _stale_rs_version_map.erase(rs_it);
                 } else {
                     LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
@@ -701,7 +701,6 @@ std::vector<RecycledRowsets> CloudTablet::recycle_cached_data(
 
 void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segments,
                                           int64_t num_rows, int64_t data_size) {
-    _approximate_num_rowsets.store(num_rowsets, std::memory_order_relaxed);
     _approximate_num_segments.store(num_segments, std::memory_order_relaxed);
     _approximate_num_rows.store(num_rows, std::memory_order_relaxed);
     _approximate_data_size.store(data_size, std::memory_order_relaxed);
@@ -712,10 +711,16 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
         if (v.second < cp) {
             continue;
         }
-
         cumu_num_deltas += r->is_segments_overlapping() ? r->num_segments() : 1;
         ++cumu_num_rowsets;
     }
+    // num_rowsets may be less than the size of _rs_version_map when there are some hole rowsets
+    // in the version map, so we use the max value to ensure that the approximate number
+    // of rowsets is at least the size of _rs_version_map.
+    // Note that this is not the exact number of rowsets, but an approximate number.
+    int64_t approximate_num_rowsets =
+            std::max(num_rowsets, static_cast<int64_t>(_rs_version_map.size()));
+    _approximate_num_rowsets.store(approximate_num_rowsets, std::memory_order_relaxed);
     _approximate_cumu_num_rowsets.store(cumu_num_rowsets, std::memory_order_relaxed);
     _approximate_cumu_num_deltas.store(cumu_num_deltas, std::memory_order_relaxed);
 }
