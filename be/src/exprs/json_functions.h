@@ -48,15 +48,19 @@ enum JsonFunctionType {
 };
 
 struct JsonPath {
-    std::string key; // key of a json object
-    int idx;         // array index of a json array, -1 means not set, -2 means *
-    bool is_valid;   // true if the path is successfully parsed
+    std::string key;               // key of a json object
+    int idx;                       // array index of a json array, -1 means not set, -2 means *
+    bool is_valid;                 // true if the path is successfully parsed
+    bool is_reverse_index = false; // true if the path is last index, like '$.a[LAST(1)]'
 
-    JsonPath(const std::string& key_, int idx_, bool is_valid_)
-            : key(key_), idx(idx_), is_valid(is_valid_) {}
+    JsonPath(std::string key_, int idx_, bool is_valid_, bool is_reverse_index_)
+            : key(std::move(key_)),
+              idx(idx_),
+              is_valid(is_valid_),
+              is_reverse_index(is_reverse_index_) {}
 
-    JsonPath(std::string&& key_, int idx_, bool is_valid_)
-            : key(std::move(key_)), idx(idx_), is_valid(is_valid_) {}
+    JsonPath(std::string key_, int idx_, bool is_valid_)
+            : JsonPath(std::move(key_), idx_, is_valid_, false) {}
 
     std::string to_string() const {
         std::stringstream ss;
@@ -68,6 +72,12 @@ struct JsonPath {
         }
         if (idx == -2) {
             ss << "[*]";
+        } else if (is_reverse_index) {
+            if (idx > 0) {
+                ss << "[last-" << idx << "]";
+            } else {
+                ss << "[last]";
+            }
         } else if (idx > -1) {
             ss << "[" << idx << "]";
         }
@@ -75,7 +85,8 @@ struct JsonPath {
     }
 
     std::string debug_string() const {
-        return fmt::format("key:{}, idx:{}, valid:{}", key, idx, is_valid);
+        return fmt::format("key:{}, idx:{}, valid:{}, is_reverse_index:{}", key, idx, is_valid,
+                           is_reverse_index);
     }
 };
 
