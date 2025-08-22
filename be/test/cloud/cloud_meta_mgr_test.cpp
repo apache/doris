@@ -17,6 +17,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -86,6 +87,71 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
         EXPECT_LE(elapsed, 40); // at most 1 round running for 7 tasks
     }
     // clang-format on
+}
+
+TEST_F(CloudMetaMgrTest, hide_ak_sk_when_get_storage_vault_info) {
+    // 创建测试响应对象
+    CloudMetaMgr mgr;
+    GetObjStoreInfoResponse resp;
+
+    // 添加普通对象存储信息
+    auto* obj1 = resp.add_obj_info();
+    obj1->set_ak("abcdefghijklmnopqrstuvwxyz1234567890");
+    obj1->set_sk("abcdefghijklmnopqrstuvwxyz1234567890");
+
+    auto* obj2 = resp.add_obj_info();
+    obj2->set_ak("abc");
+    obj2->set_sk("abc");
+
+    auto* obj3 = resp.add_obj_info();
+    obj3->set_ak("ab");
+    obj3->set_sk("ab");
+
+    auto* obj4 = resp.add_obj_info();
+    obj4->set_ak("a");
+    obj4->set_sk("a");
+
+    auto* vault1 = resp.add_storage_vault();
+    auto* vault_obj1 = vault1->mutable_obj_info();
+    vault_obj1->set_ak("abcdefghijklmnopqrstuvwxyz1234567890");
+    vault_obj1->set_sk("abcdefghijklmnopqrstuvwxyz1234567890");
+
+    auto* vault2 = resp.add_storage_vault();
+    auto* vault_obj2 = vault2->mutable_obj_info();
+    vault_obj2->set_ak("abc");
+    vault_obj2->set_sk("abc");
+
+    auto* vault3 = resp.add_storage_vault();
+    auto* vault_obj3 = vault3->mutable_obj_info();
+    vault_obj3->set_ak("ab");
+    vault_obj3->set_sk("ab");
+
+    auto* vault4 = resp.add_storage_vault();
+    auto* vault_obj4 = vault4->mutable_obj_info();
+    vault_obj4->set_ak("a");
+    vault_obj4->set_sk("a");
+
+    mgr.hide_access_key(&resp);
+
+    EXPECT_EQ(resp.obj_info(0).ak(), "xxxxxxxxxxxxxxxpqrstuxxxxxxxxxxxxxxx");
+    EXPECT_EQ(resp.obj_info(1).ak(), "xbx");
+    EXPECT_EQ(resp.obj_info(2).ak(), "xx");
+    EXPECT_EQ(resp.obj_info(3).ak(), "x");
+
+    EXPECT_EQ(resp.obj_info(0).sk(), "abxxx");
+    EXPECT_EQ(resp.obj_info(1).sk(), "abxxx");
+    EXPECT_EQ(resp.obj_info(2).sk(), "abxxx");
+    EXPECT_EQ(resp.obj_info(3).sk(), "axxx");
+
+    EXPECT_EQ(resp.storage_vault(0).obj_info().ak(), "xxxxxxxxxxxxxxxpqrstuxxxxxxxxxxxxxxx");
+    EXPECT_EQ(resp.storage_vault(1).obj_info().ak(), "xbx");
+    EXPECT_EQ(resp.storage_vault(2).obj_info().ak(), "xx");
+    EXPECT_EQ(resp.storage_vault(3).obj_info().ak(), "x");
+
+    EXPECT_EQ(resp.storage_vault(0).obj_info().sk(), "abxxx");
+    EXPECT_EQ(resp.storage_vault(1).obj_info().sk(), "abxxx");
+    EXPECT_EQ(resp.storage_vault(2).obj_info().sk(), "abxxx");
+    EXPECT_EQ(resp.storage_vault(3).obj_info().sk(), "axxx");
 }
 
 } // namespace doris

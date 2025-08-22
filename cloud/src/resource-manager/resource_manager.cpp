@@ -375,7 +375,11 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
 
     auto& req_cluster = cluster.cluster;
     LOG(INFO) << "cluster to add json=" << proto_to_json(req_cluster);
-    LOG(INFO) << "json=" << proto_to_json(instance);
+    InstanceInfoPB instance_to_log {instance};
+    for (auto& obj_info : *instance_to_log.mutable_obj_info()) {
+        obj_info.set_ak(hide_access_key(obj_info.ak()));
+    }
+    LOG(INFO) << "json=" << proto_to_json(instance_to_log);
 
     // Check id and name, they need to be unique
     // One cluster id per name, name is alias of cluster id

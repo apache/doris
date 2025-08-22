@@ -48,6 +48,7 @@
 #include "common/configbase.h"
 #include "common/logging.h"
 #include "common/string_util.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -63,17 +64,12 @@ namespace doris::cloud {
         auto st = parse_json_message(unresolved_path, body, &req);                              \
         if (!st.ok()) {                                                                         \
             std::string msg = "parse http request '" + unresolved_path + "': " + st.ToString(); \
-            LOG_WARNING(msg).tag("body", body);                                                 \
+            std::string log_body = encryt_sk(body);                                             \
+            log_body = hide_ak(log_body);                                                       \
+            LOG_WARNING(msg).tag("body", log_body);                                             \
             return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);                   \
         }                                                                                       \
     } while (0)
-
-extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
-                                   const std::string& cloud_unique_id);
-
-extern int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_id,
-                                 MetaServiceCode& code, std::string& msg,
-                                 std::shared_ptr<Transaction>& txn);
 
 extern void get_kv_range_boundaries_count(std::vector<std::string>& partition_boundaries,
                                           std::unordered_map<std::string, size_t>& partition_count);
@@ -86,7 +82,9 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     if (!st.ok()) {
         std::string msg = "failed to strictly parse http request for '" + unresolved_path +
                           "' error: " + st.ToString();
-        LOG_WARNING(msg).tag("body", body);
+        std::string log_body = encryt_sk(body);
+        log_body = hide_ak(log_body);
+        LOG_WARNING(msg).tag("body", log_body);
 
         // ignore unknown fields
         google::protobuf::util::JsonParseOptions json_parse_options;
@@ -773,6 +771,8 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
     std::string http_request = format_http_request(cntl);
+    std::string log_http_request = encryt_sk(http_request);
+    log_http_request = hide_ak(log_http_request);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");
@@ -783,7 +783,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
         cntl->response_attachment().append(body);
         cntl->response_attachment().append("\n");
         LOG(WARNING) << "failed to handle http from " << cntl->remote_side()
-                     << " request: " << http_request << " msg: " << body;
+                     << " request: " << log_http_request << " msg: " << body;
         return;
     }
 
@@ -801,9 +801,10 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     cntl->response_attachment().append("\n");
 
     int ret = cntl->http_response().status_code();
+
     LOG(INFO) << (ret == 200 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
               << cntl->remote_side() << " request=\n"
-              << http_request << "\n ret=" << ret << " msg=" << msg;
+              << log_http_request << "\n ret=" << ret << " msg=" << msg;
 }
 
 } // namespace doris::cloud

@@ -76,7 +76,7 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
                                 MetaServiceCode& code, std::string& msg) {
     std::string key;
     int64_t key_id;
-    LOG_INFO("enter encrypt_ak_sk_helper, plain_ak {}", plain_ak);
+    LOG_INFO("enter encrypt_ak_sk_helper, plain_ak {}", hide_access_key(plain_ak));
     int ret = get_newest_encryption_key_for_ak_sk(&key_id, &key);
     TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &ret, &key, &key_id);
     if (ret != 0) {
@@ -1739,6 +1739,9 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         return;
     }
 
+    for (auto& obj_info : *instance.mutable_obj_info()) {
+        obj_info.set_ak(hide_access_key(obj_info.ak()));
+    }
     LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
 
     // Check existence before proceeding
