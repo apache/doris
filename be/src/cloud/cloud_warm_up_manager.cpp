@@ -526,8 +526,8 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
     bool cache_hit = false;
     auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
     if (replicas.empty()) {
-        LOG(INFO) << "There is no need to warmup tablet=" << rs_meta.tablet_id()
-                  << ", skipping rowset=" << rs_meta.rowset_id().to_string();
+        VLOG_DEBUG << "There is no need to warmup tablet=" << rs_meta.tablet_id()
+                   << ", skipping rowset=" << rs_meta.rowset_id().to_string();
         return;
     }
     Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, !cache_hit);
