@@ -2761,6 +2761,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudClusterIdByName(job.getDstClusterName());
+            if (clusterId == null) {
+                LOG.warn("cluster {} is not found, cannot get primary backend for warmup job {}",
+                        job.getDstClusterName(), request.getWarmUpJobId());
+                result.setTabletReplicaInfos(tabletReplicaInfos);
+                result.setToken(Env.getCurrentEnv().getToken());
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
         }
         for (Long tabletId : tabletIds) {
             if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
