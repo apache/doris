@@ -251,6 +251,7 @@ public class KafkaRoutineLoadJobTest {
                                    @Injectable Database database,
             @Injectable OlapTable table) throws UserException {
         CreateRoutineLoadInfo createRoutineLoadInfo = initCreateRoutineLoadInfo();
+        createRoutineLoadInfo.validate(connectContext);
         RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null, partitionNames, null,
                 LoadTask.MergeType.APPEND, sequenceStmt.getSequenceColName());
         Deencapsulation.setField(createRoutineLoadInfo, "routineLoadDesc", routineLoadDesc);
@@ -309,7 +310,7 @@ public class KafkaRoutineLoadJobTest {
             }
         };
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(createRoutineLoadInfo, new ConnectContext());
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(createRoutineLoadInfo, connectContext);
         Assert.assertEquals(jobName, kafkaRoutineLoadJob.getName());
         Assert.assertEquals(dbId, kafkaRoutineLoadJob.getDbId());
         Assert.assertEquals(tableId, kafkaRoutineLoadJob.getTableId());
