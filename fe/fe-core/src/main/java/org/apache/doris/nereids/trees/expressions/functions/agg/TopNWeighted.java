@@ -195,15 +195,15 @@ public class TopNWeighted extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-            if (!getArgument(2).isConstant()) {
-                    throw new AnalysisException(
-                                    "topn_weighted requires third parameter must be a constant: "
-                                                    + this.toSql());
-            }
-            if (arity() == 4 && !getArgument(3).isConstant()) {
-                    throw new AnalysisException(
-                                    "topn_weighted requires fourth parameter must be a constant: "
-                                                    + this.toSql());
-            }
+        if (!getArgument(2).isConstant()) {
+            throw new AnalysisException(
+                    "topn_weighted requires third parameter must be a constant: "
+                            + this.toSql());
+        }
+        if (arity() == 4 && !getArgument(3).isConstant()) {
+            throw new AnalysisException(
+                    "topn_weighted requires fourth parameter must be a constant: "
+                            + this.toSql());
+        }
     }
 }
