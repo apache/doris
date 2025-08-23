@@ -61,8 +61,6 @@ extern bvar::LatencyRecorder s3_get_bucket_version_latency;
 extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
-std::string hide_access_key(const std::string& ak);
-
 class S3URI;
 struct S3ClientConf {
     std::string endpoint;
@@ -109,9 +107,9 @@ struct S3ClientConf {
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
                 "cred_provider_type={},role_arn={}, external_id={}",
-                hide_access_key(ak), token, endpoint, region, bucket, max_connections,
-                request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id);
+                ak, token, endpoint, region, bucket, max_connections, request_timeout_ms,
+                connect_timeout_ms, use_virtual_addressing, cred_provider_type, role_arn,
+                external_id);
     }
 };
 

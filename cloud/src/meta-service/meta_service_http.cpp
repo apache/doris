@@ -64,9 +64,7 @@ namespace doris::cloud {
         auto st = parse_json_message(unresolved_path, body, &req);                              \
         if (!st.ok()) {                                                                         \
             std::string msg = "parse http request '" + unresolved_path + "': " + st.ToString(); \
-            std::string log_body = encryt_sk(body);                                             \
-            log_body = hide_ak(log_body);                                                       \
-            LOG_WARNING(msg).tag("body", log_body);                                             \
+            LOG_WARNING(msg).tag("body", encryt_sk(body));                                      \
             return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);                   \
         }                                                                                       \
     } while (0)
@@ -83,7 +81,6 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
         std::string msg = "failed to strictly parse http request for '" + unresolved_path +
                           "' error: " + st.ToString();
         std::string log_body = encryt_sk(body);
-        log_body = hide_ak(log_body);
         LOG_WARNING(msg).tag("body", log_body);
 
         // ignore unknown fields
@@ -771,8 +768,6 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
     std::string http_request = format_http_request(cntl);
-    std::string log_http_request = encryt_sk(http_request);
-    log_http_request = hide_ak(log_http_request);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");
@@ -783,7 +778,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
         cntl->response_attachment().append(body);
         cntl->response_attachment().append("\n");
         LOG(WARNING) << "failed to handle http from " << cntl->remote_side()
-                     << " request: " << log_http_request << " msg: " << body;
+                     << " request: " << encryt_sk(http_request) << " msg: " << body;
         return;
     }
 

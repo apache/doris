@@ -1228,15 +1228,6 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
 
-    for (int i = 0; i < resp.obj_info_size(); ++i) {
-        resp.mutable_obj_info(i)->set_ak(hide_access_key(resp.obj_info(i).sk()));
-    }
-    for (int i = 0; i < resp.storage_vault_size(); ++i) {
-        auto* j = resp.mutable_storage_vault(i);
-        if (!j->has_obj_info()) continue;
-        j->mutable_obj_info()->set_sk(hide_access_key(j->obj_info().sk()));
-    }
-
     LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
               << " response=" << resp.ShortDebugString();
     return Status::OK();

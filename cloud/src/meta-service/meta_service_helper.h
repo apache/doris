@@ -134,71 +134,6 @@ inline std::string encryt_sk(std::string debug_string) {
     return debug_string;
 }
 
-std::string hide_access_key(const std::string& ak);
-
-inline std::string hide_ak(std::string debug_string) {
-    // Start position for searching "ak" fields
-    size_t pos = 0;
-    // Iterate through the string and find all occurrences of "ak: "
-    while ((pos = debug_string.find("ak: ", pos)) != std::string::npos) {
-        // Find the start and end of the "ak" value (assumed to be within quotes)
-        // Start after the quote
-        size_t ak_value_start = debug_string.find('\"', pos) + 1;
-        // End at the next quote
-        size_t ak_value_end = debug_string.find('\"', ak_value_start);
-
-        // Extract the "ak" value
-        std::string ak_value = debug_string.substr(ak_value_start, ak_value_end - ak_value_start);
-        // hide the "ak" value
-        std::string hide_ak = hide_access_key(ak_value);
-
-        debug_string.replace(ak_value_start, ak_value_end - ak_value_start, hide_ak);
-        // Move the position to the end of the current "ak" field and continue searching
-        pos = ak_value_end;
-    }
-    // Iterate through the string and find all occurrences of ""ak": "
-    pos = 0;
-    while ((pos = debug_string.find("\"ak\": ", pos)) != std::string::npos) {
-        // Find the start of the "ak" value (position after ""ak": ")
-        size_t value_start_pos = pos + 6; // 6 is the length of "\"ak\": "
-
-        // Find the opening quote for the value
-        size_t quote_pos = debug_string.find('\"', value_start_pos);
-        if (quote_pos == std::string::npos) {
-            // No opening quote found, move to next occurrence
-            pos = value_start_pos;
-            continue;
-        }
-
-        // Start after the opening quote
-        size_t ak_value_start = quote_pos + 1;
-
-        // Find the closing quote
-        size_t ak_value_end = debug_string.find('\"', ak_value_start);
-        if (ak_value_end == std::string::npos) {
-            // No closing quote found, move to next occurrence
-            pos = ak_value_start;
-            continue;
-        }
-
-        // Extract the "ak" value
-        std::string ak_value = debug_string.substr(ak_value_start, ak_value_end - ak_value_start);
-
-        // Hide the "ak" value
-        std::string hidden_ak = hide_access_key(ak_value);
-
-        // Calculate the length change after replacement
-        int length_diff = hidden_ak.length() - (ak_value_end - ak_value_start);
-
-        // Replace the original "ak" value with the hidden value
-        debug_string.replace(ak_value_start, ak_value_end - ak_value_start, hidden_ak);
-
-        // Move the position past the replacement, adjusting for length change
-        pos = ak_value_end + length_diff;
-    }
-    return debug_string;
-}
-
 template <class Request, class Response>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req,
                Response* res) {
@@ -241,8 +176,7 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                   << " require_compaction_stats=" << req->require_compaction_stats();
     } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||
                          std::is_same_v<Request, CreateStageRequest>) {
-        std::string debug_string = hide_ak(res->DebugString());
-        debug_string = encryt_sk(debug_string);
+        std::string debug_string = encryt_sk(res->DebugString());
         TEST_SYNC_POINT_CALLBACK("ak_begin_rpc", &debug_string);
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip() << " request=" << debug_string;
