@@ -141,6 +141,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             if (table.getIndexMetaByIndexId(physicalOlapScan.getSelectedIndexId())
                     .getKeysType().equals(KeysType.AGG_KEYS)) {
                 aggMvBonus = rows > 1.0 ? 1.0 : rows * 0.5;
+                System.out.println("aggMvBonus: " + aggMvBonus);
             }
         }
         if (table instanceof MTMV) {
@@ -152,7 +153,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 return Cost.ofCpu(context.getSessionVariable(), Double.NEGATIVE_INFINITY);
             }
         }
-        return Cost.ofCpu(context.getSessionVariable(), rows - aggMvBonus);
+        return Cost.ofCpu(context.getSessionVariable(), rows);
     }
 
     private Set<Column> getColumnForRangePredicate(Set<Expression> expressions) {
