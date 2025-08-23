@@ -125,7 +125,7 @@ public class RoutineLoadManagerTest {
             }
         };
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        createRoutineLoadInfo.checkJobProperties();
+        createRoutineLoadInfo.validate(connectContext);
         routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
 
         Map<String, RoutineLoadJob> idToRoutineLoadJob =
