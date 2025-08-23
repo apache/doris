@@ -5643,6 +5643,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             indexType = "NGRAM_BF";
         } else if (ctx.INVERTED() != null) {
             indexType = "INVERTED";
+        } else if (ctx.ANN() != null) {
+            indexType = "ANN";
         }
         String comment = ctx.STRING_LITERAL() == null ? "" : stripQuotes(ctx.STRING_LITERAL().getText());
         // change BITMAP index to INVERTED index

@@ -33,6 +33,8 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
@@ -397,7 +399,9 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
         RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
+#ifndef BE_TEST
     _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
+#endif
     return Status::OK();
 }
 
@@ -961,6 +965,33 @@ bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vector
 
 bool VExpr::equals(const VExpr& other) {
     return false;
+}
+
+Status VExpr::evaluate_ann_range_search(
+        const segment_v2::AnnRangeSearchRuntime& runtime,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
+    return Status::OK();
+}
+
+void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                     segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+                                     bool& suitable_for_ann_index) {
+    if (!suitable_for_ann_index) {
+        return;
+    }
+    for (auto& child : _children) {
+        child->prepare_ann_range_search(params, range_search_runtime, suitable_for_ann_index);
+        if (!suitable_for_ann_index) {
+            return;
+        }
+    }
+}
+
+bool VExpr::has_been_executed() {
+    return _has_been_executed;
 }
 
 #include "common/compile_check_end.h"

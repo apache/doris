@@ -20,6 +20,7 @@ package org.apache.doris.nereids.mv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -67,6 +68,8 @@ public class IdStatisticsMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        connectContext.getSessionVariable().setPreMaterializedViewRewriteStrategy(PreRewriteStrategy.NOT_IN_RBO.name());
+        dropMvByNereids("drop materialized view if exists mv100");
         createMvByNereids("create materialized view mv100 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -79,12 +82,14 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker tmpPlanChecker = PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite();
-        // scan plan output will be refreshed after mv rewrite successfully, so need tmp store
         Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0)
                 .getScanPlan(null, c1).getOutputSet();
+        // scan plan output will be refreshed after mv rewrite successfully, so need tmp store
         tmpPlanChecker
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
@@ -92,6 +97,67 @@ public class IdStatisticsMapTest extends SqlTestBase {
         Statistics statistics = idStatisticsMap.values().iterator().next();
         // statistics key set should be equals to materialization scan plan output
         Assertions.assertEquals(materializationScanOutput, statistics.columnStatistics().keySet());
+        dropMvByNereids("drop materialized view mv100");
+    }
+
+    @Test
+    void testIdStatisticsIsExistWhenRewriteByMvWhenRBORewrite() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        new MockUp<SessionVariable>() {
+            @Mock
+            public BitSet getDisableNereidsRules() {
+                return disableNereidsRules;
+            }
+        };
+        new MockUp<MTMVRelationManager>() {
+            @Mock
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid,
+                    Set<String> queryUsedRelatedTablePartitionsMap) {
+                return true;
+            }
+        };
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
+                return true;
+            }
+        };
+        connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
+        connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        connectContext.getSessionVariable().setPreMaterializedViewRewriteStrategy(
+                PreRewriteStrategy.FORCE_IN_RBO.name());
+        dropMvByNereids("drop materialized view if exists mv100");
+        createMvByNereids("create materialized view mv100 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select T1.id from T1 inner join T2 "
+                + "on T1.id = T2.id;");
+        CascadesContext c1 = createCascadesContext(
+                "select T1.id from T1 inner join T2 "
+                        + "on T1.id = T2.id "
+                        + "inner join T3 on T1.id = T3.id",
+                connectContext
+        );
+        PlanChecker tmpPlanChecker = PlanChecker.from(c1)
+                .setIsQuery()
+                .analyze()
+                .rewrite();
+        Assertions.assertFalse(
+                tmpPlanChecker.getCascadesContext().getStatementContext().getTmpPlanForMvRewrite().isEmpty());
+        tmpPlanChecker.preMvRewrite();
+        Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0)
+                .getScanPlan(null, c1).getOutputSet();
+        // scan plan output will be refreshed after mv rewrite successfully, so need tmp store
+        tmpPlanChecker
+                .optimize()
+                .printlnBestPlanTree();
+        Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
+        Assertions.assertFalse(idStatisticsMap.isEmpty());
+        Statistics statistics = idStatisticsMap.values().iterator().next();
+        // statistics key set should be not equals to materialization scan plan output
+        // because if rewritten success, the mv scan plan
+        Assertions.assertNotEquals(materializationScanOutput, statistics.columnStatistics().keySet());
         dropMvByNereids("drop materialized view mv100");
     }
 }

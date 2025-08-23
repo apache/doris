@@ -15,23 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.encryption;
+#pragma once
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
+#include <string>
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+namespace doris {
+#include "common/compile_check_begin.h"
+// Constructed from session variables.
+struct VectorSearchUserParams {
+    int hnsw_ef_search = 32;
+    bool hnsw_check_relative_distance = true;
+    bool hnsw_bounded_queue = true;
 
-public class KeyManager implements Writable {
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
+    bool operator==(const VectorSearchUserParams& other) const;
 
-    public static KeyManager read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), KeyManager.class);
-    }
-}
+    std::string to_string() const;
+};
+#include "common/compile_check_end.h"
+} // namespace doris
