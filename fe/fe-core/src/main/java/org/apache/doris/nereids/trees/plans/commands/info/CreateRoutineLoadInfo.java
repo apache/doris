@@ -509,7 +509,7 @@ public class CreateRoutineLoadInfo {
             this.workloadGroupName = inputWorkloadGroupStr;
         }
 
-        if (ConnectContext.get() != null) {
+        if (ConnectContext.get().getSessionVariable().getTimeZone() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(TIMEZONE, timezone));
