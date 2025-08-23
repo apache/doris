@@ -1008,7 +1008,7 @@ suite("aggregate_with_roll_up") {
             o_comment;
             """
     order_qt_query1_1_before "${query1_1}"
-    async_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -1043,7 +1043,6 @@ suite("aggregate_with_roll_up") {
     order_qt_query2_0_before "${query2_0}"
     async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0", [TRY_IN_RBO, FORCE_IN_RBO])
     async_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0", [NOT_IN_RBO])
-
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 

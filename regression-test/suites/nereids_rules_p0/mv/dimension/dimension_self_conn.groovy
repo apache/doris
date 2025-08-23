@@ -333,7 +333,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         on t1.o_orderkey = t2.o_orderkey
         group by t2.o_orderkey
         """
-    mv_rewrite_fail(agg_sql_1, mv_name_1)
+    mv_rewrite_success(agg_sql_1, mv_name_1)
     compare_res(agg_sql_1 + " order by 1,2,3,4,5,6,7")
 
     agg_sql_1 = """select t2.o_orderkey,
@@ -348,7 +348,7 @@ suite("partition_mv_rewrite_dimension_self_conn") {
         on t1.o_orderkey = t2.o_orderkey
         group by t2.o_orderkey
         """
-    mv_rewrite_fail(agg_sql_1, mv_name_1)
+    mv_rewrite_success(agg_sql_1, mv_name_1)
     compare_res(agg_sql_1 + " order by 1,2,3,4,5,6")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_1};"""
 

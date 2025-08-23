@@ -287,7 +287,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
      *           +--PhysicalProject(projects=[a, b, xxhash_32(b)%512 as saltExpr])
      *             +--PhysicalHashAggregate(groupByExpr=[a, b], outputExpr=[a, b])
      * */
-    private PhysicalHashAggregate<Plan> aggSkewRewrite(LogicalAggregate<? extends Plan> logicalAgg,
+    public static PhysicalHashAggregate<Plan> aggSkewRewrite(LogicalAggregate<? extends Plan> logicalAgg,
             CascadesContext cascadesContext) {
         // 1.local agg
         ImmutableList.Builder<Expression> localAggGroupByBuilder = ImmutableList.builderWithExpectedSize(
@@ -365,7 +365,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
                 null, thirdPhaseAgg);
     }
 
-    private AggregateFunction getAggregateFunction(AggregateFunction aggFunc, Slot child) {
+    private static AggregateFunction getAggregateFunction(AggregateFunction aggFunc, Slot child) {
         if (aggFunc instanceof Count) {
             return new Sum0(false, child);
         } else {
@@ -373,7 +373,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
         }
     }
 
-    private Alias getShuffleExpr(AggregateFunction aggFunc, CascadesContext cascadesContext) {
+    private static Alias getShuffleExpr(AggregateFunction aggFunc, CascadesContext cascadesContext) {
         int bucketNum = cascadesContext.getConnectContext().getSessionVariable().skewRewriteAggBucketNum;
         // divide bucketNum by 2 is because XxHash32 return negative and positive number
         int bucket = bucketNum / 2;
