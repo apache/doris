@@ -473,7 +473,7 @@ suite("aggregate_without_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query15_0_before "${query15_0}"
-    async_mv_rewrite_fail(db, mv15_0, query15_0, "mv15_0")
+    async_mv_rewrite_success(db, mv15_0, query15_0, "mv15_0")
     order_qt_query15_0_after "${query15_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_0"""
 
@@ -510,7 +510,7 @@ suite("aggregate_without_roll_up") {
             l_suppkey;
     """
     order_qt_query15_1_before "${query15_1}"
-    async_mv_rewrite_fail(db, mv15_1, query15_1, "mv15_1")
+    async_mv_rewrite_success(db, mv15_1, query15_1, "mv15_1")
     order_qt_query15_0_after "${query15_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_1"""
 
@@ -541,7 +541,7 @@ suite("aggregate_without_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query16_0_before "${query16_0}"
-    async_mv_rewrite_fail(db, mv16_0, query16_0, "mv16_0")
+    async_mv_rewrite_success(db, mv16_0, query16_0, "mv16_0")
     order_qt_query16_0_after "${query16_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv16_0"""
 
@@ -2000,5 +2000,4 @@ select
     async_mv_rewrite_success(db, mv31_0, query31_0, "mv31_0", [NOT_IN_RBO])
     order_qt_query31_0_after "${query31_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv31_0"""
-    sql "set global multi_distinct_strategy=0;"
 }
