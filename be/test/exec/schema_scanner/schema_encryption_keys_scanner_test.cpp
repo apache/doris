@@ -18,6 +18,7 @@
 #include "exec/schema_scanner/schema_encryption_keys_scanner.h"
 
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
 #include "vec/core/block.h"
@@ -30,17 +31,15 @@ class ScheamEncryptionKeysScannerTest : public testing::Test {
 };
 
 TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
-    TEncryptionKey t_key;
-    std::vector<TEncryptionKey> keys;
-    keys.push_back(t_key);
-
-    SchemaEncryptionKeysScanner scnanner;
-    scnanner._result.__set_master_keys(keys);
+    SchemaEncryptionKeysScanner scanner;
+    auto& keys = scanner._master_keys;
+    EncryptionKeyPB key;
+    keys.push_back(key);
 
     auto data_block = vectorized::Block::create_unique();
-    scnanner._init_block(data_block.get());
+    scanner._init_block(data_block.get());
 
-    auto st = scnanner._fill_block_impl(data_block.get());
+    auto st = scanner._fill_block_impl(data_block.get());
 }
 
 } // namespace doris
