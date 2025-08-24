@@ -163,14 +163,6 @@ suite('test_query_freshness_tolerance', 'docker') {
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
 
-        /*
-            def t1 = System.currentTimeMillis()
-            qt_sql """select * from test"""
-            def t2 = System.currentTimeMillis()
-            logger.info("query in cluster2 cost=${t2 - t1} ms")
-
-            when don't set query_freshness_tolerance_ms, this will have to read 2 rowsets data and will last for more than 10s+10s=20s
-        */
         sql "set query_freshness_tolerance_ms = 5000"
         def t1 = System.currentTimeMillis()
         def queryFreshnessToleranceCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_count")
