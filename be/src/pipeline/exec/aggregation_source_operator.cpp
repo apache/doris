@@ -315,7 +315,8 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                                 for (int i = 0; i < key_columns.size(); ++i) {
                                     key_columns[i]->insert_default();
                                 }
-                                for (size_t i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
+                                for (size_t i = 0; i < shared_state.aggregate_evaluators.size();
+                                     ++i) {
                                     value_columns[i]->insert_default();
                                 }
                                 *eos = true;
