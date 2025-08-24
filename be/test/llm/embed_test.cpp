@@ -305,13 +305,13 @@ TEST(EMBED_TEST, gemini_adapter_embedding_request) {
     ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
 
     ASSERT_TRUE(doc.HasMember("model")) << "Missing model field";
-    ASSERT_TRUE(doc.HasMember("contents")) << "Missing contents field";
-    ASSERT_TRUE(doc["contents"].IsArray()) << request_body;
+    ASSERT_TRUE(doc.HasMember("content")) << "Missing content field";
+    ASSERT_TRUE(doc["content"].IsObject()) << request_body;
 
-    auto& content = doc["contents"][0];
-    ASSERT_TRUE(content.HasMember("parts")) << "Missing parts field";
+    auto& content = doc["content"];
+    ASSERT_TRUE(content.HasMember("parts")) << request_body;
     ASSERT_TRUE(content["parts"].IsArray());
-    ASSERT_TRUE(content["parts"][0].HasMember("text")) << "Missing text field";
+    ASSERT_TRUE(content["parts"][0].HasMember("text")) << request_body;
     ASSERT_STREQ(content["parts"][0]["text"].GetString(), "embed with gemini");
 
     // should not have dimension param;
@@ -332,16 +332,16 @@ TEST(EMBED_TEST, gemini_adapter_parse_embedding_response) {
     GeminiAdapter adapter;
 
     std::string resp = R"({
-        "embeddings":[
+        "embedding":[
         {
-            "value":[
+            "values":[
                 0.1,
                 0.2,
                 0.3
             ]
         },
         {
-            "value":[
+            "values":[
                 0.4,
                 0.5
             ]

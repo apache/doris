@@ -249,19 +249,16 @@ TEST(LLM_ADAPTER_TEST, gemini_adapter_request) {
     ASSERT_EQ(gen_cfg["maxOutputTokens"].GetInt(), 32);
 
     // system_prompt
-    ASSERT_TRUE(doc.HasMember("system_instruction")) << "Missing system field";
-    ASSERT_TRUE(doc["system_instruction"].IsArray()) << "System field is not an array";
-    ASSERT_GT(doc["system_instruction"].Size(), 0) << "system_instruction field is empty";
+    ASSERT_TRUE(doc.HasMember("systemInstruction")) << "Missing system field";
+    ASSERT_TRUE(doc["systemInstruction"].IsObject()) << request_body;
+    ASSERT_TRUE(doc["systemInstruction"].HasMember("parts")) << request_body;
+    ASSERT_TRUE(doc["systemInstruction"]["parts"].IsArray()) << request_body;
+    ASSERT_GT(doc["systemInstruction"]["parts"].Size(), 0) << request_body;
 
-    const auto& content_sys = doc["system_instruction"][0];
-    ASSERT_TRUE(content_sys.HasMember("parts")) << "system_instruction missing parts field";
-    ASSERT_TRUE(content_sys["parts"].IsArray()) << "Parts is not an array";
-    ASSERT_GT(content_sys["parts"].Size(), 0) << "Parts array is empty";
-
-    const auto& part_sys = content_sys["parts"][0];
-    ASSERT_TRUE(part_sys.HasMember("text")) << "parts missing text field";
-    ASSERT_TRUE(part_sys["text"].IsString()) << "Text field is not a string";
-    ASSERT_STREQ(part_sys["text"].GetString(), FunctionLLMExtract::system_prompt);
+    const auto& content_sys = doc["systemInstruction"]["parts"][0];
+    ASSERT_TRUE(content_sys.HasMember("text")) << "parts missing text field";
+    ASSERT_TRUE(content_sys["text"].IsString()) << "Text field is not a string";
+    ASSERT_STREQ(content_sys["text"].GetString(), FunctionLLMExtract::system_prompt);
 
     // content structure
     ASSERT_TRUE(doc.HasMember("contents")) << "Missing contents field";
