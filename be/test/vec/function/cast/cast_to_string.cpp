@@ -174,7 +174,7 @@ TEST_F(FunctionCastToStringTest, from_float) {
             }};
     char buffer[64] = {0};
     for (const auto& value_pair : input_values) {
-        int len = fast_to_buffer(value_pair.first, buffer);
+        int len = CastToString::from_number(value_pair.first, buffer);
         EXPECT_EQ(std::string(buffer, len), std::string(value_pair.second));
     }
 }
@@ -333,7 +333,7 @@ TEST_F(FunctionCastToStringTest, from_double) {
             }};
     char buffer[64] = {0};
     for (const auto& value_pair : input_values) {
-        int len = fast_to_buffer(value_pair.first, buffer);
+        int len = CastToString::from_number(value_pair.first, buffer);
         EXPECT_EQ(std::string(buffer, len), std::string(value_pair.second));
     }
 }

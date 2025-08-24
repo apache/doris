@@ -76,41 +76,4 @@ std::string to_string(const std::set<T>& s) {
     return "{" + to_string(s.begin(), s.end()) + "}";
 }
 
-// refer to: https://en.cppreference.com/w/cpp/types/numeric_limits/max_digits10.html
-template <typename T>
-inline int fast_to_buffer(T value, char* buffer) {
-    char* end = nullptr;
-    // output NaN and Infinity to be compatible with most of the implementations
-    if (std::isnan(value)) {
-        static constexpr char nan_str[] = "NaN";
-        static constexpr int nan_str_len = sizeof(nan_str) - 1;
-        memcpy(buffer, nan_str, nan_str_len);
-        end = buffer + nan_str_len;
-    } else if (std::isinf(value)) {
-        static constexpr char inf_str[] = "Infinity";
-        static constexpr int inf_str_len = sizeof(inf_str) - 1;
-        static constexpr char neg_inf_str[] = "-Infinity";
-        static constexpr int neg_inf_str_len = sizeof(neg_inf_str) - 1;
-        if (value > 0) {
-            memcpy(buffer, inf_str, inf_str_len);
-            end = buffer + inf_str_len;
-        } else {
-            memcpy(buffer, neg_inf_str, neg_inf_str_len);
-            end = buffer + neg_inf_str_len;
-        }
-    } else {
-        if constexpr (std::is_same_v<T, float>) {
-            end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                 std::numeric_limits<float>::digits10 + 1);
-        } else if constexpr (std::is_same_v<T, double>) {
-            end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                 std::numeric_limits<double>::digits10 + 1);
-        } else {
-            end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
-        }
-    }
-    *end = '\0';
-    return end - buffer;
-}
-
 } // namespace doris

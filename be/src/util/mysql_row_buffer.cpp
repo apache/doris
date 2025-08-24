@@ -34,7 +34,7 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
-#include "util/to_string.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
@@ -180,7 +180,7 @@ static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
 template <typename T>
 char* add_float(T data, char* pos, bool dynamic_mode) {
     static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>);
-    int length = fast_to_buffer(data, pos + !dynamic_mode);
+    int length = vectorized::CastToString::from_number(data, pos + !dynamic_mode);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
