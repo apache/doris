@@ -90,7 +90,7 @@ DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 
 DEFINE_Bool(enable_check_storage_vault, "true");
 
-DEFINE_mBool(skip_writing_empty_rowset_metadata, "true");
+DEFINE_mBool(skip_writing_empty_rowset_metadata, "false");
 
 DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
 
