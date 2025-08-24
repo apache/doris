@@ -111,13 +111,13 @@ public class RepeatNode extends PlanNode {
         if (groupingList == null || groupingList.isEmpty()) {
             return false;
         }
-        
+
         // Check each grouping pattern
         for (List<Long> groupingPattern : groupingList) {
             if (groupingPattern == null || groupingPattern.isEmpty()) {
                 continue;
             }
-            
+
             // Check if this pattern represents empty grouping (all 1s)
             boolean allOnes = true;
             for (Long value : groupingPattern) {
@@ -126,12 +126,12 @@ public class RepeatNode extends PlanNode {
                     break;
                 }
             }
-            
+
             if (allOnes) {
                 return true;  // Found empty grouping pattern
             }
         }
-        
+
         return false;
     }
 

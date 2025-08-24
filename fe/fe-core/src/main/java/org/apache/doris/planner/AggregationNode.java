@@ -156,7 +156,7 @@ public class AggregationNode extends PlanNode {
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
         }
-        
+
         // Check if this aggregation has empty grouping from GROUPING SETS/ROLLUP/CUBE
         boolean hasEmptyGrouping = hasEmptyGroupingFromRepeatNode();
         msg.agg_node.setHasEmptyGrouping(hasEmptyGrouping);
@@ -224,7 +224,7 @@ public class AggregationNode extends PlanNode {
         // Check if the immediate child is a RepeatNode
         if (children.size() == 1 && children.get(0) instanceof RepeatNode) {
             RepeatNode repeatNode = (RepeatNode) children.get(0);
-            // Check if RepeatNode contains empty grouping 
+            // Check if RepeatNode contains empty grouping
             // Empty grouping is represented by having at least one grouping set where all values are 1
             // (indicating all grouping columns are masked/null)
             return repeatNode.hasEmptyGrouping();
