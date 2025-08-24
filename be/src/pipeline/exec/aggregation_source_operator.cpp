@@ -308,6 +308,17 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                                                 value_columns[i].get());
                                     *eos = true;
                                 }
+                            } else if (shared_state.input_num_rows == 0 && num_rows == 0) {
+                                // Handle GROUPING SETS empty grouping case
+                                // When input is empty, we should still output 1 row with NULL values
+                                // for empty grouping in GROUPING SETS, similar to no GROUP BY aggregation
+                                for (int i = 0; i < key_columns.size(); ++i) {
+                                    key_columns[i]->insert_default();
+                                }
+                                for (size_t i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
+                                    value_columns[i]->insert_default();
+                                }
+                                *eos = true;
                             } else {
                                 *eos = true;
                             }
