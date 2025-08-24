@@ -456,7 +456,8 @@ AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()),
-          _has_empty_grouping(tnode.agg_node.__isset.has_empty_grouping && tnode.agg_node.has_empty_grouping) {}
+          _has_empty_grouping(tnode.agg_node.__isset.has_empty_grouping &&
+                              tnode.agg_node.has_empty_grouping) {}
 
 Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
