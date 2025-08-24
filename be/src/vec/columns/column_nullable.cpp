@@ -34,7 +34,14 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
         : _nested_column(std::move(nested_column_)), _null_map(std::move(null_map_)) {
     /// ColumnNullable cannot have constant nested column. But constant argument could be passed. Materialize it.
     _nested_column = get_nested_column().convert_to_full_column_if_const();
-    _null_map = get_null_map_column().convert_to_full_column_if_const();
+
+    // after convert const column to full column, it may be a nullable column
+    if (_nested_column->is_nullable()) {
+        assert_cast<ColumnNullable&>(*_nested_column)
+                .apply_null_map(static_cast<const ColumnUInt8&>(get_null_map_column()));
+        _null_map = assert_cast<ColumnNullable&>(*_nested_column).get_null_map_column_ptr();
+        _nested_column = assert_cast<ColumnNullable&>(*_nested_column).get_nested_column_ptr();
+    }
 
     if (is_column_const(get_null_map_column())) [[unlikely]] {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
