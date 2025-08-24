@@ -74,17 +74,12 @@ bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
 bvar::Adder<int64_t> g_unused_rowsets_bytes("unused_rowsets_bytes");
 
 bvar::Adder<int64_t> g_capture_prefer_cache_count("capture_prefer_cache_count");
-bvar::Adder<int64_t> g_capture_prefer_cache_count_fallback_count(
-        "capture_prefer_cache_count_fallback_count");
 bvar::Adder<int64_t> g_capture_with_freshness_tolerance_count(
         "capture_with_freshness_tolerance_count");
 bvar::Adder<int64_t> g_capture_with_freshness_tolerance_fallback_count(
         "capture_with_freshness_tolerance_fallback_count");
 bvar::Window<bvar::Adder<int64_t>> g_capture_prefer_cache_count_window(
         "capture_prefer_cache_count_window", &g_capture_prefer_cache_count, 30);
-bvar::Window<bvar::Adder<int64_t>> g_capture_prefer_cache_count_fallback_count_window(
-        "capture_prefer_cache_count_fallback_count_window",
-        &g_capture_prefer_cache_count_fallback_count, 30);
 bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_count_window(
         "capture_with_freshness_tolerance_count_window", &g_capture_with_freshness_tolerance_count,
         30);
@@ -207,25 +202,14 @@ Status CloudTablet::capture_rs_readers_prefer_cache(const Version& spec_version,
             spec_version, version_path,
             [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
     int64_t path_max_version = version_path.back().second;
-    LOG_INFO("[verbose] CloudTablet::capture_rs_readers_prefer_cache, capture path: {}",
-             fmt::join(version_path | std::views::transform([](const auto& version) {
-                           return fmt::format("{}", version.to_string());
-                       }),
-                       ", "))
-            .tag("tablet_id", tablet_id())
-            .tag("spec_version", spec_version.to_string())
-            .tag("path_max_version", path_max_version);
-    bool should_fallback = path_max_version < spec_version.second;
-    if (should_fallback) {
-        rlock.unlock();
-        LOG_INFO(
-                "[verbose] CloudTablet::capture_rs_readers_prefer_cache, fallback, spec_version={}",
-                spec_version.to_string());
-        g_capture_prefer_cache_count_fallback_count << 1;
-        // if there exists a rowset which satisfies freshness tolerance and its start version is larger than the path max version
-        // but has not been warmuped up yet, fallback to capture rowsets as usual
-        return capture_rs_readers_internal(spec_version, rs_splits);
-    }
+    VLOG_DEBUG << fmt::format(
+            "[verbose] CloudTablet::capture_rs_readers_prefer_cache, capture path: {}, "
+            "tablet_id={}, spec_version={}, path_max_version={}",
+            fmt::join(version_path | std::views::transform([](const auto& version) {
+                          return fmt::format("{}", version.to_string());
+                      }),
+                      ", "),
+            tablet_id(), spec_version.to_string(), path_max_version);
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 
