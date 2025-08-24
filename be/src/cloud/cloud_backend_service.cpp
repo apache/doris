@@ -213,7 +213,6 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
     if (!cntl.Failed()) {
         g_file_cache_warm_up_cache_async_submitted_segment_num
                 << brpc_response.file_cache_block_metas().size();
-        // TODO(bobhan1): add callback
         _engine.file_cache_block_downloader().submit_download_task(
                 std::move(*brpc_response.mutable_file_cache_block_metas()));
     } else {

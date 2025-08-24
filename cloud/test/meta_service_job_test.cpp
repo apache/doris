@@ -3640,8 +3640,7 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
             EXPECT_EQ(saved_rowset.rowset_id_v2(), rs.rowset_id_v2());
             ASSERT_TRUE(saved_rowset.has_visible_ts_ms() && saved_rowset.visible_ts_ms() > 0);
             using namespace std::chrono;
-            auto visible_tp =
-                    time_point<system_clock>(milliseconds(saved_rowset.visible_ts_ms()));
+            auto visible_tp = time_point<system_clock>(milliseconds(saved_rowset.visible_ts_ms()));
             std::time_t visible_time = system_clock::to_time_t(visible_tp);
             std::cout << "visible time: "
                       << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";

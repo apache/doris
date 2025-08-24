@@ -2333,8 +2333,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         commit_txn_log.set_txn_id(txn_id);
         commit_txn_log.set_db_id(db_id);
 
-        int64_t rowsets_visible_time_ms =
-            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        int64_t rowsets_visible_ts_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
         // <tablet_id, version> -> rowset meta
         std::vector<std::pair<std::tuple<int64_t, int64_t>, RowsetMetaCloudPB>> rowsets;
@@ -2369,7 +2369,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 }
                 i.set_start_version(new_version);
                 i.set_end_version(new_version);
-                i.set_visible_time_ms(rowsets_visible_time_ms);
+                i.set_visible_ts_ms(rowsets_visible_ts_ms);
                 LOG(INFO) << "xxx update rowset version, txn_id=" << txn_id
                           << ", sub_txn_id=" << sub_txn_id << ", table_id=" << table_id
                           << ", partition_id=" << partition_id << ", tablet_id=" << tablet_id
