@@ -768,6 +768,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
     std::string http_request = format_http_request(cntl);
+    http_request = encryt_sk(http_request);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");
