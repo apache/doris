@@ -230,9 +230,13 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
                 aggregate.getLogicalProperties(), null, child);
     }
 
-    private boolean shouldUseThreePhase(Aggregate<? extends Plan> aggregate) {
+    /**public for test*/
+    public boolean shouldUseThreePhase(Aggregate<? extends Plan> aggregate) {
         Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
         Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
+        if (aggStats == null || aggChildStats == null) {
+            return true;
+        }
         for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
             ColumnStatistic columnStat = aggChildStats.findColumnStatistics(groupByExpr);
             if (columnStat == null) {
@@ -261,7 +265,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
      *           +--PhysicalProject(projects=[a, b, xxhash_32(b)%512 as saltExpr])
      *             +--PhysicalHashAggregate(groupByExpr=[a, b], outputExpr=[a, b])
      * */
-    public static PhysicalHashAggregate<Plan> aggSkewRewrite(LogicalAggregate<? extends Plan> logicalAgg,
+    private static PhysicalHashAggregate<Plan> aggSkewRewrite(LogicalAggregate<? extends Plan> logicalAgg,
             CascadesContext cascadesContext) {
         // 1.local agg
         ImmutableList.Builder<Expression> localAggGroupByBuilder = ImmutableList.builderWithExpectedSize(
