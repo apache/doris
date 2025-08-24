@@ -73,7 +73,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
             logicalAggregate()
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
                     .when(Aggregate::hasDistinctFunc)
-                    .when(agg -> agg.getDistinctArguments().size() == 1)
+                    .when(agg -> agg.getDistinctArguments().size() == 1 || agg.distinctFuncNum() == 1)
                     .thenApplyMulti(ctx -> rewrite(ctx.root))
                     .toRule(RuleType.SPLIT_AGG_MULTI_PHASE_WITHOUT_GBY_KEY)
         );
