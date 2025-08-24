@@ -98,8 +98,13 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, DistinctSelectorContext ctx) {
         Plan newChild = agg.child().accept(this, ctx);
         agg = agg.withChildren(ImmutableList.of(newChild));
-        // count(distinct a,b)不处理； count(distinct a), sum(distinct a)不处理； count(distinct a)不处理
-        // count(distinct a,b), count(distinct a,c)处理
+        // process：
+        // count(distinct a,b);
+        // count(distinct a), sum(distinct a);
+        // count(distinct a)
+        // not process:
+        // count(distinct a,b), count(distinct a,c)
+        // count(distinct a), sum(distinct b)
         if (agg.distinctFuncNum() < 2 || agg.getDistinctArguments().size() < 2) {
             return agg;
         }
@@ -131,29 +136,28 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
                     return false;
                 }
                 if (columnStatistic.ndv * 100 >= row) {
-                    // 如果有一个arg 的ndv是高的, 那么不使用multi distinct
+                    // If there is a group by key with high ndv, then do not use multi distinct
                     return false;
                 }
             }
         } else {
-            // Group by key的联合ndv高，不选择multi_distinct；
-            // 如何计算联合ndv: aggStats.getRowCount()
             Statistics aggStats = agg.getStats();
             if (aggStats == null) {
                 return false;
             }
+            // The joint ndv of Group by key is high, so multi_distinct is not selected;
             if (aggStats.getRowCount() * 1000 >= row) {
                 return false;
             }
-            // // 还需要考虑group by key的大小, 如果group by key size大于某个阈值,那么cte的网络分发会很慢,那么使用multi_distinct会好
-            // // 获得group by key的size大小
+            // // Also need to consider the size of the group by key. If the group by key size is larger than
+            // //a certain threshold, the network distribution of CTE will be very slow,
+            // so using multi_distinct will be better.
             // double groupByKeyByte = 0;
             // for (Expression groupByKey : agg.getGroupByExpressions()) {
             //     ColumnStatistic columnStatistic = childStats.findColumnStatistics(groupByKey);
             //     groupByKeyByte += columnStatistic.avgSizeByte;
             // }
-            // // 设置为20字节
-            // // 这个怎么考虑呢,如果ndv又大,group by key size也大,那么使用cte还是使用multi distinct?
+            // // If ndv is large and group by key size is also large, should I use cte or multi distinct?
             // if (groupByKeyByte < 20) {
             //     return false;
             // }

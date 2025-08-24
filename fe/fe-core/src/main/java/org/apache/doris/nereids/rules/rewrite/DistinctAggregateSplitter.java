@@ -93,15 +93,10 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
     }
 
     private boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
-        // 带group by的场景, group by key ndv低, distinct key ndv高, 则转为multi_distinct
-        //      其他情况都拆分
-        // 不带group by的场景, distinct key的ndv低,使用multi_distinct, ndv高,使用cte拆分
-
-        // 包含count(distinct a,b) 这种，一定不能使用multi_distinct
+        // count(distinct a,b) cannot use multi_distinct
         if (AggregateUtils.containsCountDistinctMultiExpr(aggregate)) {
             return false;
         }
-        // 必须要使用multi_distinct的场景
         if (aggregate.mustUseMultiDistinctAgg()) {
             return true;
         }
@@ -112,14 +107,13 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         Statistics aggStats = aggregate.getStats();
         Statistics aggChildStats = aggregate.child().getStats();
         Set<Expression> dstArgs = aggregate.getDistinctArguments();
-        // 有未知的统计信息的时候，使用多阶段
+        // has unknown statistics, split to bottom and top agg
         if (AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), aggChildStats)
                 || AggregateUtils.hasUnknownStatistics(dstArgs, aggChildStats)) {
             return false;
         }
-        // 拿到group by key的ndv
+
         double gbyNdv = aggStats.getRowCount();
-        // 拿到distinct key的ndv
         Expression dstKey = dstArgs.iterator().next();
         ColumnStatistic dstKeyStats = aggChildStats.findColumnStatistics(dstKey);
         if (dstKeyStats == null) {
@@ -127,7 +121,8 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         }
         double dstNdv = dstKeyStats.ndv;
         double inputRows = aggChildStats.getRowCount();
-        // group by key ndv低, distinct key ndv高, 则转为multi_distinct
+        // group by key ndv is low, distinct key ndv is high, multi_distinct is better
+        // otherwise split to bottom and top agg
         return gbyNdv * 1000 < inputRows && dstNdv * 10 > inputRows;
     }
 
@@ -148,7 +143,6 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
 
     private Plan splitDistinctAgg(LogicalAggregate<? extends Plan> aggregate) {
         Set<AggregateFunction> aggFuncs = aggregate.getAggregateFunctions();
-        // 需要保证1.只有一个count(distinct)函数
         Set<AggregateFunction> distinctAggFuncs = new HashSet<>();
         Set<AggregateFunction> otherFunctions = new HashSet<>();
         for (AggregateFunction aggFunc : aggFuncs) {
@@ -161,18 +155,16 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         if (distinctAggFuncs.size() != 1) {
             return null;
         }
-        // 并不是所有的都能拆分, other function里面如果有一些不能拆分的函数,就不拆
-        // 这里先实现一下,然后后续再考虑一下什么函数可以拆分.
+        // If there are some functions that cannot be split in other function, AGG cannot be split
         for (AggregateFunction aggFunc : otherFunctions) {
             if (!supportSplitOtherFunctions.contains(aggFunc.getClass())) {
                 return null;
             }
         }
 
-        // 先构造下面进行去重的AGG
+        // construct bottom agg
         // group by key为group by key + distinct key
         Set<NamedExpression> groupByKeys = AggregateUtils.getAllKeySet(aggregate);
-        // 需要把otherFunction输出一下
         ImmutableList.Builder<NamedExpression> bottomAggOtherFunctions = ImmutableList.builder();
         Map<AggregateFunction, NamedExpression> aggFuncToSlot = new HashMap<>();
         for (AggregateFunction aggFunc : otherFunctions) {
@@ -189,12 +181,11 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
         LogicalAggregate<Plan> bottomAgg = new LogicalAggregate<>(Utils.fastToImmutableList(groupByKeys),
                 aggOutput, aggregate.child());
 
-        // 然后构造上面的AGG
+        // construct top agg
         List<NamedExpression> topAggOutput = ExpressionUtils.rewriteDownShortCircuit(aggregate.getOutputExpressions(),
                 expr -> {
                     if (expr instanceof AggregateFunction) {
                         AggregateFunction aggFunc = (AggregateFunction) expr;
-                        // 如果是distinct function,那么直接把distinct去掉
                         if (aggFunc.isDistinct()) {
                             if (aggFunc instanceof Count && aggFunc.arity() > 1) {
                                 return AggregateUtils.countDistinctMultiExprToCountIf((Count) aggFunc);
@@ -215,8 +206,7 @@ public class DistinctAggregateSplitter implements RewriteRuleFactory {
                     return expr;
                 }
         );
-        LogicalAggregate<Plan> topAgg = new LogicalAggregate<>(aggregate.getGroupByExpressions(),
+        return new LogicalAggregate<Plan>(aggregate.getGroupByExpressions(),
                 topAggOutput, bottomAgg);
-        return topAgg;
     }
 }

@@ -160,11 +160,6 @@ public class SplitMultiDistinctStrategy {
         return false;
     }
 
-    // 这个函数需要重新考虑一下，因为这里如果返回了false，很有可能导致后面结果错误
-    // e.g. SELECT a, count(distinct b),sum(distinct c)
-    //     FROM test_skew_hint2
-    //     GROUP BY a;
-    // 这个sql如果没有cte改写，后面会给出错误的计划
     private static void collectInfo(LogicalAggregate<? extends Plan> agg, List<List<Alias>> aliases,
             List<Alias> otherAggFuncs) {
         // TODO with source repeat aggregate need to be supported in future
@@ -180,23 +175,13 @@ public class SplitMultiDistinctStrategy {
             }
             AggregateFunction aggFunc = (AggregateFunction) namedExpression.child(0);
             if (aggFunc.isDistinct()) {
-                // aliases.add((Alias) namedExpression);
                 distinctArgToAliasList.computeIfAbsent(ImmutableSet.copyOf(aggFunc.getDistinctArguments()),
                         k -> new ArrayList<>()).add((Alias) namedExpression);
-                // distinctMultiColumns = distinctMultiColumns || isDistinctMultiColumns(aggFunc);
             } else {
                 otherAggFuncs.add((Alias) namedExpression);
             }
         }
         aliases.addAll(distinctArgToAliasList.values());
-        // when this aggregate is not distinctMultiColumns, and group by expressions is not empty
-        // e.g. sql1: select count(distinct a), count(distinct b) from t1 group by c;
-        // sql2: select count(distinct a) from t1 group by c;
-        // the physical plan of sql1 and sql2 is similar, both are 2-phase aggregate,
-        // so there is no need to do this rewrite
-        // if (!distinctMultiColumns && !agg.getGroupByExpressions().isEmpty()) {
-        //     return false;
-        // }
     }
 
     private static LogicalProject<Plan> constructProject(List<Expression> groupBy, Map<Alias, Alias> joinOutput,
@@ -205,7 +190,6 @@ public class SplitMultiDistinctStrategy {
         for (Map.Entry<Alias, Alias> entry : joinOutput.entrySet()) {
             projects.add(new Alias(entry.getValue().getExprId(), entry.getKey().toSlot(), entry.getValue().getName()));
         }
-        // outputJoinGroupBys.size() == agg.getGroupByExpressions().size()
         for (int i = 0; i < groupBy.size(); ++i) {
             Slot slot = (Slot) groupBy.get(i);
             projects.add(new Alias(slot.getExprId(), outputJoinGroupBys.get(i), slot.getName()));

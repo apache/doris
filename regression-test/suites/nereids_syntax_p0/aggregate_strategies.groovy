@@ -107,8 +107,6 @@ suite("aggregate_strategies") {
 
         order_qt_count_distinct_sum_distinct_same "select max(distinct id), sum(distinct id) from $tableName"
 
-        // explain plan select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT,TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI')*/ max(distinct id), sum(distinct id) from test_bucket1_table;
-
         order_qt_count_distinct_sum_distinct_same "select max(distinct id), sum(distinct id) from $tableName"
         order_qt_count_distinct_sum_distinct_difference "select count(distinct name), sum(distinct id) from $tableName"
 

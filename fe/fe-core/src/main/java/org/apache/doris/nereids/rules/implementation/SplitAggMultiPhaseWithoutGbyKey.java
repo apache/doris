@@ -101,7 +101,6 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
      *       +--hashShuffle(a)
      * */
     List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate) {
-        // 这里还要再加上限制不能有其他的不带distinct的聚合函数,
         if (canUseFinalMultiDistinct(aggregate)) {
             return ImmutableList.<Plan>builder()
                     .addAll(twoPhaseAggregateWithFinalMultiDistinct(aggregate))
@@ -138,7 +137,6 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
         return ImmutableList.of(splitDistinctTwoPhase(aggregate, localAggFuncToAlias, localAgg));
     }
 
-    // 如果是sum/count等场景,可以使用
     private List<Plan> twoPhaseAggregateWithFinalMultiDistinct(
             LogicalAggregate<? extends Plan> logicalAgg) {
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
@@ -161,9 +159,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
                 null, null, logicalAgg.child());
 
         AggregateParam param = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT, false);
-        // 如果是普通聚合函数，那么就正常处理
-        // 如果是distinct聚合函数，count_distinct -> 上层变成sum0; sum_distinct -> 上层还是sum;
-        // group_concat_distinct -> 上层还是group_concat 。
+
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), outputChild -> {
                     if (outputChild instanceof AggregateFunction) {
@@ -177,6 +173,7 @@ public class SplitAggMultiPhaseWithoutGbyKey extends SplitAggBaseRule implements
                                         MultiDistinctCount.class, () -> new Sum0(childSlot),
                                         MultiDistinctSum.class, () -> new Sum(childSlot),
                                         MultiDistinctSum0.class, () -> new Sum0(childSlot),
+                                        // TODO: add test for group_concat
                                         MultiDistinctGroupConcat.class, () -> new GroupConcat(childSlot));
                             return new AggregateExpression(functionMap.get(aggFunc.getClass()).get(), param);
                         } else {
