@@ -20,11 +20,13 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <ostream>
 #include <type_traits>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/olap_common.h"
@@ -39,6 +41,7 @@
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -103,13 +106,26 @@ public:
     }
 
     template <bool single>
-    inline Status add_internal(const uint8_t* vals, size_t* count) {
+    inline Status add_internal(const uint8_t* vals, size_t* num_written) {
         DCHECK(!_finished);
-        if (_remain_element_capacity <= 0) {
-            *count = 0;
+        if (_remain_element_capacity == 0) {
+            *num_written = 0;
             return Status::OK();
         }
-        int to_add = std::min<int>(_remain_element_capacity, cast_set<int>(*count));
+
+        // When increasing the size of the memtabl flush threshold to a very large value, for example 15GB.
+        // the row count of a single men tbl could be very large.
+        // a real log:
+        /*
+        I20250823 19:01:16.153575 2982018 memtable_flush_executor.cpp:185] begin to flush memtable for tablet: 1755915952737, memsize: 15.11 GB, rows: 3751968
+        */
+        // This is not a very wide table, actually it just has two columns, int and array<float>
+        // The write process of column array has two steps: write nested column(column float here), and write offsets column.
+        // The row count of column array is 3751968, which is not that big, but each row of column array has 768 float numbers (this is a common case in vector search scenario).
+        // so the row num of nested column float will be 3751968 * 768 = 2,881,511,424, which is bigger than INT32_MAX.
+        uint32_t to_add = cast_set<vectorized::UInt32>(
+                std::min(cast_set<size_t>(_remain_element_capacity), *num_written));
+        // Max value of to_add_size is less than STORAGE_PAGE_SIZE_DEFAULT_VALUE
         int to_add_size = to_add * SIZE_OF_TYPE;
         size_t orig_size = _data.size();
         // This may need a large memory, should return error if could not allocated
@@ -118,7 +134,7 @@ public:
         _count += to_add;
         _remain_element_capacity -= to_add;
         // return added number through count
-        *count = to_add;
+        *num_written = to_add;
         if constexpr (single) {
             if constexpr (SIZE_OF_TYPE == 1) {
                 *reinterpret_cast<uint8_t*>(&_data[orig_size]) = *vals;
@@ -153,7 +169,7 @@ public:
 
     Status reset() override {
         RETURN_IF_CATCH_EXCEPTION({
-            auto block_size = _options.data_page_size;
+            size_t block_size = _options.data_page_size;
             _count = 0;
             _data.clear();
             _data.reserve(block_size);
@@ -162,7 +178,7 @@ public:
             _buffer.clear();
             _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
             _finished = false;
-            _remain_element_capacity = cast_set<int>(block_size / SIZE_OF_TYPE);
+            _remain_element_capacity = cast_set<vectorized::UInt32>(block_size / SIZE_OF_TYPE);
         });
         return Status::OK();
     }
@@ -242,7 +258,7 @@ private:
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
     PageBuilderOptions _options;
     uint32_t _count;
-    int _remain_element_capacity;
+    uint32_t _remain_element_capacity;
     bool _finished;
     faststring _data;
     faststring _buffer;
