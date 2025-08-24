@@ -26,7 +26,6 @@ import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
-import static org.apache.iceberg.CatalogUtil.configureHadoopConf;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -120,7 +119,7 @@ public class IcebergUnityCatalogRestCatalogTest {
         Configuration conf = new Configuration();
 
         RESTCatalog catalog = new RESTCatalog();
-        configureHadoopConf(catalog, conf);
+        CatalogUtil.configureHadoopConf(catalog, conf);
         try {
             catalog.initialize("databricks_test", options);
         } catch (Exception e) {
@@ -138,7 +137,8 @@ public class IcebergUnityCatalogRestCatalogTest {
         properties.put("iceberg.rest.security.type", "oauth2");
         properties.put("iceberg.rest.oauth2.token", oauthToken);
         // properties.put("iceberg.rest.oauth2.scope", "all-apis");
-        IcebergRestExternalCatalog catalog = new IcebergRestExternalCatalog(1, "databricks_test", null,properties, "test");
+        IcebergRestExternalCatalog catalog = new IcebergRestExternalCatalog(
+                1, "databricks_test", null, properties, "test");
         catalog.setDefaultPropsIfMissing(false);
         Collection<DatabaseIf<?>> dbs = catalog.getAllDbs();
         for (DatabaseIf db : dbs) {
