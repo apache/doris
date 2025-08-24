@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -61,7 +62,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchI
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
-import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -1057,8 +1057,9 @@ public abstract class ExternalCatalog
             boolean res = metadataOps.createDb(dbName, ifNotExists, properties);
             if (!res) {
                 // we should get the db stored in Doris, and use local name in edit log.
-                CreateDbInfo info = new CreateDbInfo(getName(), dbName, null);
-                Env.getCurrentEnv().getEditLog().logCreateDb(info);
+                // CreateDbInfo info = new CreateDbInfo(getName(), dbName, null);
+                Database db = new Database(getName(), dbName);
+                Env.getCurrentEnv().getEditLog().logCreateDb(db);
             }
         } catch (Exception e) {
             LOG.warn("Failed to create database {} in catalog {}.", dbName, getName(), e);
