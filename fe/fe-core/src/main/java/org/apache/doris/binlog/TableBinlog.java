@@ -297,6 +297,9 @@ public class TableBinlog {
                 if (minLockedCommitSeq.isPresent() && expiredCommitSeq + 1L < minLockedCommitSeq.get()) {
                     // Speed up the gc progress by the min locked commit seq.
                     expiredCommitSeq = minLockedCommitSeq.get() - 1L;
+                } else if (Config.enable_recycle_binlog_immediately && !minLockedCommitSeq.isPresent()) {
+                    // When the config enabled, recycle all binlogs immediately if no locking binlogs.
+                    expiredCommitSeq = binlogs.last().getCommitSeq();
                 }
             }
 
