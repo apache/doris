@@ -799,7 +799,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
 
     LOG(INFO) << (ret == 200 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
               << cntl->remote_side() << " request=\n"
-              << log_http_request << "\n ret=" << ret << " msg=" << msg;
+              << http_request << "\n ret=" << ret << " msg=" << msg;
 }
 
 } // namespace doris::cloud

@@ -228,7 +228,6 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
                          std::is_same_v<Response, GetStageResponse> ||
                          std::is_same_v<Response, GetInstanceResponse>) {
         std::string debug_string = encryt_sk(res->DebugString());
-        debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("ak_sk_finish_rpc", &debug_string);
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip() << " response=" << debug_string;
