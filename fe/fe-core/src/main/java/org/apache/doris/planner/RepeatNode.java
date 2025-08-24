@@ -102,6 +102,39 @@ public class RepeatNode extends PlanNode {
         return output.toString();
     }
 
+    /**
+     * Check if this RepeatNode contains empty grouping sets.
+     * Empty grouping () is represented by having at least one grouping pattern
+     * where all values are 1 (indicating all grouping columns are masked).
+     */
+    public boolean hasEmptyGrouping() {
+        if (groupingList == null || groupingList.isEmpty()) {
+            return false;
+        }
+        
+        // Check each grouping pattern
+        for (List<Long> groupingPattern : groupingList) {
+            if (groupingPattern == null || groupingPattern.isEmpty()) {
+                continue;
+            }
+            
+            // Check if this pattern represents empty grouping (all 1s)
+            boolean allOnes = true;
+            for (Long value : groupingPattern) {
+                if (value == null || value != 1L) {
+                    allOnes = false;
+                    break;
+                }
+            }
+            
+            if (allOnes) {
+                return true;  // Found empty grouping pattern
+            }
+        }
+        
+        return false;
+    }
+
     // Determined by its child.
     @Override
     public boolean isSerialOperator() {

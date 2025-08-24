@@ -156,6 +156,10 @@ public class AggregationNode extends PlanNode {
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
         }
+        
+        // Check if this aggregation has empty grouping from GROUPING SETS/ROLLUP/CUBE
+        boolean hasEmptyGrouping = hasEmptyGroupingFromRepeatNode();
+        msg.agg_node.setHasEmptyGrouping(hasEmptyGrouping);
     }
 
     @Override
@@ -209,6 +213,23 @@ public class AggregationNode extends PlanNode {
         List<SlotDescriptor> intermediateSlots = aggInfo.getOutputTupleDesc().getSlots();
         List<TExpr> projects = normalizeProjects(intermediateSlots, projectToIntermediateTuple, normalizer);
         aggregateNode.setProjectToAggOutputTuple(projects);
+    }
+
+    /**
+     * Check if this aggregation node has empty grouping from GROUPING SETS/ROLLUP/CUBE.
+     * This is determined by checking if the immediate child is a RepeatNode and
+     * if that RepeatNode contains empty grouping sets (represented by grouping_list with all 1s).
+     */
+    private boolean hasEmptyGroupingFromRepeatNode() {
+        // Check if the immediate child is a RepeatNode
+        if (children.size() == 1 && children.get(0) instanceof RepeatNode) {
+            RepeatNode repeatNode = (RepeatNode) children.get(0);
+            // Check if RepeatNode contains empty grouping 
+            // Empty grouping is represented by having at least one grouping set where all values are 1
+            // (indicating all grouping columns are masked/null)
+            return repeatNode.hasEmptyGrouping();
+        }
+        return false;
     }
 
     protected String getDisplayLabelDetail() {
