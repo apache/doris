@@ -181,21 +181,6 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
             builder.add(splitDistinctOnePhase(aggregate, localAggFunctionToAlias, onePhaseAgg));
         }
         return builder.build();
-        // Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
-        // Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
-        // AggregateParam param = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
-        // if (AggregateUtils.hasUnknownStatistics(aggregate, aggChildStats)
-        //         || AggregateUtils.shouldUseLocalAgg(aggStats, aggChildStats, localAggGroupBySet)) {
-        //     return ImmutableList.<Plan>builder()
-        //             .add(splitDistinctTwoPhase(aggregate, middleAggFunctionToAlias, twoPhaseAgg))
-        //             .add(splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, onePhaseAgg))
-        //             .build();
-        // } else {
-        //     return ImmutableList.<Plan>builder()
-        //             .add(splitDistinctOnePhase(aggregate, param, middleAggFunctionToAlias, twoPhaseAgg))
-        //             .add(splitDistinctOnePhase(aggregate, param, localAggFunctionToAlias, onePhaseAgg))
-        //             .build();
-        // }
     }
 
     private List<Plan> splitToOnePlusTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
@@ -212,19 +197,8 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
                 localAggFunctionToAlias, aggregate.child(),
                 Utils.fastToImmutableList(aggregate.getDistinctArguments()));
         return ImmutableList.of(splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg));
-        // AggregateParam param = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
-        // 这个地方用统计信息判断一下保留一阶段还是二阶段,
-        // Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
-        // Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
-        // if (AggregateUtils.hasUnknownStatistics(aggregate, aggChildStats)
-        //         || AggregateUtils.shouldUseLocalAgg(aggStats, aggChildStats, localAggGroupBySet)) {
-        //     return splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, localAgg);
-        // } else {
-        //     return splitDistinctOnePhase(aggregate, param, localAggFunctionToAlias, localAgg);
-        // }
     }
 
-    // inputToResultParamSecond这个参数在调用的时候传入的都是一样的，可以考虑删除参数
     private PhysicalHashAggregate<? extends Plan> splitDistinctOnePhase(LogicalAggregate<? extends Plan> aggregate,
             Map<AggregateFunction, Alias> childAggFuncMap, Plan child) {
         AggregateParam inputToResultParamSecond = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
@@ -269,7 +243,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
             }
         }
         double ndv = aggStats.getRowCount();
-        // 当ndv非常低的情况下,不能使用三阶段AGG,会有倾斜
+        // When ndv is very low, three-stage AGG cannot be used and there will be data skew
         if (ndv < 1000) {
             return false;
         }

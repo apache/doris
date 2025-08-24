@@ -107,7 +107,7 @@ public class SplitAgg extends OneExplorationRuleFactory {
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), inputToBufferParam),
                 null, null, aggregate.child());
 
-        //global agg做final聚合
+        // global agg
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> globalAggOutput = ExpressionUtils.rewriteDownShortCircuit(
                 aggregate.getOutputExpressions(), expr -> {
@@ -130,7 +130,7 @@ public class SplitAgg extends OneExplorationRuleFactory {
     private boolean shouldUseLocalAgg(LogicalAggregate<? extends Plan> aggregate) {
         Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
         Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
-        // 如果ndv高的话，就不进行local agg了
+        // if gbyNdv is high, should not use local agg
         double rows = aggChildStats.getRowCount();
         double gbyNdv = aggStats.getRowCount();
         return gbyNdv * 10 < rows;
