@@ -30,9 +30,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -81,32 +78,8 @@ public class LLMResource extends Resource {
         if (LOG.isDebugEnabled()) {
             LOG.debug("LLM resource need check validity: {}", needCheck);
         }
-        if (needCheck) {
-            pingLLM(properties);
-        }
 
         LLMProperties.optionalLLMProperties(this.properties);
-    }
-
-    protected static void pingLLM(Map<String, String> properties) throws DdlException {
-        String endpoint = properties.get(LLMProperties.ENDPOINT);
-        if (endpoint == null || endpoint.isEmpty()) {
-            throw new DdlException("LLM endpoint is not specified");
-        }
-
-        try {
-            URL url = new URL(endpoint);
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("HEAD");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
-
-            connection.connect();
-
-            LOG.info("Successfully pinged LLM API at {}", endpoint);
-        } catch (IOException e) {
-            throw new DdlException("Failed to ping LLM API at " + endpoint + ": " + e.getMessage());
-        }
     }
 
     public String getProperty(String propertyKey) {
@@ -138,7 +111,6 @@ public class LLMResource extends Resource {
             Map<String, String> changedProperties = new HashMap<>(this.properties);
             changedProperties.putAll(properties);
             LLMProperties.requiredLLMProperties(changedProperties);
-            pingLLM(changedProperties);
         }
 
         // modify properties
