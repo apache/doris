@@ -161,7 +161,7 @@ public class TopNWeighted extends NullableAggregateFunction
 
     public TopNWeighted(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1,
             Expression arg2, Expression arg3) {
-        super("topn_weighted", distinct, alwaysNullable, arg0, arg1, arg2);
+        super("topn_weighted", distinct, alwaysNullable, arg0, arg1, arg2, arg3);
     }
 
     /** constructor for withChildren and reuse signature */
