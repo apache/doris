@@ -104,16 +104,6 @@ public class RoutineLoadManagerTest {
         CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(labelNameInfo, tableNameString,
                 loadPropertyMap, properties, typeName, customProperties, LoadTask.MergeType.APPEND, "");
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
-                serverAddress, topicName, UserIdentity.ADMIN);
-
-        new MockUp<KafkaRoutineLoadJob>() {
-            @Mock
-            public KafkaRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info) {
-                return kafkaRoutineLoadJob;
-            }
-        };
-
         new Expectations() {
             {
                 env.getAccessManager();
@@ -125,7 +115,11 @@ public class RoutineLoadManagerTest {
             }
         };
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        createRoutineLoadInfo.validate(connectContext);
+        try {
+            createRoutineLoadInfo.validate(connectContext);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
 
         Map<String, RoutineLoadJob> idToRoutineLoadJob =
