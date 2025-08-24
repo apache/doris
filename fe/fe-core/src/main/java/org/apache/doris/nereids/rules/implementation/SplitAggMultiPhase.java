@@ -80,7 +80,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements ExplorationR
                 logicalAggregate()
                         .when(Aggregate::hasDistinctFunc)
                         .when(agg -> !agg.getGroupByExpressions().isEmpty())
-                        .when(agg -> agg.getDistinctArguments().size() == 1)
+                        .when(agg -> agg.getDistinctArguments().size() == 1 || agg.distinctFuncNum() == 1)
                         .thenApplyMulti(this::rewrite)
                         .toRule(RuleType.SPLIT_AGG_MULTI_PHASE)
         );
