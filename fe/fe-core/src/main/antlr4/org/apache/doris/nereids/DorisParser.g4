@@ -693,7 +693,7 @@ alterTableClause
         (FROM INDEX indexName=identifier)?                                          #dropPartitionClause
     | DROP TEMPORARY? PARTITION (IF EXISTS)? FORCE?
          FROM from=partitionValueList TO to=partitionValueList
-         INTERVAL INTEGER_VALUE unit=identifier?                                    #dropPartitionRangeClause
+         (INTERVAL INTEGER_VALUE unit=identifier?)?                                 #dropMultiPartitionClause
     | MODIFY TEMPORARY? PARTITION
         (partitionName=identifier | partitionNames=identifierList
             | LEFT_PAREN ASTERISK RIGHT_PAREN)

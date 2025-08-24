@@ -26,13 +26,14 @@ import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.DropMultiPartitionClause;
 import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.DropPartitionRangeClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MultiPartitionDesc;
+import org.apache.doris.analysis.MultiPartitionNames;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
@@ -1993,25 +1994,31 @@ public class InternalCatalog implements CatalogIf<Database> {
         dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
     }
 
-    public void dropPartitionRange(Database db, OlapTable olapTable,
-                                   DropPartitionRangeClause dropRangeClause) throws DdlException {
+    public void dropMultiPartition(Database db, OlapTable olapTable,
+                                   DropMultiPartitionClause dropMultiClause) throws DdlException {
         Set<String> intersection;
         try {
-            MultiPartitionDesc multiPartitionDesc = new MultiPartitionDesc(dropRangeClause.getPartitionKeyDesc(),
-                    null);
-            List<SinglePartitionDesc> singlePartitionDescs = multiPartitionDesc.getSinglePartitionDescList();
-            Set<String> singlePartitionNameSet = singlePartitionDescs.stream()
-                    .map(SinglePartitionDesc::getPartitionName)
-                    .collect(Collectors.toSet());
-            Set<String> allParitionNameSet = olapTable.getPartitionNames();
+            MultiPartitionNames multiPartitionNames = new MultiPartitionNames(dropMultiClause.getPartitionKeyDesc());
+            Set<String> singlePartitionNameSet = new HashSet<>(multiPartitionNames.getMultiPartitionNameList());
+            Set<String> allPartitionNameSet = olapTable.getPartitionNames();
 
             // Compute intersection - Partitions that actually exist and need to be deleted
             intersection = new HashSet<>(singlePartitionNameSet);
-            intersection.retainAll(allParitionNameSet);
+            intersection.retainAll(allPartitionNameSet);
 
             // Check if no partitions found to delete
             if (intersection.isEmpty()) {
-                throw new DdlException("No partitions found in the specified range to drop");
+                // Calculate missing partitions
+                Set<String> missingPartitions = new HashSet<>(singlePartitionNameSet);
+                missingPartitions.removeAll(allPartitionNameSet);
+
+                throw new DdlException(String.format(
+                    "No partitions found in the specified range to drop. "
+                    +
+                    "Missing partitions: [%s]. Current table partitions: [%s]",
+                    String.join(", ", missingPartitions),
+                    String.join(", ", allPartitionNameSet)
+                ));
             }
         } catch (AnalysisException e) {
             throw new DdlException("Failed to analyze drop partition range clause: " + e.getMessage());
@@ -2019,10 +2026,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         for (String singlePartitionName : intersection) {
             DropPartitionClause dropPartitionClause = new DropPartitionClause(
-                    dropRangeClause.isSetIfExists(),
+                    dropMultiClause.isSetIfExists(),
                     singlePartitionName,
-                    dropRangeClause.isTempPartition(),
-                    dropRangeClause.isForceDrop()
+                    dropMultiClause.isTempPartition(),
+                    dropMultiClause.isForceDrop()
             );
             dropPartition(db, olapTable, dropPartitionClause);
         }

@@ -24,14 +24,14 @@ import java.util.Map;
 
 
 // clause which is used to drop a partition
-public class DropPartitionRangeClause extends AlterTableClause {
+public class DropMultiPartitionClause extends AlterTableClause {
     private boolean ifExists;
     private PartitionKeyDesc partitionKeyDesc;
     // true if this is to drop a temp partition
     private boolean isTempPartition;
     private boolean forceDrop;
 
-    public DropPartitionRangeClause(boolean ifExists, boolean forceDrop, PartitionKeyDesc partitionKeyDesc,
+    public DropMultiPartitionClause(boolean ifExists, boolean forceDrop, PartitionKeyDesc partitionKeyDesc,
                                     boolean isTempPartition) {
         super(AlterOpType.DROP_PARTITION);
         this.ifExists = ifExists;

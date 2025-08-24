@@ -18,12 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
-import org.apache.doris.catalog.DynamicPartitionProperty;
-import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.ImmutableSet;
@@ -36,10 +32,9 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
 import java.time.temporal.WeekFields;
 import java.util.List;
-import java.util.Map;
 
 // to describe the key range multi partition's information in create table stmt
-public class MultiPartitionDesc implements AllPartitionDesc {
+public class MultiPartitionNames implements AllPartitionDesc {
     public static final String HOURS_FORMAT = "yyyyMMddHH";
     public static final String HOUR_FORMAT = "yyyy-MM-dd HH";
     public static final String DATES_FORMAT = "yyyyMMdd";
@@ -63,8 +58,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     private Long interval;
     private final PartitionKeyDesc partitionKeyDesc;
     private TimeUnit timeUnitType;
-    private final Map<String, String> properties;
-    private final List<SinglePartitionDesc> singlePartitionDescList = Lists.newArrayList();
+    private final List<String> multiPartitionNameList = Lists.newArrayList();
 
     private final ImmutableSet<TimeUnit> timeUnitTypeMultiPartition = ImmutableSet.of(
             TimeUnit.HOUR,
@@ -78,129 +72,95 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     //multi_partition_name_prefix default: p_
     private final String partitionPrefix = Config.multi_partition_name_prefix;
 
-    public MultiPartitionDesc(PartitionKeyDesc partitionKeyDesc,
-            Map<String, String> properties) throws AnalysisException {
+    public MultiPartitionNames(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
         this.partitionKeyDesc = partitionKeyDesc;
-        this.properties = properties;
         this.intervalTrans();
         this.trans();
     }
 
-    /**
-     * for Nereids
-     */
-    public MultiPartitionDesc(PartitionKeyDesc partitionKeyDesc, ReplicaAllocation replicaAllocation,
-            Map<String, String> properties) throws AnalysisException {
-        this.partitionKeyDesc = partitionKeyDesc;
-        this.properties = properties;
-        this.intervalTrans();
-        this.trans();
-        for (SinglePartitionDesc desc : getSinglePartitionDescList()) {
-            desc.setReplicaAlloc(replicaAllocation);
-            desc.setAnalyzed(true);
-        }
-    }
-
-    public List<SinglePartitionDesc> getSinglePartitionDescList() throws AnalysisException {
-        if (singlePartitionDescList.size() == 0) {
+    public List<String> getMultiPartitionNameList() throws AnalysisException {
+        if (multiPartitionNameList.isEmpty()) {
             if (this.timeUnitType == null) {
-                buildNumberMultiPartitionToSinglePartitionDesc();
+                buildNumberMultiPartitionNames();
             } else {
-                buildTimeMultiPartitionToSinglePartitionDesc();
+                buildTimeMultiPartitionNames();
             }
         }
-        return singlePartitionDescList;
+        return multiPartitionNameList;
     }
 
-    private List<SinglePartitionDesc> buildNumberMultiPartitionToSinglePartitionDesc() throws AnalysisException {
-        long countNum = 0;
-        long beginNum;
-        long endNum;
-        String partitionPrefix = this.partitionPrefix;
+    private List<String> buildNumberMultiPartitionNames() throws AnalysisException {
+        if (this.interval != null) {
+            long countNum = 0;
+            long beginNum;
+            long endNum;
+            String partitionPrefix = this.partitionPrefix;
 
 
-        try {
-            beginNum = Long.parseLong(startString);
-            endNum = Long.parseLong(endString);
-        } catch (NumberFormatException ex) {
-            throw new AnalysisException("Batch build partition INTERVAL is number type "
+            try {
+                beginNum = Long.parseLong(startString);
+                endNum = Long.parseLong(endString);
+            } catch (NumberFormatException ex) {
+                throw new AnalysisException("Batch build partition INTERVAL is number type "
                     + "but From or TO does not type match.");
-        }
-        if (beginNum >= endNum) {
-            throw new AnalysisException("Batch build partition From value should less then TO value.");
-        }
-
-        while (beginNum < endNum) {
-            String partitionName = partitionPrefix + beginNum;
-            PartitionValue lowerPartitionValue = new PartitionValue(beginNum);
-            beginNum += interval;
-            Long currentEnd = Math.min(beginNum, endNum);
-            PartitionValue upperPartitionValue = new PartitionValue(currentEnd);
-            partitionName = partitionName + "_" + currentEnd;
-            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(lowerPartitionValue),
-                    Lists.newArrayList(upperPartitionValue)
-            );
-            singlePartitionDescList.add(
-                    new SinglePartitionDesc(
-                            false,
-                            partitionName,
-                            partitionKeyDesc,
-                            properties)
-            );
-            countNum++;
-            if (countNum > maxAllowedLimit) {
-                throw new AnalysisException("The number of Multi partitions too much, should not exceed:"
-                        + maxAllowedLimit);
             }
+            if (beginNum >= endNum) {
+                throw new AnalysisException("Batch build partition From value should less then TO value.");
+            }
+
+            while (beginNum < endNum) {
+                String partitionName = partitionPrefix + beginNum;
+                beginNum += interval;
+                Long currentEnd = Math.min(beginNum, endNum);
+                partitionName = partitionName + "_" + currentEnd;
+                multiPartitionNameList.add(partitionName);
+                countNum++;
+                if (countNum > maxAllowedLimit) {
+                    throw new AnalysisException("The number of Multi partitions too much, should not exceed:"
+                        + maxAllowedLimit);
+                }
+            }
+            return multiPartitionNameList;
+        } else {
+            long countNum = 0;
+            long beginNum;
+            long endNum;
+            String partitionPrefix = this.partitionPrefix;
+
+
+            try {
+                beginNum = Long.parseLong(startString);
+                endNum = Long.parseLong(endString);
+            } catch (NumberFormatException ex) {
+                throw new AnalysisException("Batch build partition INTERVAL is number type "
+                    + "but From or TO does not type match.");
+            }
+            if (beginNum >= endNum) {
+                throw new AnalysisException("Batch build partition From value should less then TO value.");
+            }
+            while (beginNum < endNum) {
+                String partitionName = partitionPrefix + beginNum;
+                beginNum += 1;
+                multiPartitionNameList.add(partitionName);
+                countNum++;
+                if (countNum > maxAllowedLimit) {
+                    throw new AnalysisException("The number of Multi partitions too much, should not exceed:"
+                        + maxAllowedLimit);
+                }
+            }
+            return multiPartitionNameList;
         }
-        return singlePartitionDescList;
     }
 
-    private List<SinglePartitionDesc> buildTimeMultiPartitionToSinglePartitionDesc() throws AnalysisException {
+    private List<String> buildTimeMultiPartitionNames() throws AnalysisException {
         String partitionName;
         long countNum = 0;
         int startDayOfWeek = 1;
         int startDayOfMonth = 1;
         String partitionPrefix = this.partitionPrefix;
         LocalDateTime startTime = this.startTime;
-        if (properties != null) {
-            if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_WEEK)) {
-                String dayOfWeekStr = properties.get(DynamicPartitionProperty.START_DAY_OF_WEEK);
-                try {
-                    DynamicPartitionUtil.checkStartDayOfWeek(dayOfWeekStr);
-                } catch (DdlException e) {
-                    throw new AnalysisException(e.getMessage());
-                }
-                startDayOfWeek = Integer.parseInt(dayOfWeekStr);
-            }
-            if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {
-                String dayOfMonthStr = properties.get(DynamicPartitionProperty.START_DAY_OF_MONTH);
-                try {
-                    DynamicPartitionUtil.checkStartDayOfMonth(dayOfMonthStr);
-                } catch (DdlException e) {
-                    throw new AnalysisException(e.getMessage());
-                }
-                startDayOfMonth = Integer.parseInt(dayOfMonthStr);
-            }
-
-            if (properties.containsKey(DynamicPartitionProperty.CREATE_HISTORY_PARTITION)) {
-                properties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, "false");
-            }
-            if (properties.containsKey(DynamicPartitionProperty.PREFIX)) {
-                partitionPrefix = properties.get(DynamicPartitionProperty.PREFIX);
-                try {
-                    DynamicPartitionUtil.checkPrefix(partitionPrefix);
-                } catch (DdlException e) {
-                    throw new AnalysisException(e.getMessage());
-                }
-            }
-        }
         WeekFields weekFields = WeekFields.of(DayOfWeek.of(startDayOfWeek), 1);
         while (startTime.isBefore(this.endTime)) {
-            PartitionValue lowerPartitionValue = new PartitionValue(
-                    startTime.format(dateTypeFormat(partitionKeyDesc.getLowerValues().get(0).getStringValue()))
-            );
             switch (this.timeUnitType) {
                 case HOUR:
                     partitionName = partitionPrefix + startTime.format(DateTimeFormatter.ofPattern(HOURS_FORMAT));
@@ -236,20 +196,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
             if (this.timeUnitType != TimeUnit.DAY && startTime.isAfter(this.endTime)) {
                 startTime = this.endTime;
             }
-            PartitionValue upperPartitionValue = new PartitionValue(
-                    startTime.format(dateTypeFormat(partitionKeyDesc.getUpperValues().get(0).getStringValue()))
-            );
-            PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(lowerPartitionValue),
-                    Lists.newArrayList(upperPartitionValue)
-            );
-            singlePartitionDescList.add(
-                    new SinglePartitionDesc(
-                            false,
-                            partitionName,
-                            partitionKeyDesc,
-                            properties)
-            );
+            multiPartitionNameList.add(partitionName);
 
             countNum++;
             if (countNum > maxAllowedLimit) {
@@ -257,15 +204,15 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                         + maxAllowedLimit);
             }
         }
-        return singlePartitionDescList;
+        return multiPartitionNameList;
     }
 
     private void trans() throws AnalysisException {
 
         if (partitionKeyDesc.getLowerValues().size() != 1 || partitionKeyDesc.getUpperValues().size() != 1) {
             throw new AnalysisException("partition column number in multi partition clause must be one "
-                    + "but start column size is " + partitionKeyDesc.getLowerValues().size()
-                    + ", end column size is " + partitionKeyDesc.getUpperValues().size() + ".");
+                + "but start column size is " + partitionKeyDesc.getLowerValues().size()
+                + ", end column size is " + partitionKeyDesc.getUpperValues().size() + ".");
         }
 
         this.startString = partitionKeyDesc.getLowerValues().get(0).getStringValue();
@@ -297,31 +244,27 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         this.interval = partitionKeyDesc.getTimeInterval();
         String timeType = partitionKeyDesc.getTimeType();
 
-        if (timeType == null) {
-            throw new AnalysisException("Unknown time interval type for Multi build partition.");
-        }
-
-        if (this.interval <= 0) {
+        if (this.interval != null && this.interval <= 0) {
             throw new AnalysisException("Multi partition time interval must be larger than zero.");
         }
 
-        if (!timeType.equals("")) {
+        if ( timeType != null && !timeType.equals("")) {
             try {
                 this.timeUnitType = TimeUnit.valueOf(timeType.toUpperCase());
             } catch (Exception e) {
                 throw new AnalysisException("Multi build partition got an unknown time interval type: "
-                        + timeType);
+                    + timeType);
             }
         }
 
         if (this.timeUnitType != null && !timeUnitTypeMultiPartition.contains(this.timeUnitType)) {
             throw new AnalysisException("Multi build partition does not support time interval type: "
-                    + this.timeUnitType);
+                + this.timeUnitType);
         }
     }
 
     private static DateTimeFormatter dateFormat(TimeUnit timeUnitType,
-            String dateTimeStr) throws AnalysisException {
+                                                String dateTimeStr) throws AnalysisException {
         DateTimeFormatter res;
         switch (timeUnitType) {
             case HOUR:
@@ -374,17 +317,9 @@ public class MultiPartitionDesc implements AllPartitionDesc {
                 break;
             default:
                 throw new AnalysisException("Multi build partition does not support time interval type: "
-                        + timeUnitType);
+                    + timeUnitType);
         }
         return res;
-    }
-
-    private DateTimeFormatter dateTypeFormat(String dateTimeStr) {
-        String s = DATE_FORMAT;
-        if (this.timeUnitType.equals(TimeUnit.HOUR) || dateTimeStr.length() == 19) {
-            s = DATETIME_FORMAT;
-        }
-        return DateTimeFormatter.ofPattern(s);
     }
 
 }

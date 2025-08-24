@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.DropPartitionRangeClause;
+import org.apache.doris.analysis.DropMultiPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.UserException;
@@ -37,23 +37,23 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * DropPartitionOp
+ * DropMultiPartitionOp
  */
-public class DropPartitionRangeOp extends AlterTableOp {
+public class DropMultiPartitionOp extends AlterTableOp {
     private boolean ifExists;
     private final List<Expression> fromExpression;
     private final List<Expression> toExpression;
-    private final long unit;
+    private final String unit;
     private final String unitString;
     // true if this is to drop a temp partition
     private boolean isTempPartition;
     private boolean forceDrop;
 
     /**
-     * DropPartitionOp
+     * DropMultiPartitionOp
      */
-    public DropPartitionRangeOp(boolean ifExists, boolean forceDrop, List<Expression> fromExpression,
-                                List<Expression> toExpression, long unit, String unitString,
+    public DropMultiPartitionOp(boolean ifExists, boolean forceDrop, List<Expression> fromExpression,
+                                List<Expression> toExpression, String unit, String unitString,
                                 boolean isTempPartition) {
         super(AlterOpType.DROP_PARTITION);
         this.ifExists = ifExists;
@@ -90,10 +90,11 @@ public class DropPartitionRangeOp extends AlterTableOp {
         List<PartitionValue> toValues = toExpression.stream()
                 .map(this::toLegacyPartitionValue)
                 .collect(Collectors.toList());
-        PartitionKeyDesc partitionKeyDesc = (unitString == null
-                ? PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit)
-                : PartitionKeyDesc.createMultiFixed(fromValues, toValues, unit, unitString));
-        return new DropPartitionRangeClause(ifExists, forceDrop, partitionKeyDesc, isTempPartition);
+        PartitionKeyDesc partitionKeyDesc = (unit != null ? (unitString == null
+                ? PartitionKeyDesc.createMultiFixed(fromValues, toValues, Long.parseLong(unit))
+                : PartitionKeyDesc.createMultiFixed(fromValues, toValues, Long.parseLong(unit), unitString))
+                : PartitionKeyDesc.createFixed(fromValues, toValues));
+        return new DropMultiPartitionClause(ifExists, forceDrop, partitionKeyDesc, isTempPartition);
     }
 
     @Override

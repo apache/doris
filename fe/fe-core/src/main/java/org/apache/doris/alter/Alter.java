@@ -30,9 +30,9 @@ import org.apache.doris.analysis.CreateOrReplaceBranchClause;
 import org.apache.doris.analysis.CreateOrReplaceTagClause;
 import org.apache.doris.analysis.DropBranchClause;
 import org.apache.doris.analysis.DropColumnClause;
+import org.apache.doris.analysis.DropMultiPartitionClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
-import org.apache.doris.analysis.DropPartitionRangeClause;
 import org.apache.doris.analysis.DropTagClause;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
@@ -296,12 +296,12 @@ public class Alter {
                             DynamicPartitionUtil.checkAlterAllowed(olapTable);
                         }
                         Env.getCurrentEnv().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
-                    } else if (alterClause instanceof DropPartitionRangeClause) {
-                        if (!((DropPartitionRangeClause ) alterClause).isTempPartition()) {
+                    } else if (alterClause instanceof DropMultiPartitionClause) {
+                        if (!((DropMultiPartitionClause ) alterClause).isTempPartition()) {
                             DynamicPartitionUtil.checkAlterAllowed(olapTable);
                         }
-                        Env.getCurrentEnv().dropPartitionRange(db, olapTable,
-                                ((DropPartitionRangeClause ) alterClause));
+                        Env.getCurrentEnv().dropMultiPartition(db, olapTable,
+                                ((DropMultiPartitionClause ) alterClause));
                     } else if (alterClause instanceof ReplacePartitionClause) {
                         Env.getCurrentEnv().replaceTempPartition(db, olapTable, (ReplacePartitionClause) alterClause);
                     } else if (alterClause instanceof ModifyPartitionClause) {

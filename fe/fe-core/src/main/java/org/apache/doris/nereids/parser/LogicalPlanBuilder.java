@@ -190,8 +190,8 @@ import org.apache.doris.nereids.DorisParser.DropIndexContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenizerContext;
 import org.apache.doris.nereids.DorisParser.DropMVContext;
+import org.apache.doris.nereids.DorisParser.DropMultiPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.DropPartitionClauseContext;
-import org.apache.doris.nereids.DorisParser.DropPartitionRangeClauseContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.DropRepositoryContext;
 import org.apache.doris.nereids.DorisParser.DropRoleContext;
@@ -905,10 +905,10 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFromIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
-import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionRangeOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
@@ -5544,15 +5544,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public AlterTableOp visitDropPartitionRangeClause(DropPartitionRangeClauseContext ctx) {
+    public AlterTableOp visitDropMultiPartitionClause(DropMultiPartitionClauseContext ctx) {
         boolean ifExists = ctx.IF() != null;
         boolean forceDrop = ctx.FORCE() != null;
         List<Expression> from = visitPartitionValueList(ctx.from);
         List<Expression> to = visitPartitionValueList(ctx.to);
-        int num = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        String num = ctx.INTEGER_VALUE() != null
+                ? ctx.INTEGER_VALUE().getText() : null;
         String unitString = ctx.unit != null ? ctx.unit.getText() : null;
         boolean isTempPartition = ctx.TEMPORARY() != null;
-        return new DropPartitionRangeOp(ifExists, forceDrop, from, to, num, unitString, isTempPartition);
+        return new DropMultiPartitionOp(ifExists, forceDrop, from, to, num, unitString, isTempPartition);
     }
 
     @Override
