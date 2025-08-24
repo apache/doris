@@ -18,7 +18,6 @@
 suite("test_drop_partition_range") {
     
     // Test 1: Drop partitions by date range with DAY interval
-    sql "DROP TABLE IF EXISTS drop_range_partition_1 FORCE"
     sql """
         CREATE TABLE drop_range_partition_1
         (
@@ -47,7 +46,6 @@ suite("test_drop_partition_range") {
     assertEquals(result2.size(), 2)
 
     // Test 2: Drop partitions by date range with WEEK interval
-    sql "DROP TABLE IF EXISTS drop_range_partition_2 FORCE"
     sql """
         CREATE TABLE drop_range_partition_2 (
             `k1` LARGEINT NOT NULL,
@@ -76,7 +74,6 @@ suite("test_drop_partition_range") {
     assertEquals(result4.size(), 4)
 
     // Test 3: Drop partitions by numeric range
-    sql "DROP TABLE IF EXISTS drop_range_partition_3 FORCE"
     sql """
         CREATE TABLE drop_range_partition_3
         (
@@ -99,7 +96,6 @@ suite("test_drop_partition_range") {
     assertEquals(result6.size(), 0)
 
     // Test 4: Drop partitions with HOUR interval
-    sql "DROP TABLE IF EXISTS drop_range_partition_4 FORCE"
     sql """
         CREATE TABLE drop_range_partition_4
         (
@@ -122,7 +118,6 @@ suite("test_drop_partition_range") {
     assertEquals(result8.size(), 3)
 
     // Test 5: Drop partitions with MONTH interval
-    sql "DROP TABLE IF EXISTS drop_range_partition_5 FORCE"
     sql """
         CREATE TABLE drop_range_partition_5
         (
@@ -145,7 +140,6 @@ suite("test_drop_partition_range") {
     assertEquals(result10.size(), 3)
 
     // Test 6: Drop partitions with different numeric intervals
-    sql "DROP TABLE IF EXISTS drop_range_partition_6 FORCE"
     sql """
         CREATE TABLE drop_range_partition_6
         (
@@ -168,7 +162,6 @@ suite("test_drop_partition_range") {
     assertEquals(result13.size(), 4)
 
     // Test 8: Delete partitions by date number without intervals
-    sql "DROP TABLE IF EXISTS drop_range_partition_7 FORCE"
     sql """
         CREATE TABLE drop_range_partition_7
         (
@@ -194,7 +187,6 @@ suite("test_drop_partition_range") {
     assertEquals(result14.size(), 2)
     
     // Test 8: Delete partitions by date range without intervals
-    sql "DROP TABLE IF EXISTS drop_range_partition_7 FORCE"
     sql """
         CREATE TABLE drop_range_partition_7
         (
