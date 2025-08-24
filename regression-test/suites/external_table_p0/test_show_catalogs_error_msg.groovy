@@ -44,7 +44,7 @@ suite("test_show_catalogs_error_msg", "p0,external,iceberg,external_docker,exter
 
         test {
             sql """show databases from ${catalog_name}"""
-            exception "errCode = 2, detailMessage"
+            exception "is out of range"
         }
 
         boolean found = false;
