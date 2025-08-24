@@ -121,7 +121,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
             // cu compaction
             trigger_and_wait_compaction("date", "cumulative")
         } catch (Exception e) {
-            logger.error("Exception: " + e)
+            logger.info("Exception: " + e)
         } finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
