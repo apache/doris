@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testProjectionMV1") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -49,6 +51,18 @@ suite ("testProjectionMV1") {
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
+    mv_rewrite_success_without_check_chosen("select empid, deptno from emps where deptno > 0 order by empid;", "emps_mv")
+
+    mv_rewrite_success_without_check_chosen("select empid, sum(deptno) from emps where deptno > 0 group by empid order by empid;",
+            "emps_mv")
+
+    mv_rewrite_success_without_check_chosen("select deptno, sum(empid) from emps where deptno > 0 group by deptno order by deptno;",
+            "emps_mv")
+
+    sql """set enable_stats=true;"""
+
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
+
     mv_rewrite_success("select empid, deptno from emps where deptno > 0 order by empid;", "emps_mv")
     qt_select_mv "select empid, deptno from emps order by empid;"
 
@@ -59,16 +73,4 @@ suite ("testProjectionMV1") {
     mv_rewrite_success("select deptno, sum(empid) from emps where deptno > 0 group by deptno order by deptno;",
             "emps_mv")
     qt_select_mv "select deptno, sum(empid) from emps group by deptno order by deptno;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
-
-    mv_rewrite_success("select empid, deptno from emps where deptno > 0 order by empid;", "emps_mv")
-
-    mv_rewrite_success("select empid, sum(deptno) from emps where deptno > 0 group by empid order by empid;",
-            "emps_mv")
-
-    mv_rewrite_success("select deptno, sum(empid) from emps where deptno > 0 group by deptno order by deptno;",
-            "emps_mv")
 }

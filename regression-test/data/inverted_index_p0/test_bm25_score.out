@@ -3,20 +3,33 @@
 702
 
 -- !sql --
-893966437	39.0.0.0	GET /english/history/past_cups/images/past_bu_54_off.gif HTTP/1.1	200	403	0.28830066
-893966421	40.0.0.0	GET /english/history/past_cups/images/past_bu_30_off.gif HTTP/1.1	200	406	0.28830066
-893966421	40.0.0.0	GET /english/history/past_cups/images/past_bu_34_on.gif HTTP/1.1	200	474	0.28830066
-893966415	17.0.0.0	GET /english/history/past_cups/images/past_bu_58_off.gif HTTP/1.0	200	397	0.28830066
-893966414	17.0.0.0	GET /english/history/past_cups/images/past_bu_50_on.gif HTTP/1.0	200	455	0.28830066
-893966413	17.0.0.0	GET /english/history/past_cups/images/past_bu_38_off.gif HTTP/1.0	200	436	0.28830066
-893965913	45.135.0.0	GET /french/history/past_cups/images/past_bu_74_off.gif HTTP/1.0	200	423	0.28830066
-893965913	45.135.0.0	GET /french/history/past_cups/images/past_bu_34_off.gif HTTP/1.0	200	397	0.28830066
+893965910	45.135.0.0	GET /french/history/past_cups/images/past_bu_66_off.gif HTTP/1.0	200	435	0.28830066
+893965908	45.135.0.0	GET /french/history/past_cups/images/past_bu_50_off.gif HTTP/1.0	200	392	0.28830066
+893965906	45.135.0.0	GET /french/history/past_cups/images/past_bu_94_off.gif HTTP/1.0	200	432	0.28830066
+893965906	45.135.0.0	GET /french/history/past_cups/images/past_bu_86_off.gif HTTP/1.0	200	409	0.28830066
 893965905	45.135.0.0	GET /french/history/past_cups/images/past_bu_70_off.gif HTTP/1.0	200	409	0.28830066
 893965905	45.135.0.0	GET /french/history/past_cups/images/past_bu_78_on.gif HTTP/1.0	200	501	0.28830066
+893965904	45.135.0.0	GET /french/history/past_cups/images/past_bu_62_off.gif HTTP/1.0	200	437	0.28830066
+893965903	45.135.0.0	GET /french/history/past_cups/images/past_bu_54_off.gif HTTP/1.0	200	403	0.28830066
+893965902	45.135.0.0	GET /french/history/past_cups/images/past_bu_38_off.gif HTTP/1.0	200	436	0.28830066
+893965901	45.135.0.0	GET /french/history/past_cups/images/past_bu_30_off.gif HTTP/1.0	200	406	0.28830066
 
 -- !sql --
 893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160415
 
 -- !sql --
 893966443	30.0.0.0	GET /english/playing/mascot/images/button.03.gif HTTP/1.0	200	893	10.160415
+
+-- !sql --
+2	2	{"key":"abc hhh"}	0.0
+
+-- !sql --
+4	4	hello world
+3	3	this is a test
+
+-- !sql --
+4	4	hello world	1.0925692
+
+-- !sql --
+4	4	hello world
 

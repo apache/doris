@@ -411,17 +411,22 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 result = setIfNotExist;
                 isTableExist = true;
             } else {
-                registerTable(table);
-                if (table.isTemporary()) {
-                    Env.getCurrentEnv().registerTempTableAndSession(table);
-                }
-                if (table instanceof MTMV) {
-                    Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
-                }
-                if (!isReplay) {
-                    // Write edit log
-                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
-                    Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                table.writeLock();
+                try {
+                    registerTable(table);
+                    if (table.isTemporary()) {
+                        Env.getCurrentEnv().registerTempTableAndSession(table);
+                    }
+                    if (table instanceof MTMV) {
+                        Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
+                    }
+                    if (!isReplay) {
+                        // Write edit log
+                        CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
+                        Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                    }
+                } finally {
+                    table.writeUnlock();
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
