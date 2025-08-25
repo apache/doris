@@ -22,6 +22,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
+import org.apache.doris.nereids.rules.implementation.SplitAgg;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -397,7 +400,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
 
         // select count(distinct id), sum(id) from t;
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyImplementation(fourPhaseAggregateWithDistinct())
+                .applyImplementation(fourPhaseAggregateWithDistinctWithoutGbyKey())
                 .matches(
                         physicalHashAggregate(
                                 physicalHashAggregate(
@@ -420,9 +423,9 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
     }
 
     private Rule twoPhaseAggregateWithoutDistinct() {
-        return new AggregateStrategies().buildRules()
+        return SplitAgg.INSTANCE.buildRules()
                 .stream()
-                .filter(rule -> rule.getRuleType() == RuleType.TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT)
+                .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG)
                 .findFirst()
                 .get();
     }
@@ -437,9 +440,18 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
 
     @Developing
     private Rule fourPhaseAggregateWithDistinct() {
-        return new AggregateStrategies().buildRules()
+        return SplitAggMultiPhase.INSTANCE.buildRules()
                 .stream()
-                .filter(rule -> rule.getRuleType() == RuleType.FOUR_PHASE_AGGREGATE_WITH_DISTINCT)
+                .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG_MULTI_PHASE)
+                .findFirst()
+                .get();
+    }
+
+    @Developing
+    private Rule fourPhaseAggregateWithDistinctWithoutGbyKey() {
+        return SplitAggMultiPhaseWithoutGbyKey.INSTANCE.buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG_MULTI_PHASE_WITHOUT_GBY_KEY)
                 .findFirst()
                 .get();
     }
@@ -535,9 +547,9 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
     }
 
     private Rule skewRewriteRule() {
-        return new AggregateStrategies().buildRules()
+        return SplitAggMultiPhase.INSTANCE.buildRules()
                 .stream()
-                .filter(rule -> rule.getRuleType() == RuleType.AGG_SKEW_REWRITE)
+                .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG_MULTI_PHASE)
                 .findFirst()
                 .get();
     }
