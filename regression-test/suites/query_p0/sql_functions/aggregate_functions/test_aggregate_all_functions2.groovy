@@ -103,6 +103,24 @@ suite("test_aggregate_all_functions2") {
         exception "percentile_reservoir level must be in [0, 1]"
     }
 
+    qt_bool_and """SELECT bool_and(k0) FROM baseall;"""
+    qt_bool_and """SELECT bool_and(k1) FROM baseall;"""
+    qt_bool_and """SELECT bool_and(k8) over(partition by k6) from baseall order by k1;"""
+    qt_bool_or """SELECT bool_or(k2) FROM baseall group by k6 order by 1;"""
+    qt_bool_or """SELECT bool_or(k3) FROM baseall;"""
+    qt_bool_xor """SELECT bool_xor(k4) FROM baseall;"""
+    qt_bool_xor """SELECT bool_xor(k5) FROM baseall group by k6 order by 1;"""
+    
+    test {
+        sql """SELECT booland_agg(k7) FROM baseall;"""
+        exception "requires a boolean or numeric argument"
+    }
+
+    test {
+        sql """SELECT boolor_agg(k10) FROM baseall;"""
+        exception "requires a boolean or numeric argument"
+    }
+
     sql "DROP DATABASE IF EXISTS metric_table"
     sql """
         CREATE TABLE `metric_table` (
