@@ -228,7 +228,10 @@ template <typename A>
 struct NegativeImpl {
     static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
-    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) { return -a; }
+    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType
+    apply(A a) {
+        return -a;
+    }
 };
 
 struct NameNegative {

@@ -49,7 +49,8 @@ struct MultiplyIntegralImpl {
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
-    static inline typename PrimitiveTypeTraits<Type>::CppNativeType apply(Arg a, Arg b) {
+    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<Type>::CppNativeType apply(
+            Arg a, Arg b) {
         return a * b;
     }
 
