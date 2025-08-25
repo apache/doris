@@ -56,5 +56,5 @@ suite("test_validate_validate_restore", "validate_restore") {
     }
 
     runValidateRestore("3.0")
-    //runValidateRestore("2.1")
+    runValidateRestore("2.1")
 }

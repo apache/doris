@@ -466,13 +466,17 @@ public class PartitionInfo {
             }
 
             idToInMemory.put(partitionId, in.readBoolean());
-            if (Config.isCloudMode()) {
-                // HACK: the origin implementation of the cloud mode has code likes:
-                //
-                //     idToPersistent.put(partitionId, in.readBoolean());
-                //
-                // keep the compatibility here.
-                in.readBoolean();
+            // For meta <= 2.1, we don't need to do this. Or else if we backup from old doris <= 2.1
+            // and restore to a new cloud doris, it will fail at read BackupMeta.
+            if (Env.getCurrentEnvJournalVersion() > FeMetaVersion.VERSION_129) {
+                if (Config.isCloudMode()) {
+                    // HACK: the origin implementation of the cloud mode has code likes:
+                    //
+                    //     idToPersistent.put(partitionId, in.readBoolean());
+                    //
+                    // keep the compatibility here.
+                    in.readBoolean();
+                }
             }
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {

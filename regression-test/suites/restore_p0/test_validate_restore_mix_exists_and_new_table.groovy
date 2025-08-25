@@ -90,7 +90,7 @@ suite("test_validate_restore_mix_exists_and_new_table", "validate_restore") {
     }
 
     runValidateRestoreMixExistsAndNewTable("3.0")
-    //runValidateRestoreMixExistsAndNewTable("2.1")
+    runValidateRestoreMixExistsAndNewTable("2.1")
 }
 
 

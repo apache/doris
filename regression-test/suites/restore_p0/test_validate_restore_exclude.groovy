@@ -89,7 +89,7 @@ suite("test_validate_restore_exclude", "validate_restore") {
     }
 
     runValidateRestoreExclude("3.0")
-    //runValidateRestoreExclude("2.1")
+    runValidateRestoreExclude("2.1")
 }
 
 
