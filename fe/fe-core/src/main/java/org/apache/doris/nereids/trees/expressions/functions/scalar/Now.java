@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DateTimeWithPrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
@@ -37,7 +36,7 @@ import java.util.List;
 public class Now extends DateTimeWithPrecision implements ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(IntegerType.INSTANCE)
     );
 
