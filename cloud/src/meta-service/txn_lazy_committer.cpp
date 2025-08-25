@@ -315,7 +315,6 @@ void TxnLazyCommitTask::commit() {
                 LOG(WARNING) << "scan_tmp_rowset failed, txn_id=" << txn_id_ << " code=" << code_;
                 break;
             }
-
             VLOG_DEBUG << "txn_id=" << txn_id_
                        << " tmp_rowset_metas.size()=" << all_tmp_rowset_metas.size();
             if (all_tmp_rowset_metas.size() == 0) {
@@ -325,23 +324,33 @@ void TxnLazyCommitTask::commit() {
             // <partition_id, tmp_rowsets>
             std::map<int64_t, std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>>
                     partition_to_tmp_rowset_metas;
+            size_t max_rowset_meta_size = 0;
             for (auto& [tmp_rowset_key, tmp_rowset_pb] : all_tmp_rowset_metas) {
                 partition_to_tmp_rowset_metas[tmp_rowset_pb.partition_id()].emplace_back();
                 partition_to_tmp_rowset_metas[tmp_rowset_pb.partition_id()].back().first =
                         tmp_rowset_key;
                 partition_to_tmp_rowset_metas[tmp_rowset_pb.partition_id()].back().second =
                         tmp_rowset_pb;
+                max_rowset_meta_size = std::max(max_rowset_meta_size, tmp_rowset_pb.ByteSizeLong());
+            }
+
+            // fdb txn limit 10MB, we use 4MB as the max size for each batch.
+            size_t max_rowsets_per_batch = config::txn_lazy_max_rowsets_per_batch;
+            if (max_rowset_meta_size > 0) {
+                max_rowsets_per_batch = std::min((4UL << 20) / max_rowset_meta_size,
+                                                 size_t(config::txn_lazy_max_rowsets_per_batch));
+                TEST_SYNC_POINT_CALLBACK("TxnLazyCommitTask::commit::max_rowsets_per_batch",
+                                         &max_rowsets_per_batch, &max_rowset_meta_size);
             }
 
             for (auto& [partition_id, tmp_rowset_metas] : partition_to_tmp_rowset_metas) {
                 // tablet_id -> TabletIndexPB
                 std::map<int64_t, TabletIndexPB> tablet_ids;
-                for (size_t i = 0; i < tmp_rowset_metas.size();
-                     i += config::txn_lazy_max_rowsets_per_batch) {
-                    size_t end =
-                            (i + config::txn_lazy_max_rowsets_per_batch) > tmp_rowset_metas.size()
-                                    ? tmp_rowset_metas.size()
-                                    : i + config::txn_lazy_max_rowsets_per_batch;
+                for (size_t i = 0; i < tmp_rowset_metas.size(); i += max_rowsets_per_batch) {
+                    size_t end = (i + max_rowsets_per_batch) > tmp_rowset_metas.size()
+                                         ? tmp_rowset_metas.size()
+                                         : i + max_rowsets_per_batch;
+
                     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>
                             sub_partition_tmp_rowset_metas(tmp_rowset_metas.begin() + i,
                                                            tmp_rowset_metas.begin() + end);
