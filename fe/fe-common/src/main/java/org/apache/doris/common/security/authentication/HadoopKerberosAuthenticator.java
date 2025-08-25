@@ -163,10 +163,10 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
                 }
                 Map<String, String> options = builder.build();
                 return new AppConfigurationEntry[]{
-                        new AppConfigurationEntry(
-                                "com.sun.security.auth.module.Krb5LoginModule",
-                                AppConfigurationEntry.LoginModuleControlFlag.REQUIRED,
-                                options)};
+                    new AppConfigurationEntry(
+                        "com.sun.security.auth.module.Krb5LoginModule",
+                        AppConfigurationEntry.LoginModuleControlFlag.REQUIRED,
+                        options)};
             }
         };
     }
