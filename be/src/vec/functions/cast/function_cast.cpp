@@ -312,7 +312,6 @@ protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto st = wrapper_function(context, block, arguments, result, input_rows_count, nullptr);
-        ;
         if (!st.ok()) {
             return Status::Conversion(st.msg());
         }
