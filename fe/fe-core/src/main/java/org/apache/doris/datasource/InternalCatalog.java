@@ -466,7 +466,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         tryLock(true);
         try {
             if (!Strings.isNullOrEmpty(newDbName)) {
-                db.setNameWithLock(newDbName);
+                db.writeUnlock();
+                try {
+                    db.setNameWithoutLock(newDbName);
+                } finally {
+                    db.writeUnlock();
+                }
             }
             unprotectCreateDb(db);
         } finally {
@@ -637,7 +642,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             if (!Strings.isNullOrEmpty(newDbName)) {
-                db.setNameWithLock(newDbName);
+                db.writeLock();
+                try {
+                    db.setNameWithoutLock(newDbName);
+                } finally {
+                    db.writeUnlock();
+                }
             }
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);

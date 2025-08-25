@@ -239,19 +239,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
-    public void setNameWithLock(String newName) {
-        writeLock();
-        try {
-            // ClusterNamespace.getNameFromFullName should be removed in 3.0
-            this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
-            for (Table table : idToTable.values()) {
-                table.setQualifiedDbName(fullQualifiedName);
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public void setNameWithoutLock(String newName) {
         // ClusterNamespace.getNameFromFullName should be removed in 3.0
         this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
