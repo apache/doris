@@ -20,6 +20,8 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include "cloud/config.h"
+#include "io/cache/file_cache_common.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/index_storage_format_v1.h"
 #include "olap/rowset/segment_v2/index_storage_format_v2.h"
@@ -492,8 +494,9 @@ TEST_F(IndexFileWriterTest, PrepareFileMetadataTest) {
 
     auto* index_storage_format_v2 =
             static_cast<IndexStorageFormatV2*>(writer._index_storage_format.get());
-    std::vector<FileMetadata> file_metadata =
-            index_storage_format_v2->prepare_file_metadata(current_offset);
+    std::vector<FileMetadata> file_metadata;
+    IndexStorageFormatV2::MetaFileRange meta_range;
+    index_storage_format_v2->prepare_file_metadata(current_offset, file_metadata, meta_range);
 
     ASSERT_EQ(file_metadata.size(), 7); // Adjusted size after adding new files
 
@@ -2155,6 +2158,74 @@ TEST_F(IndexFileWriterTest, HeaderFileCountTest) {
     _CLLDELETE(ram_dir);
     dir->close();
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
+}
+
+class MockFileCacheAllocatorBuilder : public io::FileCacheAllocatorBuilder {
+public:
+    MockFileCacheAllocatorBuilder(bool is_cold_data, uint64_t expiration_time,
+                                  const io::UInt128Wrapper& cache_hash, io::BlockFileCache* cache)
+            : io::FileCacheAllocatorBuilder(is_cold_data, expiration_time, cache_hash, cache) {}
+
+    MOCK_METHOD(io::FileBlocksHolderPtr, allocate_cache_holder, (size_t offset, size_t size),
+                (const, override));
+};
+
+class MockFileWriter : public io::FileWriter {
+public:
+    Status close(bool non_block = false) override { return Status::OK(); }
+    Status appendv(const Slice* data, size_t data_cnt) override { return Status::OK(); }
+    const io::Path& path() const override { return _path; }
+    size_t bytes_appended() const override { return 0; }
+    State state() const override { return State::OPENED; }
+
+    void set_cache_builder(std::unique_ptr<io::FileCacheAllocatorBuilder> builder) {
+        _cache_builder = std::move(builder);
+    }
+
+private:
+    io::Path _path;
+};
+
+TEST_F(IndexFileWriterTest, AddMetaFilesToIndexCache_FullCoverage_Mock) {
+    {
+        IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                               InvertedIndexStorageFormatPB::V2);
+        IndexStorageFormatV2 format_v2(&writer);
+
+        auto mock = std::make_unique<MockFileWriter>();
+        auto builder = std::make_unique<::testing::StrictMock<MockFileCacheAllocatorBuilder>>(
+                false, 0, io::UInt128Wrapper(), nullptr);
+
+        EXPECT_CALL(*builder, allocate_cache_holder(0, 100))
+                .WillOnce(::testing::Return(::testing::ByMove(
+                        std::make_unique<io::FileBlocksHolder>(io::FileBlocks {}))));
+
+        mock->set_cache_builder(std::move(builder));
+        writer._idx_v2_writer = std::move(mock);
+
+        IndexStorageFormatV2::MetaFileRange meta_range {0, 100};
+        format_v2.add_meta_files_to_index_cache(meta_range);
+    }
+
+    {
+        IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                               InvertedIndexStorageFormatPB::V2);
+        IndexStorageFormatV2 format_v2(&writer);
+
+        auto mock = std::make_unique<MockFileWriter>();
+        auto builder = std::make_unique<::testing::StrictMock<MockFileCacheAllocatorBuilder>>(
+                false, 0, io::UInt128Wrapper(), nullptr);
+
+        EXPECT_CALL(*builder, allocate_cache_holder(0, 100))
+                .WillOnce(::testing::Return(::testing::ByMove(
+                        std::make_unique<io::FileBlocksHolder>(io::FileBlocks {}))));
+
+        mock->set_cache_builder(std::move(builder));
+        writer._idx_v2_writer = std::move(mock);
+
+        IndexStorageFormatV2::MetaFileRange meta_range {0, 0};
+        format_v2.add_meta_files_to_index_cache(meta_range);
+    }
 }
 
 } // namespace doris::segment_v2

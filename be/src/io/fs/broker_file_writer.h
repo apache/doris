@@ -33,7 +33,7 @@ namespace doris {
 class ExecEnv;
 
 namespace io {
-struct FileCacheAllocatorBuilder;
+class FileCacheAllocatorBuilder;
 class BrokerFileWriter final : public FileWriter {
 public:
     // Create and open file writer

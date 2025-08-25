@@ -28,7 +28,7 @@ namespace io {
 
 class HdfsHandler;
 class BlockFileCache;
-struct FileCacheAllocatorBuilder;
+class FileCacheAllocatorBuilder;
 struct AsyncCloseStatusPack;
 
 class HdfsFileWriter final : public FileWriter {

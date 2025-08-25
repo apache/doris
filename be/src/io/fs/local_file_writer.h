@@ -25,7 +25,7 @@
 #include "util/slice.h"
 
 namespace doris::io {
-struct FileCacheAllocatorBuilder;
+class FileCacheAllocatorBuilder;
 class LocalFileWriter final : public FileWriter {
 public:
     LocalFileWriter(Path path, int fd, bool sync_data = true);

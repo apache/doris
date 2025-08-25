@@ -33,7 +33,7 @@ struct RowsetId;
 struct SegmentStatistics;
 
 namespace io {
-struct FileCacheAllocatorBuilder;
+class FileCacheAllocatorBuilder;
 class StreamSinkFileWriter final : public FileWriter {
 public:
     StreamSinkFileWriter(std::vector<std::shared_ptr<LoadStreamStub>> streams)
