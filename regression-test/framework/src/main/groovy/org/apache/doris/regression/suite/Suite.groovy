@@ -2631,7 +2631,46 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def get_cluster = { be_unique_id , MetaService ms=null->
+    def add_vcluster = { cluster_name, cluster_id, active, standby ->
+        def jsonOutput = new JsonOutput()
+        def ci = [
+                     type: "VIRTUAL",
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     cluster_names: [
+                        active,
+                        standby
+                     ],
+                     cluster_policy: [
+                         type: "ActiveStandby",
+                         active_cluster_name: active,
+                         standby_cluster_names: [
+                             standby
+                         ]
+                     ]
+                 ]
+        def map = [instance_id: "${instance_id}", cluster: ci]
+        def js = jsonOutput.toJson(map)
+        log.info("add cluster req: ${js} ".toString())
+
+        def add_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/add_cluster?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        add_cluster_api.call(js) {
+            respCode, body ->
+                log.info("add cluster resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def get_cluster = { be_unique_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def map = [instance_id: "${instance_id}", cloud_unique_id: "${be_unique_id}" ]
         def js = jsonOutput.toJson(map)
@@ -2670,7 +2709,6 @@ class Suite implements GroovyInterceptable {
     def drop_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
-                     type: "COMPUTE",
                      cluster_name : cluster_name,
                      cluster_id : cluster_id,
                      nodes: [
@@ -2874,7 +2912,82 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def rename_cloud_cluster = { cluster_name, cluster_id ->
+    def checkProfileNew = { addrSet  ->
+        def query_profile_api = { check_func ->
+            httpTest {
+                op "get"
+                endpoint context.config.feHttpAddress
+                uri "/rest/v1/query_profile"
+                check check_func
+                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+            }
+        }
+
+        query_profile_api.call() {
+            respCode, body ->
+                log.info("query profile resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.msg.equalsIgnoreCase("success"))
+                log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+                log.info("lw query profile resp: ${json.data.rows[0]['Profile ID']}".toString())
+                checkProfileNew1.call(addrSet, json.data.rows[0]['Profile ID'])
+        }
+    }
+
+    def checkProfileNew1 = {addrSet, query_id  ->
+        def query_profile_api = { check_func ->
+            httpTest {
+                op "get"
+                endpoint context.config.feHttpAddress
+                uri "/api/profile?query_id=${query_id}"
+                check check_func
+                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+            }
+        }
+
+        query_profile_api.call() {
+            respCode, body ->
+                //log.info("query profile resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.msg.equalsIgnoreCase("success"))
+                //log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+
+                def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
+                if (instanceLineMatcher.find()) {
+                    // 提取出IP等信息的部分
+                    def instancesStr = instanceLineMatcher.group(1).trim()
+
+                    // 拆分各个实例，实例格式类似 "10.16.10.11:9713:4"
+                    def instanceEntries = instancesStr.split(/\s*,\s*/)
+
+                    // 定义存储解析结果的列表
+                    def result = []
+
+                    // 每个实例使用正则表达式解析IP和端口（忽略最后一个数字）
+                    instanceEntries.each { entry ->
+                        def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
+                        if(matcher.matches()){
+                            def ip = matcher.group(1)
+                            def port = matcher.group(2)
+                            //result << [ip: ip, port: port]
+                            //result << [ip:port]
+                            result.add(ip+":"+port)
+                        }
+                    }
+ 
+                    // 输出解析结果
+                    println "提取的IP和端口："
+                    result.each { println it }
+                    addrSet.each { println it }
+                    //result.each { assertTrue(addrSet.contains(it)) }
+                    assertTrue(addrSet.containsAll(result))
+                } else {
+                    println "未找到实例信息。"
+                }
+        }
+    }
+
+    def rename_cloud_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
                           cluster_name : cluster_name,
@@ -2886,7 +2999,11 @@ class Suite implements GroovyInterceptable {
 
         def rename_cluster_api = { request_body, check_func ->
             httpTest {
-                endpoint context.config.metaServiceHttpAddress
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 uri "/MetaService/http/rename_cluster?token=${token}"
                 body request_body
                 check check_func
