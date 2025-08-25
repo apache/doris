@@ -26,7 +26,9 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -130,6 +132,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
 
+    private TEncryptionAlgorithm encryptionAlgorithm = TEncryptionAlgorithm.PLAINTEXT;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -278,10 +281,30 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
+    public void buildTDEAlgorithm() {
+        String tdeAlgorithmName = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM,
+                TEncryptionAlgorithm.PLAINTEXT.name());
+        encryptionAlgorithm = TEncryptionAlgorithm.valueOf(tdeAlgorithmName);
+    }
+
+    public TEncryptionAlgorithm getTDEAlgorithm() {
+        return encryptionAlgorithm;
+    }
+
+    public EncryptionAlgorithmPB getTDEAlgorithmPB() {
+        switch (encryptionAlgorithm) {
+            case AES256:
+                return EncryptionAlgorithmPB.AES_256_CTR;
+            case SM4:
+                return EncryptionAlgorithmPB.SM4_128_CTR;
+            default:
+                return EncryptionAlgorithmPB.PLAINTEXT;
+        }
+    }
+
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
     }
-
 
     public TableProperty buildVariantEnableFlattenNested() {
         variantEnableFlattenNested = Boolean.parseBoolean(
@@ -803,6 +826,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         }
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
+        buildTDEAlgorithm();
     }
 
     // For some historical reason,
