@@ -2574,7 +2574,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // create table
         long tableId = idGeneratorBuffer.getNextId();
-        TableType tableType = OlapTableFactory.getOlapTableType();
+        TableType tableType = OlapTableFactory.getTableType(createTableInfo);
         OlapTable olapTable = (OlapTable) new OlapTableFactory()
                 .init(tableType, createTableInfo.isTemp())
                 .withTableId(tableId)

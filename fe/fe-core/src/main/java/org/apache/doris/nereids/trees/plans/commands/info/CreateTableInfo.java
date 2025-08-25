@@ -47,6 +47,9 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -143,6 +146,13 @@ public class CreateTableInfo {
     private PartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
 
+    // create multi table materialized view
+    private String querySql;
+    private Map<String, String> mvProperties;
+    private MTMVRefreshInfo refreshInfo;
+    private MTMVRelation relation;
+    private MTMVPartitionInfo mvPartitionInfo;
+
     // get when validate
     private Map<ColumnDefinition, Map<IndexType, List<IndexDefinition>>> columnToIndexes = new HashMap<>();
     private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
@@ -150,12 +160,24 @@ public class CreateTableInfo {
     /**
      * constructor for create table
      */
-    public CreateTableInfo(boolean ifNotExists, boolean isExternal, boolean isTemp, String ctlName, String dbName,
-            String tableName, List<ColumnDefinition> columns, List<IndexDefinition> indexes,
-            String engineName, KeysType keysType, List<String> keys, String comment,
+    public CreateTableInfo(
+            boolean ifNotExists,
+            boolean isExternal,
+            boolean isTemp,
+            String ctlName,
+            String dbName,
+            String tableName,
+            List<ColumnDefinition> columns,
+            List<IndexDefinition> indexes,
+            String engineName,
+            KeysType keysType,
+            List<String> keys,
+            String comment,
             PartitionTableInfo partitionTableInfo,
-            DistributionDescriptor distribution, List<RollupDefinition> rollups,
-            Map<String, String> properties, Map<String, String> extProperties,
+            DistributionDescriptor distribution,
+            List<RollupDefinition> rollups,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
             List<String> clusterKeyColumnNames) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
@@ -183,12 +205,23 @@ public class CreateTableInfo {
     /**
      * constructor for create table as select
      */
-    public CreateTableInfo(boolean ifNotExists, boolean isExternal, boolean isTemp, String ctlName, String dbName,
-            String tableName, List<String> cols, String engineName, KeysType keysType,
-            List<String> keys, String comment,
+    public CreateTableInfo(
+            boolean ifNotExists,
+            boolean isExternal,
+            boolean isTemp,
+            String ctlName,
+            String dbName,
+            String tableName,
+            List<String> cols,
+            String engineName,
+            KeysType keysType,
+            List<String> keys,
+            String comment,
             PartitionTableInfo partitionTableInfo,
-            DistributionDescriptor distribution, List<RollupDefinition> rollups,
-            Map<String, String> properties, Map<String, String> extProperties,
+            DistributionDescriptor distribution,
+            List<RollupDefinition> rollups,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
             List<String> clusterKeyColumnNames) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
@@ -214,6 +247,57 @@ public class CreateTableInfo {
     }
 
     /**
+     * constructor for create multi table materialized view
+     */
+    public CreateTableInfo(
+            boolean ifNotExists,
+            boolean isExternal,
+            boolean isTemp,
+            String ctlName,
+            String dbName,
+            String tableName,
+            List<String> cols,
+            String engineName,
+            KeysType keysType,
+            List<String> keys,
+            String comment,
+            PartitionTableInfo partitionTableInfo,
+            DistributionDescriptor distribution,
+            List<RollupDefinition> rollups,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
+            List<String> clusterKeyColumnNames,
+            MTMVRefreshInfo refreshInfo,
+            String querySql,
+            Map<String, String> mvProperties,
+            MTMVPartitionInfo mvPartitionInfo,
+            MTMVRelation relation) {
+        this(
+                ifNotExists,
+                isExternal,
+                isTemp,
+                ctlName,
+                dbName,
+                tableName,
+                cols,
+                engineName,
+                keysType,
+                keys,
+                comment,
+                partitionTableInfo,
+                distribution,
+                rollups,
+                properties,
+                extProperties,
+                clusterKeyColumnNames);
+        this.refreshInfo = refreshInfo;
+        this.querySql = querySql;
+        this.mvProperties = mvProperties;
+        this.mvPartitionInfo = mvPartitionInfo;
+        this.relation = relation;
+    }
+
+    /**
      * withTableNameAndIfNotExists
      */
     public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
@@ -226,6 +310,26 @@ public class CreateTableInfo {
                     engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
                     extProperties, clusterKeysColumnNames);
         }
+    }
+
+    public String getQuerySql() {
+        return querySql;
+    }
+
+    public Map<String, String> getMvProperties() {
+        return mvProperties;
+    }
+
+    public MTMVRefreshInfo getRefreshInfo() {
+        return refreshInfo;
+    }
+
+    public MTMVRelation getRelation() {
+        return relation;
+    }
+
+    public MTMVPartitionInfo getMvPartitionInfo() {
+        return mvPartitionInfo;
     }
 
     public List<String> getCtasColumns() {
