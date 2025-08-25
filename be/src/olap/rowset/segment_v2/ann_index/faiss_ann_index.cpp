@@ -224,14 +224,13 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
     std::unique_ptr<faiss::IDSelector> id_sel = nullptr;
     // Costs of roaring to faiss selector is very high especially when the cardinality is very high.
     if (params.roaring->cardinality() != params.rows_of_segment) {
-        LOG_INFO("Roaring to faiss selector, roaring {} rows, segment {} rows",
-                 params.roaring->cardinality(), params.rows_of_segment);
-        {
-            SCOPED_RAW_TIMER(&result.engine_prepare_ns);
-            id_sel = roaring_to_faiss_selector(*params.roaring);
-        }
+        SCOPED_RAW_TIMER(&result.engine_prepare_ns);
+        id_sel = roaring_to_faiss_selector(*params.roaring);
         param.sel = id_sel.get();
+    } else {
+        param.sel = nullptr;
     }
+
     {
         SCOPED_RAW_TIMER(&result.engine_search_ns);
         _index->search(1, query_vec, k, distances, labels, &param);
@@ -283,26 +282,30 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
     DCHECK(query_vec != nullptr);
     DCHECK(params.roaring != nullptr)
             << "Roaring should not be null for range search, please set roaring in params";
-    std::unique_ptr<faiss::IDSelector> sel;
-    {
-        // Engine prepare: convert roaring bitmap to FAISS selector
-        SCOPED_RAW_TIMER(&result.engine_prepare_ns);
-        sel = roaring_to_faiss_selector(*params.roaring);
-    }
-    faiss::RangeSearchResult native_search_result(1, true);
-    const HNSWSearchParameters* hnsw_params = dynamic_cast<const HNSWSearchParameters*>(&params);
-    // Currently only support HNSW index for range search.
-    DCHECK(hnsw_params != nullptr) << "HNSW search parameters should not be null for HNSW index";
-
     faiss::SearchParametersHNSW param;
+    const HNSWSearchParameters* hnsw_params = dynamic_cast<const HNSWSearchParameters*>(&params);
     {
         // Engine prepare: set search parameters and bind selector
         SCOPED_RAW_TIMER(&result.engine_prepare_ns);
         param.efSearch = hnsw_params->ef_search;
         param.check_relative_distance = hnsw_params->check_relative_distance;
         param.bounded_queue = hnsw_params->bounded_queue;
-        param.sel = sel.get();
     }
+    std::unique_ptr<faiss::IDSelector> sel;
+    {
+        // Engine prepare: convert roaring bitmap to FAISS selector
+        SCOPED_RAW_TIMER(&result.engine_prepare_ns);
+        if (params.roaring->cardinality() != params.rows_of_segment) {
+            sel = roaring_to_faiss_selector(*params.roaring);
+            param.sel = sel.get();
+        } else {
+            param.sel = nullptr;
+        }
+    }
+
+    faiss::RangeSearchResult native_search_result(1, true);
+    // Currently only support HNSW index for range search.
+    DCHECK(hnsw_params != nullptr) << "HNSW search parameters should not be null for HNSW index";
     {
         // Engine search: FAISS range_search
         SCOPED_RAW_TIMER(&result.engine_search_ns);
