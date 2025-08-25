@@ -201,7 +201,6 @@ int Checker::start() {
                 }
             }
 
-
             if (config::enable_txn_key_check) {
                 if (int ret = checker->do_txn_key_check(); ret != 0) {
                     success = false;
@@ -1927,12 +1926,21 @@ int InstanceChecker::do_txn_key_check() {
     // check txn info key depend on txn label key
     std::string begin = txn_label_key({instance_id_, 0, ""});
     std::string end = txn_label_key({instance_id_, INT64_MAX, ""});
-    ret = scan_and_handle_kv(begin, end, [this](std::string_view k, std::string_view v) -> int {
-        return check_txn_info_key(k, v);
+    int64_t num_scanned = 0;
+    int64_t num_abnormal = 0;
+    LOG(INFO) << "begin check txn_label_key and txn_info_key";
+    ret = scan_and_handle_kv(begin, end, [&, this](std::string_view k, std::string_view v) -> int {
+        num_scanned++;
+        int ret = check_txn_info_key(k, v);
+        if (ret == 1) {
+            num_abnormal++;
+        }
+        return ret;
     });
 
     if (ret == 1) {
-        LOG(WARNING) << "depending on txn_label_key to check txn_info_key, which found abnormal";
+        LOG(WARNING) << "failed to check txn_info_key depending on txn_label_key, num_scanned="
+                     << num_scanned << ", num_abnormal=" << num_abnormal;
         return 1;
     } else if (ret == -1) {
         LOG(WARNING) << "failed to check txn label key and txn info key";
@@ -1942,44 +1950,77 @@ int InstanceChecker::do_txn_key_check() {
     // check txn label key depend on txn info key
     begin = txn_info_key({instance_id_, 0, 0});
     end = txn_info_key({instance_id_, INT64_MAX, 0});
-    ret = scan_and_handle_kv(begin, end, [this](std::string_view k, std::string_view v) -> int {
-        return check_txn_label_key(k, v);
+    num_scanned = 0;
+    num_abnormal = 0;
+    LOG(INFO) << "begin check txn_label_key and txn_info_key";
+    ret = scan_and_handle_kv(begin, end, [&, this](std::string_view k, std::string_view v) -> int {
+        num_scanned++;
+        int ret = check_txn_label_key(k, v);
+        if (ret == 1) {
+            num_abnormal++;
+        }
+        return ret;
     });
     if (ret == 1) {
-        LOG(WARNING) << "depending on txn_info_key to check txn_label_key, which found abnormal";
+        LOG(WARNING) << "failed to check txn_label_key depending on txn_info_key, num_scanned="
+                     << num_scanned << ", num_abnormal=" << num_abnormal;
         return 1;
     } else if (ret == -1) {
         LOG(WARNING) << "failed to inverted check txn label key and txn info key";
         return -1;
     }
+    LOG(INFO) << "finish check txn_label_key and txn_info_key, num_scanned=" << num_scanned
+              << ", num_abnormal=" << num_abnormal;
 
     // check txn index key depend on txn info key
     begin = txn_info_key({instance_id_, 0, 0});
     end = txn_info_key({instance_id_, INT64_MAX, 0});
-    ret = scan_and_handle_kv(begin, end, [this](std::string_view k, std::string_view v) -> int {
-        return check_txn_index_key(k, v);
+    num_scanned = 0;
+    num_abnormal = 0;
+    LOG(INFO) << "begin check txn_index_key and txn_info_key";
+    ret = scan_and_handle_kv(begin, end, [&, this](std::string_view k, std::string_view v) -> int {
+        num_scanned++;
+        int ret = check_txn_index_key(k, v);
+        if (ret == 1) {
+            num_abnormal++;
+        }
+        return ret;
     });
     if (ret == 1) {
-        LOG(WARNING) << "depending on txn_info_key to check txn_idx_key, which found abnormal";
+        LOG(WARNING) << "failed to check txn_idx_key depending on txn_info_key, num_scanned="
+                     << num_scanned << ", num_abnormal=" << num_abnormal;
         return 1;
     } else if (ret == -1) {
         LOG(WARNING) << "failed to check txn index key";
         return -1;
     }
+    LOG(INFO) << "finish check txn_index_key and txn_info_key, num_scanned=" << num_scanned
+              << ", num_abnormal=" << num_abnormal;
 
-    // check txn index key depend on txn info key
+    // check txn running key
     begin = txn_running_key({instance_id_, 0, 0});
     end = txn_running_key({instance_id_, INT64_MAX, 0});
-    ret = scan_and_handle_kv(begin, end, [this](std::string_view k, std::string_view v) -> int {
-        return check_txn_running_key(k, v);
+    num_scanned = 0;
+    num_abnormal = 0;
+    LOG(INFO) << "begin check txn_running_key";
+    ret = scan_and_handle_kv(begin, end, [&, this](std::string_view k, std::string_view v) -> int {
+        num_scanned++;
+        int ret = check_txn_running_key(k, v);
+        if (ret == 1) {
+            num_abnormal++;
+        }
+        return ret;
     });
     if (ret == 1) {
-        LOG(WARNING) << "depending on txn_idx_key to check txn_info_key, which found abnormal";
+        LOG(WARNING) << "failed to check txn_running_key, num_scanned=" << num_scanned
+                     << ", num_abnormal=" << num_abnormal;
         return 1;
     } else if (ret == -1) {
         LOG(WARNING) << "failed to check txn running key";
         return -1;
     }
+    LOG(INFO) << "finish check txn_running_key, num_scanned=" << num_scanned
+              << ", num_abnormal=" << num_abnormal;
     return 0;
 }
 
@@ -1987,7 +2028,7 @@ int InstanceChecker::scan_and_handle_kv(
         std::string& start_key, const std::string& end_key,
         std::function<int(std::string_view, std::string_view)> handle_kv) {
     std::unique_ptr<Transaction> txn;
-    int ret = -1;
+    int ret = 0;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to init txn";
@@ -2004,8 +2045,11 @@ int InstanceChecker::scan_and_handle_kv(
         while (it->has_next() && !stopped()) {
             auto [k, v] = it->next();
 
-            if ((ret = std::max(ret, handle_kv(k, v))) == -1) {
+            int handle_ret = handle_kv(k, v);
+            if (handle_ret == -1) {
                 return -1;
+            } else {
+                ret = std::max(ret, handle_ret);
             }
             if (!it->has_next()) {
                 start_key = k;
