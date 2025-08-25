@@ -110,6 +110,8 @@ enum TStatusCode {
 
     SNAPSHOT_EXPIRED = 75,
 
+    CONVERSION = 76,
+
     // used for cloud
     DELETE_BITMAP_LOCK_ERROR = 100,
     // Not be larger than 200, see status.h
