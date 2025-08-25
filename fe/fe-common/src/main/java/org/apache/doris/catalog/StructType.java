@@ -58,6 +58,10 @@ public class StructType extends Type {
         }
     }
 
+    public StructType(StructField... fields) {
+        this(Lists.newArrayList(fields));
+    }
+
     public StructType(List<Type> types) {
         Preconditions.checkNotNull(types);
         ArrayList<StructField> newFields = new ArrayList<>();
