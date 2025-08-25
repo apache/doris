@@ -301,20 +301,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public long getUsedDataQuotaWithLock() {
+    public long getUsedDataQuota() {
         return getUsedDataSize().first;
     }
 
     public Pair<Long, Long> getUsedDataSize() {
         long usedDataSize = 0;
         long usedRemoteDataSize = 0;
-        List<Table> tables = new ArrayList<>();
-        readLock();
-        try {
-            tables.addAll(this.idToTable.values());
-        } finally {
-            readUnlock();
-        }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
 
         for (Table table : tables) {
             if (!table.isManagedTable()) {
@@ -356,7 +350,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
                 + quotaUnitPair.second;
-        long usedDataQuota = getUsedDataQuotaWithLock();
+        long usedDataQuota = getUsedDataQuota();
         long leftDataQuota = Math.max(dataQuotaBytes - usedDataQuota, 0);
 
         Pair<Double, String> leftQuotaUnitPair = DebugUtil.getByteUint(leftDataQuota);
