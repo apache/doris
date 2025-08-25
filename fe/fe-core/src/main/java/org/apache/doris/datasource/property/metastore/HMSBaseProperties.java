@@ -165,6 +165,7 @@ public class HMSBaseProperties {
                 && this.hdfsAuthenticationType.equalsIgnoreCase("kerberos")) {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
+            hiveConf.set("hadoop.security.authentication", "kerberos");
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }
