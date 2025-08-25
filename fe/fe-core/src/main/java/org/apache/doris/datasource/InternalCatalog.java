@@ -3292,7 +3292,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeLockOrDdlException();
             try {
                 // db name not changed
-                if (!db.getName().equals(createTableInfo.getDbName())) {
+                if (!db.getName().equals(Database.getNameFromFullName(createTableInfo.getDbName()))) {
                     throw new DdlException("Database name renamed, please check the database name");
                 }
                 // register table, write create table edit log
