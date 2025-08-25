@@ -301,10 +301,13 @@ private:
     WrappedPtr serialized_sparse_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
+    // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
     int32_t _max_subcolumns_count = 0;
 
+    // subcolumns count materialized from typed paths
     size_t typed_path_count = 0;
 
+    // subcolumns count materialized from nested paths
     size_t nested_path_count = 0;
 
 public:
@@ -600,6 +603,24 @@ public:
 
     void set_max_subcolumns_count(int32_t max_subcolumns_count) {
         _max_subcolumns_count = max_subcolumns_count;
+    }
+
+    // Returns how many dynamic subcolumns are still allowed to be appended,
+    // The remaining quota is `max - current`.
+    size_t can_add_subcolumns_count() const {
+        // When `_max_subcolumns_count == 0`, appending dynamic subcolumns is disabled.
+        // In this case, all subcolumns are materialized.
+        if (_max_subcolumns_count == 0) {
+            return 0;
+        }
+
+        // `current_subcolumns_count` excludes:
+        //   1) subcolumns materialized from typed paths (`typed_path_count`),
+        //   2) subcolumns materialized from nested paths (`nested_path_count`),
+        //   3) the implicit root holder node in `subcolumns` (hence the `- 1`).
+        size_t current_subcolumns_count =
+                subcolumns.size() - typed_path_count - nested_path_count - 1;
+        return _max_subcolumns_count - current_subcolumns_count;
     }
 
 private:
