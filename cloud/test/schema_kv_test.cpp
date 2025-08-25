@@ -27,6 +27,9 @@
 #include "common/defer.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-service/meta_service_schema.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -267,6 +270,76 @@ TEST(DetachSchemaKVTest, TabletTest) {
         check_get_tablet(meta_service.get(), 100037, 1);
         check_get_tablet(meta_service.get(), 100038, 2);
         check_get_tablet(meta_service.get(), 100039, 2);
+    }
+}
+
+TEST(DetachSchemaKVTest, PutSchemaKvTest) {
+    config::meta_schema_value_version = 1;
+    auto meta_service = get_meta_service();
+
+    int64_t index_id = 14221;
+    int64_t schema_version = 0;
+    std::string key = meta_schema_key({instance_id, index_id, schema_version});
+    std::string versioned_key = versioned::meta_schema_key({instance_id, index_id, schema_version});
+    doris::TabletSchemaCloudPB schema;
+    fill_schema(&schema, schema_version);
+
+    std::unique_ptr<Transaction> txn;
+    MetaServiceCode code;
+    std::string msg;
+    Versionstamp commit_versionstamp;
+    for (int i = 0; i < 2; ++i) {
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        put_schema_kv(code, msg, txn.get(), key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        put_versioned_schema_kv(code, msg, txn.get(), versioned_key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // verify the tablet schema is written
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB saved_schema;
+        ValueBuf buf;
+        ASSERT_EQ(cloud::blob_get(txn.get(), key, &buf), TxnErrorCode::TXN_OK);
+
+        // verify the versioned tablet schema is written
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), versioned_key, &saved_schema, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        if (i == 0) {
+            commit_versionstamp = versionstamp;
+        } else {
+            ASSERT_EQ(versionstamp, commit_versionstamp);
+        }
+        EXPECT_EQ(saved_schema.schema_version(), schema_version);
+    }
+
+    {
+        // put new schema version
+        schema_version = 1;
+        schema.set_schema_version(schema_version);
+        key = meta_schema_key({instance_id, index_id, schema_version});
+        versioned_key = versioned::meta_schema_key({instance_id, index_id, schema_version});
+
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        put_schema_kv(code, msg, txn.get(), key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        put_versioned_schema_kv(code, msg, txn.get(), versioned_key, schema);
+        ASSERT_EQ(code, MetaServiceCode::OK);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // verify the tablet schema is written
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletSchemaCloudPB saved_schema;
+        ValueBuf buf;
+        ASSERT_EQ(cloud::blob_get(txn.get(), key, &buf), TxnErrorCode::TXN_OK);
+
+        // verify the versioned tablet schema is written
+        Versionstamp versionstamp;
+        ASSERT_EQ(versioned::document_get(txn.get(), versioned_key, &saved_schema, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_NE(versionstamp, commit_versionstamp);
+        EXPECT_EQ(saved_schema.schema_version(), schema_version);
     }
 }
 
