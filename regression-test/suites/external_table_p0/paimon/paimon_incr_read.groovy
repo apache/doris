@@ -94,7 +94,7 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
             }
             test {
                 sql """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2) for version as of 1"""
-                exception "Can not specify scan params and table snapshot"
+                exception "should not spec both snapshot and scan params"
             }
         }
 

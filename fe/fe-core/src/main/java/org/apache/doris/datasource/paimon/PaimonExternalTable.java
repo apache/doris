@@ -112,7 +112,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                         new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), paimonTable));
             } catch (Exception e) {
                 LOG.warn("Failed to get Paimon snapshot for table {}", paimonTable.name(), e);
-                throw new RuntimeException("Failed to get Paimon snapshot", e);
+                throw new RuntimeException(
+                        "Failed to get Paimon snapshot: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
+                        e);
             }
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
