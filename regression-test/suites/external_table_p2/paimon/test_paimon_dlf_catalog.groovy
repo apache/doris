@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_remote_paimon") {
+suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_remote_paimon,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
@@ -44,8 +44,10 @@ suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_re
             "dlf.secret_key" = "${secret_key}"
             );
         """
-
+        sql """ switch ${catalog} """
+        sql """ show databases """
         sql """ use ${catalog}.regression_paimon """
+        sql """ show tables"""
 
         sql """set force_jni_scanner=false"""
         qt_c1 """ select * from tb_simple order by id """

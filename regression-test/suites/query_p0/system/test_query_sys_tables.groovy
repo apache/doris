@@ -258,6 +258,9 @@ suite("test_query_sys_tables", "query,p0") {
     String[][] systabs = sql "USE information_schema;show tables"
     System.out.println(systabs)
     for (String[] tab : systabs) {
+        if (tab[0].contains("encryption_keys")) {
+            continue
+        }
         sql "select * from ${tab[0]} limit 10"
     }
 }

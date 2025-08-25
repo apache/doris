@@ -131,8 +131,8 @@ FileScanner::FileScanner(
     _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status FileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    RETURN_IF_ERROR(Scanner::prepare(state, conjuncts));
+Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    RETURN_IF_ERROR(Scanner::init(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
     _cast_to_input_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),

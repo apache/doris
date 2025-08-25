@@ -79,6 +79,26 @@ public:
     }
 };
 
+class L2DistanceApproximate {
+public:
+    static constexpr auto name = "l2_distance_approximate";
+    struct State {
+        double sum = 0;
+    };
+    static void accumulate(State& state, double x, double y) { state.sum += (x - y) * (x - y); }
+    static double finalize(const State& state) { return sqrt(state.sum); }
+};
+
+class InnerProductApproximate {
+public:
+    static constexpr auto name = "inner_product_approximate";
+    struct State {
+        double sum = 0;
+    };
+    static void accumulate(State& state, double x, double y) { state.sum += x * y; }
+    static double finalize(const State& state) { return state.sum; }
+};
+
 template <typename DistanceImpl>
 class FunctionArrayDistance : public IFunction {
 public:

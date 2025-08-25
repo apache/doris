@@ -141,7 +141,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         // db should be empty. all tables are recycled before
-        Preconditions.checkState(db.getTables().isEmpty());
+        if (!db.getTableIds().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableIds().stream().collect(Collectors.toSet()));
+        }
 
         // recycle db
         RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames, tableIds);

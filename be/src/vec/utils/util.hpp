@@ -285,6 +285,17 @@ inline size_t calculate_false_number(ColumnPtr column) {
     }
 }
 
+template <typename T>
+T read_from_json(const std::string& json_str) {
+    auto memBufferIn = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
+            reinterpret_cast<uint8_t*>(const_cast<char*>(json_str.data())),
+            static_cast<uint32_t>(json_str.size()));
+    auto jsonProtocolIn = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBufferIn);
+    T params;
+    params.read(jsonProtocolIn.get());
+    return params;
+}
+
 } // namespace doris::vectorized
 
 namespace apache::thrift {

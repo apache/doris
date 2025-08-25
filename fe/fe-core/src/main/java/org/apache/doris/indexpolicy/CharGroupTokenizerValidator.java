@@ -60,7 +60,7 @@ public class CharGroupTokenizerValidator extends BasePolicyValidator {
             if (raw == null || raw.trim().isEmpty()) {
                 throw new DdlException("tokenize_on_chars cannot be empty if specified");
             }
-            String[] items = raw.split("\\s*,\\s*");
+            String[] items = raw.trim().split("(?<=\\])\\s*,\\s*(?=\\[)");
             for (String item : items) {
                 String trimmed = item.trim();
                 if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) {

@@ -206,6 +206,12 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_restore_job_check) {
+                if (int ret = checker->do_restore_job_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
             if (config::enable_delete_bitmap_storage_optimize_v2_check) {
                 if (int ret = checker->do_delete_bitmap_storage_optimize_check(2 /*version*/);
                     ret != 0) {
@@ -1383,7 +1389,7 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
         // Garbage data leak
         // clang-format off
         LOG(WARNING) << "rowset_index_cache_v1.segment_ids don't contains segment_id, rowset should be recycled,"
-                     << " key = " << file_path 
+                     << " key = " << file_path
                      << " segment_id = " << segment_id;
         // clang-format on
         return 1;
@@ -1393,7 +1399,7 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
         // Garbage data leak
         // clang-format off
         LOG(WARNING) << "rowset_index_cache_v1.index_ids don't contains index_id_with_suffix_name,"
-                     << " rowset with inde meta should be recycled, key=" << file_path 
+                     << " rowset with inde meta should be recycled, key=" << file_path
                      << " index_id_with_suffix_name=" << index_id_with_suffix_name;
         // clang-format on
         return 1;
@@ -2002,6 +2008,109 @@ int InstanceChecker::scan_and_handle_kv(
         start_key = it->next_begin_key();
     } while (it->more() && !stopped());
     return ret;
+}
+
+int InstanceChecker::do_restore_job_check() {
+    int64_t num_prepared = 0;
+    int64_t num_committed = 0;
+    int64_t num_dropped = 0;
+    int64_t num_completed = 0;
+    int64_t num_recycling = 0;
+    int64_t num_cost_many_time = 0;
+    const int64_t COST_MANY_THRESHOLD = 3600;
+
+    using namespace std::chrono;
+    auto start_time = steady_clock::now();
+    DORIS_CLOUD_DEFER {
+        g_bvar_checker_restore_job_prepared_state.put(instance_id_, num_prepared);
+        g_bvar_checker_restore_job_committed_state.put(instance_id_, num_committed);
+        g_bvar_checker_restore_job_dropped_state.put(instance_id_, num_dropped);
+        g_bvar_checker_restore_job_completed_state.put(instance_id_, num_completed);
+        g_bvar_checker_restore_job_recycling_state.put(instance_id_, num_recycling);
+        g_bvar_checker_restore_job_cost_many_time.put(instance_id_, num_cost_many_time);
+        auto cost_ms =
+                duration_cast<std::chrono::milliseconds>(steady_clock::now() - start_time).count();
+        LOG(INFO) << "check instance restore jobs finished, cost=" << cost_ms
+                  << "ms. instance_id=" << instance_id_ << " num_prepared=" << num_prepared
+                  << " num_committed=" << num_committed << " num_dropped=" << num_dropped
+                  << " num_completed=" << num_completed << " num_recycling=" << num_recycling
+                  << " num_cost_many_time=" << num_cost_many_time;
+    };
+
+    LOG_INFO("begin to check restore jobs").tag("instance_id", instance_id_);
+
+    JobRestoreTabletKeyInfo restore_job_key_info0 {instance_id_, 0};
+    JobRestoreTabletKeyInfo restore_job_key_info1 {instance_id_, INT64_MAX};
+    std::string begin;
+    std::string end;
+    job_restore_tablet_key(restore_job_key_info0, &begin);
+    job_restore_tablet_key(restore_job_key_info1, &end);
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            RestoreJobCloudPB restore_job_pb;
+            if (!restore_job_pb.ParseFromArray(v.data(), v.size())) {
+                LOG_WARNING("malformed restore job value").tag("key", hex(k));
+                return -1;
+            }
+
+            switch (restore_job_pb.state()) {
+            case RestoreJobCloudPB::PREPARED:
+                ++num_prepared;
+                break;
+            case RestoreJobCloudPB::COMMITTED:
+                ++num_committed;
+                break;
+            case RestoreJobCloudPB::DROPPED:
+                ++num_dropped;
+                break;
+            case RestoreJobCloudPB::COMPLETED:
+                ++num_completed;
+                break;
+            case RestoreJobCloudPB::RECYCLING:
+                ++num_recycling;
+                break;
+            default:
+                break;
+            }
+
+            int64_t current_time = ::time(nullptr);
+            if ((restore_job_pb.state() == RestoreJobCloudPB::PREPARED ||
+                 restore_job_pb.state() == RestoreJobCloudPB::COMMITTED) &&
+                current_time > restore_job_pb.ctime_s() + COST_MANY_THRESHOLD) {
+                // restore job run more than 1 hour
+                ++num_cost_many_time;
+                LOG_WARNING("restore job cost too many time")
+                        .tag("key", hex(k))
+                        .tag("tablet_id", restore_job_pb.tablet_id())
+                        .tag("state", restore_job_pb.state())
+                        .tag("ctime_s", restore_job_pb.ctime_s())
+                        .tag("mtime_s", restore_job_pb.mtime_s());
+            }
+
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+                break;
+            }
+        }
+    } while (it->more() && !stopped());
+    return 0;
 }
 
 } // namespace doris::cloud

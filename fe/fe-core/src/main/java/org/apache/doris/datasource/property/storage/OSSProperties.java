@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
@@ -73,6 +72,55 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             required = false,
             description = "Enable public access to Aliyun DLF.")
     protected String dlfAccessPublic = "false";
+
+    @Getter
+    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of OSS.")
+    protected String sessionToken = "";
+
+    /**
+     * The maximum number of concurrent connections that can be made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.maximum", "s3.connection.maximum"}, required = false,
+            description = "Maximum number of connections.")
+    protected String maxConnections = "100";
+
+    /**
+     * The timeout (in milliseconds) for requests made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
+            description = "Request timeout in seconds.")
+    protected String requestTimeoutS = "10000";
+
+    /**
+     * The timeout (in milliseconds) for establishing a connection to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.timeout", "s3.connection.timeout"}, required = false,
+            description = "Connection timeout in seconds.")
+    protected String connectionTimeoutS = "10000";
+
+    /**
+     * Flag indicating whether to use path-style URLs for the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Setter
+    @Getter
+    @ConnectorProperty(names = {"oss.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    protected String usePathStyle = "false";
+
+    @ConnectorProperty(names = {"oss.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected String forceParsingByStandardUrl = "false";
 
     /**
      * Pattern to extract the region from an Alibaba Cloud OSS endpoint.
@@ -154,7 +202,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         if (!value.contains("aliyuncs.com")) {
             return false;
         }
-        boolean isAliyunOss = (value.contains("oss-") || value.contains("dlf."));
+        boolean isAliyunOss = (value.contains("oss-"));
         boolean isAmazonS3 = value.contains("s3.");
         boolean isDls = value.contains("dls");
         return isAliyunOss || isAmazonS3 || isDls;
@@ -198,17 +246,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         if (endpoint.contains("dlf") || endpoint.contains("oss-dls")) {
             this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
         }
-        // Check if credentials are provided properly - either both or neither
-        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
-            return;
-        }
-        // Allow anonymous access if both access_key and secret_key are empty
-        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            return;
-        }
-        // If only one is provided, it's an error
-        throw new StoragePropertiesException(
-                "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {

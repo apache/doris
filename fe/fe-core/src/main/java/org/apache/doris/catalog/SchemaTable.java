@@ -587,7 +587,6 @@ public class SchemaTable extends Table {
                                     .column("CPU_USAGE_PERCENT", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("LOCAL_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("WRITE_BUFFER_USAGE_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("file_cache_statistics",

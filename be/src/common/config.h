@@ -1447,6 +1447,7 @@ DECLARE_mInt32(spill_gc_work_time_ms);
 DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
+DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
@@ -1634,6 +1635,9 @@ DECLARE_String(fuzzy_test_type);
 
 // The maximum number of threads supported when executing LLMFunction
 DECLARE_mInt32(llm_max_concurrent_requests);
+
+// Maximum number of OpenMP threads that can be used by each Doris thread
+DECLARE_Int32(omp_threads_limit);
 
 #ifdef BE_TEST
 // test s3

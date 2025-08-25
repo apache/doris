@@ -4,7 +4,8 @@ use test_paimon_spark;
 
 SET TIME ZONE '+08:00';
 
-CREATE TABLE IF NOT EXISTS t_ts_ntz (
+DROP TABLE IF EXISTS t_ts_ntz;
+CREATE TABLE t_ts_ntz (
   id INT,
   ts TIMESTAMP,
   ts_ntz TIMESTAMP_NTZ

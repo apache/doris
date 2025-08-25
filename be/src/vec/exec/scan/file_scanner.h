@@ -78,7 +78,7 @@ public:
 
     void try_stop() override;
 
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
+    Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
     std::string get_name() override { return FileScanner::NAME; }
 

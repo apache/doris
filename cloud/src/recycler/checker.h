@@ -109,6 +109,8 @@ public:
 
     int do_tablet_stats_key_check();
 
+    int do_restore_job_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error

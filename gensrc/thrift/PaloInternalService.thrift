@@ -396,6 +396,11 @@ struct TQueryOptions {
   165: optional i32 exchange_multi_blocks_byte_size = 262144 
   // true to use strict cast mode.
   166: optional bool enable_strict_cast = false
+  167: optional bool new_version_unix_timestamp = false
+
+  168: optional i32 hnsw_ef_search = 32;
+  169: optional bool hnsw_check_relative_distance = true;
+  170: optional bool hnsw_bounded_queue = true; 
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
