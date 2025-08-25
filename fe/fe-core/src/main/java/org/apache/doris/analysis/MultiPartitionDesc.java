@@ -112,7 +112,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         return singlePartitionDescList;
     }
 
-    
+
     private List<SinglePartitionDesc> buildNumberMultiPartitionToSinglePartitionDesc() throws AnalysisException {
         long countNum = 0;
         long beginNum;
