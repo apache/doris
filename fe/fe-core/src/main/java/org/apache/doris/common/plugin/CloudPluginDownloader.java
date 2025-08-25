@@ -114,7 +114,7 @@ public class CloudPluginDownloader {
     /**
      * Execute download with S3ObjStorage
      */
-    private static String doDownload(Cloud.ObjectStoreInfoPB objInfo, String remotePath, String localPath)
+    private static synchronized String doDownload(Cloud.ObjectStoreInfoPB objInfo, String remotePath, String localPath)
             throws Exception {
         // Create parent directory
         Path parentDir = Paths.get(localPath).getParent();

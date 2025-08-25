@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "common/status.h"
@@ -58,6 +59,9 @@ private:
     // High-performance file download using 10MB buffer
     Status _download_remote_file(io::RemoteFileSystemSPtr remote_fs, const std::string& remote_path,
                                  const std::string& local_path);
+
+    // Static mutex for synchronizing concurrent downloads
+    static std::mutex _download_mutex;
 };
 
 } // namespace doris

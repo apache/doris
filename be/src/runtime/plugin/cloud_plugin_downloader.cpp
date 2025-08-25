@@ -29,6 +29,9 @@ namespace doris {
 // Use 10MB buffer for all downloads - same as cloud_warm_up_manager
 static constexpr size_t DOWNLOAD_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB
 
+// Static mutex definition for synchronizing downloads
+std::mutex CloudPluginDownloader::_download_mutex;
+
 Status CloudPluginDownloader::download_from_cloud(PluginType type, const std::string& name,
                                                   const std::string& local_path,
                                                   std::string* result_path) {
@@ -112,6 +115,8 @@ Status CloudPluginDownloader::_prepare_local_path(const std::string& local_path)
 Status CloudPluginDownloader::_download_remote_file(io::RemoteFileSystemSPtr filesystem,
                                                     const std::string& remote_path,
                                                     const std::string& local_path) {
+    // Use lock_guard to synchronize concurrent downloads, similar to Java synchronized
+    std::lock_guard<std::mutex> lock(_download_mutex);
     // Open remote file for reading
     io::FileReaderSPtr remote_reader;
     io::FileReaderOptions opts;
