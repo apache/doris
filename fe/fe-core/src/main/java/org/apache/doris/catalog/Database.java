@@ -231,7 +231,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
-    static public String getNameFromFullName(String fullName) {
+    public static String getNameFromFullName(String fullName) {
         if (Strings.isNullOrEmpty(fullName)) {
             return fullName;
         }
