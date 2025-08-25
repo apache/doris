@@ -1775,6 +1775,18 @@ int InstanceChecker::do_version_key_check() {
     std::string begin = table_version_key({instance_id_, 0, 0});
     std::string end = table_version_key({instance_id_, INT64_MAX, 0});
     bool check_res = true;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
+            return -1;
+        }
         while (it->has_next() && !stopped()) {
             auto [k, v] = it->next();
             std::string_view k1 = k;
