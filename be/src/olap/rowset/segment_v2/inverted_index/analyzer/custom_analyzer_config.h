@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class ComponentConfig;
 using ComponentConfigPtr = std::shared_ptr<ComponentConfig>;
@@ -73,4 +74,5 @@ private:
     Settings _params;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -26,6 +26,7 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class StorageEngine;
 
 // base class for storage engine
@@ -49,5 +50,6 @@ private:
     uint32_t* _checksum;
 }; // EngineTask
 
+#include "common/compile_check_end.h"
 } // namespace doris
 #endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_CHECKSUM_TASK_H

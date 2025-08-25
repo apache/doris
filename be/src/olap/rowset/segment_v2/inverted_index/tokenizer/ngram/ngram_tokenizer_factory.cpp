@@ -20,6 +20,7 @@
 #include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 std::unordered_map<std::string, CharMatcherPtr> NGramTokenizerFactory::MATCHERS;
 
@@ -80,4 +81,5 @@ CharMatcherPtr NGramTokenizerFactory::parse_token_chars(const Settings& settings
     return builder.build();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

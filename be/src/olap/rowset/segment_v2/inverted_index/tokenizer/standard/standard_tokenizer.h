@@ -21,6 +21,7 @@
 #include "standard_tokenizer_impl.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class StandardTokenizer : public DorisTokenizer {
 public:
@@ -78,4 +79,5 @@ private:
     int32_t _max_token_length = DEFAULT_MAX_TOKEN_LENGTH;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

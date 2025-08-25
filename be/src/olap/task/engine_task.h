@@ -20,6 +20,7 @@
 #include "common/status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class MemTrackerLimiter;
 
@@ -34,4 +35,5 @@ public:
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
+#include "common/compile_check_end.h"
 } // end namespace doris

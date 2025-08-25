@@ -21,6 +21,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/disjunction_op.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 Result<Node> OperatorFactory::create(OperatorType query_type) {
     switch (query_type) {
@@ -33,4 +34,5 @@ Result<Node> OperatorFactory::create(OperatorType query_type) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::idx_query_v2

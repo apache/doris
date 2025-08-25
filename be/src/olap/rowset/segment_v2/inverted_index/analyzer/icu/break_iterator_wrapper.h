@@ -26,6 +26,7 @@
 #include "icu_common.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class BreakIteratorWrapper {
 public:
@@ -51,4 +52,5 @@ private:
 };
 using BreakIteratorWrapperPtr = std::unique_ptr<BreakIteratorWrapper>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

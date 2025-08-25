@@ -35,6 +35,7 @@
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/core/CharacterUtil.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 class Dictionary {
 private:
     static Dictionary* singleton_;
@@ -165,4 +166,5 @@ inline const std::string Dictionary::PATH_DIC_MAIN = "main.dic";
 inline const std::string Dictionary::PATH_DIC_QUANTIFIER = "quantifier.dic";
 inline const std::string Dictionary::PATH_DIC_STOP = "stopword.dic";
 inline Dictionary::Cleanup Dictionary::cleanup_;
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -26,6 +26,7 @@
 #include "CharacterUtil.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class Lexeme {
 public:
@@ -102,4 +103,5 @@ private:
     Type type_;          // Lexeme type
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

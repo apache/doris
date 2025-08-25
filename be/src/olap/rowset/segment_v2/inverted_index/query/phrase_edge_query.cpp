@@ -28,6 +28,7 @@
 #include "common/logging.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 PhraseEdgeQuery::PhraseEdgeQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)), _context(std::move(context)) {
@@ -157,4 +158,5 @@ void PhraseEdgeQuery::find_words(const std::function<void(Term*)>& cb) {
     })
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

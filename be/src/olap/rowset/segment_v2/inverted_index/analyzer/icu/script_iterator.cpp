@@ -23,6 +23,7 @@
 #include <string>
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 std::vector<int32_t> ScriptIterator::k_basic_latin(128);
 
@@ -118,4 +119,5 @@ bool ScriptIterator::is_combining_mark(UChar32 codepoint) {
             type == U_ENCLOSING_MARK);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

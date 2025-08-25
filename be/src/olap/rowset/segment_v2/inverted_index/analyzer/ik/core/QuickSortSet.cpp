@@ -18,6 +18,7 @@
 #include "QuickSortSet.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 QuickSortSet::~QuickSortSet() {
     clear();
@@ -145,4 +146,5 @@ void QuickSortSet::deallocateCell(Cell* cell) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

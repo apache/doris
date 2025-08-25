@@ -27,6 +27,7 @@
 CL_NS_USE(search)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class PhraseEdgeQuery : public Query {
 public:
@@ -54,4 +55,5 @@ private:
     int32_t _max_expansions = 50;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

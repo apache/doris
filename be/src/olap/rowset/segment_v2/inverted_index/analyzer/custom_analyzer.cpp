@@ -21,6 +21,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 CustomAnalyzer::CustomAnalyzer(Builder* builder) {
     _tokenizer = builder->_tokenizer;
@@ -105,4 +106,5 @@ TokenizerPtr TokenStreamComponents::get_source() {
     return _source;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -20,6 +20,7 @@
 #include <memory>
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 TermQuery::~TermQuery() {
     if (_term_docs) {
@@ -33,4 +34,5 @@ TermQuery::TermQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searc
                                  query_info.terms[0]);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::idx_query_v2

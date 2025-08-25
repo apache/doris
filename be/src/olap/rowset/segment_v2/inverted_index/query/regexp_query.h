@@ -29,6 +29,7 @@ CL_NS_USE(index)
 CL_NS_USE(search)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class RegexpQuery : public Query {
 public:
@@ -54,4 +55,5 @@ private:
     friend class RegexpQueryTest;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

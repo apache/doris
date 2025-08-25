@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/util/docid_set_iterator.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class PhrasePositions {
 public:
@@ -51,4 +52,5 @@ public:
     std::vector<std::string> _terms;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -25,6 +25,7 @@
 #include <vector>
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class CharMatcher {
 public:
@@ -107,4 +108,5 @@ private:
     std::vector<CharMatcherPtr> _matchers;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

@@ -26,6 +26,7 @@
 #include "wal_writer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 WalReader::WalReader(const std::string& file_name) : _file_name(file_name), _offset(0) {}
 
@@ -136,4 +137,5 @@ Status WalReader::_check_checksum(const char* binary, size_t size, uint32_t chec
                                  ", expected=" + std::to_string(checksum));
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -26,6 +26,7 @@
 #include "icu_tokenizer_config.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 icu::UnicodeSet BreakIteratorWrapper::EMOJI_RK;
 icu::UnicodeSet BreakIteratorWrapper::EMOJI;
@@ -104,4 +105,5 @@ void BreakIteratorWrapper::set_text(const UChar* text, int32_t start, int32_t le
     status_ = UBRK_WORD_NONE;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

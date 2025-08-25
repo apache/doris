@@ -21,6 +21,7 @@
 #include "CLucene/_ApiHeader.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class ISegmenter {
 public:
@@ -34,4 +35,5 @@ public:
     virtual void reset() = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

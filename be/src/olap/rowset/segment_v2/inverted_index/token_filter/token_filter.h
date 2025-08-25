@@ -22,6 +22,7 @@
 using TokenStreamPtr = std::shared_ptr<TokenStream>;
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class DorisTokenFilter : public TokenFilter, public DorisTokenStream {
 public:
@@ -35,4 +36,5 @@ protected:
 };
 using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

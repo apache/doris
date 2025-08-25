@@ -23,6 +23,7 @@
 #include "token_filter.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class ASCIIFoldingFilter : public DorisTokenFilter {
 public:
@@ -46,4 +47,5 @@ private:
     std::string _output;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

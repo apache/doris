@@ -22,6 +22,7 @@
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class AnalysisFactoryMgr {
 public:
@@ -48,4 +49,5 @@ private:
     std::map<std::string, FactoryCreator> registry_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index
