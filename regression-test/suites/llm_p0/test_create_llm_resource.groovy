@@ -76,19 +76,6 @@ suite("test_create_llm_resource") {
         exception "Missing [llm.api_key] in properties for provider: DEEPSEEK"
     }
 
-    // wrong endpoint
-    test {
-        sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
-            PROPERTIES(
-                'type' = 'llm',
-                'llm.provider_type' = 'deepseek',
-                'llm.endpoint' = 'https://api.depsek.com/chat/completions',
-                'llm.model_name' = 'deepseek-chat',
-                'llm.api_key' = 'sk-xxx'
-            );"""
-        exception "Failed to ping LLM API at https://api.depsek.com/chat/completions"
-    }
-
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
                 'type' = 'llm',

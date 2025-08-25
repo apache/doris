@@ -332,33 +332,23 @@ TEST(EMBED_TEST, gemini_adapter_parse_embedding_response) {
     GeminiAdapter adapter;
 
     std::string resp = R"({
-        "embedding":[
-        {
+        "embedding": {
             "values":[
                 0.1,
                 0.2,
                 0.3
             ]
-        },
-        {
-            "values":[
-                0.4,
-                0.5
-            ]
-        }]
+        }
     })";
 
     std::vector<std::vector<float>> results;
     Status st = adapter.parse_embedding_response(resp, results);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(results.size(), 2);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 3);
-    ASSERT_EQ(results[1].size(), 2);
     ASSERT_FLOAT_EQ(results[0][0], 0.1F);
     ASSERT_FLOAT_EQ(results[0][1], 0.2F);
     ASSERT_FLOAT_EQ(results[0][2], 0.3F);
-    ASSERT_FLOAT_EQ(results[1][0], 0.4F);
-    ASSERT_FLOAT_EQ(results[1][1], 0.5F);
 }
 
 TEST(EMBED_TEST, voyageai_adapter_embedding_request) {

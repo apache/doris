@@ -752,11 +752,9 @@ public:
         }
 
         /*{
-          "embedding": [
-            {
-              "values": [0.1, 0.2, 0.3]
-            }
-          ]
+          "embedding":{
+            "values": [0.1, 0.2, 0.3]
+          }
         }*/
         const auto& embedding = doc["embedding"];
         if (!embedding.HasMember("values") || !embedding["values"].IsArray()) {
