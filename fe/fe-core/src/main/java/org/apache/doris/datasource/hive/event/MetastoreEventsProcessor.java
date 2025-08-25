@@ -120,11 +120,11 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                     // In the past, this value was a constant and always available.
                     // Now it is retrieved from HmsProperties, which requires initialization.
                     // In some scenarios, essential HMS parameters may be missing.
-                    // If so, isHmsEventsIncrementalSyncEnabled() may throw IllegalArgumentException.
+                    // If so, isHmsEventsIncrementalSyncEnabled() may throw Exception.
                     if (!hmsExternalCatalog.getHmsProperties().isHmsEventsIncrementalSyncEnabled()) {
                         continue;
                     }
-                } catch (IllegalArgumentException e) {
+                } catch (RuntimeException e) {
                     //ignore
                     continue;
                 }

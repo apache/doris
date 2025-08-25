@@ -371,6 +371,7 @@ enum IndexType {
     INVERTED = 1;
     BLOOMFILTER = 2;
     NGRAM_BF = 3;
+    ANN = 4;
 }
 
 enum InvertedIndexStorageFormatPB {
@@ -436,6 +437,8 @@ message TabletSchemaPB {
     optional int32 skip_bitmap_col_idx = 29 [default = -1];
     optional int64 storage_page_size = 30 [default=65536];
     optional int64 storage_dict_page_size = 31 [default=262144];
+
+    optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
 message TabletSchemaCloudPB {
@@ -475,6 +478,8 @@ message TabletSchemaCloudPB {
 
     // FIXME(gavin): deprecate and remove in the future
     optional bool is_in_memory = 200 [default=false]; // unused, just keep align to TabletSchemaPB
+
+    optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
 enum TabletStatePB {
@@ -682,4 +687,35 @@ message PartialUpdateInfoPB {
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
+}
+
+message FileEncryptionInfoPB {
+    optional EncryptionKeyPB data_key_info = 1;
+    optional bytes data_iv_nonce = 2;
+}
+
+message EncryptionKeyPB {
+    optional string id = 1;
+    optional int32 version = 2;
+    optional string parent_id = 3;
+    optional int32 parent_version = 4;
+    optional EncryptionKeyTypePB type = 5;
+    optional EncryptionAlgorithmPB algorithm = 6;
+    optional string ciphertext_base64 = 7;
+    optional bytes plaintext = 8;
+    optional string iv_base64 = 9;
+    optional int64 crc32 = 10;
+    optional int64 ctime = 11;
+    optional int64 mtime = 12;
+}
+
+enum EncryptionKeyTypePB {
+    MASTER_KEY = 0;
+    DATA_KEY = 1;
+}
+
+enum EncryptionAlgorithmPB {
+    PLAINTEXT = 0;
+    AES_256_CTR = 1;
+    SM4_128_CTR = 2;
 }

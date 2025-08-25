@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
+import java.util.concurrent.ThreadLocalRandom
 suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,external_docker_iceberg") {
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
@@ -323,7 +323,7 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
         def format = parts[0]
         def compression = parts[1]
         def all_types_table = "iceberg_overwrite_all_types_${format_compression}_master"
-        def all_types_partition_table = "iceberg_overwrite_types_par_${format_compression}_master"
+        def all_types_partition_table = "iceberg_overwrite_types_par_${format_compression}_master_"+ThreadLocalRandom.current().nextInt(1000)
         sql """ DROP TABLE IF EXISTS `${all_types_partition_table}`; """
         sql """
         CREATE TABLE `${all_types_partition_table}`(

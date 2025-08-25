@@ -115,6 +115,8 @@ suite("test_query_json_insert", "query,arrow_flight_sql") {
     qt_insert4 """select json_insert('{"k": 1}', '\$.k[1]', 2);"""
     qt_insert5 """select json_insert('{"k": 1}', '\$.k[1]', NULL);"""
     qt_insert6 """select json_insert('{"k": 1}', NULL, 2);"""
+    qt_insert7 """select json_insert('{"a": 200}', '\$.a', 100, '\$.b.a', 200);"""
+
 
     test {
         sql "select json_insert('1', '\$.*', 4);"

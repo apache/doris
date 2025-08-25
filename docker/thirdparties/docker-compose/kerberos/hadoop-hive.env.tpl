@@ -64,6 +64,7 @@ YARN_CONF_yarn_resourcemanager_webapp_address=${HOST}:${YARN_RM_WEBAPP_PORT}
 YARN_CONF_yarn_nodemanager_localizer_address=${HOST}:${YARN_NM_LOCAL_PORT}
 YARN_CONF_yarn_nodemanager_webapp_address=${HOST}:${YARN_NM_WEBAPP_PORT}
 
+HIVE_SITE_CONF_fs_s3_impl=org.apache.hadoop.fs.s3a.S3AFileSystem
 HIVE_SITE_CONF_fs_s3a_impl=org.apache.hadoop.fs.s3a.S3AFileSystem
 HIVE_SITE_CONF_fs_s3a_access_key=${AWSAk}
 HIVE_SITE_CONF_fs_s3a_secret_key=${AWSSk}
@@ -77,6 +78,7 @@ HIVE_SITE_CONF_fs_cosn_userinfo_secretId=${COSAk}
 HIVE_SITE_CONF_fs_cosn_userinfo_secretKey=${COSSk}
 HIVE_SITE_CONF_fs_cosn_bucket_region=${COSRegion}
 HIVE_SITE_CONF_fs_cosn_impl=org.apache.hadoop.fs.CosFileSystem
+HIVE_SITE_CONF_fs_cos_impl=org.apache.hadoop.fs.CosFileSystem
 HIVE_SITE_CONF_fs_AbstractFileSystem_cosn_impl=org.apache.hadoop.fs.CosN
 HIVE_SITE_CONF_fs_oss_impl=org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem
 HIVE_SITE_CONF_fs_oss_accessKeyId=${OSSAk}

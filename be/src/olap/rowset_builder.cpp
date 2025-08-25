@@ -335,25 +335,6 @@ Status RowsetBuilder::commit_txn() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
 
-    const RowsetWriterContext& rw_ctx = _rowset_writer->context();
-    if (rw_ctx.tablet_schema->num_variant_columns() > 0 && _rowset->num_rows() > 0) {
-        // Need to merge schema with `rw_ctx.merged_tablet_schema` in prior,
-        // merged schema keeps the newest merged schema for the rowset, which is updated and merged
-        // during flushing segments.
-        if (rw_ctx.merged_tablet_schema != nullptr) {
-            RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.merged_tablet_schema));
-        } else {
-            // We should merge rowset schema further, in case that the merged_tablet_schema maybe null
-            // when enable_memtable_on_sink_node is true, the merged_tablet_schema will not be passed to
-            // the destination backend.
-            // update tablet schema when meet variant columns, before commit_txn
-            // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
-            // _tabelt->tablet_schema:  A(bigint), B(double)
-            //  => update_schema:       A(bigint), B(double), C(int), D(int)
-            RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.tablet_schema));
-        }
-    }
-
     // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
     Status res = _engine.txn_manager()->commit_txn(
             _req.partition_id, *tablet(), _req.txn_id, _req.load_id, _rowset,

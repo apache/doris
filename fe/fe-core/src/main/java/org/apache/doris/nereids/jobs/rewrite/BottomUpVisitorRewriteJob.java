@@ -140,6 +140,8 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
                         new PlanProcess(currentRule.getRuleType().name(), beforeShape, afterShape)
                     );
                 }
+                // if rewrite success, record the rule type
+                cascadesContext.getStatementContext().ruleSetApplied(currentRule.getRuleType());
                 return result;
             }
         }

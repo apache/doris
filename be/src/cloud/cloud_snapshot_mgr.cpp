@@ -114,9 +114,9 @@ Status CloudSnapshotMgr::commit_snapshot(int64_t tablet_id) {
     return Status::OK();
 }
 
-Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id) {
+Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id, bool is_completed) {
     SCOPED_ATTACH_TASK(_mem_tracker);
-    RETURN_IF_ERROR(_engine.meta_mgr().finish_restore_job(tablet_id));
+    RETURN_IF_ERROR(_engine.meta_mgr().finish_restore_job(tablet_id, is_completed));
     LOG(INFO) << "success to release snapshot. [tablet_id=" << tablet_id << "]";
     return Status::OK();
 }
@@ -235,7 +235,8 @@ Status CloudSnapshotMgr::_create_rowset_meta(
                 file_mapping[src_index_file] = dst_index_file;
             }
         } else {
-            if (context.tablet_schema->has_inverted_index()) {
+            if (context.tablet_schema->has_inverted_index() ||
+                context.tablet_schema->has_ann_index()) {
                 std::string src_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file));
                 std::string dst_index_file = InvertedIndexDescriptor::get_index_file_path_v2(

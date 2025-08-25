@@ -121,7 +121,9 @@ struct AggregateFunctionGroupArrayIntersectData {
 template <PrimitiveType T>
 class AggregateFunctionGroupArrayIntersect
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
-                                              AggregateFunctionGroupArrayIntersect<T>> {
+                                              AggregateFunctionGroupArrayIntersect<T>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 private:
     using State = AggregateFunctionGroupArrayIntersectData<T>;
     DataTypePtr argument_type;

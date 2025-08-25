@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
@@ -50,6 +52,7 @@ public class PrepareCommand extends Command {
 
     private final List<Placeholder> placeholders = new ArrayList<>();
     private final LogicalPlan logicalPlan;
+    private final int maxPlaceholderCount = 65536;
 
     private final String name;
 
@@ -106,6 +109,9 @@ public class PrepareCommand extends Command {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<String> labels = getLabels();
+        if (labels.size() >= maxPlaceholderCount) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_PS_MANY_PARAM);
+        }
         StatementContext statementContext = ctx.getStatementContext();
         statementContext.setPrepareStage(true);
         List<Slot> slots;

@@ -277,6 +277,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
 add_compile_options(-g
+                    -gdwarf-5
                     -Wall
                     -Wextra
                     -Werror
@@ -387,10 +388,6 @@ if (USE_UNWIND)
     if (COMPILER_CLANG)
         add_compile_options(-gdwarf-aranges)
     endif()
-endif()
-
-if (USE_DWARF)
-    add_compile_options(-gdwarf-5)
 endif()
 
 # For CMAKE_BUILD_TYPE=Debug
@@ -517,7 +514,6 @@ set(DORIS_LINK_LIBS
     Common
     Exec
     Exprs
-    Gutil
     IO
     Olap
     Runtime
@@ -680,9 +676,8 @@ if (GLIBC_COMPATIBILITY)
 endif()
 
 if (NOT OS_MACOSX)
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
-    )
+    set(CMAKE_CXX_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread")
+    set(CMAKE_C_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread")
 else()
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
         "-framework CoreFoundation"
@@ -732,7 +727,7 @@ endif ()
 # use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.
 if (BUILD_BENCHMARK)
     add_definitions(-DBE_TEST)
-# The separate BENCHMARK marker is introduced here because 
+# The separate BENCHMARK marker is introduced here because
 # some BE UTs mock certain functions, and BENCHMARK cannot find their definitions.
     add_definitions(-DBE_BENCHMARK)
 endif()
@@ -772,15 +767,16 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
+add_subdirectory(${SRC_DIR}/olap/rowset/segment_v2/ann_index)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/runtime_filter)

@@ -44,8 +44,7 @@ namespace doris::vectorized {
 
 class VExprContext;
 
-VBloomPredicate::VBloomPredicate(const TExprNode& node)
-        : VExpr(node), _filter(nullptr), _expr_name("bloom_predicate") {}
+VBloomPredicate::VBloomPredicate(const TExprNode& node) : VExpr(node), _filter(nullptr) {}
 
 Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                 VExprContext* context) {
@@ -89,20 +88,13 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
     res_data_column->resize(sz);
     auto* ptr = ((ColumnUInt8*)res_data_column.get())->get_data().data();
     _filter->find_fixed_len(argument_column, ptr);
-
-    if (_data_type->is_nullable()) {
-        auto null_map = ColumnUInt8::create(block->rows(), 0);
-        block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
-                       _data_type, _expr_name});
-    } else {
-        block->insert({std::move(res_data_column), _data_type, _expr_name});
-    }
+    block->insert({std::move(res_data_column), _data_type, EXPR_NAME});
     *result_column_id = num_columns_without_result;
     return Status::OK();
 }
 
 const std::string& VBloomPredicate::expr_name() const {
-    return _expr_name;
+    return EXPR_NAME;
 }
 
 void VBloomPredicate::set_filter(std::shared_ptr<BloomFilterFuncBase> filter) {

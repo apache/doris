@@ -140,14 +140,14 @@ search_term=laptop&page=2	{"results_count":25,"type":"search"}	200	Search result
 transaction_id=txn_987654&amount=199.99	{"currency":"USD","gateway":"stripe","type":"payment"}	202	Payment processing started	192.168.1.102	/api/v1/payments	192.168.1.102	pay.example.com	{"app":"payment","env":"production","features":["3d_secure", "refunds"]}	{"city":"London","coordinates":{"lat":51.5074,"lon":-0.1278},"country":"GB"}	{"Content-Type":"application/json","Idempotency-Key":"idemp_123","X-Request-ID":"req_987xyz"}	{"region":"eu-west-2","server":"payment-gw-02"}	https://checkout.example.com/payment	Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36	{"source":"web","tags":["finance", "payment"]}	{"context":{"amount":199.99,"currency":"USD","customer":"cust_456def","transaction_id":"txn_987654"},"level":"INFO","message":"Payment initiated","timestamp":"2025-07-31T14:20:18Z"}	2025-07-31T14:20:18
 
 -- !union_all_push_down_top_n_shape --
-------------PhysicalOlapScan[t1]
-------------PhysicalOlapScan[t2]
-----------PhysicalTopN[LOCAL_SORT]
-----------PhysicalTopN[LOCAL_SORT]
---------PhysicalTopN[MERGE_SORT]
---------PhysicalTopN[MERGE_SORT]
-------PhysicalUnion
-----PhysicalTopN[LOCAL_SORT]
---PhysicalTopN[MERGE_SORT]
 PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[t1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[t2]
 

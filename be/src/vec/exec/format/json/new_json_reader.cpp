@@ -1057,6 +1057,17 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
                                                                        _serde_options));
 
+        } else if (value.type() == simdjson::ondemand::json_type::boolean) {
+            const char* str_value = nullptr;
+            // insert "1"/"0" , not "true"/"false".
+            if (value.get_bool()) {
+                str_value = (char*)"1";
+            } else {
+                str_value = (char*)"0";
+            }
+            Slice slice {str_value, 1};
+            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                       _serde_options));
         } else {
             // Maybe we can `switch (value->GetType()) case: kNumberType`.
             // Note that `if (value->IsInt())`, but column is FloatColumn.

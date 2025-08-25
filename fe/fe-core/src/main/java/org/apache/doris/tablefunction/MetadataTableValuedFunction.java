@@ -60,7 +60,7 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
 
     public abstract TMetadataType getMetadataType();
 
-    public abstract List<TMetaScanRange> getMetaScanRanges(List<String> requiredFileds);
+    public abstract TMetaScanRange getMetaScanRange(List<String> requiredFileds);
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {

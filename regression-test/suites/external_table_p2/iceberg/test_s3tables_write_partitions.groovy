@@ -1,3 +1,5 @@
+import java.util.concurrent.ThreadLocalRandom
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -22,8 +24,8 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        def source_tbl = "s3_columns_out_of_order_source_tbl_${format_compression}_master"
-        def target_tbl = "s3_columns_out_of_order_target_tbl_${format_compression}_master"
+        def source_tbl = "s3_columns_out_of_order_source_tbl_${format_compression}_master"+ ThreadLocalRandom.current().nextInt(1000)
+        def target_tbl = "s3_columns_out_of_order_target_tbl_${format_compression}_master" + ThreadLocalRandom.current().nextInt(1000)
         sql """ drop table if exists ${source_tbl} """
         sql """
             CREATE TABLE ${source_tbl} (

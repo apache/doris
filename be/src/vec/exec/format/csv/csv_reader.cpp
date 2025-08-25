@@ -516,7 +516,6 @@ Status CsvReader::_init_options() {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
     }
     _options.converted_from_string = _trim_double_quotes;
-    _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
 
     if (_state != nullptr) {
         _keep_cr = _state->query_options().keep_carriage_return;
@@ -573,7 +572,7 @@ Status CsvReader::_create_line_reader() {
                 col_sep_num, _enclose, _escape, _keep_cr);
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
-                _trim_tailing_spaces, !_not_trim_enclose,
+                _trim_tailing_spaces, true,
                 std::static_pointer_cast<EncloseCsvLineReaderCtx>(text_line_reader_ctx),
                 _value_separator_length, _enclose);
     }

@@ -59,7 +59,7 @@ public:
 
     //only used for FileScanner read one line.
     Scanner(RuntimeState* state, RuntimeProfile* profile)
-            : _state(state), _limit(1), _profile(profile), _total_rf_num(0) {
+            : _state(state), _limit(1), _profile(profile), _total_rf_num(0), _has_prepared(false) {
         DorisMetrics::instance()->scanner_cnt->increment(1);
     };
 
@@ -74,9 +74,11 @@ public:
         DorisMetrics::instance()->scanner_cnt->increment(-1);
     }
 
-    virtual Status init() { return Status::OK(); }
-    // Not virtual, all child will call this method explictly
-    virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    virtual Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    virtual Status prepare() {
+        _has_prepared = true;
+        return Status::OK();
+    }
     virtual Status open(RuntimeState* state) {
         _block_avg_bytes = state->batch_size() * 8;
         return Status::OK();
@@ -114,7 +116,7 @@ public:
     int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
 
-    bool is_init() const { return _is_init; }
+    bool has_prepared() const { return _has_prepared; }
 
     Status try_append_late_arrival_runtime_filter();
 
@@ -238,7 +240,7 @@ protected:
 
     bool _is_load = false;
 
-    bool _is_init = true;
+    bool _has_prepared = false;
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;

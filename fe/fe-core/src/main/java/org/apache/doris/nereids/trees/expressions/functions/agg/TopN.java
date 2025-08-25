@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -39,11 +38,8 @@ public class TopN extends NullableAggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(StringType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE)
+                    .args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**
@@ -89,15 +85,15 @@ public class TopN extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!getArgument(1).isConstant() || !getArgumentType(1).isIntegerLikeType()) {
+        if (!getArgument(1).isConstant()) {
             throw new AnalysisException(
-                    "topn requires second parameter must be a constant Integer Type: " + this.toSql());
+                    "topn requires second parameter must be a constant: "
+                            + this.toSql());
         }
-        if (arity() == 3) {
-            if (!getArgument(2).isConstant() || !getArgumentType(2).isIntegerLikeType()) {
-                throw new AnalysisException(
-                        "topn requires the third parameter must be a constant Integer Type: " + this.toSql());
-            }
+        if (arity() == 3 && !getArgument(2).isConstant()) {
+            throw new AnalysisException(
+                    "topn requires third parameter must be a constant: "
+                            + this.toSql());
         }
     }
 

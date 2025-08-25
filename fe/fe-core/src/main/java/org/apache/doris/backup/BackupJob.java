@@ -1025,7 +1025,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
-                    info.getTabletId(), info.getPath());
+                    info.getTabletId(), info.getPath(), false/* no used */);
             batchTask.addTask(releaseTask);
         }
         AgentTaskExecutor.submit(batchTask);

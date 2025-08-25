@@ -378,7 +378,31 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    int64_t inverted_index_analyzer_timer = 0;
+    int64_t inverted_index_lookup_timer = 0;
     InvertedIndexStatistics inverted_index_stats;
+
+    int64_t ann_index_load_ns = 0;
+    int64_t ann_topn_search_ns = 0;
+    int64_t ann_index_topn_search_cnt = 0;
+
+    // Detailed timing for ANN operations
+    int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search
+    int64_t ann_index_topn_result_process_ns = 0; // time spent processing TopN results
+    int64_t ann_index_topn_engine_convert_ns = 0; // time spent on FAISS-side conversions (TopN)
+    int64_t ann_index_topn_engine_prepare_ns =
+            0; // time spent preparing before engine search (TopN)
+    int64_t rows_ann_index_topn_filtered = 0;
+
+    int64_t ann_index_range_search_ns = 0;
+    int64_t ann_index_range_search_cnt = 0;
+    // Detailed timing for ANN Range search
+    int64_t ann_range_engine_search_ns = 0; // time spent in engine for range search
+    int64_t ann_range_pre_process_ns = 0;   // time spent preparing before engine search
+
+    int64_t ann_range_result_convert_ns = 0; // time spent processing range results
+    int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
+    int64_t rows_ann_index_range_filtered = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

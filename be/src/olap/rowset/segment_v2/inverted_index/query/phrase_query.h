@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/exact_phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/ordered_sloppy_phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/sloppy_phrase_matcher.h"
@@ -60,7 +61,7 @@ private:
 
 public:
     static void parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);
-    static void parser_info(std::string& query,
+    static void parser_info(OlapReaderStatistics* stats, std::string& query,
                             const std::map<std::string, std::string>& properties,
                             InvertedIndexQueryInfo& query_info);
 

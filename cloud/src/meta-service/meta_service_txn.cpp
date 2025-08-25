@@ -34,6 +34,7 @@
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
@@ -1143,6 +1144,9 @@ void MetaServiceImpl::commit_txn_immediately(
         TxnErrorCode& err, KVStats& stats) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
+
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
     do {
         TEST_SYNC_POINT_CALLBACK("commit_txn_immediately:begin", &txn_id);
         int64_t last_pending_txn_id = 0;
@@ -1231,17 +1235,27 @@ void MetaServiceImpl::commit_txn_immediately(
 
         LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
+        MetaReader meta_reader(instance_id, txn_kv_.get());
+
         // Prepare rowset meta and new_versions
         AnnotateTag txn_tag("txn_id", txn_id);
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
-        {
-            auto acquired_tablet_ids = to_container<std::vector<int64_t>>(
-                    std::ranges::ref_view(tmp_rowsets_meta) |
-                    std::ranges::views::transform(
-                            [](const auto& pair) { return pair.second.tablet_id(); }));
+        auto acquired_tablet_ids = to_container<std::vector<int64_t>>(
+                std::ranges::ref_view(tmp_rowsets_meta) |
+                std::ranges::views::transform(
+                        [](const auto& pair) { return pair.second.tablet_id(); }));
+        if (!is_versioned_read) {
             std::tie(code, msg) =
                     get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
             if (code != MetaServiceCode::OK) {
+                return;
+            }
+        } else {
+            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet indexes, err={}", err);
+                LOG_WARNING(msg);
                 return;
             }
         }
@@ -1256,10 +1270,23 @@ void MetaServiceImpl::commit_txn_immediately(
 
         // {table/partition} -> version
         std::unordered_map<int64_t, int64_t> versions;
-        std::tie(code, msg) = get_partition_versions(txn.get(), &versions, &last_pending_txn_id,
-                                                     instance_id, partition_indexes);
-        if (code != MetaServiceCode::OK) {
-            return;
+        if (!is_versioned_read) {
+            std::tie(code, msg) = get_partition_versions(txn.get(), &versions, &last_pending_txn_id,
+                                                         instance_id, partition_indexes);
+            if (code != MetaServiceCode::OK) {
+                return;
+            }
+        } else {
+            std::vector<int64_t> partition_ids = to_container<std::vector<int64_t>>(
+                    std::ranges::ref_view(partition_indexes) | std::ranges::views::keys);
+            err = meta_reader.get_partition_versions(txn.get(), partition_ids, &versions,
+                                                     &last_pending_txn_id);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get partition versions, err={}", err);
+                LOG_WARNING(msg);
+                return;
+            }
         }
 
         if (last_pending_txn_id > 0) {
@@ -1298,6 +1325,10 @@ void MetaServiceImpl::commit_txn_immediately(
                 ss << "failed to get partition version key, the target version not exists in "
                       "versions."
                    << " txn_id=" << txn_id << " partition_id=" << partition_id;
+                ss << " versions";
+                for (const auto& [pid, ver] : versions) {
+                    ss << " partition_id=" << pid << " version=" << ver;
+                }
                 msg = ss.str();
                 LOG(ERROR) << msg;
                 return;
@@ -1333,9 +1364,6 @@ void MetaServiceImpl::commit_txn_immediately(
             LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
             return;
         }
-
-        bool is_versioned_write = is_version_write_enabled(instance_id);
-        bool is_versioned_read = is_version_read_enabled(instance_id);
 
         // Save rowset meta
         for (auto& i : rowsets) {
@@ -1413,6 +1441,17 @@ void MetaServiceImpl::commit_txn_immediately(
 
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
+            if (is_versioned_read) {
+                // Read the table version, to build the operation log visible version range.
+                err = meta_reader.get_table_version(txn.get(), i.first, nullptr, true);
+                if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << i.first;
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            }
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
         }
@@ -1462,8 +1501,8 @@ void MetaServiceImpl::commit_txn_immediately(
 
             if (is_versioned_write) {
                 TabletStatsPB stats_pb;
-                internal_get_versioned_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
-                                                    stats_pb);
+                internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
+                                                    tablet_idx, stats_pb);
                 if (code != MetaServiceCode::OK) {
                     LOG(WARNING) << "update versioned tablet stats failed, code=" << code
                                  << " msg=" << msg << " txn_id=" << txn_id
@@ -1502,6 +1541,9 @@ void MetaServiceImpl::commit_txn_immediately(
             commit_txn_log.mutable_recycle_txn()->Swap(&recycle_pb);
             std::string log_key = versioned::log_key({instance_id});
             OperationLogPB operation_log;
+            if (is_versioned_read) {
+                operation_log.set_min_timestamp(meta_reader.min_read_version());
+            }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
             std::string operation_log_value;
             if (!operation_log.SerializeToString(&operation_log_value)) {
@@ -1576,7 +1618,8 @@ void MetaServiceImpl::commit_txn_immediately(
 void repair_tablet_index(
         std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code, std::string& msg,
         const std::string& instance_id, int64_t db_id, int64_t txn_id,
-        const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta) {
+        const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+        bool is_versioned_write) {
     std::stringstream ss;
     std::vector<std::string> tablet_idx_keys;
     for (auto& [_, i] : tmp_rowsets_meta) {
@@ -1645,9 +1688,24 @@ void repair_tablet_index(
                     return;
                 }
                 txn->put(sub_tablet_idx_keys[j], idx_val);
-                LOG(INFO) << " repaire tablet index txn_id=" << txn_id
+                LOG(INFO) << " repair tablet index txn_id=" << txn_id
                           << " tablet_idx_pb:" << tablet_idx_pb.ShortDebugString()
                           << " key=" << hex(sub_tablet_idx_keys[j]);
+                if (is_versioned_write) {
+                    std::string versioned_tablet_idx_key =
+                            versioned::tablet_index_key({instance_id, tablet_idx_pb.tablet_id()});
+                    std::string versioned_tablet_inverted_idx_key =
+                            versioned::tablet_inverted_index_key(
+                                    {instance_id, db_id, tablet_idx_pb.table_id(),
+                                     tablet_idx_pb.index_id(), tablet_idx_pb.partition_id(),
+                                     tablet_idx_pb.tablet_id()});
+                    txn->put(versioned_tablet_idx_key, idx_val);
+                    txn->put(versioned_tablet_inverted_idx_key, "");
+                    LOG(INFO) << "repair tablet index and inverted index, txn_id=" << txn_id
+                              << " tablet_id=" << tablet_idx_pb.tablet_id()
+                              << " index_key=" << hex(versioned_tablet_idx_key)
+                              << " inverted_index_key=" << hex(versioned_tablet_inverted_idx_key);
+                }
             }
         }
 
@@ -1679,6 +1737,9 @@ void MetaServiceImpl::commit_txn_eventually(
     TxnErrorCode err = TxnErrorCode::TXN_OK;
     int64_t txn_id = request->txn_id();
 
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+
     do {
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually:begin", &txn_id);
         int64_t last_pending_txn_id = 0;
@@ -1701,18 +1762,28 @@ void MetaServiceImpl::commit_txn_eventually(
             stats.del_counter += txn->num_del_keys();
         };
 
+        MetaReader meta_reader(instance_id, txn_kv_.get());
+
         AnnotateTag txn_tag("txn_id", txn_id);
 
         // tablet_id -> {table/index/partition}_id
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
-        {
-            auto acquired_tablet_ids = to_container<std::vector<int64_t>>(
-                    std::ranges::ref_view(tmp_rowsets_meta) |
-                    std::ranges::views::transform(
-                            [](const auto& pair) { return pair.second.tablet_id(); }));
+        auto acquired_tablet_ids = to_container<std::vector<int64_t>>(
+                std::ranges::ref_view(tmp_rowsets_meta) |
+                std::ranges::views::transform(
+                        [](const auto& pair) { return pair.second.tablet_id(); }));
+        if (!is_versioned_read) {
             std::tie(code, msg) =
                     get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
             if (code != MetaServiceCode::OK) {
+                return;
+            }
+        } else {
+            err = meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get tablet indexes, err={}", err);
+                LOG_WARNING(msg);
                 return;
             }
         }
@@ -1727,7 +1798,8 @@ void MetaServiceImpl::commit_txn_eventually(
             stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
             txn.reset();
-            repair_tablet_index(txn_kv_, code, msg, instance_id, db_id, txn_id, tmp_rowsets_meta);
+            repair_tablet_index(txn_kv_, code, msg, instance_id, db_id, txn_id, tmp_rowsets_meta,
+                                is_versioned_write);
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "repair_tablet_index failed, txn_id=" << txn_id << " code=" << code;
                 return;
@@ -1750,10 +1822,23 @@ void MetaServiceImpl::commit_txn_eventually(
         }
 
         std::unordered_map<int64_t, int64_t> versions;
-        std::tie(code, msg) = get_partition_versions(txn.get(), &versions, &last_pending_txn_id,
-                                                     instance_id, partition_indexes);
-        if (code != MetaServiceCode::OK) {
-            return;
+        if (!is_versioned_read) {
+            std::tie(code, msg) = get_partition_versions(txn.get(), &versions, &last_pending_txn_id,
+                                                         instance_id, partition_indexes);
+            if (code != MetaServiceCode::OK) {
+                return;
+            }
+        } else {
+            std::vector<int64_t> partition_ids = to_container<std::vector<int64_t>>(
+                    std::ranges::ref_view(partition_indexes) | std::ranges::views::keys);
+            err = meta_reader.get_partition_versions(txn.get(), partition_ids, &versions,
+                                                     &last_pending_txn_id);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                msg = fmt::format("failed to get partition versions, err={}", err);
+                LOG_WARNING(msg);
+                return;
+            }
         }
 
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::last_pending_txn_id",
@@ -1859,8 +1944,6 @@ void MetaServiceImpl::commit_txn_eventually(
         // lazy commit task will advance txn to make txn visible
         txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
 
-        bool is_versioned_write = is_version_write_enabled(instance_id);
-        bool is_versioned_read = is_version_read_enabled(instance_id);
         txn_info.set_versioned_write(is_versioned_write);
         txn_info.set_versioned_read(is_versioned_read);
 
@@ -1944,6 +2027,17 @@ void MetaServiceImpl::commit_txn_eventually(
 
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
+            if (is_versioned_read) {
+                // Read the table version, to build the operation log visible version range.
+                err = meta_reader.get_table_version(txn.get(), i.first, nullptr, true);
+                if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    code = cast_as<ErrCategory::READ>(err);
+                    ss << "failed to get table version, err=" << err << " table_id=" << i.first;
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            }
             update_table_version(txn.get(), instance_id, db_id, i.first);
             commit_txn_log.add_table_ids(i.first);
         }
@@ -1953,6 +2047,9 @@ void MetaServiceImpl::commit_txn_eventually(
             recycle_txn->set_label(txn_info.label());
             std::string log_key = versioned::log_key({instance_id});
             OperationLogPB operation_log;
+            if (is_versioned_read) {
+                operation_log.set_min_timestamp(meta_reader.min_read_version());
+            }
             operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
             std::string operation_log_value;
             if (!operation_log.SerializeToString(&operation_log_value)) {
@@ -2232,19 +2329,32 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
     AnnotateTag txn_tag("txn_id", txn_id);
 
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    MetaReader meta_reader(instance_id, txn_kv_.get());
+
     // Prepare rowset meta and new_versions
     std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
-    {
-        // Read tablet indexes in batch.
-        std::vector<int64_t> acquired_tablet_ids;
-        for (const auto& [_, tmp_rowsets_meta] : sub_txn_to_tmp_rowsets_meta) {
-            for (const auto& [_, i] : tmp_rowsets_meta) {
-                acquired_tablet_ids.push_back(i.tablet_id());
-            }
+    std::vector<int64_t> acquired_tablet_ids;
+    for (const auto& [_, tmp_rowsets_meta] : sub_txn_to_tmp_rowsets_meta) {
+        for (const auto& [_, i] : tmp_rowsets_meta) {
+            acquired_tablet_ids.push_back(i.tablet_id());
         }
+    }
+    if (!is_versioned_read) {
+        // Read tablet indexes in batch.
         std::tie(code, msg) =
                 get_tablet_indexes(txn.get(), &tablet_ids, instance_id, acquired_tablet_ids);
         if (code != MetaServiceCode::OK) {
+            return;
+        }
+    } else {
+        TxnErrorCode err =
+                meta_reader.get_tablet_indexes(txn.get(), acquired_tablet_ids, &tablet_ids);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet indexes, err={}", err);
+            LOG_WARNING(msg);
             return;
         }
     }
@@ -2260,10 +2370,23 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
     // FIXME: handle pengding txn id in commit_txn_with_sub_txn.
     int64_t last_pending_txn_id = 0;
-    std::tie(code, msg) = get_partition_versions(txn.get(), &new_versions, &last_pending_txn_id,
-                                                 instance_id, partition_indexes);
-    if (code != MetaServiceCode::OK) {
-        return;
+    if (!is_versioned_read) {
+        std::tie(code, msg) = get_partition_versions(txn.get(), &new_versions, &last_pending_txn_id,
+                                                     instance_id, partition_indexes);
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
+    } else {
+        std::vector<int64_t> partition_ids = to_container<std::vector<int64_t>>(
+                std::ranges::ref_view(partition_indexes) | std::ranges::views::keys);
+        err = meta_reader.get_partition_versions(txn.get(), partition_ids, &new_versions,
+                                                 &last_pending_txn_id);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get partition versions, err={}", err);
+            LOG_WARNING(msg);
+            return;
+        }
     }
 
     CommitTxnLogPB commit_txn_log;
@@ -2332,9 +2455,6 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
         return;
     }
-
-    bool is_versioned_write = is_version_write_enabled(instance_id);
-    bool is_versioned_read = is_version_read_enabled(instance_id);
 
     // Save rowset meta
     for (auto& i : rowsets) {
@@ -2406,6 +2526,17 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
     // Save table versions
     for (auto& i : table_id_tablet_ids) {
+        if (is_versioned_read) {
+            // Read the table version, to build the operation log visible version range.
+            TxnErrorCode err = meta_reader.get_table_version(txn.get(), i.first, nullptr, true);
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get table version, err=" << err << " table_id=" << i.first;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+        }
         update_table_version(txn.get(), instance_id, db_id, i.first);
         commit_txn_log.add_table_ids(i.first);
     }
@@ -2454,8 +2585,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
         if (is_versioned_write) {
             TabletStatsPB stats_pb;
-            internal_get_versioned_tablet_stats(code, msg, txn.get(), instance_id, tablet_idx,
-                                                stats_pb);
+            internal_get_versioned_tablet_stats(code, msg, meta_reader, txn.get(), instance_id,
+                                                tablet_idx, stats_pb);
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "update versioned tablet stats failed, code=" << code
                              << " msg=" << msg << " txn_id=" << txn_id
@@ -2498,6 +2629,9 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         std::string log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
+        if (is_versioned_read) {
+            operation_log.set_min_timestamp(meta_reader.min_read_version());
+        }
         operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
         if (!operation_log.SerializeToString(&operation_log_value)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

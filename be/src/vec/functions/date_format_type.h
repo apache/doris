@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <charconv>
 #include <variant>
 
 #include "vec/common/string_ref.h"
@@ -26,9 +28,10 @@ namespace doris::vectorized::time_format_type {
 // Used to optimize commonly used date formats.
 
 inline StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
-    const static std::string specific_format_strs[3] = {"%Y%m%d", "%Y-%m-%d", "%Y-%m-%d %H:%i:%s"};
-    const static std::string specific_format_rewrite[3] = {"yyyyMMdd", "yyyy-MM-dd",
-                                                           "yyyy-MM-dd HH:mm:ss"};
+    const static std::string specific_format_strs[3] = {"yyyyMMdd", "yyyy-MM-dd",
+                                                        "yyyy-MM-dd HH:mm:ss"};
+    const static std::string specific_format_rewrite[3] = {"%Y%m%d", "%Y-%m-%d",
+                                                           "%Y-%m-%d %H:%i:%s"};
     for (int i = 0; i < 3; i++) {
         const StringRef specific_format {specific_format_strs[i].data(),
                                          specific_format_strs[i].size()};
@@ -51,21 +54,21 @@ void put_year(T y, char* buf, int& i) {
 }
 
 template <typename T>
-void put_other(T m, char* buf, int& i) {
+void put_two_digits(T m, char* buf, int& i) {
     buf[i++] = cast_set<char, int, false>(m / 10 + '0');
     buf[i++] = cast_set<char, int, false>(m % 10 + '0');
 }
 
-// NoneImpl indicates that no specific optimization has been applied, and the general logic is used for processing.
-struct NoneImpl {};
+// UserDefinedImpl indicates that no specific optimization has been applied, and the general logic is used for processing.
+struct UserDefinedImpl {};
 
 struct yyyyMMddImpl {
     template <typename DateType>
     size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
-        put_other(date_value.month(), buf, i);
-        put_other(date_value.day(), buf, i);
+        put_two_digits(date_value.month(), buf, i);
+        put_two_digits(date_value.day(), buf, i);
         return i;
     }
 };
@@ -76,9 +79,9 @@ struct yyyy_MM_ddImpl {
         int i = 0;
         put_year(date_value.year(), buf, i);
         buf[i++] = '-';
-        put_other(date_value.month(), buf, i);
+        put_two_digits(date_value.month(), buf, i);
         buf[i++] = '-';
-        put_other(date_value.day(), buf, i);
+        put_two_digits(date_value.day(), buf, i);
         return i;
     }
 };
@@ -89,16 +92,38 @@ struct yyyy_MM_dd_HH_mm_ssImpl {
         int i = 0;
         put_year(date_value.year(), buf, i);
         buf[i++] = '-';
-        put_other(date_value.month(), buf, i);
+        put_two_digits(date_value.month(), buf, i);
         buf[i++] = '-';
-        put_other(date_value.day(), buf, i);
+        put_two_digits(date_value.day(), buf, i);
         buf[i++] = ' ';
-        put_other(date_value.hour(), buf, i);
+        put_two_digits(date_value.hour(), buf, i);
         buf[i++] = ':';
-        put_other(date_value.minute(), buf, i);
+        put_two_digits(date_value.minute(), buf, i);
         buf[i++] = ':';
-        put_other(date_value.second(), buf, i);
+        put_two_digits(date_value.second(), buf, i);
         return i;
+    }
+};
+
+struct yyyy_MM_dd_HH_mm_ss_SSSSSSImpl {
+    size_t static date_to_str(const DateV2Value<DateTimeV2ValueType>& date_value, char* buf) {
+        int i = 0;
+        put_year(date_value.year(), buf, i);
+        buf[i++] = '-';
+        put_two_digits(date_value.month(), buf, i);
+        buf[i++] = '-';
+        put_two_digits(date_value.day(), buf, i);
+        buf[i++] = ' ';
+        put_two_digits(date_value.hour(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.minute(), buf, i);
+        buf[i++] = ':';
+        put_two_digits(date_value.second(), buf, i);
+        buf[i++] = '.';
+        int length = common::count_digits_fast(date_value.microsecond());
+        std::fill(buf + i, buf + i + 6 - length, '0');
+        std::to_chars(buf + i + 6 - length, buf + i + 6, date_value.microsecond());
+        return i + 6;
     }
 };
 
@@ -108,7 +133,7 @@ struct yyyy_MMImpl {
         int i = 0;
         put_year(date_value.year(), buf, i);
         buf[i++] = '-';
-        put_other(date_value.month(), buf, i);
+        put_two_digits(date_value.month(), buf, i);
         return i;
     }
 };
@@ -117,7 +142,7 @@ struct yyyyMMImpl {
     size_t static date_to_str(const DateType& date_value, char* buf) {
         int i = 0;
         put_year(date_value.year(), buf, i);
-        put_other(date_value.month(), buf, i);
+        put_two_digits(date_value.month(), buf, i);
         return i;
     }
 };
@@ -131,17 +156,20 @@ struct yyyyImpl {
     }
 };
 
-using FormatImplVariant = std::variant<NoneImpl, yyyyMMddImpl, yyyy_MM_ddImpl,
+using FormatImplVariant = std::variant<UserDefinedImpl, yyyyMMddImpl, yyyy_MM_ddImpl,
                                        yyyy_MM_dd_HH_mm_ssImpl, yyyy_MMImpl, yyyyMMImpl, yyyyImpl>;
 
-const static std::string default_format = "yyyy-MM-dd HH:mm:ss";
-const static auto default_impl = yyyy_MM_dd_HH_mm_ssImpl {};
+const static std::string DEFAULT_FORMAT = "yyyy-MM-dd HH:mm:ss";
+const static std::string DEFAULT_FORMAT_DECIMAL = "%Y-%m-%d %H:%i:%s.%f";
+const static auto DEFAULT_IMPL = yyyy_MM_dd_HH_mm_ssImpl {};
+// this type hasn't be put into FormatImplVariant. we will use special judgment to handle it.
+const static auto DEFAULT_IMPL_DECIMAL = yyyy_MM_dd_HH_mm_ss_SSSSSSImpl {};
 inline FormatImplVariant string_to_impl(const std::string& format) {
     if (format == "yyyyMMdd" || format == "%Y%m%d") {
         return yyyyMMddImpl {};
     } else if (format == "yyyy-MM-dd" || format == "%Y-%m-%d") {
         return yyyy_MM_ddImpl {};
-    } else if (format == "yyyy-MM-dd HH:mm:ss" || format == "%Y-%m-%d %H:%i:%s") {
+    } else if (format == DEFAULT_FORMAT || format == "%Y-%m-%d %H:%i:%s") {
         return yyyy_MM_dd_HH_mm_ssImpl {};
     } else if (format == "yyyy-MM") {
         return yyyy_MMImpl {};
@@ -150,7 +178,7 @@ inline FormatImplVariant string_to_impl(const std::string& format) {
     } else if (format == "yyyy") {
         return yyyyImpl {};
     } else {
-        return NoneImpl {};
+        return UserDefinedImpl {};
     }
 }
 #include "common/compile_check_end.h"

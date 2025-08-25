@@ -54,7 +54,7 @@ public:
     Status init(const ColumnReaderOptions& opts, const SegmentFooterPB& footer, uint32_t column_id,
                 uint64_t num_rows, io::FileReaderSPtr file_reader);
 
-    Status new_iterator(ColumnIterator** iterator, const TabletColumn* col,
+    Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt) override;
 
     const SubcolumnColumnReaders::Node* get_reader_by_path(
@@ -87,17 +87,19 @@ public:
 
 private:
     // init for compaction read
-    Status _new_default_iter_with_same_nested(ColumnIterator** iterator, const TabletColumn& col);
-    Status _new_iterator_with_flat_leaves(ColumnIterator** iterator, const TabletColumn& col,
+    Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator,
+                                              const TabletColumn& col);
+    Status _new_iterator_with_flat_leaves(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                           const StorageReadOptions* opts,
                                           bool exceeded_sparse_column_limit,
                                           bool existed_in_sparse_column);
 
-    Status _create_hierarchical_reader(ColumnIterator** reader, vectorized::PathInData path,
+    Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, vectorized::PathInData path,
                                        const SubcolumnColumnReaders::Node* node,
                                        const SubcolumnColumnReaders::Node* root);
-    Status _create_sparse_merge_reader(ColumnIterator** iterator, const StorageReadOptions* opts,
-                                       const TabletColumn& target_col, ColumnIterator* inner_iter);
+    Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
+                                       const TabletColumn& target_col,
+                                       ColumnIteratorUPtr inner_iter);
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
     std::unique_ptr<ColumnReader> _sparse_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
@@ -109,7 +111,9 @@ class VariantRootColumnIterator : public ColumnIterator {
 public:
     VariantRootColumnIterator() = delete;
 
-    explicit VariantRootColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
+    explicit VariantRootColumnIterator(FileColumnIteratorUPtr iter) {
+        _inner_iter = std::move(iter);
+    }
 
     ~VariantRootColumnIterator() override = default;
 
@@ -140,7 +144,7 @@ private:
 
 class DefaultNestedColumnIterator : public ColumnIterator {
 public:
-    DefaultNestedColumnIterator(std::unique_ptr<ColumnIterator>&& sibling,
+    DefaultNestedColumnIterator(ColumnIteratorUPtr sibling,
                                 vectorized::DataTypePtr file_column_type)
             : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
 

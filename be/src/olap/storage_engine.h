@@ -168,7 +168,7 @@ protected:
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
-    scoped_refptr<Thread> _evict_quering_rowset_thread;
+    std::shared_ptr<Thread> _evict_quering_rowset_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
 
@@ -481,23 +481,23 @@ private:
     PendingRowsetSet _pending_local_rowsets;
     PendingRowsetSet _pending_remote_rowsets;
 
-    scoped_refptr<Thread> _unused_rowset_monitor_thread;
+    std::shared_ptr<Thread> _unused_rowset_monitor_thread;
     // thread to monitor snapshot expiry
-    scoped_refptr<Thread> _garbage_sweeper_thread;
+    std::shared_ptr<Thread> _garbage_sweeper_thread;
     // thread to monitor disk stat
-    scoped_refptr<Thread> _disk_stat_monitor_thread;
+    std::shared_ptr<Thread> _disk_stat_monitor_thread;
     // thread to produce both base and cumulative compaction tasks
-    scoped_refptr<Thread> _compaction_tasks_producer_thread;
-    scoped_refptr<Thread> _update_replica_infos_thread;
-    scoped_refptr<Thread> _cache_clean_thread;
+    std::shared_ptr<Thread> _compaction_tasks_producer_thread;
+    std::shared_ptr<Thread> _update_replica_infos_thread;
+    std::shared_ptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
-    std::vector<scoped_refptr<Thread>> _path_gc_threads;
+    std::vector<std::shared_ptr<Thread>> _path_gc_threads;
     // thread to produce tablet checkpoint tasks
-    scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
+    std::shared_ptr<Thread> _tablet_checkpoint_tasks_producer_thread;
     // thread to check tablet path
-    scoped_refptr<Thread> _tablet_path_check_thread;
+    std::shared_ptr<Thread> _tablet_path_check_thread;
     // thread to clean tablet lookup cache
-    scoped_refptr<Thread> _lookup_cache_clean_thread;
+    std::shared_ptr<Thread> _lookup_cache_clean_thread;
 
     std::mutex _engine_task_mutex;
 
@@ -537,11 +537,11 @@ private:
     // we use unordered_map to store all cumulative compaction policy sharded ptr
     CumuCompactionPolicyTable _cumulative_compaction_policies;
 
-    scoped_refptr<Thread> _cooldown_tasks_producer_thread;
-    scoped_refptr<Thread> _remove_unused_remote_files_thread;
-    scoped_refptr<Thread> _cold_data_compaction_producer_thread;
+    std::shared_ptr<Thread> _cooldown_tasks_producer_thread;
+    std::shared_ptr<Thread> _remove_unused_remote_files_thread;
+    std::shared_ptr<Thread> _cold_data_compaction_producer_thread;
 
-    scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
+    std::shared_ptr<Thread> _cache_file_cleaner_tasks_producer_thread;
 
     std::unique_ptr<PriorityThreadPool> _cooldown_thread_pool;
 
@@ -556,7 +556,7 @@ private:
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
-    scoped_refptr<Thread> _async_publish_thread;
+    std::shared_ptr<Thread> _async_publish_thread;
     std::shared_mutex _async_publish_lock;
 
     std::atomic<bool> _need_clean_trash {false};
@@ -569,7 +569,7 @@ private:
     std::unique_ptr<SnapshotManager> _snapshot_mgr;
 
     // thread to check tablet delete bitmap count tasks
-    scoped_refptr<Thread> _check_delete_bitmap_score_thread;
+    std::shared_ptr<Thread> _check_delete_bitmap_score_thread;
 
     int64_t _last_get_peers_replica_backends_time_ms {0};
 

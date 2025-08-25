@@ -62,7 +62,8 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
             // wait util the first load's delete bitmap update lock expired
             // to ensure that the second load can take the delete bitmap update lock
             // Config.delete_bitmap_lock_expiration_seconds = 10s
-            Thread.sleep(11 * 1000)
+            def timeout = getFeConfig("delete_bitmap_lock_expiration_seconds").toInteger() + 2;
+            Thread.sleep(timeout * 1000)
 
             // the second load
             GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.enable_spin_wait", [token: "token2"])
@@ -75,7 +76,8 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
 
             // keep waiting util the delete bitmap calculation timeout(Config.calculate_delete_bitmap_task_timeout_seconds = 15s)
             // and the coordinator BE will retry to commit the first load's txn
-            Thread.sleep(15 * 1000)
+            timeout = getFeConfig("calculate_delete_bitmap_task_timeout_seconds").toInteger() + 2;
+            Thread.sleep(timeout * 1000)
 
             // let the first partial update load finish
             GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block")

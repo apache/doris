@@ -78,6 +78,7 @@ enum TStatusCode {
     OLAP_ERR_VERSION_ALREADY_MERGED = 45,
     DATA_QUALITY_ERROR  = 46,
     INVALID_JSON_PATH   = 47,
+    JNI_ERROR           = 48,
 
     //VEC_EXCEPTION = 50,
     //VEC_LOGIC_ERROR = 51,

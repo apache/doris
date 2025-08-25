@@ -141,11 +141,6 @@ public:
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override;
 
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override;
-
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
                     GetTabletResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -434,7 +429,8 @@ private:
     void get_partition_pending_txn_id(std::string_view instance_id, int64_t db_id, int64_t table_id,
                                       int64_t partition_id, int64_t tablet_id,
                                       std::stringstream& ss, MetaServiceCode& code,
-                                      std::string& msg, int64_t& first_txn_id, Transaction* txn);
+                                      std::string& msg, int64_t& first_txn_id,
+                                      int64_t& partition_version, Transaction* txn);
 
     // Get versions in batch, Only for versioned read.
     std::pair<MetaServiceCode, std::string> batch_get_table_versions(
@@ -548,13 +544,6 @@ public:
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tablet, controller, request, response, done);
-    }
-
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::update_tablet_schema, controller, request, response, done);
     }
 
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,

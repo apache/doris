@@ -106,11 +106,12 @@ public:
     int do_delete_bitmap_storage_optimize_check(int version = 2);
 
     int do_mow_job_key_check();
-
     // check table and partition version key
     // table version should be greater than the versions of all its partitions
     // Return 0 if success, otherwise error
     int do_version_key_check();
+
+    int do_restore_job_check();
 
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
