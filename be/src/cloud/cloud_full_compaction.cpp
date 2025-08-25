@@ -357,10 +357,15 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
                                                                       delete_bitmap));
         }
     }
-    auto storage_resource = *DORIS_TRY(_output_rowset->rowset_meta()->remote_storage_resource());
+    std::optional<StorageResource> storage_resource;
+    auto storage_resource_result = _output_rowset->rowset_meta()->remote_storage_resource();
+    if (storage_resource_result) {
+        storage_resource = *storage_resource_result.value();
+    }
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *cloud_tablet(), -1, initiator, delete_bitmap.get(), delete_bitmap.get(),
-            _output_rowset->rowset_id().to_string(), storage_resource));
+            _output_rowset->rowset_id().to_string(), storage_resource,
+            config::delete_bitmap_store_write_version));
     LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
              _tablet->tablet_id(), _input_rowsets.front()->start_version(),
              _input_rowsets.back()->end_version())
