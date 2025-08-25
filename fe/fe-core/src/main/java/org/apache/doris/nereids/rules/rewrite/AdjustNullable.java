@@ -419,7 +419,16 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     private <T extends Expression> Optional<T> updateExpression(T input,
             Map<ExprId, Slot> replaceMap, boolean debugCheck) {
         AtomicBoolean changed = new AtomicBoolean(false);
-        Expression replaced = input.rewriteDownShortCircuit(e -> {
+        Expression replaced = doUpdateExpression(changed, input, replaceMap, debugCheck, isAnalyzedPhase);
+        return changed.get() ? Optional.of((T) replaced) : Optional.empty();
+    }
+
+    /**
+     * Adjust nullable attribute of slot reference in expression.
+     */
+    public static Expression doUpdateExpression(AtomicBoolean changed, Expression input,
+            Map<ExprId, Slot> replaceMap, boolean debugCheck, boolean isAnalyzedPhase) {
+        return input.rewriteDownShortCircuit(e -> {
             if (e instanceof SlotReference) {
                 SlotReference slotReference = (SlotReference) e;
                 Slot newSlotReference = slotReference;
@@ -463,7 +472,6 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 return e;
             }
         });
-        return changed.get() ? Optional.of((T) replaced) : Optional.empty();
     }
 
     private <T extends Expression> Optional<List<T>> updateExpressions(List<T> inputs,

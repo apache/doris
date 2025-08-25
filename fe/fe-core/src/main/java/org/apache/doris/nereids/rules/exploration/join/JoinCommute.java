@@ -81,7 +81,9 @@ public class JoinCommute extends OneExplorationRuleFactory {
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);
                     }
-
+                    if (newJoin.getJoinType().isOuterJoin()) {
+                        return JoinUtils.adjustJoinConjunctsNullable(newJoin);
+                    }
                     return newJoin;
                 }).toRule(RuleType.LOGICAL_JOIN_COMMUTE);
     }
