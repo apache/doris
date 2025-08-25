@@ -221,35 +221,5 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
                                      print_id(fragment_instance_id), node_id);
     }
 }
-
-void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id, Status exec_status) {
-    VLOG_QUERY << "cancelling all streams for fragment=" << print_id(fragment_instance_id);
-    std::vector<std::shared_ptr<VDataStreamRecvr>> recvrs;
-    {
-        std::shared_lock l(_lock);
-        FragmentStreamSet::iterator i =
-                _fragment_stream_set.lower_bound(std::make_pair(fragment_instance_id, 0));
-        while (i != _fragment_stream_set.end() && i->first == fragment_instance_id) {
-            std::shared_ptr<VDataStreamRecvr> recvr;
-            WARN_IF_ERROR(find_recvr(i->first, i->second, &recvr, false), "");
-            if (recvr == nullptr) {
-                // keep going but at least log it
-                std::stringstream err;
-                err << "cancel(): missing in stream_map: fragment=" << print_id(i->first)
-                    << " node=" << i->second;
-                LOG(ERROR) << err.str();
-            } else {
-                recvrs.push_back(recvr);
-            }
-            ++i;
-        }
-    }
-
-    // cancel_stream maybe take a long time, so we handle it out of lock.
-    for (auto& it : recvrs) {
-        it->cancel_stream(exec_status);
-    }
-}
-
 } // namespace vectorized
 } // namespace doris
