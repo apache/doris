@@ -231,6 +231,12 @@ BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checke
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps("checker", "abnormal_delete_bitmaps");
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned("checker", "delete_bitmap_keys_scanned");
 BvarStatusWithTag<int64_t> g_bvar_max_rowsets_with_useless_delete_bitmap_version("checker", "max_rowsets_with_useless_delete_bitmap_version");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_prepared_state("checker", "restore_job_prepared_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_committed_state("checker", "restore_job_committed_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_dropped_state("checker", "restore_job_dropped_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_completed_state("checker", "restore_job_completed_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_recycling_state("checker", "restore_job_recycling_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_cost_many_time("checker", "restore_job_cost_many_time");
 
 // rpc kv rw count
 // get_rowset
