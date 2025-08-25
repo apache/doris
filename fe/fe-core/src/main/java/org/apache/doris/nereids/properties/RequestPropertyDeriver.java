@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -67,6 +68,7 @@ import com.google.common.collect.Maps;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -433,9 +435,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             if (parentDist instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
                 List<ExprId> hashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
-                if (new HashSet<>(groupByExprIds).containsAll(hashExprIds)) {
+                Set<ExprId> intersectId = new HashSet<>(groupByExprIds);
+                if (intersectId.retainAll(hashExprIds)) {
                     // TODO: use ndv decide, if ndv low, not send parent
-                    addRequestPropertyToChildren(PhysicalProperties.createHash(hashExprIds, ShuffleType.REQUIRE));
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(Utils.fastToImmutableList(intersectId),
+                            ShuffleType.REQUIRE));
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
                     return null;
                 }
             }
