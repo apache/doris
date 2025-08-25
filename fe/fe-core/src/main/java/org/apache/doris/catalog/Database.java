@@ -402,7 +402,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     // return pair <success?, table exist?>
-    public Pair<Boolean, Boolean> createTableWithOutLock(
+    // caller must hold db lock
+    public Pair<Boolean, Boolean> createTableWithoutLock(
             Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
@@ -434,51 +435,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             }
         }
         return Pair.of(result, isTableExist);
-    }
-
-    // return pair <success?, table exist?>
-    public Pair<Boolean, Boolean> createTableWithLock(
-            Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
-        boolean result = true;
-        // if a table is already exists, then edit log won't be executed
-        // some caller of this method may need to know this message
-        boolean isTableExist = false;
-        table.setQualifiedDbName(fullQualifiedName);
-        writeLockOrDdlException();
-        try {
-            String tableName = table.getName();
-            if (Env.isStoredTableNamesLowerCase()) {
-                tableName = tableName.toLowerCase();
-            }
-            if (isTableExist(tableName)) {
-                result = setIfNotExist;
-                isTableExist = true;
-            } else {
-                table.writeLock();
-                try {
-                    registerTable(table);
-                    if (table.isTemporary()) {
-                        Env.getCurrentEnv().registerTempTableAndSession(table);
-                    }
-                    if (table instanceof MTMV) {
-                        Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
-                    }
-                    if (!isReplay) {
-                        // Write edit log
-                        CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
-                        Env.getCurrentEnv().getEditLog().logCreateTable(info);
-                    }
-                } finally {
-                    table.writeUnlock();
-                }
-                if (table.getType() == TableType.ELASTICSEARCH) {
-                    Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
-                }
-            }
-            return Pair.of(result, isTableExist);
-        } finally {
-            writeUnlock();
-        }
     }
 
     @Override

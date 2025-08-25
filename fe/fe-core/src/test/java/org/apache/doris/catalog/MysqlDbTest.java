@@ -30,7 +30,9 @@ public class MysqlDbTest {
         Database db = new MysqlDb();
 
         Assert.assertFalse(db.registerTable(null));
-        Assert.assertFalse(db.createTableWithLock(null, false, false).first);
+        db.writeLockOrDdlException();
+        Assert.assertFalse(db.createTableWithoutLock(null, false, false).first);
+        db.writeUnlock();
         db.unregisterTable("authors");
         Assert.assertThrows(IOException.class, () -> db.write(null));
         Assert.assertNull(db.getTableNullable("authors"));
