@@ -714,7 +714,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     for (auto& it : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
-        _rs_metas.push_back(std::move(rs_meta));
+        _rs_metas.emplace(rs_meta->version(), rs_meta);
     }
 
     // For mow table, delete bitmap of stale rowsets has not been persisted.
@@ -724,7 +724,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         for (auto& it : tablet_meta_pb.stale_rs_metas()) {
             RowsetMetaSharedPtr rs_meta(new RowsetMeta());
             rs_meta->init_from_pb(it);
-            _stale_rs_metas.push_back(std::move(rs_meta));
+            _stale_rs_metas.emplace(rs_meta->version(), rs_meta);
         }
     }
 
@@ -807,10 +807,10 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
 
     // RowsetMetaPB is separated from TabletMetaPB
     if (!config::is_cloud_mode()) {
-        for (auto& rs : _rs_metas) {
+        for (const auto& [_, rs] : _rs_metas) {
             rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
         }
-        for (auto rs : _stale_rs_metas) {
+        for (const auto& [_, rs] : _stale_rs_metas) {
             rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
         }
     }
@@ -834,7 +834,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
 
     if (_enable_unique_key_merge_on_write) {
         std::set<RowsetId> stale_rs_ids;
-        for (const auto& rowset : _stale_rs_metas) {
+        for (const auto& [_, rowset] : _stale_rs_metas) {
             stale_rs_ids.insert(rowset->rowset_id());
         }
         DeleteBitmapPB* delete_bitmap_pb = tablet_meta_pb->mutable_delete_bitmap();
@@ -873,7 +873,7 @@ void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) 
 
 Version TabletMeta::max_version() const {
     Version max_version = {-1, 0};
-    for (auto& rs_meta : _rs_metas) {
+    for (const auto& [_, rs_meta] : _rs_metas) {
         if (rs_meta->end_version() > max_version.second) {
             max_version = rs_meta->version();
         }
@@ -883,7 +883,7 @@ Version TabletMeta::max_version() const {
 
 size_t TabletMeta::version_count_cross_with_range(const Version& range) const {
     size_t count = 0;
-    for (const auto& rs_meta : _rs_metas) {
+    for (const auto& [_, rs_meta] : _rs_metas) {
         if (!(range.first > rs_meta->version().second || range.second < rs_meta->version().first)) {
             count++;
         }
@@ -893,7 +893,7 @@ size_t TabletMeta::version_count_cross_with_range(const Version& range) const {
 
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         if (rs->version() == rs_meta->version()) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
                 return Status::Error<PUSH_VERSION_ALREADY_EXIST>(
@@ -905,34 +905,29 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
             }
         }
     }
-    _rs_metas.push_back(rs_meta);
+    _rs_metas.emplace(rs_meta->version(), rs_meta);
     return Status::OK();
 }
 
 void TabletMeta::add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_add) {
     for (const auto& rs : to_add) {
-        _rs_metas.push_back(rs->rowset_meta());
+        _rs_metas.emplace(rs->rowset_meta()->version(), rs->rowset_meta());
     }
 }
 
 void TabletMeta::delete_rs_meta_by_version(const Version& version,
                                            std::vector<RowsetMetaSharedPtr>* deleted_rs_metas) {
     size_t rowset_cache_version_size = 0;
-    auto it = _rs_metas.begin();
-    while (it != _rs_metas.end()) {
-        if ((*it)->version() == version) {
-            if (deleted_rs_metas != nullptr) {
-                deleted_rs_metas->push_back(*it);
-            }
-            _rs_metas.erase(it);
-            if (_enable_unique_key_merge_on_write) {
-                rowset_cache_version_size =
-                        _delete_bitmap->remove_rowset_cache_version((*it)->rowset_id());
-            }
-            return;
-        } else {
-            ++it;
+    if (auto it = _rs_metas.find(version); it != _rs_metas.end()) {
+        if (deleted_rs_metas != nullptr) {
+            deleted_rs_metas->push_back(it->second);
         }
+        auto rowset_id = it->second->rowset_id();
+        _rs_metas.erase(it);
+        if (_enable_unique_key_merge_on_write) {
+            rowset_cache_version_size = _delete_bitmap->remove_rowset_cache_version(rowset_id);
+        }
+        return;
     }
     _check_mow_rowset_cache_version_size(rowset_cache_version_size);
 }
@@ -943,28 +938,27 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
     size_t rowset_cache_version_size = 0;
     // Remove to_delete rowsets from _rs_metas
     for (auto rs_to_del : to_delete) {
-        auto it = _rs_metas.begin();
-        while (it != _rs_metas.end()) {
-            if (rs_to_del->version() == (*it)->version()) {
-                _rs_metas.erase(it);
-                if (_enable_unique_key_merge_on_write) {
-                    rowset_cache_version_size =
-                            _delete_bitmap->remove_rowset_cache_version((*it)->rowset_id());
-                }
-                // there should be only one rowset match the version
-                break;
-            } else {
-                ++it;
+        if (auto it = _rs_metas.find(rs_to_del->version()); it != _rs_metas.end()) {
+            auto rowset_id = it->second->rowset_id();
+            _rs_metas.erase(it);
+            if (_enable_unique_key_merge_on_write) {
+                rowset_cache_version_size = _delete_bitmap->remove_rowset_cache_version(rowset_id);
             }
+            // there should be only one rowset match the version
+            break;
         }
     }
     if (!same_version) {
         // put to_delete rowsets in _stale_rs_metas.
-        _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
+        for (auto rs_to_del : to_delete) {
+            _stale_rs_metas.emplace(rs_to_del->version(), rs_to_del);
+        }
     }
 
     // put to_add rowsets in _rs_metas.
-    _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
+    for (auto rs_to_add : to_add) {
+        _rs_metas.emplace(rs_to_add->version(), rs_to_add);
+    }
     _check_mow_rowset_cache_version_size(rowset_cache_version_size);
 }
 
@@ -975,7 +969,10 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
 void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     {
         std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
-        _rs_metas = std::move(rs_metas);
+        _rs_metas.clear();
+        for (auto& rs_meta : rs_metas) {
+            _rs_metas.emplace(rs_meta->version(), rs_meta);
+        }
         _stale_rs_metas.clear();
     }
     if (_enable_unique_key_merge_on_write) {
@@ -990,13 +987,13 @@ void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
 // TabletMeta's _meta_lock
 void TabletMeta::revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap) {
     _delete_bitmap = std::make_unique<DeleteBitmap>(tablet_id());
-    for (auto rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         DeleteBitmap rs_bm(tablet_id());
         delete_bitmap.subset({rs->rowset_id(), 0, 0}, {rs->rowset_id(), UINT32_MAX, INT64_MAX},
                              &rs_bm);
         _delete_bitmap->merge(rs_bm);
     }
-    for (auto rs : _stale_rs_metas) {
+    for (const auto& [_, rs] : _stale_rs_metas) {
         DeleteBitmap rs_bm(tablet_id());
         delete_bitmap.subset({rs->rowset_id(), 0, 0}, {rs->rowset_id(), UINT32_MAX, INT64_MAX},
                              &rs_bm);
@@ -1005,30 +1002,19 @@ void TabletMeta::revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap
 }
 
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
-    auto it = _stale_rs_metas.begin();
-    while (it != _stale_rs_metas.end()) {
-        if ((*it)->version() == version) {
-            it = _stale_rs_metas.erase(it);
-        } else {
-            it++;
-        }
-    }
+    _stale_rs_metas.erase(version);
 }
 
 RowsetMetaSharedPtr TabletMeta::acquire_rs_meta_by_version(const Version& version) const {
-    for (auto it : _rs_metas) {
-        if (it->version() == version) {
-            return it;
-        }
+    if (auto it = _rs_metas.find(version); it != _rs_metas.end()) {
+        return it->second;
     }
     return nullptr;
 }
 
 RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& version) const {
-    for (auto it : _stale_rs_metas) {
-        if (it->version() == version) {
-            return it;
-        }
+    if (auto it = _stale_rs_metas.find(version); it != _stale_rs_metas.end()) {
+        return it->second;
     }
     return nullptr;
 }
@@ -1063,7 +1049,7 @@ void TabletMeta::_check_mow_rowset_cache_version_size(size_t rowset_cache_versio
         auto rowset_ids = _delete_bitmap->get_rowset_cache_version();
         for (const auto& rowset_id : rowset_ids) {
             bool found = false;
-            for (auto& rs_meta : _rs_metas) {
+            for (const auto& [_, rs_meta] : _rs_metas) {
                 if (rs_meta->rowset_id() == rowset_id) {
                     found = true;
                     break;
@@ -1072,7 +1058,7 @@ void TabletMeta::_check_mow_rowset_cache_version_size(size_t rowset_cache_versio
             if (found) {
                 continue;
             }
-            for (auto& rs_meta : _stale_rs_metas) {
+            for (const auto& [_, rs_meta] : _stale_rs_metas) {
                 if (rs_meta->rowset_id() == rowset_id) {
                     found = true;
                     break;
@@ -1106,10 +1092,7 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._tablet_type != b._tablet_type) return false;
     if (a._tablet_state != b._tablet_state) return false;
     if (*a._schema != *b._schema) return false;
-    if (a._rs_metas.size() != b._rs_metas.size()) return false;
-    for (int i = 0; i < a._rs_metas.size(); ++i) {
-        if (a._rs_metas[i] != b._rs_metas[i]) return false;
-    }
+    if (a._rs_metas != b._rs_metas) return false;
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_policy_id != b._storage_policy_id) return false;
