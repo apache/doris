@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 
 import com.google.common.base.Preconditions;
@@ -182,6 +183,14 @@ public class OlapTableFactory {
         MTMVParams mtmvParams = (MTMVParams) params;
         mtmvParams.relation = relation;
         return this;
+    }
+
+    public OlapTableFactory withExtraParams(CreateMTMVInfo createMTMVInfo) {
+        return withRefreshInfo(createMTMVInfo.getRefreshInfo())
+            .withQuerySql(createMTMVInfo.getQuerySql())
+            .withMvProperties(createMTMVInfo.getMvProperties())
+            .withMvPartitionInfo(createMTMVInfo.getMvPartitionInfo())
+            .withMvRelation(createMTMVInfo.getRelation());
     }
 
     public OlapTableFactory withExtraParams(CreateTableInfo createTableInfo) {
