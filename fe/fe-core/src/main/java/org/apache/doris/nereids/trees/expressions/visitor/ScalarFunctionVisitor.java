@@ -365,6 +365,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PreparePlaceholder;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
@@ -1810,6 +1811,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitParseDataSize(ParseDataSize parseDataSize, C context) {
         return visitScalarFunction(parseDataSize, context);
+    }
+
+    default R visitPreparePlaceholer(PreparePlaceholder preparePlaceholder, C context) {
+        return visitScalarFunction(preparePlaceholder, context);
     }
 
     default R visitPassword(Password password, C context) {

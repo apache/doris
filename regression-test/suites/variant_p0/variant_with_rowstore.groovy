@@ -94,7 +94,7 @@ suite("regression_test_variant_rowstore", "variant_type"){
     sql """insert into ${table_name} select k, cast(v as string), cast(v as string) from var_rowstore"""
     def result1 = connect(user, password, prepare_url) {
         def stmt = prepareStatement "select * from var_rs_pq where k = ?"
-        assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        assertEquals(stmt.class, com.mysql.cj.jdbc.ClientPreparedStatement);
         stmt.setInt(1, -3)
         qe_point_select stmt
         stmt.setInt(1, -2)
