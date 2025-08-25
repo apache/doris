@@ -72,7 +72,7 @@ public:
 
     bool exist_in_sparse_column(const vectorized::PathInData& path) const;
 
-    bool is_exceeded_sparse_column_limit(size_t max_sparse_column_statistics_size) const;
+    bool is_exceeded_sparse_column_limit() const;
 
     const SubcolumnColumnReaders* get_subcolumn_readers() const { return _subcolumn_readers.get(); }
 
@@ -105,6 +105,8 @@ private:
     std::unique_ptr<VariantStatistics> _statistics;
     // key: subcolumn path, value: subcolumn indexes
     std::unordered_map<std::string, TabletIndexes> _variant_subcolumns_indexes;
+    // variant_sparse_column_statistics_size
+    size_t _variant_sparse_column_statistics_size = 0;
 };
 
 class VariantRootColumnIterator : public ColumnIterator {

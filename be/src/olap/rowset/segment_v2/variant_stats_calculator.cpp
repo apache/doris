@@ -65,10 +65,13 @@ Status VariantStatsCaculator::calculate_variant_stats(const vectorized::Block* b
             // Check if this is a sparse column or sub column
             if (column_path.ends_with("__DORIS_VARIANT_SPARSE__")) {
                 // This is a sparse column from variant column
-                _calculate_sparse_column_stats(
-                        *column, column_meta,
-                        tablet_column.variant_max_sparse_column_statistics_size(), row_pos,
-                        num_rows);
+                // get variant_max_sparse_column_statistics_size from tablet_schema
+                size_t variant_max_sparse_column_statistics_size =
+                        _tablet_schema->column_by_uid(tablet_column.parent_unique_id())
+                                .variant_max_sparse_column_statistics_size();
+                _calculate_sparse_column_stats(*column, column_meta,
+                                               variant_max_sparse_column_statistics_size, row_pos,
+                                               num_rows);
             } else {
                 // This is a sub column from variant column
                 _calculate_sub_column_stats(*column, column_meta, row_pos, num_rows);
