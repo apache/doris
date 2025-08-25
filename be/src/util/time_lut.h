@@ -35,7 +35,8 @@ uint32_t year_week(uint16_t yy, uint8_t month, uint8_t day);
 uint8_t calc_weekday(uint64_t day_nr, bool is_sunday_first_day);
 
 inline bool is_leap(uint32_t year) {
-    return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year));
+    // 0000(BC01) is a leap year
+    return ((year % 4) == 0) && (year % 100 != 0 || (year % 400) == 0);
 }
 
 uint32_t calc_days_in_year(uint32_t year);
