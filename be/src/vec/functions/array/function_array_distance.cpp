@@ -22,12 +22,12 @@
 namespace doris::vectorized {
 
 void register_function_array_distance(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayDistance<L1Distance, TYPE_FLOAT>>();
-    factory.register_function<FunctionArrayDistance<L2Distance, TYPE_FLOAT>>();
-    factory.register_function<FunctionArrayDistance<CosineDistance, TYPE_FLOAT>>();
-    factory.register_function<FunctionArrayDistance<InnerProduct, TYPE_FLOAT>>();
-    factory.register_function<FunctionArrayDistance<L2DistanceApproximate, TYPE_FLOAT>>();
-    factory.register_function<FunctionArrayDistance<InnerProductApproximate, TYPE_FLOAT>>();
+    factory.register_function<FunctionArrayDistance<L1Distance>>();
+    factory.register_function<FunctionArrayDistance<L2Distance>>();
+    factory.register_function<FunctionArrayDistance<CosineDistance>>();
+    factory.register_function<FunctionArrayDistance<InnerProduct>>();
+    factory.register_function<FunctionArrayDistance<L2DistanceApproximate>>();
+    factory.register_function<FunctionArrayDistance<InnerProductApproximate>>();
 }
 
 } // namespace doris::vectorized
