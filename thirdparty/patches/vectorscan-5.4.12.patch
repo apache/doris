@@ -1,0 +1,33 @@
+diff --git a/cmake/build_wrapper.sh b/cmake/build_wrapper.sh
+index d0a7e923..d7aea222 100755
+--- a/cmake/build_wrapper.sh
++++ b/cmake/build_wrapper.sh
+@@ -25,11 +25,11 @@ if [ `uname` = "FreeBSD" ]; then
+ fi
+ cp ${KEEPSYMS_IN} ${KEEPSYMS}
+ # get all symbols from libc and turn them into patterns
+-nm ${NM_FLAG} p -g -D ${LIBC_SO} | sed 's/\([^ @]*\).*/^\1$/' >> ${KEEPSYMS}
++nm ${NM_FLAG} posix -g -D ${LIBC_SO} | sed 's/\([^ @]*\).*/^\1$/' >> ${KEEPSYMS}
+ # build the object
+ "$@"
+ # rename the symbols in the object
+-nm ${NM_FLAG} p -g ${OUT} | cut -f1 -d' ' | grep -v -f ${KEEPSYMS} | sed -e "s/\(.*\)/\1\ ${PREFIX}_\1/" >> ${SYMSFILE}
++nm ${NM_FLAG} posix -g ${OUT} | cut -f1 -d' ' | grep -v -f ${KEEPSYMS} | sed -e "s/\(.*\)/\1\ ${PREFIX}_\1/" >> ${SYMSFILE}
+ if test -s ${SYMSFILE}
+ then
+     objcopy --redefine-syms=${SYMSFILE} ${OUT}
+diff --git a/src/util/arch/arm/cpuid_inline.h b/src/util/arch/arm/cpuid_inline.h
+index f8a59af3..3e28d009 100644
+--- a/src/util/arch/arm/cpuid_inline.h
++++ b/src/util/arch/arm/cpuid_inline.h
+@@ -39,6 +39,10 @@
+ #endif
+ #endif
+ 
++#if !defined(HWCAP2_SVE2)
++#define HWCAP2_SVE2 0
++#endif
++
+ #include "ue2common.h"
+ #include "util/arch/common/cpuid_flags.h"
+ 
