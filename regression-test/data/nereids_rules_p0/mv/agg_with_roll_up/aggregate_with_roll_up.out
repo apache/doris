@@ -385,33 +385,33 @@
 
 -- !query33_0_before --
 o	3	21	o,o,o,o,o,o,o,o,o,o,o,o,o,o	4.571428571428571	mi	14	2
-o	4	4	o,o,o,o	4.0	yy	4	1
+o	4	4	o,o,o,o	4	yy	4	1
 
 -- !query33_0_after --
 o	3	21	o,o,o,o,o,o,o,o,o,o,o,o,o,o	4.571428571428571	mi	14	2
-o	4	4	o,o,o,o	4.0	yy	4	1
+o	4	4	o,o,o,o	4	yy	4	1
 
 -- !query33_1_before --
 o	3	21	o,o,o,o,o,o,o,o,o,o,o,o,o,o	4.571428571428571	mi	14	2
-o	4	4	o,o,o,o	4.0	yy	4	1
+o	4	4	o,o,o,o	4	yy	4	1
 
 -- !query33_1_after --
 o	3	21	o,o,o,o,o,o,o,o,o,o,o,o,o,o	4.571428571428571	mi	14	2
-o	4	4	o,o,o,o	4.0	yy	4	1
+o	4	4	o,o,o,o	4	yy	4	1
 
 -- !query35_0_before --
 o	3	21	o,o,o,o,o,o,o,o,o,o,o,o,o,o	4.571428571428571	mi	14	2
-o	4	4	o,o,o,o	4.0	yy	4	1
+o	4	4	o,o,o,o	4	yy	4	1
 
 -- !query35_0_after --
 o	3	21	o,o,o,o,o,o,o,o,o,o,o,o,o,o	4.571428571428571	mi	14	2
-o	4	4	o,o,o,o	4.0	yy	4	1
+o	4	4	o,o,o,o	4	yy	4	1
 
 -- !query36_0_before --
 o	3	21	o,o,o,o,o,o,o,o,o,o,o,o,o,o	4.571428571428571	mi	14	2
-o	4	4	o,o,o,o	4.0	yy	4	1
+o	4	4	o,o,o,o	4	yy	4	1
 
 -- !query36_0_after --
 o	3	21	o,o,o,o,o,o,o,o,o,o,o,o,o,o	4.571428571428571	mi	14	2
-o	4	4	o,o,o,o	4.0	yy	4	1
+o	4	4	o,o,o,o	4	yy	4	1
 
