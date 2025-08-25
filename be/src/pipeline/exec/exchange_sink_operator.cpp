@@ -219,9 +219,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                     _local_channels_dependency.push_back(dep);
                     DCHECK(_local_channels_dependency[dep_id] != nullptr);
                     dep_id++;
-                } else {
-                    LOG(WARNING) << "local recvr is null: query id = "
-                                 << print_id(state->query_id()) << " node id = " << p.node_id();
                 }
             }
         }
