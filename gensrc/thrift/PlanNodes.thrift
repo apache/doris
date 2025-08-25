@@ -247,6 +247,7 @@ struct TFileTextScanRangeParams {
     5: optional i8 enclose;
     6: optional i8 escape;
     7: optional string null_format;
+    8: optional bool empty_field_as_null
 }
 
 struct TFileScanSlotInfo {
