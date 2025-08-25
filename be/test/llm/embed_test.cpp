@@ -19,6 +19,7 @@
 
 #include <curl/curl.h>
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -277,6 +278,82 @@ TEST(EMBED_TEST, openai_adapter_parse_embedding_response) {
     ASSERT_FLOAT_EQ(results[1][1], 0.5F);
 }
 
+TEST(EMBED_TEST, zhipu_embedding_request) {
+    ZhipuAdapter adapter;
+    TLLMResource config;
+    config.model_name = "embedding-2";
+    config.api_key = "test_zhipu_key";
+    config.dimensions = 1024;
+    adapter.init(config);
+
+    MockHttpClient mock_client;
+    Status auth_status = adapter.set_authentication(&mock_client);
+    ASSERT_TRUE(auth_status.ok());
+    EXPECT_STREQ(mock_client.get()->data, "Authorization: Bearer test_zhipu_key");
+    EXPECT_STREQ(mock_client.get()->next->data, "Content-Type: application/json");
+
+    std::vector<std::string> inputs = {"embed this text"};
+    std::string request_body;
+    Status st = adapter.build_embedding_request(inputs, request_body);
+    ASSERT_TRUE(st.ok());
+
+    // body test
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+    ASSERT_FALSE(doc.HasMember("dimensions")) << request_body;
+
+    config.model_name = "embedding-3";
+    adapter.init(config);
+    st = adapter.build_embedding_request(inputs, request_body);
+    ASSERT_TRUE(st.ok());
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+    ASSERT_TRUE(doc.HasMember("dimensions")) << request_body;
+    ASSERT_TRUE(doc["dimensions"].IsInt()) << "Dimensions is not an integer";
+    ASSERT_EQ(doc["dimensions"].GetInt(), config.dimensions);
+}
+
+TEST(EMBED_TEST, qwen_embedding_request) {
+    QwenAdapter adapter;
+    TLLMResource config;
+    config.model_name = "text-embedding-v2";
+    config.api_key = "test_qwen_key";
+    config.dimensions = 1024;
+    adapter.init(config);
+
+    MockHttpClient mock_client;
+    Status auth_status = adapter.set_authentication(&mock_client);
+    ASSERT_TRUE(auth_status.ok());
+    EXPECT_STREQ(mock_client.get()->data, "Authorization: Bearer test_qwen_key");
+    EXPECT_STREQ(mock_client.get()->next->data, "Content-Type: application/json");
+
+    std::vector<std::string> inputs = {"embed this text"};
+    std::string request_body;
+    Status st = adapter.build_embedding_request(inputs, request_body);
+    ASSERT_TRUE(st.ok());
+
+    // body test
+    rapidjson::Document doc;
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+    ASSERT_FALSE(doc.HasMember("dimension")) << request_body;
+
+    config.model_name = "test-embedding-v4";
+    adapter.init(config);
+    st = adapter.build_embedding_request(inputs, request_body);
+    ASSERT_TRUE(st.ok());
+    doc.Parse(request_body.c_str());
+    ASSERT_FALSE(doc.HasParseError()) << "JSON parse error";
+    ASSERT_TRUE(doc.IsObject()) << "JSON is not an object";
+    ASSERT_TRUE(doc.HasMember("dimension")) << request_body;
+    ASSERT_TRUE(doc["dimension"].IsInt()) << "Dimension is not an integer";
+    ASSERT_EQ(doc["dimension"].GetInt(), config.dimensions);
+}
+
 TEST(EMBED_TEST, gemini_adapter_embedding_request) {
     GeminiAdapter adapter;
     TLLMResource config;
@@ -436,6 +513,67 @@ TEST(EMBED_TEST, voyageai_adapter_parse_embedding_response) {
     ASSERT_FLOAT_EQ(results[0][2], 0.3F);
     ASSERT_FLOAT_EQ(results[1][0], 0.4F);
     ASSERT_FLOAT_EQ(results[1][1], 0.5F);
+}
+
+TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {
+    VoyageAIAdapter adapter;
+
+    // doc is not an object
+    std::string resp = R"(
+        "object": "list",
+        "data": [
+            {
+            "embedding": [0.1, 0.2, 0.3],
+            "index": 0
+            },
+            {
+            "embedding": [0.4, 0.5],
+            "index": 1
+            }
+        ],
+        "model": "voyage-3.5",
+        "usage": {
+            "total_tokens": 10
+        }
+    )";
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), testing::StartsWith("[INTERNAL_ERROR]Failed to parse  response"));
+
+    // `data` is not an array
+    resp = R"({
+        "object": "list",
+        "data": {
+            "embedding": [0.1, 0.2, 0.3],
+            "index": 0
+        },
+        "model": "voyage-3.5",
+        "usage": {
+            "total_tokens": 10
+        }
+    })";
+    st = adapter.parse_embedding_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), testing::StartsWith("[INTERNAL_ERROR]Invalid  response format"));
+
+    // member `embedding` is missing
+    resp = R"({
+        "object": "list",
+        "data": [
+            {
+            "embeddings": [0.1, 0.2, 0.3],
+            "index": 0
+            }
+        ],
+        "model": "voyage-3.5",
+        "usage": {
+            "total_tokens": 10
+        }
+    })";
+    st = adapter.parse_embedding_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string(), testing::StartsWith("[INTERNAL_ERROR]Invalid  response format"));
 }
 
 TEST(EMBED_TEST, deepseek_adapter_embedding_request) {

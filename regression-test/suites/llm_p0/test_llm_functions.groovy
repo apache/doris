@@ -93,7 +93,7 @@ suite("test_llm_functions") {
             sql """set query_timeout=2;"""
             test {
                 sql """${sql_text}"""
-                exception "query timeout"
+                exception "timeout"
             }
         } finally {
             sql """UNSET VARIABLE query_timeout;"""

@@ -19,6 +19,7 @@
 
 #include <curl/curl.h>
 #include <gen_cpp/PaloInternalService_types.h>
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -464,6 +465,33 @@ TEST(LLM_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
     std::vector<std::string> results;
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
+}
+
+TEST(LLM_ADAPTER_TEST, voyage_adapter_chat_test) {
+    VoyageAIAdapter adapter;
+    TLLMResource config;
+    config.api_key = "test_voyage_key";
+
+    adapter.init(config);
+    MockHttpClient mock_client;
+    Status auth_status = adapter.set_authentication(&mock_client);
+    ASSERT_TRUE(auth_status.ok());
+    EXPECT_STREQ(mock_client.get()->data, "Authorization: Bearer test_voyage_key");
+    EXPECT_STREQ(mock_client.get()->next->data, "Content-Type: application/json");
+
+    std::vector<std::string> inputs = {"test_inputs"};
+    std::string request_body;
+    Status st = adapter.build_request_payload(inputs, "test_system_prompt", request_body);
+    ASSERT_FALSE(st.ok());
+    ASSERT_STREQ(st.to_string().c_str(),
+                 "[NOT_IMPLEMENTED_ERROR]VoyageAI only support embedding function");
+
+    std::string response_body = "test_response_body";
+    std::vector<std::string> result;
+    st = adapter.parse_response(response_body, result);
+    ASSERT_FALSE(st.ok());
+    ASSERT_STREQ(st.to_string().c_str(),
+                 "[NOT_IMPLEMENTED_ERROR]VoyageAI only support embedding function");
 }
 
 } // namespace doris::vectorized
