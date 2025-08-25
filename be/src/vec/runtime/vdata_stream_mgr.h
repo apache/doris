@@ -68,9 +68,6 @@ public:
 
     Status transmit_block(const PTransmitDataParams* request, ::google::protobuf::Closure** done,
                           const int64_t wait_for_worker);
-
-    void cancel(const TUniqueId& fragment_instance_id, Status exec_status);
-
 private:
     std::shared_mutex _lock;
     using StreamMap = std::unordered_multimap<uint32_t, std::shared_ptr<VDataStreamRecvr>>;

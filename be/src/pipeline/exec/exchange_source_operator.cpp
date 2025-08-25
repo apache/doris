@@ -72,6 +72,18 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    get_data_from_recvr_timer = ADD_TIMER(custom_profile(), "GetDataFromRecvrTime");
+    filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
+    create_merger_timer = ADD_TIMER(custom_profile(), "CreateMergerTime");
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
+
+    return Status::OK();
+}
+
+Status ExchangeLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     create_stream_recvr(state);
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
@@ -85,19 +97,6 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         metrics[i] = custom_profile()->add_nonzero_counter(fmt::format("WaitForData{}", i),
                                                            TUnit ::TIME_NS, timer_name, 1);
     }
-
-    get_data_from_recvr_timer = ADD_TIMER(custom_profile(), "GetDataFromRecvrTime");
-    filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
-    create_merger_timer = ADD_TIMER(custom_profile(), "CreateMergerTime");
-    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
-
-    return Status::OK();
-}
-
-Status ExchangeLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     if (p.is_merging()) {
         RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, vsort_exec_exprs));
