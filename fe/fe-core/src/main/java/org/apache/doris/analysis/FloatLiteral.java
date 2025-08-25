@@ -170,10 +170,11 @@ public class FloatLiteral extends NumericLiteralExpr {
             String timeStr = getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
-            if (Double.isInfinite(getValue())) {
-                return Double.toString(getValue());
+            double value = getValue();
+            if (Double.isInfinite(value)) {
+                return value > 0 ? "inf" : "-inf";
             }
-            return BigDecimal.valueOf(getValue()).toPlainString();
+            return BigDecimal.valueOf(getValue()).stripTrailingZeros().toPlainString();
         }
     }
 

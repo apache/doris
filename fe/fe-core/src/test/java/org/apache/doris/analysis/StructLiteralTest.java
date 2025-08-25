@@ -69,7 +69,7 @@ public class StructLiteralTest {
                         + "\"shortstring\", \"col6\":1000000000000000000000, \"col7\":1.0, \"col8\":2, \"col9\":\"2022-10-10\", \"col10\":\"2022-10-10 12:10:10\"}",
                 structLiteral1.getStringValueForQuery(options));
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
-        Assert.assertEquals("{\"col1\":[1.0, 2.15], \"col2\":{1:2.15}, \"col3\":"
+        Assert.assertEquals("{\"col1\":[1, 2.15], \"col2\":{1:2.15}, \"col3\":"
                         + "{\"col1\":1, \"col2\":2.15, \"col3\":1.0, \"col4\":\"2022-10-10\"}}",
                 structLiteral2.getStringValueForQuery(options));
         StructLiteral structLiteral3 = new StructLiteral();
@@ -91,7 +91,7 @@ public class StructLiteralTest {
                         + "shortstring, col6=1000000000000000000000, col7=1.0, col8=2, col9=2022-10-10, col10=2022-10-10 12:10:10}",
                 structLiteral1.getStringValueForQuery(options));
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
-        Assert.assertEquals("{col1=[1.0, 2.15], col2={1=2.15}, col3="
+        Assert.assertEquals("{col1=[1, 2.15], col2={1=2.15}, col3="
                         + "{col1=1, col2=2.15, col3=1.0, col4=2022-10-10}}",
                 structLiteral2.getStringValueForQuery(options));
         StructLiteral structLiteral3 = new StructLiteral();
@@ -114,7 +114,7 @@ public class StructLiteralTest {
                 structLiteral1.getStringValueForQuery(options));
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
         Assert.assertEquals(
-                "{\"col1\":[1.0,2.15],\"col2\":{1:2.15},\"col3\":{\"col1\":1,\"col2\":2.15,\"col3\":1.0,\"col4\":\"2022-10-10\"}}",
+                "{\"col1\":[1,2.15],\"col2\":{1:2.15},\"col3\":{\"col1\":1,\"col2\":2.15,\"col3\":1.0,\"col4\":\"2022-10-10\"}}",
                 structLiteral2.getStringValueForQuery(options));
         StructLiteral structLiteral3 = new StructLiteral();
         Assert.assertEquals("{}", structLiteral3.getStringValueForQuery(options));
@@ -136,7 +136,7 @@ public class StructLiteralTest {
                 structLiteral1.getStringValueForStreamLoad(options));
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
         Assert.assertEquals(
-                "{[1.0, 2.15], {1:2.15}, {\"col1\":1, \"col2\":2.15, \"col3\":1.0, \"col4\":\"2022-10-10\"}}",
+                "{[1, 2.15], {1:2.15}, {\"col1\":1, \"col2\":2.15, \"col3\":1.0, \"col4\":\"2022-10-10\"}}",
                 structLiteral2.getStringValueForStreamLoad(options));
         StructLiteral structLiteral3 = new StructLiteral();
         Assert.assertEquals("{}", structLiteral3.getStringValueForStreamLoad(options));

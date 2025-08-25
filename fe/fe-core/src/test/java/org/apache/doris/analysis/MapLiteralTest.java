@@ -87,7 +87,7 @@ public class MapLiteralTest {
         Assertions.assertEquals("{1:null}", mapLiteral9.getStringValueForQuery(options));
 
         MapLiteral mapLiteral10 = new MapLiteral(intLiteral1, arrayLiteral);
-        Assertions.assertEquals("{1:[1.0, 2.15]}", mapLiteral10.getStringValueForQuery(options));
+        Assertions.assertEquals("{1:[1, 2.15]}", mapLiteral10.getStringValueForQuery(options));
         try {
             new MapLiteral(arrayLiteral, floatLiteral);
         } catch (Exception e) {
@@ -142,7 +142,7 @@ public class MapLiteralTest {
         Assertions.assertEquals("{1=NULL}", mapLiteral9.getStringValueForQuery(options));
 
         MapLiteral mapLiteral10 = new MapLiteral(intLiteral1, arrayLiteral);
-        Assertions.assertEquals("{1=[1.0, 2.15]}", mapLiteral10.getStringValueForQuery(options));
+        Assertions.assertEquals("{1=[1, 2.15]}", mapLiteral10.getStringValueForQuery(options));
         try {
             new MapLiteral(arrayLiteral, floatLiteral);
         } catch (Exception e) {
@@ -198,7 +198,7 @@ public class MapLiteralTest {
         Assertions.assertEquals("{1:null}", mapLiteral9.getStringValueForQuery(options));
 
         MapLiteral mapLiteral10 = new MapLiteral(intLiteral1, arrayLiteral);
-        Assertions.assertEquals("{1:[1.0,2.15]}", mapLiteral10.getStringValueForQuery(options));
+        Assertions.assertEquals("{1:[1,2.15]}", mapLiteral10.getStringValueForQuery(options));
         try {
             new MapLiteral(arrayLiteral, floatLiteral);
         } catch (Exception e) {
@@ -255,7 +255,7 @@ public class MapLiteralTest {
         Assertions.assertEquals("{1:null}", mapLiteral9.getStringValueForStreamLoad(options));
 
         MapLiteral mapLiteral10 = new MapLiteral(intLiteral1, arrayLiteral);
-        Assertions.assertEquals("{1:[1.0, 2.15]}", mapLiteral10.getStringValueForStreamLoad(options));
+        Assertions.assertEquals("{1:[1, 2.15]}", mapLiteral10.getStringValueForStreamLoad(options));
         try {
             new MapLiteral(arrayLiteral, floatLiteral);
         } catch (Exception e) {
