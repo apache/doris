@@ -77,7 +77,7 @@ bool VariantColumnReader::exist_in_sparse_column(
 bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
     return !_statistics->sparse_column_non_null_size.empty() &&
            _statistics->sparse_column_non_null_size.size() >=
-                   config::variant_max_sparse_column_statistics_size;
+                   _variant_sparse_column_statistics_size;
 }
 
 int64_t VariantColumnReader::get_metadata_size() const {
@@ -276,9 +276,10 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
 
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
+
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
                                         _statistics->sparse_column_non_null_size.size() >=
-                                                config::variant_max_sparse_column_statistics_size;
+                                                _variant_sparse_column_statistics_size;
 
     // If the variant column has extracted columns and is a compaction reader, then read flat leaves
     // Otherwise read hierarchical data, since the variant subcolumns are flattened in schema_util::VariantCompactionUtil::get_extended_compaction_schema
@@ -377,6 +378,18 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
                 ColumnReader::create(opts, column_pb, footer.num_rows(), file_reader, &reader));
         vectorized::PathInData path;
         path.from_protobuf(column_pb.column_path_info());
+
+        // record variant_sparse_column_statistics_size from parent column
+        if (column_pb.column_path_info().parrent_column_unique_id() != -1) {
+            _variant_sparse_column_statistics_size =
+                    opts.tablet_schema
+                            ->column_by_uid(column_pb.column_path_info().parrent_column_unique_id())
+                            .variant_max_sparse_column_statistics_size();
+        } else {
+            _variant_sparse_column_statistics_size =
+                    opts.tablet_schema->column_by_uid(column_pb.unique_id())
+                            .variant_max_sparse_column_statistics_size();
+        }
 
         // init sparse column
         if (path.copy_pop_front().get_path() == SPARSE_COLUMN_PATH) {
