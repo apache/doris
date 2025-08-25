@@ -42,6 +42,8 @@ struct RowLocation;
 struct RowsetReaderContext;
 
 class BetaRowsetReader : public RowsetReader {
+    ENABLE_FACTORY_CREATOR(BetaRowsetReader);
+
 public:
     BetaRowsetReader(BetaRowsetSharedPtr rowset);
 

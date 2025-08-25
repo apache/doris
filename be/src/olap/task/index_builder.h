@@ -43,6 +43,7 @@ class RowsetWriter;
 using RowsetWriterUniquePtr = std::unique_ptr<RowsetWriter>;
 
 class IndexBuilder {
+    ENABLE_FACTORY_CREATOR(IndexBuilder)
 public:
     IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet, const std::vector<TColumn>& columns,
                  const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
