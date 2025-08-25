@@ -162,6 +162,11 @@ public class Column implements GsonPostProcessable {
     @SerializedName(value = "fpt")
     private TPatternType fieldPatternType;
 
+    // used for saving some extra information, such as timezone info of datetime column
+    // Maybe deprecated if we implement real timestamp with timezone type.
+    @SerializedName(value = "ei")
+    private String extraInfo;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -1213,6 +1218,10 @@ public class Column implements GsonPostProcessable {
         this.uniqueId = colUniqueId;
     }
 
+    public void setWithTZExtraInfo() {
+        this.extraInfo = Strings.isNullOrEmpty(extraInfo) ? "WITH_TIMEZONE" : extraInfo + ", WITH_TIMEZONE";
+    }
+
     public int getUniqueId() {
         return this.uniqueId;
     }
@@ -1280,4 +1289,7 @@ public class Column implements GsonPostProcessable {
         this.realDefaultValue = refColumn.realDefaultValue;
     }
 
+    public String getExtraInfo() {
+        return extraInfo;
+    }
 }

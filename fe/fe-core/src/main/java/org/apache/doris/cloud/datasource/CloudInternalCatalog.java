@@ -1032,6 +1032,10 @@ public class CloudInternalCatalog extends InternalCatalog {
     private void unprotectUpdateCloudReplica(OlapTable olapTable, UpdateCloudReplicaInfo info) {
         LOG.debug("replay update a cloud replica {}", info);
         Partition partition = olapTable.getPartition(info.getPartitionId());
+        if (partition == null) {
+            LOG.warn("replay update cloud replica, unknown partition {}, may be dropped", info.toString());
+            return;
+        }
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
 
         try {

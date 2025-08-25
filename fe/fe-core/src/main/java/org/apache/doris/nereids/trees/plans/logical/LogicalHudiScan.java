@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -95,7 +94,7 @@ public class LogicalHudiScan extends LogicalFileScan {
     /**
      * replace incremental params as AND expression
      * incr('beginTime'='20240308110257169', 'endTime'='20240308110677278') =>
-     * _hoodie_commit_time >= 20240308110257169 and _hoodie_commit_time <= '20240308110677278'
+     * _hoodie_commit_time > 20240308110257169 and _hoodie_commit_time <= '20240308110677278'
      */
     public Set<Expression> generateIncrementalExpression(List<Slot> slots) {
         if (!incrementalRelation.isPresent()) {
@@ -114,9 +113,7 @@ public class LogicalHudiScan extends LogicalFileScan {
         StringLiteral upperValue = new StringLiteral(incrementalRelation.get().getEndTs());
         StringLiteral lowerValue = new StringLiteral(incrementalRelation.get().getStartTs());
         ComparisonPredicate less = new LessThanEqual(timeField, upperValue);
-        ComparisonPredicate great = incrementalRelation.get().isIncludeStartTime()
-                ? new GreaterThanEqual(timeField, lowerValue)
-                : new GreaterThan(timeField, lowerValue);
+        ComparisonPredicate great = new GreaterThan(timeField, lowerValue);
         return ImmutableSet.of(great, less);
     }
 

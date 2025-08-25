@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -61,7 +62,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchI
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
-import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -82,6 +82,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -160,6 +161,11 @@ public abstract class ExternalCatalog
     protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
     @SerializedName(value = "comment")
     private String comment;
+
+    // Save the error info if initialization fails.
+    // can be seen in `show catalogs` result.
+    // no need to persist this field.
+    private String errorMsg = "";
 
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
@@ -329,7 +335,12 @@ public abstract class ExternalCatalog
                     init();
                 }
                 initialized = true;
+                this.errorMsg = "";
             }
+        } catch (Exception e) {
+            LOG.warn("failed to init catalog {}:{}", name, id, e);
+            this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
+            throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
         }
@@ -629,6 +640,11 @@ public abstract class ExternalCatalog
 
     public void setComment(String comment) {
         this.comment = comment;
+    }
+
+    @Override
+    public String getErrorMsg() {
+        return errorMsg;
     }
 
     /**
@@ -1057,8 +1073,9 @@ public abstract class ExternalCatalog
             boolean res = metadataOps.createDb(dbName, ifNotExists, properties);
             if (!res) {
                 // we should get the db stored in Doris, and use local name in edit log.
-                CreateDbInfo info = new CreateDbInfo(getName(), dbName, null);
-                Env.getCurrentEnv().getEditLog().logCreateDb(info);
+                // CreateDbInfo info = new CreateDbInfo(getName(), dbName, null);
+                Database db = new Database(getName(), dbName);
+                Env.getCurrentEnv().getEditLog().logCreateDb(db);
             }
         } catch (Exception e) {
             LOG.warn("Failed to create database {} in catalog {}.", dbName, getName(), e);
