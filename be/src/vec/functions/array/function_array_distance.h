@@ -91,20 +91,17 @@ public:
     static constexpr auto name = "inner_product_approximate";
 };
 
-template <typename DistanceImpl, PrimitiveType Type>
+template <typename DistanceImpl>
 class FunctionArrayDistance : public IFunction {
 public:
-    using DataType = PrimitiveTypeTraits<Type>::DataType;
-    using ColumnType = PrimitiveTypeTraits<Type>::ColumnType;
+    using DataType = PrimitiveTypeTraits<TYPE_FLOAT>::DataType;
+    using ColumnType = PrimitiveTypeTraits<TYPE_FLOAT>::ColumnType;
 
     static constexpr auto name = DistanceImpl::name;
     String get_name() const override { return name; }
-    static FunctionPtr create() {
-        return std::make_shared<FunctionArrayDistance<DistanceImpl, Type>>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionArrayDistance<DistanceImpl>>(); }
     bool is_variadic() const override { return false; }
     size_t get_number_of_arguments() const override { return 2; }
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataType>();
@@ -182,7 +179,7 @@ private:
         }
         auto nested_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        return nested_type->get_primitive_type() == Type;
+        return nested_type->get_primitive_type() == TYPE_FLOAT;
     }
 };
 
