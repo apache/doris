@@ -157,7 +157,20 @@ private:
                                                     const std::string& rowset_info,
                                                     RowsetIndexesFormatV2& rowset_index_cache_v2);
 
-    int check_stats_tablet_key(std::string& start_key, const std::string& end_key);
+    // Return 0 if success.
+    // Return 1 if key loss is abnormal.
+    // Return negative if a temporary error occurred during the check process.
+    int check_stats_tablet_key(std::string_view key, std::string_view value);
+
+    // Return 0 if success.
+    // Return 1 if key loss is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int check_stats_tablet_key_exists(std::string_view key, std::string_view value);
+
+    // Return 0 if success.
+    // Return 1 if key leak is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int check_stats_tablet_key_leaked(std::string_view key, std::string_view value);
 
     /**
      * It is used to scan the key in the range from start_key to end_key 
