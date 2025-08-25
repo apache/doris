@@ -313,6 +313,6 @@ public interface Plan extends TreeNode<Plan> {
     void computeFd(DataTrait.Builder builder);
 
     default Statistics getStats() {
-        return null;
+        throw new IllegalStateException("Not support getStats for " + getClass().getName());
     }
 }

@@ -84,7 +84,7 @@ public class SplitAgg extends OneExplorationRuleFactory {
         List<NamedExpression> aggOutput = changed ? builder.build() : logicalAgg.getOutputExpressions();
         return ImmutableList.of(new PhysicalHashAggregate<>(logicalAgg.getGroupByExpressions(), aggOutput, param,
                 AggregateUtils.maybeUsingStreamAgg(logicalAgg.getGroupByExpressions(), param),
-                null, null, logicalAgg.child()));
+                null, logicalAgg.child()));
     }
 
     private List<Plan> splitTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
@@ -105,7 +105,7 @@ public class SplitAgg extends OneExplorationRuleFactory {
         PhysicalHashAggregate<? extends Plan> localAgg = new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(),
                 localAggOutput, inputToBufferParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), inputToBufferParam),
-                null, null, aggregate.child());
+                null, aggregate.child());
 
         // global agg
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
@@ -124,7 +124,7 @@ public class SplitAgg extends OneExplorationRuleFactory {
         return ImmutableList.of(new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(),
                 globalAggOutput, bufferToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), bufferToResultParam),
-                aggregate.getLogicalProperties(), null, localAgg));
+                aggregate.getLogicalProperties(), localAgg));
     }
 
     private boolean shouldUseLocalAgg(LogicalAggregate<? extends Plan> aggregate) {

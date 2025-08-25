@@ -44,7 +44,7 @@ public class CostCalculator {
             planContext.setBroadcastJoin();
         }
 
-        CostModel costModelV1 = new CostModel(connectContext, childrenProperties);
+        CostModel costModelV1 = new CostModel(connectContext);
         return groupExpression.getPlan().accept(costModelV1, planContext);
     }
 

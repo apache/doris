@@ -212,4 +212,9 @@ suite("distinct_split") {
     sql "create table test_distinct_multi_null_hash(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_distinct_multi_null_hash values(1,null,null,null,'2024-12-08');"
     qt_null_hash "SELECT a, b, count(distinct c,e), count(distinct concat(d,e))/count(distinct e) FROM test_distinct_multi_null_hash where e = '2024-12-08' GROUP BY a, b;"
+
+    qt_same_distinct_arg "select sum(distinct b), count(distinct b) from test_distinct_multi;"
+    qt_same_distinct_arg_2group "select count(distinct b), sum(distinct a), count(distinct a) from test_distinct_multi;"
+    qt_same_distinct_arg_shape """explain shape plan select sum(distinct b), count(distinct b) from test_distinct_multi;"""
+    qt_same_distinct_arg_2group_shape """explain shape plan select count(distinct b), sum(distinct a), count(distinct a) from test_distinct_multi;"""
 }

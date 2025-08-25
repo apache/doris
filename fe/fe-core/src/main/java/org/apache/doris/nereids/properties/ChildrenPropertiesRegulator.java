@@ -67,7 +67,7 @@ import java.util.Set;
  * to process must shuffle except project and filter
  */
 public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalProperties>>, Void> {
-    private static final int LOW_NDV_THRESHOLD = 1024;
+    public static final int LOW_NDV_THRESHOLD = 1024;
 
     private final GroupExpression parent;
     private final List<GroupExpression> children;

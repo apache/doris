@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
@@ -42,7 +41,6 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
@@ -65,18 +63,9 @@ import java.util.Set;
  */
 public class DistinctAggregateSplitter implements RewriteRuleFactory {
     public static final DistinctAggregateSplitter INSTANCE = new DistinctAggregateSplitter();
+    // TODO: add other functions
     private static final Set<Class<? extends AggregateFunction>> supportSplitOtherFunctions = ImmutableSet.of(
             Sum.class, Min.class, Max.class, Count.class, Sum0.class, AnyValue.class);
-    private static final Map<Class<? extends AggregateFunction>,
-            Pair<Class<? extends AggregateFunction>, Class<? extends AggregateFunction>>> aggFunctionMap =
-            ImmutableMap.of(
-                    Sum.class, Pair.of(Sum.class, Sum.class),
-                    Min.class, Pair.of(Min.class, Min.class),
-                    Max.class, Pair.of(Max.class, Max.class),
-                    Count.class, Pair.of(Count.class, Sum0.class),
-                    Sum0.class, Pair.of(Sum0.class, Sum0.class),
-                    AnyValue.class, Pair.of(AnyValue.class, AnyValue.class)
-                    );
 
     @Override
     public List<Rule> buildRules() {
