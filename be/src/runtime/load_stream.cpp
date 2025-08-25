@@ -310,6 +310,10 @@ void TabletStream::pre_close() {
 
     DBUG_EXECUTE_IF("TabletStream.close.segment_num_mismatch", { _num_segments++; });
     if (_check_num_segments && (_next_segid.load() != _num_segments)) {
+        for (auto& [src_id, mapping] : _segids_mapping) {
+            LOG(INFO) << "src_id=" << src_id << ", load_id=" << print_id(_load_id)
+                      << ", tablet_id=" << _id;
+        }
         _status.update(Status::Corruption(
                 "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
                 _num_segments, _next_segid.load(), print_id(_load_id)));

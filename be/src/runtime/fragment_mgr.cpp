@@ -827,7 +827,7 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb,
                                        const TPipelineFragmentParamsList& parent) {
-    VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
+    LOG(INFO) << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
