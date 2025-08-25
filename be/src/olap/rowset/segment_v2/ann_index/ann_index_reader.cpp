@@ -188,10 +188,12 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
         DCHECK(search_result.roaring != nullptr);
         result->roaring = search_result.roaring;
 
+#ifndef NDEBUG
         if (params.is_le_or_lt == false) {
             DCHECK(search_result.distances == nullptr);
             DCHECK(search_result.row_ids == nullptr);
         }
+#endif
 
         {
             SCOPED_TIMER(&(stats->result_process_costs_ns));
