@@ -22,6 +22,31 @@ suite("test_hive_get_schema_from_table", "external_docker,hive,external_docker_h
         return;
     }
 
+
+    def test_topn = {
+        def test_col_topn = { String col -> 
+            "qt_all_types_${col}_topn_asc"  """ select  * from  parquet_alltypes_tiny_pages    order by ${col} asc ,id asc limit 10; """
+            "qt_all_types_${col}_topn_desc"  """ select * from  parquet_alltypes_tiny_pages    order by ${col} desc ,id desc limit 10; """
+            }
+        test_col_topn("bool_col")         
+        test_col_topn("tinyint_col")     
+        test_col_topn("smallint_col")    
+        test_col_topn("int_col")         
+        test_col_topn("bigint_col")      
+        test_col_topn("float_col")       
+        test_col_topn("double_col")      
+        test_col_topn("id")              
+        test_col_topn("date_string_col") 
+        test_col_topn("string_col")      
+        test_col_topn("timestamp_col")   
+        test_col_topn("year")            
+        test_col_topn("month")  
+    }
+
+
+
+
+
     // test get scheam from table
     for (String hivePrefix : ["hive2", "hive3"]) {
        String catalog_name = "test_${hivePrefix}_get_schema"
@@ -46,6 +71,8 @@ suite("test_hive_get_schema_from_table", "external_docker,hive,external_docker_h
            def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
            log.info("database = ${res_dbs_log[i][0]} => tables = " + tbs.toString())
        }
+        sql """ use ${ex_db_name}"""
+        test_topn()
 
        order_qt_schema_1 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey limit 1;"""
        order_qt_schema_2 """select * from ${catalog_name}.${ex_db_name}.parquet_delta_binary_packed order by int_value limit 1;"""

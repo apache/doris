@@ -73,6 +73,7 @@ public class AWSGlueMetaStoreBaseProperties {
     public static AWSGlueMetaStoreBaseProperties of(Map<String, String> properties) {
         AWSGlueMetaStoreBaseProperties propertiesObj = new AWSGlueMetaStoreBaseProperties();
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.checkAndInit();
         return propertiesObj;
     }
 
@@ -102,7 +103,7 @@ public class AWSGlueMetaStoreBaseProperties {
                 .require(glueEndpoint, "glue.endpoint or aws.endpoint or aws.glue.endpoint is required");
     }
 
-    public void checkAndInit() {
+    private void checkAndInit() {
         buildRules().validate();
 
         Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());

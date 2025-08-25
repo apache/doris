@@ -25,7 +25,7 @@
 #include <sstream>
 #include <tuple>
 
-#include "gutil/hash/city.h"
+#include "util/hash/city.h"
 #include "util/sse_util.hpp"
 #include "vec/core/extended_types.h"
 #include "vec/core/types.h"

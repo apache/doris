@@ -39,13 +39,13 @@ namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
 
-Status HierarchicalDataIterator::create(ColumnIterator** reader, vectorized::PathInData path,
+Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, vectorized::PathInData path,
                                         const SubcolumnColumnReaders::Node* node,
                                         const SubcolumnColumnReaders::Node* root,
                                         ReadType read_type,
                                         std::unique_ptr<ColumnIterator>&& sparse_reader) {
     // None leave node need merge with root
-    auto* stream_iter = new HierarchicalDataIterator(path);
+    auto stream_iter = std::make_unique<HierarchicalDataIterator>(path);
     if (node != nullptr) {
         std::vector<const SubcolumnColumnReaders::Node*> leaves;
         vectorized::PathsInData leaves_paths;
@@ -79,7 +79,7 @@ Status HierarchicalDataIterator::create(ColumnIterator** reader, vectorized::Pat
         stream_iter->_sparse_column_reader = std::make_unique<SubstreamIterator>(
                 std::move(sparse_column), std::move(sparse_reader), nullptr);
     };
-    *reader = stream_iter;
+    *reader = std::move(stream_iter);
 
     return Status::OK();
 }
@@ -153,10 +153,9 @@ Status HierarchicalDataIterator::add_stream(const SubcolumnColumnReaders::Node* 
         return Status::OK();
     }
     CHECK(node);
-    ColumnIterator* it;
-    RETURN_IF_ERROR(node->data.reader->new_iterator(&it, nullptr));
-    std::unique_ptr<ColumnIterator> it_ptr;
-    it_ptr.reset(it);
+    ColumnIteratorUPtr it_ptr;
+    RETURN_IF_ERROR(node->data.reader->new_iterator(&it_ptr, nullptr));
+
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
                              node->data.file_column_type);
     bool added = _substream_reader.add(node->path, std::move(reader));

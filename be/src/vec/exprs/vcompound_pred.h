@@ -53,6 +53,10 @@ public:
                                  _fn.name.function_name, get_child_names(), _data_type->get_name());
     }
 
+#ifdef BE_TEST
+    VCompoundPred() = default;
+#endif
+
     const std::string& expr_name() const override { return _expr_name; }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
