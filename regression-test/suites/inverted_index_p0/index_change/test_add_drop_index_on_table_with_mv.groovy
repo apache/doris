@@ -92,8 +92,8 @@ suite("test_add_drop_index_on_table_with_mv") {
         create materialized view mv_1 as
         select 
           date_trunc(load_time, 'minute'),
-          id,
-          class,
+          id as a1,
+          class as a2,
           count(id) as total,
           min(result) as min_result,
           sum(result) as max_result

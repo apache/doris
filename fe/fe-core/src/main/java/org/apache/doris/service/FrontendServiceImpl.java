@@ -48,9 +48,13 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
+import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -71,7 +75,6 @@ import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
@@ -80,6 +83,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -101,6 +105,10 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
+import org.apache.doris.proto.OlapFile.EncryptionKeyPB;
+import org.apache.doris.proto.OlapFile.EncryptionKeyPB.Builder;
+import org.apache.doris.proto.OlapFile.EncryptionKeyTypePB;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
@@ -153,6 +161,7 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
+import org.apache.doris.thrift.TEncryptionKey;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
@@ -178,6 +187,8 @@ import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetEncryptionKeysRequest;
+import org.apache.doris.thrift.TGetEncryptionKeysResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetMetaDB;
@@ -285,6 +296,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -536,62 +548,66 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return db;
     }
 
-    @LogException
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get table name request: {}", params);
-        }
-        TGetTablesResult result = new TGetTablesResult();
-        List<String> tablesResult = Lists.newArrayList();
-        result.setTables(tablesResult);
-        PatternMatcher matcher = null;
-        if (params.isSetPattern()) {
-            try {
-                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
-            } catch (PatternMatcherException e) {
-                throw new TException("Pattern is in bad format: " + params.getPattern());
+        try {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get table name request: {}", params);
             }
-        }
-
-        // database privs should be checked in analysis phrase
-        UserIdentity currentUser;
-        if (params.isSetCurrentUserIdent()) {
-            currentUser = UserIdentity.fromThrift(params.current_user_ident);
-        } else {
-            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
-        }
-        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
-                : params.catalog;
-        String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
-        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog: " + catalog))
-                .getDbNullable(dbName);
-
-        if (db != null) {
-            Set<String> tableNames;
-            try {
-                tableNames = db.getTableNamesOrEmptyWithLock();
-                for (String tableName : tableNames) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("get table: {}, wait to check", tableName);
-                    }
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(currentUser, catalogName, dbName, tableName,
-                                    PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                    if (matcher != null && !matcher.match(tableName)) {
-                        continue;
-                    }
-                    tablesResult.add(tableName);
+            TGetTablesResult result = new TGetTablesResult();
+            List<String> tablesResult = Lists.newArrayList();
+            result.setTables(tablesResult);
+            PatternMatcher matcher = null;
+            if (params.isSetPattern()) {
+                try {
+                    matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
+                            CaseSensibility.TABLE.getCaseSensibility());
+                } catch (PatternMatcherException e) {
+                    throw new TException("Pattern is in bad format: " + params.getPattern());
                 }
-            } catch (Exception e) {
-                LOG.warn("failed to get table names for db {} in catalog {}", params.db, catalogName, e);
             }
+
+            // database privs should be checked in analysis phrase
+            UserIdentity currentUser;
+            if (params.isSetCurrentUserIdent()) {
+                currentUser = UserIdentity.fromThrift(params.current_user_ident);
+            } else {
+                currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+            }
+            String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
+                    : params.catalog;
+            String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
+            DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog: " + catalog))
+                    .getDbNullable(dbName);
+
+            if (db != null) {
+                Set<String> tableNames;
+                try {
+                    tableNames = db.getTableNamesOrEmptyWithLock();
+                    for (String tableName : tableNames) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("get table: {}, wait to check", tableName);
+                        }
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(currentUser, catalogName, dbName, tableName,
+                                        PrivPredicate.SHOW)) {
+                            continue;
+                        }
+                        if (matcher != null && !matcher.match(tableName)) {
+                            continue;
+                        }
+                        tablesResult.add(tableName);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("failed to get table names for db {} in catalog {}", params.db, catalogName, e);
+                }
+            }
+            return result;
+        } catch (Throwable e) {
+            LOG.warn(e);
+            throw e;
         }
-        return result;
     }
 
     @Override
@@ -1404,6 +1420,80 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             LOG.warn("failed to pre-commit txn: {}: {}", request.getTxnId(), e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        return result;
+    }
+
+    public TEncryptionKey encryptionKeyToThrift(EncryptionKey encryptionKey) {
+        Builder builder = EncryptionKeyPB.newBuilder();
+        builder.setId(encryptionKey.id);
+        builder.setVersion(encryptionKey.version);
+        builder.setParentId(encryptionKey.parentId);
+        builder.setParentVersion(encryptionKey.parentVersion);
+        switch (encryptionKey.algorithm) {
+            case AES256:
+                builder.setAlgorithm(EncryptionAlgorithmPB.AES_256_CTR);
+                break;
+            case SM4:
+                builder.setAlgorithm(EncryptionAlgorithmPB.SM4_128_CTR);
+                break;
+            default:
+                // do nothing
+        }
+        switch (encryptionKey.type) {
+            case DATA_KEY:
+                builder.setType(EncryptionKeyTypePB.DATA_KEY);
+                break;
+            case MASTER_KEY:
+                builder.setType(EncryptionKeyTypePB.MASTER_KEY);
+                break;
+            default:
+                // do nothing
+        }
+        builder.setCiphertextBase64(encryptionKey.ciphertext);
+        builder.setPlaintext(ByteString.copyFrom(encryptionKey.plaintext));
+        builder.setCrc32(encryptionKey.crc);
+        builder.setCtime(encryptionKey.ctime);
+        builder.setMtime(encryptionKey.mtime);
+        EncryptionKeyPB keyPB = builder.build();
+
+        TEncryptionKey tk = new TEncryptionKey();
+        tk.setKeyPb(keyPB.toByteArray());
+        return tk;
+    }
+
+    public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive getDataKeys request: {}, backend: {}", request, clientAddr);
+        }
+
+        TGetEncryptionKeysResult result = new TGetEncryptionKeysResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to getDataKeys:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, clientAddr);
+            return result;
+        }
+        try {
+            List<TEncryptionKey> tKeys = new ArrayList<>();
+            List<EncryptionKey> keys =  Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
+            for (EncryptionKey key : keys) {
+                tKeys.add(encryptionKeyToThrift(key));
+            }
+            result.setMasterKeys(tKeys);
+        } catch (Exception e) {
+            LOG.warn("failed to getDataKeys: {}: {}", request, e.getMessage());
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
@@ -2719,6 +2809,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetTabletReplicaInfosResult result = new TGetTabletReplicaInfosResult();
         List<Long> tabletIds = request.getTabletIds();
         Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
+        String clusterId = "";
+        if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
+            CloudWarmUpJob job = ((CloudEnv) Env.getCurrentEnv())
+                    .getCacheHotspotMgr()
+                    .getCloudWarmUpJob(request.getWarmUpJobId());
+            if (job == null || job.isDone()) {
+                LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
+                        job.getJobId(), clientAddr);
+                // notify client to cancel this job
+                result.setStatus(new TStatus(TStatusCode.CANCELLED));
+                return result;
+            }
+            clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudClusterIdByName(job.getDstClusterName());
+            if (clusterId == null) {
+                LOG.warn("cluster {} is not found, cannot get primary backend for warmup job {}",
+                        job.getDstClusterName(), request.getWarmUpJobId());
+                result.setTabletReplicaInfos(tabletReplicaInfos);
+                result.setToken(Env.getCurrentEnv().getToken());
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
+        }
         for (Long tabletId : tabletIds) {
             if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
                 LOG.info("enable getTabletReplicaInfos.returnEmpty");
@@ -2728,11 +2841,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
             for (Replica replica : replicas) {
-                if (!replica.isNormal()) {
+                if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                Backend backend;
+                if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
+                    CloudReplica cloudReplica = (CloudReplica) replica;
+                    backend = cloudReplica.getPrimaryBackend(clusterId);
+                } else {
+                    backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
+                }
                 if (backend != null) {
                     TReplicaInfo replicaInfo = new TReplicaInfo();
                     replicaInfo.setHost(backend.getHost());

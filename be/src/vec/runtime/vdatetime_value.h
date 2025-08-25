@@ -33,8 +33,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "common/exception.h"
-#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -111,6 +109,9 @@ struct TimeInterval {
         switch (unit) {
         case YEAR:
             year = count;
+            break;
+        case QUARTER: // reuse month so that we can use the same logic
+            month = 3 * count;
             break;
         case MONTH:
             month = count;
@@ -1342,6 +1343,7 @@ public:
                 }
                 date_v2_value_.hour_ = val;
             } else {
+                //TODO: use static_assert since we already upgrade to newer clang
                 DCHECK(false) << "shouldn't set for date";
             }
         } else if constexpr (unit == TimeUnit::MINUTE) {
@@ -1582,7 +1584,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         }
 
         return year;
-    } else if constexpr (UNIT == MONTH) {
+    } else if constexpr (UNIT == QUARTER || UNIT == MONTH) {
         int month = (ts_value2.year() - ts_value1.year()) * 12 +
                     (ts_value2.month() - ts_value1.month());
         if constexpr (std::is_same_v<T0, T1>) {
@@ -1624,7 +1626,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
                            (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             }
         }
-        return month;
+        return UNIT == QUARTER ? month / 3 : month;
     } else if constexpr (UNIT == WEEK) {
         return ts_value2.date_diff_in_days_round_to_zero_by_time(ts_value1) / 7;
     } else if constexpr (UNIT == DAY) {

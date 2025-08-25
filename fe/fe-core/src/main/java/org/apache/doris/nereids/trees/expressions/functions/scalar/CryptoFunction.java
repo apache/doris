@@ -41,6 +41,16 @@ public abstract class CryptoFunction extends ScalarFunction
         super(name, arguments);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected CryptoFunction(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        throw new UnsupportedOperationException("Please implement withChildren");
+    }
+
     @Override
     public String computeToSql() {
         List<String> args = Lists.newArrayList();

@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 // nereids_testIncorrectMVRewriteInSubquery
 suite ("incMVReInSub") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS incMVReInSub; """
@@ -35,7 +37,7 @@ suite ("incMVReInSub") {
     sql """insert into incMVReInSub values("2020-01-01",1,"a",1);"""
     sql """insert into incMVReInSub values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view incMVReInSub_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from incMVReInSub group by user_id;")
+    createMV("create materialized view incMVReInSub_mv as select user_id as a1, bitmap_union(to_bitmap(tag_id)) from incMVReInSub group by user_id;")
 
     sleep(3000)
 

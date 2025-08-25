@@ -17,6 +17,8 @@
 
 // nereids_testJoinOnLeftProjectToJoin
 suite ("joinOnCalcToJoin") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS joinOnCalcToJoin; """
@@ -52,9 +54,9 @@ suite ("joinOnCalcToJoin") {
     sql """insert into joinOnCalcToJoin_1 values("2020-01-02",2,"b",1);"""
 
 
-    createMV("create materialized view joinOnLeftPToJoin_mv as select empid, deptno from joinOnCalcToJoin;")
+    createMV("create materialized view joinOnLeftPToJoin_mv as select empid as a1, deptno as a2 from joinOnCalcToJoin;")
     sleep(3000)
-    createMV("create materialized view joinOnLeftPToJoin_1_mv as select deptno, cost from joinOnCalcToJoin_1;")
+    createMV("create materialized view joinOnLeftPToJoin_1_mv as select deptno as a3, cost as a4 from joinOnCalcToJoin_1;")
     sleep(3000)
 
     sql "analyze table joinOnCalcToJoin with sync;"

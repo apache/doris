@@ -191,7 +191,7 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
+                                                vectorized::Arena& arena) const {
     auto& col_data = assert_cast<const ColumnBitmap&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     // First pass: calculate total memory needed and collect serialized values
@@ -204,15 +204,11 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
         }
     }
     // Allocate continues memory based on calculated size
-    char* ptr = (char*)malloc(total_size);
+    char* ptr = arena.alloc(total_size);
     if (!ptr) {
         return Status::InternalError(
                 "malloc memory {} error when write variant column data to orc file.", total_size);
     }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = total_size;
-    buffer_list.emplace_back(bufferRef);
     // Second pass: copy data to allocated memory
     size_t offset = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
@@ -225,8 +221,8 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
                         "{} exceed total_size {} . ",
                         offset, len, total_size);
             }
-            bitmap_value.write_to(const_cast<char*>(bufferRef.data) + offset);
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+            bitmap_value.write_to(ptr + offset);
+            cur_batch->data[row_id] = ptr + offset;
             cur_batch->length[row_id] = len;
             offset += len;
         }
@@ -235,5 +231,10 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
     return Status::OK();
 }
 
+Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
+                                        const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
+}
 } // namespace vectorized
 } // namespace doris

@@ -33,11 +33,11 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(
     }
     if (argument_types.size() == 2) {
         return creator_without_type::create<AggregateFunctionPercentileApproxTwoParams>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     if (argument_types.size() == 3) {
         return creator_without_type::create<AggregateFunctionPercentileApproxThreeParams>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     return nullptr;
 }
@@ -51,22 +51,22 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
     }
     if (argument_types.size() == 3) {
         return creator_without_type::create<AggregateFunctionPercentileApproxWeightedThreeParams>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     if (argument_types.size() == 4) {
         return creator_without_type::create<AggregateFunctionPercentileApproxWeightedFourParams>(
-                argument_types, result_is_nullable);
+                argument_types, result_is_nullable, attr);
     }
     return nullptr;
 }
 
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("percentile",
-                                   creator_with_numeric_type::creator<AggregateFunctionPercentile>);
+    using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT, TYPE_FLOAT, TYPE_DOUBLE>;
+    factory.register_function_both("percentile", creator::creator<AggregateFunctionPercentile>);
     factory.register_alias("percentile", "percentile_cont");
-    factory.register_function_both(
-            "percentile_array",
-            creator_with_numeric_type::creator<AggregateFunctionPercentileArray>);
+    factory.register_function_both("percentile_array",
+                                   creator::creator<AggregateFunctionPercentileArray>);
 }
 
 void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& factory) {

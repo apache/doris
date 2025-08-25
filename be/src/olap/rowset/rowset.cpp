@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
@@ -29,6 +30,8 @@
 #include "util/trace.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
                std::string tablet_path)
@@ -90,7 +93,7 @@ void Rowset::make_visible(Version version) {
     _rowset_meta->set_creation_time(UnixSeconds());
 
     if (_rowset_meta->has_delete_predicate()) {
-        _rowset_meta->mutable_delete_predicate()->set_version(version.first);
+        _rowset_meta->mutable_delete_predicate()->set_version(cast_set<int32_t>(version.first));
     }
 }
 
@@ -110,6 +113,14 @@ std::string Rowset::get_rowset_info_str() {
                        _rowset_meta->has_delete_predicate() ? "DELETE" : "DATA",
                        SegmentsOverlapPB_Name(_rowset_meta->segments_overlap()),
                        rowset_id().to_string(), disk_size);
+}
+
+const TabletSchemaSPtr& Rowset::tablet_schema() const {
+#ifdef BE_TEST
+    // for mocking tablet schema
+    return _schema;
+#endif
+    return _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : _schema;
 }
 
 void Rowset::clear_cache() {
@@ -191,5 +202,7 @@ std::vector<std::string> Rowset::get_index_file_names() {
     }
     return file_names;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

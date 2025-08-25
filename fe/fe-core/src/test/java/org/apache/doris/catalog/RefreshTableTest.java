@@ -17,10 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
@@ -34,11 +30,14 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -60,21 +59,28 @@ public class RefreshTableTest extends TestWithFeService {
         rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt("create catalog test1 properties(\n"
+        String createStmt = "create catalog test1 properties(\n"
                 + "    \"type\" = \"test\",\n"
                 + "    \"catalog_provider.class\" "
                 + "= \"org.apache.doris.catalog.RefreshTableTest$RefreshTableProvider\"\n"
-                + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                + ");";
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Override
     protected void runAfterAll() throws Exception {
         super.runAfterAll();
         rootCtx.setThreadLocalInfo();
-        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
-        env.getCatalogMgr().dropCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle("drop catalog test1");
+        if (logicalPlan instanceof DropCatalogCommand) {
+            ((DropCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Test
@@ -88,9 +94,10 @@ public class RefreshTableTest extends TestWithFeService {
         Assertions.assertTrue(table.isObjectCreated());
         long l2 = table.getSchemaUpdateTime();
         Assertions.assertTrue(l2 == l1);
-        RefreshTableStmt refreshTableStmt = new RefreshTableStmt(new TableName("test1", "db1", "tbl11"));
+        TableNameInfo tableNameInfo = new TableNameInfo("test1", "db1", "tbl11");
         try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshTableStmt);
+            Env.getCurrentEnv().getRefreshManager()
+                    .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(), false);
         } catch (Exception e) {
             // Do nothing
         }
@@ -141,9 +148,11 @@ public class RefreshTableTest extends TestWithFeService {
         UserIdentity user1 = new UserIdentity("user1", "%");
         user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
+        RefreshTableCommand command = (RefreshTableCommand) parseStmt(
+                "refresh table test1.db1.tbl11", user1Ctx);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "Access denied",
-                () -> parseAndAnalyzeStmt("refresh table test1.db1.tbl11", user1Ctx));
+                () -> command.run(rootCtx, stmtExecutor));
         ConnectContext.remove();
 
         // add drop priv to user1
@@ -157,8 +166,9 @@ public class RefreshTableTest extends TestWithFeService {
 
         // user1 can do refresh table
         user1Ctx.setThreadLocalInfo();
+        RefreshTableCommand command2 = (RefreshTableCommand) parseStmt("refresh table test1.db1.tbl11", user1Ctx);
         ExceptionChecker.expectThrowsNoException(
-                () -> parseAndAnalyzeStmt("refresh table test1.db1.tbl11", user1Ctx));
+                () -> command2.run(rootCtx, stmtExecutor));
     }
 
     public static class RefreshTableProvider implements TestExternalCatalog.TestCatalogProvider {

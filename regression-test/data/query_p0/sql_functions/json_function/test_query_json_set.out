@@ -54,3 +54,24 @@ null
 {"data":{"array":["1","2"],"map":null,"struct":{"name":"2","age":1},"json":{"a":"b"}}}
 {"data":{"array":["1","2","3","3"],"map":null,"struct":{"name":"a","age":1},"json":{"a":"b"}}}
 
+-- !set1 --
+2
+
+-- !set2 --
+[1,2]
+
+-- !set3 --
+{"k":2}
+
+-- !set4 --
+{"k":[1,2]}
+
+-- !set5 --
+{"k":null}
+
+-- !set6 --
+{"k":[1,null]}
+
+-- !set7 --
+\N
+

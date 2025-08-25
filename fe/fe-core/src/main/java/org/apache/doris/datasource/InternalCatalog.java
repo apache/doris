@@ -37,9 +37,6 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.RecoverDbStmt;
-import org.apache.doris.analysis.RecoverPartitionStmt;
-import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -113,6 +110,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ResultOr;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
@@ -189,10 +187,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
-
 
 /**
  * The Internal catalog will manage all self-managed meta object in a Doris cluster.
@@ -561,6 +561,14 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
         }
+        if (!db.getTables().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableIds().stream().collect(Collectors.toSet()));
+        }
+        if (!db.getTableNames().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableNames().stream().collect(Collectors.toSet()));
+        }
         db.markDropped();
     }
 
@@ -652,10 +660,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("recover database[{}]", db.getId());
     }
 
-    public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
-        recoverDatabase(recoverStmt.getDbName(), recoverStmt.getDbId(), recoverStmt.getNewDbName());
-    }
-
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
@@ -675,11 +679,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             db.writeUnlock();
         }
-    }
-
-    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
-        recoverTable(recoverStmt.getDbName(), recoverStmt.getTableName(),
-                        recoverStmt.getNewTableName(), recoverStmt.getTableId());
     }
 
     public void recoverPartition(String dbName, String tableName, String partitionName,
@@ -705,12 +704,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             olapTable.writeUnlock();
         }
-    }
-
-    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
-        recoverPartition(recoverStmt.getDbName(), recoverStmt.getTableName(),
-                        recoverStmt.getPartitionName(), recoverStmt.getNewPartitionName(),
-                        recoverStmt.getPartitionId());
     }
 
     public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
@@ -1024,7 +1017,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
-        db.unregisterTable(table.getName());
+        db.unregisterTable(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
         watch.stop();
@@ -1412,8 +1405,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         return false;
     }
 
-    public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        Database db = this.fullNameToDb.get(dbName);
+    public void replayCreateTable(String dbName, long dbId, Table table) throws MetaNotFoundException {
+        if (dbId != -1L) {
+            Database db = getDbOrMetaException(dbId);
+            replayCreateTableInternal(db, table);
+        } else {
+            // Compatible with old logic
+            Database db = getDbOrMetaException(dbName);
+            replayCreateTableInternal(db, table);
+        }
+    }
+
+    private void replayCreateTableInternal(Database db, Table table) throws MetaNotFoundException {
         try {
             db.createTableWithLock(table, true, false);
         } catch (DdlException e) {
@@ -1508,6 +1511,77 @@ public class InternalCatalog implements CatalogIf<Database> {
                 + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
         }
         return 1 + totalReplicaNum + indexNum * bucketNum;
+    }
+
+    private ResultOr<CompletableFuture<Void>, DdlException> getCurrentPartitionFuture(
+            Database db, String tableName, OlapTable olapTable, String partitionName,
+            SinglePartitionDesc singlePartitionDesc
+    ) throws DdlException {
+        // Guard to serialize concurrent creation of the same partition within the same table.
+        // We acquire or wait on a per-partition future to ensure only one creator proceeds to heavy work.
+        while (true) {
+            Pair<CompletableFuture<Void>, Boolean> acquire = olapTable.acquirePartitionCreationFuture(partitionName);
+            if (acquire.second) {
+                // we have the ownership. do the creation work and share the result by completePartitionCreationFuture.
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("acquired owner for table[{}] partition[{}], tableId={}", tableName, partitionName,
+                            olapTable.getId());
+                }
+                return ResultOr.ok(acquire.first);
+            } else {
+                // Wait for ongoing creation to finish, then double-check existence.
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("waiting for ongoing creation of table[{}] partition[{}]", tableName, partitionName);
+                }
+                try {
+                    acquire.first.get(Config.create_partition_wait_seconds, TimeUnit.SECONDS);
+                } catch (ExecutionException ex) {
+                    // ignore the exception. we only care about it's created or not. will check below.
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(
+                                "previous creation future for table[{}] partition[{}] completed exceptionally: {}: {}",
+                                tableName, partitionName, ex.getClass().getSimpleName(), ex.getMessage());
+                    }
+                } catch (TimeoutException | InterruptedException ex) {
+                    // execute by myself again. It may cause a small number of partitions to be created repeatedly,
+                    // but can avoid pseudo deadlocks.
+                    LOG.warn("wait for table[{}] partition[{}] creation future timeout, try by myself",
+                            tableName, partitionName);
+                    // current thread as an isolated thread and do creation, does not hold any future.
+                    return ResultOr.ok(null);
+                }
+                OlapTable t = db.getOlapTableOrDdlException(tableName);
+                t.readLock();
+                try {
+                    // if other succeed, always return.
+                    if (t.checkPartitionNameExist(partitionName)) {
+                        if (singlePartitionDesc.isSetIfNotExists()) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("partition[{}] already exists after waiting; IF NOT EXISTS no-op",
+                                        partitionName);
+                            }
+                            return ResultOr.err(null);
+                        } else {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("partition[{}] already exists after waiting; raising duplicate error",
+                                        partitionName);
+                            }
+                            return ResultOr.err(
+                                    new DdlException("Partition " + partitionName + " already exists in table "
+                                            + tableName));
+                        }
+                    }
+                    // If failed, continue this loop. Try acquire again before we decide to do by ourself in case
+                    // another task acquired the ownership between our wait and the check.
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("partition[{}] not present after wait on table[{}]; will retry acquire ownership",
+                                partitionName, tableName);
+                    }
+                } finally {
+                    t.readUnlock();
+                }
+            }
+        }
     }
 
     public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
@@ -1701,7 +1775,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         Preconditions.checkNotNull(olapTable);
         Preconditions.checkNotNull(indexIdToMeta);
 
+        ResultOr<CompletableFuture<Void>, DdlException> ownerFutureOr = getCurrentPartitionFuture(
+                db, tableName, olapTable, partitionName, singlePartitionDesc);
+        if (ownerFutureOr.isErr()) {
+            if (ownerFutureOr.unwrapErr() == null) {
+                return null;
+            } else {
+                throw ownerFutureOr.unwrapErr();
+            }
+        }
+        CompletableFuture<Void> ownerFuture = ownerFutureOr.unwrap();
+
         // create partition outside db lock
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("start creating table[{}] partition[{}] (owner), temp={}", tableName, partitionName,
+                    isTempPartition);
+        }
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
         Preconditions.checkNotNull(dataProperty);
         // check replica quota if this operation done
@@ -1718,6 +1807,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
         };
+        Throwable creationThrowable = null;
         try {
             long partitionId = Config.isCloudMode() && !FeConstants.runningUnitTest && isCreateTable
                     ? generatedPartitionId : idGeneratorBuffer.getNextId();
@@ -1843,7 +1933,29 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         } catch (DdlException e) {
             failedCleanCallback.run();
+            creationThrowable = e;
             throw e;
+        } catch (Throwable t) {
+            // Ensure cleanup and propagate unexpected errors as well
+            failedCleanCallback.run();
+            creationThrowable = t;
+            throw t;
+        } finally {
+            if (ownerFuture != null) {
+                if (creationThrowable == null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("complete owner future for table[{}] partition[{}]: success", tableName,
+                                partitionName);
+                    }
+                } else {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("complete owner future for table[{}] partition[{}]: failed: {}: {}", tableName,
+                                partitionName, creationThrowable.getClass().getSimpleName(),
+                                creationThrowable.getMessage());
+                    }
+                }
+                olapTable.completePartitionCreationFuture(partitionName, ownerFuture, creationThrowable);
+            }
         }
     }
 
@@ -3542,10 +3654,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
+            // only if session variable: enable_variant_flatten_nested = true and
+            // table property: variant_enable_flatten_nested = true
+            // we can enable variant flatten nested otherwise throw error
+            if (ctx != null && ctx.getSessionVariable().getEnableVariantFlattenNested()
+                    && variantEnableFlattenNested) {
+                olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
+            } else if (variantEnableFlattenNested) {
+                throw new DdlException("If you want to enable variant flatten nested, "
+                        + "please set session variable: enable_variant_flatten_nested = true");
+            } else {
+                // keep table property: variant_enable_flatten_nested = false
+                olapTable.setVariantEnableFlattenNested(false);
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
@@ -4114,7 +4238,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Long tabletId : tabletIdSet) {
                     Env.getCurrentInvertedIndex().deleteTablet(tabletId);
                 }
-                LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
+                LOG.info("duplicate create table[{};{}] in db[{};{}], skip next steps",
+                        tableName, tableId, db.getName(), db.getId());
             } else {
                 // if table not exists, then db.createTableWithLock will write an editlog.
                 hadLogEditCreateTable = true;
@@ -4128,7 +4253,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             backendsPerBucketSeq);
                     Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
                 }
-                LOG.info("successfully create table[{};{}]", tableName, tableId);
+                LOG.info("successfully create table[{};{}] in db[{};{}]",
+                        tableName, tableId, db.getName(), db.getId());
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
                 // register or remove table from DynamicPartition after table created
@@ -4418,16 +4544,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
-            // session variable: disable_variant_flatten_nested = true
-            // with table property: variant_enable_flatten_nested = true we should throw error
-            if (ctx.getSessionVariable().getDisableVariantFlattenNested() && variantEnableFlattenNested) {
+            // only if session variable: enable_variant_flatten_nested = true and
+            // table property: variant_enable_flatten_nested = true
+            // we can enable variant flatten nested otherwise throw error
+            if (ctx != null && ctx.getSessionVariable().getEnableVariantFlattenNested()
+                    && variantEnableFlattenNested) {
+                olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
+            } else if (variantEnableFlattenNested) {
                 throw new DdlException("If you want to enable variant flatten nested, "
-                        + "please set session variable: disable_variant_flatten_nested = false");
+                        + "please set session variable: enable_variant_flatten_nested = true");
+            } else {
+                // keep table property: variant_enable_flatten_nested = false
+                olapTable.setVariantEnableFlattenNested(false);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setVariantEnableFlattenNested(variantEnableFlattenNested);
 
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2

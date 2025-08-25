@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
@@ -45,8 +44,6 @@ public class SequenceCount extends NotNullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateV2Type.INSTANCE, BooleanType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .varArgs(StringType.INSTANCE, DateTimeType.INSTANCE, BooleanType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, BooleanType.INSTANCE)
     );
 
@@ -65,14 +62,18 @@ public class SequenceCount extends NotNullableAggregateFunction
                 ExpressionUtils.mergeArguments(arg0, arg1, arg2, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SequenceCount(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public SequenceCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 3);
-        return new SequenceCount(distinct, children.get(0), children.get(1), children.get(2),
-                children.subList(3, children.size()).toArray(new Expression[0]));
+        return new SequenceCount(getFunctionParams(distinct, children));
     }
 
     @Override

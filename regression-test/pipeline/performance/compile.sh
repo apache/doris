@@ -58,8 +58,7 @@ merge_pr_to_target_branch_latest() {
     git checkout "${target_branch}"
     git reset --hard origin/"${target_branch}"
     git pull origin "${target_branch}"
-    git submodule update --init be/src/clucene
-    git submodule update --init be/src/apache-orc
+    git submodule update --init --recursive --depth 1
     local target_branch_commit_id
     target_branch_commit_id=$(git rev-parse HEAD)
     git config user.email "ci@selectdb.com"
@@ -76,7 +75,10 @@ merge_pr_to_target_branch_latest() {
     fi
 }
 
-if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-3.1" ]]; then
+if [[ "${target_branch}" == "master" ]]; then
+    REMOTE_CCACHE='/mnt/remote_ccache_master'
+    docker_image="apache/doris:build-env-ldb-toolchain-latest"
+elif [[ "${target_branch}" == "branch-3.1" ]]; then
     REMOTE_CCACHE='/mnt/remote_ccache_master'
     docker_image="apache/doris:build-env-ldb-toolchain-0.19-latest"
 elif [[ "${target_branch}" == "branch-3.0" ]]; then
@@ -119,6 +121,7 @@ if [[ "${target_branch}" == "master" ]]; then
     echo "export JAVA_HOME=/usr/lib/jvm/jdk-17.0.2" >>custom_env.sh
 fi
 rm -rf "${teamcity_build_checkoutDir}"/output
+USE_CUSTOM_LDB="wget -c -t3 -q https://doris-regression-hk.oss-cn-hongkong-internal.aliyuncs.com/tools/ldb-toolchain/v0.26/ldb_toolchain_gen.sh && rm -rf /usr/local/ldb-toolchain-v0.26 && bash ldb_toolchain_gen.sh /usr/local/ldb-toolchain-v0.26 && export PATH=/usr/local/ldb-toolchain-v0.26/bin:\$PATH"
 set -x
 # shellcheck disable=SC2086
 sudo docker run -i --rm \
@@ -143,6 +146,7 @@ sudo docker run -i --rm \
                     && export USE_JEMALLOC='ON' \
                     && export ENABLE_PCH=OFF \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
+                    && ${USE_CUSTOM_LDB} \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log"
 set +x
 set -x

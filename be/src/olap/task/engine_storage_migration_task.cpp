@@ -426,7 +426,7 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
                         return status;
                     }
                 }
-            } else if (tablet_schema.has_inverted_index()) {
+            } else if (tablet_schema.has_inverted_index() || tablet_schema.has_ann_index()) {
                 auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
                 auto snapshot_segment_index_file_path =

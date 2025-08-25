@@ -180,15 +180,7 @@ Status RowsetBuilder::check_tablet_version_count() {
 }
 
 Status RowsetBuilder::prepare_txn() {
-    std::shared_lock base_migration_lock(tablet()->get_migration_lock(), std::defer_lock);
-    if (!base_migration_lock.try_lock_for(
-                std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
-        return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
-                                              config::migration_lock_timeout_ms);
-    }
-    std::lock_guard<std::mutex> push_lock(tablet()->get_push_lock());
-    return _engine.txn_manager()->prepare_txn(_req.partition_id, *tablet(), _req.txn_id,
-                                              _req.load_id);
+    return tablet()->prepare_txn(_req.partition_id, _req.txn_id, _req.load_id, false);
 }
 
 Status RowsetBuilder::init() {
@@ -282,11 +274,11 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
         if (config::enable_calc_delete_bitmap_between_segments_concurrently) {
-            RETURN_IF_ERROR(_calc_delete_bitmap_token->submit(_tablet, _rowset->rowset_id(),
-                                                              segments, _delete_bitmap));
+            RETURN_IF_ERROR(_calc_delete_bitmap_token->submit(
+                    _tablet, _tablet_schema, _rowset->rowset_id(), segments, _delete_bitmap));
         } else {
-            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(),
-                                                                         segments, _delete_bitmap));
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(
+                    _tablet_schema, _rowset->rowset_id(), segments, _delete_bitmap));
         }
     }
 
@@ -342,25 +334,6 @@ Status RowsetBuilder::commit_txn() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
-
-    const RowsetWriterContext& rw_ctx = _rowset_writer->context();
-    if (rw_ctx.tablet_schema->num_variant_columns() > 0 && _rowset->num_rows() > 0) {
-        // Need to merge schema with `rw_ctx.merged_tablet_schema` in prior,
-        // merged schema keeps the newest merged schema for the rowset, which is updated and merged
-        // during flushing segments.
-        if (rw_ctx.merged_tablet_schema != nullptr) {
-            RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.merged_tablet_schema));
-        } else {
-            // We should merge rowset schema further, in case that the merged_tablet_schema maybe null
-            // when enable_memtable_on_sink_node is true, the merged_tablet_schema will not be passed to
-            // the destination backend.
-            // update tablet schema when meet variant columns, before commit_txn
-            // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
-            // _tabelt->tablet_schema:  A(bigint), B(double)
-            //  => update_schema:       A(bigint), B(double), C(int), D(int)
-            RETURN_IF_ERROR(tablet()->update_by_least_common_schema(rw_ctx.tablet_schema));
-        }
-    }
 
     // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
     Status res = _engine.txn_manager()->commit_txn(

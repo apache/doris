@@ -34,6 +34,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "util/runtime_profile.h"
 
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
@@ -55,8 +56,12 @@ std::shared_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyz
         const InvertedIndexCtx* inverted_index_ctx) {
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
     if (!inverted_index_ctx->custom_analyzer.empty()) {
-        analyzer = doris::ExecEnv::GetInstance()->index_policy_mgr()->get_policy_by_name(
-                inverted_index_ctx->custom_analyzer);
+        auto index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
+        if (!index_policy_mgr) {
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                            "index policy mgr is not initialized");
+        }
+        analyzer = index_policy_mgr->get_policy_by_name(inverted_index_ctx->custom_analyzer);
     } else {
         auto analyser_type = inverted_index_ctx->parser_type;
         if (analyser_type == InvertedIndexParserType::PARSER_STANDARD ||

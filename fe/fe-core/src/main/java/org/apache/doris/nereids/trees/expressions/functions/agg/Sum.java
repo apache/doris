@@ -59,8 +59,7 @@ public class Sum extends NullableAggregateFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
@@ -85,6 +84,11 @@ public class Sum extends NullableAggregateFunction
         super("sum", distinct, alwaysNullable, isSkew, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sum(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MultiDistinctSum convertToMultiDistinct() {
         Preconditions.checkArgument(distinct,
@@ -107,17 +111,17 @@ public class Sum extends NullableAggregateFunction
     @Override
     public Sum withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum(distinct, alwaysNullable, isSkew, children.get(0));
+        return new Sum(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Sum(distinct, alwaysNullable, isSkew, children.get(0));
+        return new Sum(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
     public Expression withIsSkew(boolean isSkew) {
-        return new Sum(distinct, alwaysNullable, isSkew, child());
+        return new Sum(getFunctionParams(distinct, isSkew, children));
     }
 
     @Override
@@ -132,7 +136,8 @@ public class Sum extends NullableAggregateFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        if (getArgument(0).getDataType() instanceof NullType) {
+        if (getArgument(0).getDataType() instanceof NullType
+                || getArgument(0).getDataType() instanceof BooleanType) {
             return FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE);
         } else if (getArgument(0).getDataType() instanceof DecimalV2Type) {
             return FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD);
@@ -142,7 +147,7 @@ public class Sum extends NullableAggregateFunction
 
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
-        return new Sum(this.distinct, param);
+        return new Sum(getFunctionParams(ImmutableList.of(param)));
     }
 
     @Override

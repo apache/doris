@@ -174,7 +174,9 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                TabletStatsPB& stats, bool snapshot) {
     TabletStats detached_stats;
     internal_get_tablet_stats(code, msg, txn, instance_id, idx, stats, detached_stats, snapshot);
-    merge_tablet_stats(stats, detached_stats);
+    if (code == MetaServiceCode::OK) {
+        merge_tablet_stats(stats, detached_stats);
+    }
 }
 
 void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,

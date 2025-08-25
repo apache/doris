@@ -344,6 +344,7 @@ Status IndexChannel::close_wait(
 
     // 2. wait for all node channel to complete as much as possible
     if (!unfinished_node_channel_ids.empty() && need_wait_after_quorum_success) {
+        int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(unfinished_node_channel_ids);
         while (true) {
             RETURN_IF_ERROR(check_each_node_channel_close(&unfinished_node_channel_ids,
@@ -352,7 +353,7 @@ Status IndexChannel::close_wait(
             if (unfinished_node_channel_ids.empty()) {
                 break;
             }
-            int64_t elapsed_ms = UnixMillis() - _start_time;
+            int64_t elapsed_ms = UnixMillis() - arrival_quorum_success_time;
             if (elapsed_ms > max_wait_time_ms ||
                 _parent->_load_channel_timeout_s - elapsed_ms / 1000 <
                         config::quorum_success_remaining_timeout_seconds) {
@@ -470,6 +471,7 @@ int64_t IndexChannel::_calc_max_wait_time_ms(
 
     // 3. calculate max wait time
     // introduce quorum_success_min_wait_seconds to avoid jitter of small load
+    max_wait_time_ms -= UnixMillis() - _start_time;
     max_wait_time_ms =
             std::max(static_cast<int64_t>(static_cast<double>(max_wait_time_ms) *
                                           (1.0 + config::quorum_success_max_wait_multiplier)),
@@ -1013,7 +1015,17 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
         if (!st.ok()) {
             _cancel_with_msg(st.to_string());
         } else if (ctx._is_last_rpc) {
+            bool skip_tablet_info = false;
+            DBUG_EXECUTE_IF("VNodeChannel.add_block_success_callback.incomplete_commit_info",
+                            { skip_tablet_info = true; });
             for (const auto& tablet : result.tablet_vec()) {
+                DBUG_EXECUTE_IF("VNodeChannel.add_block_success_callback.incomplete_commit_info", {
+                    if (skip_tablet_info) {
+                        LOG(INFO) << "skip tablet info: " << tablet.tablet_id();
+                        skip_tablet_info = false;
+                        continue;
+                    }
+                });
                 TTabletCommitInfo commit_info;
                 commit_info.tabletId = tablet.tablet_id();
                 commit_info.backendId = _node_id;
@@ -1780,6 +1792,11 @@ Status VTabletWriter::close(Status exec_status) {
     _do_try_close(_state, exec_status);
     TEST_INJECTION_POINT("VOlapTableSink::close");
 
+    DBUG_EXECUTE_IF("VTabletWriter.close.sleep", {
+        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "VTabletWriter.close.sleep", "sleep_sec", 1);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
+    });
     DBUG_EXECUTE_IF("VTabletWriter.close.close_status_not_ok",
                     { _close_status = Status::InternalError("injected close status not ok"); });
 

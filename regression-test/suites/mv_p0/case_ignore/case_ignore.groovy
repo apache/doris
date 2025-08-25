@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("case_ignore") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -39,7 +42,7 @@ suite ("case_ignore") {
 
     sql """alter table d_table modify column k4 set stats ('row_count'='4');"""
 
-    createMV ("create materialized view k12a as select K1,abs(K2) from d_table;")
+    createMV ("create materialized view k12a as select K1 as a1,abs(K2) from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

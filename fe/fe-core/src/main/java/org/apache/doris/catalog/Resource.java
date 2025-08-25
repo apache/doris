@@ -24,7 +24,6 @@ import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -62,7 +61,8 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         HDFS,
         HMS,
         ES,
-        AZURE;
+        AZURE,
+        LLM;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -193,6 +193,9 @@ public abstract class Resource implements Writable, GsonPostProcessable {
             case ES:
                 resource = new EsResource(name);
                 break;
+            case LLM:
+                resource = new LLMResource(name);
+                break;
             default:
                 throw new DdlException("Unknown resource type: " + type);
         }
@@ -288,20 +291,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     private void notifyUpdate(Map<String, String> properties) {
         references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
             if (type == ReferenceType.CATALOG) {
-                for (Map.Entry<String, ReferenceType> ref : refs) {
-                    String catalogName = ref.getKey().split(REFERENCE_SPLIT)[0];
-                    CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-                    if (catalog == null) {
-                        LOG.warn("Can't find the reference catalog {} for resource {}", catalogName, name);
-                        continue;
-                    }
-                    if (!name.equals(catalog.getResource())) {
-                        LOG.warn("Failed to update catalog {} for different resource "
-                                + "names(resource={}, catalog.resource={})", catalogName, name, catalog.getResource());
-                        continue;
-                    }
-                    catalog.notifyPropertiesUpdated(properties);
-                }
+                // No longer support resource in Catalog.
             }
         });
     }

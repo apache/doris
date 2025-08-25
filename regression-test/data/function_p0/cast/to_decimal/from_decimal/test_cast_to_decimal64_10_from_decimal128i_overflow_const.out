@@ -101,183 +101,147 @@
 -- !sql_test_cast_to_decimal_10_1_from_decimal_38_1_overflow_13 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_19_0_overflow_16 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_19_0_overflow_16 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_19_0_overflow_16 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_19_0_overflow_16 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_19_0_overflow_16 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_19_0_overflow_16 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_19_1_overflow_17 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_19_1_overflow_17 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_19_1_overflow_17 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_19_1_overflow_17 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_19_1_overflow_17 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_19_1_overflow_17 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_38_0_overflow_20 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_19_18_overflow_18 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_38_0_overflow_20 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_19_18_overflow_18 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_38_0_overflow_20 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_38_0_overflow_20 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_38_1_overflow_21 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_38_0_overflow_20 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_38_1_overflow_21 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_38_0_overflow_20 --
 \N
 
--- !sql_test_cast_to_decimal_10_5_from_decimal_38_1_overflow_21 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_38_1_overflow_21 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_19_0_overflow_24 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_38_1_overflow_21 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_19_0_overflow_24 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_38_1_overflow_21 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_19_0_overflow_24 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_38_37_overflow_22 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_19_1_overflow_25 --
+-- !sql_test_cast_to_decimal_10_9_from_decimal_38_37_overflow_22 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_19_1_overflow_25 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_0_overflow_24 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_19_1_overflow_25 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_0_overflow_24 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_19_18_overflow_26 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_0_overflow_24 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_19_18_overflow_26 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_1_overflow_25 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_38_0_overflow_28 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_1_overflow_25 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_38_0_overflow_28 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_1_overflow_25 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_38_0_overflow_28 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_26 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_38_1_overflow_29 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_26 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_38_1_overflow_29 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_26 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_38_1_overflow_29 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_26 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_38_37_overflow_30 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_26 --
 \N
 
--- !sql_test_cast_to_decimal_10_9_from_decimal_38_37_overflow_30 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_26 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_0_overflow_32 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_26 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_0_overflow_32 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_26 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_0_overflow_32 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_19_overflow_27 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_1_overflow_33 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_19_19_overflow_27 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_1_overflow_33 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_0_overflow_28 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_1_overflow_33 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_0_overflow_28 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_34 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_0_overflow_28 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_34 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_1_overflow_29 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_34 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_1_overflow_29 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_34 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_1_overflow_29 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_34 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_30 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_34 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_30 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_34 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_30 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_18_overflow_34 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_30 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_19_overflow_35 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_30 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_19_19_overflow_35 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_30 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_0_overflow_36 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_30 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_0_overflow_36 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_30 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_0_overflow_36 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_38_overflow_31 --
 \N
 
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_1_overflow_37 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_1_overflow_37 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_1_overflow_37 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_38 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_38 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_38 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_38 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_38 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_38 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_38 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_37_overflow_38 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_38_overflow_39 --
-\N
-
--- !sql_test_cast_to_decimal_10_10_from_decimal_38_38_overflow_39 --
+-- !sql_test_cast_to_decimal_10_10_from_decimal_38_38_overflow_31 --
 \N
 

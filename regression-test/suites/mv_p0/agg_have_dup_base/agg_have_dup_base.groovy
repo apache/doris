@@ -20,6 +20,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite ("agg_have_dup_base") {
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS d_table; """
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
             create table d_table(
@@ -37,7 +39,7 @@ suite ("agg_have_dup_base") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV( "create materialized view k12s3m as select k1,sum(k2),max(k2) from d_table group by k1;")
+    createMV( "create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select -4,-4,-4,'d';"

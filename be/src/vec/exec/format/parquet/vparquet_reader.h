@@ -35,6 +35,7 @@
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "parquet_pred_cmp.h"
 #include "util/obj_lru_cache.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
@@ -214,8 +215,7 @@ private:
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
-    Status _process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& column_meta,
-                                       bool* filter_group);
+    Status _process_column_stat_filter(const tparquet::RowGroup& row_group, bool* filter_group);
     Status _process_row_group_filter(const RowGroupReader::RowGroupIndex& row_group_index,
                                      const tparquet::RowGroup& row_group, bool* filter_group);
     void _init_chunk_dicts();
@@ -228,9 +228,18 @@ private:
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
 
-    static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
-
     Status _set_read_one_line_impl() override { return Status::OK(); }
+
+    bool _expr_push_down(const VExprSPtr& expr,
+                         const std::function<bool(const FieldSchema*,
+                                                  ParquetPredicate::ColumnStat*)>& get_stat_func);
+    bool _simple_expr_push_down(
+            const VExprSPtr& expr, ParquetPredicate::OP op,
+            const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
+                    get_stat_func);
+    bool _check_expr_can_push_down(const VExprSPtr& expr);
+    bool _check_slot_can_push_down(const VExprSPtr& expr);
+    bool _check_other_children_is_literal(const VExprSPtr& expr);
 
 private:
     RuntimeProfile* _profile = nullptr;
@@ -313,6 +322,13 @@ private:
     std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+
+    bool _filter_groups;
+    // push down =, >, <, >=, <=, in
+    VExprSPtrs _push_down_exprs;
+
+    // for page index filter. slot id => expr
+    std::map<int, VExprSPtrs> _push_down_simple_expr;
 };
 #include "common/compile_check_end.h"
 

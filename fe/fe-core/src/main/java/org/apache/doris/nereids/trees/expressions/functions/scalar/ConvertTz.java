@@ -58,6 +58,11 @@ public class ConvertTz extends ScalarFunction
         super("convert_tz", castDateTime(arg0), arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ConvertTz(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     private static Expression castDateTime(Expression arg0) {
         // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_convert-tz
         // convert_tz() should be explicit cast, so we create a explicit cast here
@@ -75,7 +80,7 @@ public class ConvertTz extends ScalarFunction
     @Override
     public ConvertTz withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new ConvertTz(children.get(0), children.get(1), children.get(2));
+        return new ConvertTz(getFunctionParams(children));
     }
 
     @Override

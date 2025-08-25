@@ -20,10 +20,9 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-
-import java.util.List;
 
 /**
  * TimeWithPrecision. fill precision to the return type.
@@ -36,8 +35,8 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
         super(name, arguments);
     }
 
-    public DateTimeWithPrecision(String name, List<Expression> arguments) {
-        super(name, arguments);
+    public DateTimeWithPrecision(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override

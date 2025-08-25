@@ -62,6 +62,12 @@ enum TStorageFormat {
     V2 = 2
 }
 
+enum TEncryptionAlgorithm {
+    PLAINTEXT = 0,
+    AES256 = 1,
+    SM4 = 2
+}
+
 enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
@@ -428,6 +434,8 @@ struct TSnapshotRequest {
 struct TReleaseSnapshotRequest {
     1: required string snapshot_path
     2: optional Types.TTabletId tablet_id
+    // indicates the job is completed or cancelled
+    3: optional bool is_job_completed
 }
 
 struct TClearRemoteFileReq {

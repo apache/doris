@@ -23,6 +23,7 @@
 #include <fast_float/fast_float.h>
 #include <fast_float/parse_number.h>
 #include <glog/logging.h>
+#include <sys/types.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -50,12 +51,32 @@ template <DecimalNativeTypeConcept T>
 struct Decimal;
 } // namespace vectorized
 
-#define RETURN_INVALID_ARG_IF_NOT(stmt, ...)             \
-    do {                                                 \
-        if (UNLIKELY(!(stmt))) {                         \
-            return Status::InvalidArgument(__VA_ARGS__); \
-        }                                                \
+// they rely on the template parameter `IS_STRICT`. in strict mode, it will set error code and otherwise it will not.
+#ifndef SET_PARAMS_RET_FALSE_IFN
+#define SET_PARAMS_RET_FALSE_IFN(stmt, ...)                           \
+    do {                                                              \
+        if (!(stmt)) [[unlikely]] {                                   \
+            if constexpr (IsStrict) {                                 \
+                params.status = Status::InvalidArgument(__VA_ARGS__); \
+            }                                                         \
+            return false;                                             \
+        }                                                             \
     } while (false)
+#endif
+
+#ifndef SET_PARAMS_RET_FALSE_FROM_EXCEPTION
+#define SET_PARAMS_RET_FALSE_FROM_EXCEPTION(stmt) \
+    do {                                          \
+        try {                                     \
+            { stmt; }                             \
+        } catch (const doris::Exception& e) {     \
+            if constexpr (IsStrict) {             \
+                params.status = e.to_status();    \
+            }                                     \
+            return false;                         \
+        }                                         \
+    } while (false)
+#endif
 
 // skip leading and trailing ascii whitespaces,
 // return the pointer to the first non-whitespace char,
@@ -81,20 +102,20 @@ bool range_suite(const char* s, const char* end) {
 }
 
 inline auto is_digit_range = range_suite<is_numeric_ascii>;
+inline auto is_space_range = range_suite<is_whitespace_ascii>;
 
-inline Status assert_within_bound(const char* s, const char* end, size_t offset) {
+// combine in_bound and range_suite is ok. won't lead to duplicated calculation.
+inline bool in_bound(const char* s, const char* end, size_t offset) {
     if (s + offset >= end) [[unlikely]] {
-        return Status::InvalidArgument(
-                "StringParser: failed because we need at least {} but only got '{}'", offset,
-                std::string {s, end});
+        return false;
     }
-    return Status::OK();
+    return true;
 }
 
 // LEN = 0 means any length(include zero). LEN = 1 means only one character. so on. LEN = -x means x or more.
 // if need result, use StringRef{origin_s, s} outside
 template <int LEN, bool (*Pred)(char)>
-Status skip_qualified_char(const char*& s, const char* end) {
+bool skip_qualified_char(const char*& s, const char* end) {
     if constexpr (LEN == 0) {
         // Consume any length of characters that match the predicate.
         while (s != end && Pred(*s)) {
@@ -104,9 +125,7 @@ Status skip_qualified_char(const char*& s, const char* end) {
         // Consume exactly LEN characters that match the predicate.
         for (int i = 0; i < LEN; ++i, ++s) {
             if (s == end || !Pred(*s)) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "StringParser: failed to consume {} characters, got '{}'", LEN - i,
-                        std::string {s, end});
+                return false;
             }
         }
     } else { // LEN < 0
@@ -117,12 +136,10 @@ Status skip_qualified_char(const char*& s, const char* end) {
             ++count;
         }
         if (count < -LEN) [[unlikely]] {
-            return Status::InvalidArgument(
-                    "StringParser: failed to consume at least {} characters, got '{}'",
-                    -LEN - count, std::string {s, end});
+            return false;
         }
     }
-    return Status::OK();
+    return true;
 }
 
 inline auto skip_any_whitespace = skip_qualified_char<0, is_whitespace_ascii>;
@@ -150,16 +167,14 @@ inline auto consume_one_colon = skip_qualified_char<1, is_colon>;
 // when has MAX_LEN > 0, do greedy match but at most MAX_LEN.
 // LEN = 0 means any length, otherwise(must > 0) it means exactly LEN digits.
 template <typename T, int LEN = 0, int MAX_LEN = -1>
-Status consume_digit(const char*& s, const char* end, T& out) {
+bool consume_digit(const char*& s, const char* end, T& out) {
     static_assert(LEN >= 0);
     if constexpr (MAX_LEN > 0) {
         out = 0;
         for (int i = 0; i < MAX_LEN; ++i, ++s) {
-            if ((s == end || !is_numeric_ascii(*s))) [[unlikely]] {
+            if (s == end || !is_numeric_ascii(*s)) {
                 if (i < LEN) [[unlikely]] {
-                    return Status::InvalidArgument(
-                            "StringParser: got \"{}\" before get at least {} digit",
-                            std::string {s, end}, LEN - i);
+                    return false;
                 }
                 break; // stop consuming if we have consumed enough digits.
             }
@@ -177,14 +192,43 @@ Status consume_digit(const char*& s, const char* end, T& out) {
         out = 0;
         for (int i = 0; i < LEN; ++i, ++s) {
             if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "StringParser: failed to consume {} digits, got '{}'", LEN - i,
-                        std::string {s, end});
+                return false;
             }
             out = out * 10 + (*s - '0');
         }
     }
-    return Status::OK();
+    return true;
+}
+
+// specialized version for 2 digits, which is used very often in date/time parsing.
+template <>
+inline bool consume_digit<uint32_t, 2, -1>(const char*& s, const char* end, uint32_t& out) {
+    out = 0;
+    if (s == end || s + 1 == end || !is_numeric_ascii(*s) || !is_numeric_ascii(*(s + 1)))
+            [[unlikely]] {
+        return false;
+    }
+    out = (s[0] - '0') * 10 + (s[1] - '0');
+    s += 2; // consume 2 digits
+    return true;
+}
+
+// specialized version for 1 or 2 digits, which is used very often in date/time parsing.
+template <>
+inline bool consume_digit<uint32_t, 1, 2>(const char*& s, const char* end, uint32_t& out) {
+    out = 0;
+    if (s == end || !is_numeric_ascii(*s)) [[unlikely]] {
+        return false;
+    } else if (s + 1 != end && is_numeric_ascii(*(s + 1))) {
+        // consume 2 digits
+        out = (*s - '0') * 10 + (*(s + 1) - '0');
+        s += 2;
+    } else {
+        // consume 1 digit
+        out = *s - '0';
+        ++s;
+    }
+    return true;
 }
 
 template <bool (*Pred)(char)>
@@ -754,197 +798,5 @@ inline bool StringParser::string_to_bool_internal(const char* __restrict s, int 
     *result = PARSE_FAILURE;
     return false;
 }
-
-/*
-template <PrimitiveType P, typename T, typename DecimalType>
-T StringParser::string_to_decimal(const char* __restrict s, int len, int type_precision,
-                                  int type_scale, ParseResult* result) {
-    static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
-                          std::is_same_v<T, __int128> || std::is_same_v<T, wide::Int256>,
-                  "Cast string to decimal only support target type int32_t, int64_t, __int128 or "
-                  "wide::Int256.");
-    // Special cases:
-    //   1) '' == Fail, an empty string fails to parse.
-    //   2) '   #   ' == #, leading and trailing white space is ignored.
-    //   3) '.' == 0, a single dot parses as zero (for consistency with other types).
-    //   4) '#.' == '#', a trailing dot is ignored.
-
-    // Ignore leading and trailing spaces.
-    while (len > 0 && is_whitespace(*s)) {
-        ++s;
-        --len;
-    }
-    while (len > 0 && is_whitespace(s[len - 1])) {
-        --len;
-    }
-
-    bool is_negative = false;
-    if (len > 0) {
-        switch (*s) {
-        case '-':
-            is_negative = true;
-            [[fallthrough]];
-        case '+':
-            ++s;
-            --len;
-        }
-    }
-
-    // Ignore leading zeros.
-    bool found_value = false;
-    while (len > 0 && UNLIKELY(*s == '0')) {
-        found_value = true;
-        ++s;
-        --len;
-    }
-
-    // Ignore leading zeros even after a dot. This allows for differentiating between
-    // cases like 0.01e2, which would fit in a DECIMAL(1, 0), and 0.10e2, which would
-    // overflow.
-    int scale = 0;
-    int found_dot = 0;
-    if (len > 0 && *s == '.') {
-        found_dot = 1;
-        ++s;
-        --len;
-        while (len > 0 && UNLIKELY(*s == '0')) {
-            found_value = true;
-            ++scale;
-            ++s;
-            --len;
-        }
-    }
-
-    int precision = 0;
-    int max_digit = type_precision - type_scale;
-    int cur_digit = 0;
-    bool found_exponent = false;
-    int8_t exponent = 0;
-    T value = 0;
-    bool has_round = false;
-    for (int i = 0; i < len; ++i) {
-        const char& c = s[i];
-        if (LIKELY('0' <= c && c <= '9')) {
-            found_value = true;
-            // Ignore digits once the type's precision limit is reached. This avoids
-            // overflowing the underlying storage while handling a string like
-            // 10000000000e-10 into a DECIMAL(1, 0). Adjustments for ignored digits and
-            // an exponent will be made later.
-            if (LIKELY(type_precision > precision) && !has_round) {
-                value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
-                ++precision;
-                scale += found_dot;
-                cur_digit = precision - scale;
-            } else if (!found_dot && max_digit < (precision - scale)) {
-                *result = StringParser::PARSE_OVERFLOW;
-                value = is_negative ? vectorized::min_decimal_value<P>(type_precision)
-                                    : vectorized::max_decimal_value<P>(type_precision);
-                return value;
-            } else if (found_dot && scale >= type_scale && !has_round) {
-                // make rounding cases
-                if (c > '4') {
-                    value += 1;
-                }
-                has_round = true;
-                continue;
-            } else if (!found_dot) {
-                ++cur_digit;
-            }
-            DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
-        } else if (c == '.' && LIKELY(!found_dot)) {
-            found_dot = 1;
-        } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
-            found_exponent = true;
-            exponent = string_to_int_internal<int8_t>(s + i + 1, len - i - 1, result);
-            if (UNLIKELY(*result != StringParser::PARSE_SUCCESS)) {
-                if (*result == StringParser::PARSE_OVERFLOW && exponent < 0) {
-                    *result = StringParser::PARSE_UNDERFLOW;
-                }
-                return 0;
-            }
-            break;
-        } else {
-            if (value == 0) {
-                *result = StringParser::PARSE_FAILURE;
-                return 0;
-            }
-            // here to handle
-            *result = StringParser::PARSE_SUCCESS;
-            if (type_scale >= scale) {
-                value *= get_scale_multiplier<T>(type_scale - scale);
-                // here meet non-valid character, should return the value, keep going to meet
-                // the E/e character because we make right user-given type_precision
-                // not max number type_precision
-                if (!is_numeric_ascii(c)) {
-                    if (cur_digit > type_precision) {
-                        *result = StringParser::PARSE_OVERFLOW;
-                        value = is_negative ? vectorized::min_decimal_value<P>(type_precision)
-                                            : vectorized::max_decimal_value<P>(type_precision);
-                        return value;
-                    }
-                    return is_negative ? T(-value) : T(value);
-                }
-            }
-
-            return is_negative ? T(-value) : T(value);
-        }
-    }
-
-    // Find the number of truncated digits before adjusting the precision for an exponent.
-    if (exponent > scale) {
-        // Ex: 0.1e3 (which at this point would have precision == 1 and scale == 1), the
-        //     scale must be set to 0 and the value set to 100 which means a precision of 3.
-        precision += exponent - scale;
-
-        value *= get_scale_multiplier<T>(exponent - scale);
-        scale = 0;
-    } else {
-        // Ex: 100e-4, the scale must be set to 4 but no adjustment to the value is needed,
-        //     the precision must also be set to 4 but that will be done below for the
-        //     non-exponent case anyways.
-        scale -= exponent;
-    }
-    // Ex: 0.001, at this point would have precision 1 and scale 3 since leading zeros
-    //     were ignored during previous parsing.
-    if (scale > precision) {
-        precision = scale;
-    }
-
-    // Microbenchmarks show that beyond this point, returning on parse failure is slower
-    // than just letting the function run out.
-    *result = StringParser::PARSE_SUCCESS;
-    if (UNLIKELY(precision - scale > type_precision - type_scale)) {
-        *result = StringParser::PARSE_OVERFLOW;
-        if constexpr (TYPE_DECIMALV2 != P) {
-            // decimalv3 overflow will return max min value for type precision
-            value = is_negative ? vectorized::min_decimal_value<P>(type_precision)
-                                : vectorized::max_decimal_value<P>(type_precision);
-            return value;
-        }
-    } else if (UNLIKELY(scale > type_scale)) {
-        *result = StringParser::PARSE_UNDERFLOW;
-        int shift = scale - type_scale;
-        T divisor = get_scale_multiplier<T>(shift);
-        if (UNLIKELY(divisor == std::numeric_limits<T>::max())) {
-            value = 0;
-        } else {
-            T remainder = value % divisor;
-            value /= divisor;
-            if ((remainder > 0 ? T(remainder) : T(-remainder)) >= (divisor >> 1)) {
-                value += 1;
-            }
-        }
-        DCHECK(value >= 0); // //DCHECK_GE doesn't work with __int128.
-    } else if (UNLIKELY(!found_value && !found_dot)) {
-        *result = StringParser::PARSE_FAILURE;
-    }
-
-    if (type_scale > scale) {
-        value *= get_scale_multiplier<T>(type_scale - scale);
-    }
-
-    return is_negative ? T(-value) : T(value);
-}
-*/
 
 } // end namespace doris

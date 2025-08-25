@@ -26,7 +26,6 @@
 #include <type_traits>
 
 #include "common/status.h"
-#include "util/debug/leak_annotations.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -115,12 +114,13 @@ template <typename A>
 struct SignImpl {
     static constexpr PrimitiveType ResultType = TYPE_TINYINT;
     static inline UInt8 apply(A a) {
-        if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>)
+        if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>) {
             return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
-        else if constexpr (IsSignedV<A>)
+        } else if constexpr (IsSignedV<A>) {
             return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
-        else if constexpr (IsUnsignedV<A>)
+        } else if constexpr (IsUnsignedV<A>) {
             return static_cast<UInt8>(a == 0 ? 0 : 1);
+        }
     }
 };
 
@@ -134,18 +134,19 @@ struct AbsImpl {
     static constexpr PrimitiveType ResultType = NumberTraits::ResultOfAbs<A>::Type;
 
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        if constexpr (IsDecimalNumber<A>)
+        if constexpr (IsDecimalNumber<A>) {
             return a < A(0) ? A(-a) : a;
-        else if constexpr (IsIntegralV<A> && IsSignedV<A>)
+        } else if constexpr (IsIntegralV<A> && IsSignedV<A>) {
             return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                                       ~a) +
                                       1
                             : a;
-        else if constexpr (IsIntegralV<A> && IsUnsignedV<A>)
+        } else if constexpr (IsIntegralV<A> && IsUnsignedV<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
-        else if constexpr (std::is_floating_point_v<A>)
+        } else if constexpr (std::is_floating_point_v<A>) {
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                     std::abs(a));
+        }
     }
 };
 
@@ -251,31 +252,10 @@ struct NamePositive {
 
 using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
-struct UnaryFunctionPlainSin {
-    using Type = DataTypeFloat64;
+struct SinName {
     static constexpr auto name = "sin";
-    using FuncType = double (*)(double);
-
-    static FuncType get_sin_func() {
-#ifndef BE_TEST
-        void* handle = dlopen("libm.so.6", RTLD_LAZY);
-        if (handle) {
-            if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
-                return sin_func;
-            }
-            dlclose(handle);
-        }
-#endif
-        return std::sin;
-    }
-
-    static void execute(const double* src, double* dst) {
-        static auto sin_func = get_sin_func();
-        *dst = sin_func(*src);
-    }
 };
-
-using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
 
 struct SinhName {
     static constexpr auto name = "sinh";
@@ -371,7 +351,7 @@ struct BinImpl {
     using ReturnColumnType = ColumnString;
 
     static std::string bin_impl(Int64 value) {
-        uint64_t n = static_cast<uint64_t>(value);
+        auto n = static_cast<uint64_t>(value);
         const size_t max_bits = sizeof(uint64_t) * 8;
         char result[max_bits];
         uint32_t index = max_bits;
@@ -621,9 +601,9 @@ public:
             }
         }
 
-        auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
-        auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
-        auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
+        const auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
+        const auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
+        const auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
 
         result_column->reserve(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -718,8 +698,71 @@ struct LcmImpl {
     }
 };
 
-// TODO: Now math may cause one thread compile time too long, because the function in math
-// so mush. Split it to speed up compile time in the future
+enum class FloatPointNumberJudgmentType {
+    IsNan = 0,
+    IsInf,
+};
+
+struct ImplIsNan {
+    static constexpr auto name = "isnan";
+    static constexpr FloatPointNumberJudgmentType type = FloatPointNumberJudgmentType::IsNan;
+};
+
+struct ImplIsInf {
+    static constexpr auto name = "isinf";
+    static constexpr FloatPointNumberJudgmentType type = FloatPointNumberJudgmentType::IsInf;
+};
+
+template <typename Impl>
+class FunctionFloatingPointNumberJudgment : public IFunction {
+public:
+    using IFunction::execute;
+
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionFloatingPointNumberJudgment>(); }
+
+private:
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeBool>();
+    }
+
+    void execute_impl_with_type(const auto* input_column,
+                                DataTypeBool::ColumnType::Container& output, size_t size) const {
+        for (int i = 0; i < size; i++) {
+            auto value = input_column->get_element(i);
+            if constexpr (Impl::type == FloatPointNumberJudgmentType::IsNan) {
+                output[i] = std::isnan(value);
+            } else if constexpr (Impl::type == FloatPointNumberJudgmentType::IsInf) {
+                output[i] = std::isinf(value);
+            }
+        }
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto dst = DataTypeBool::ColumnType::create();
+        auto& dst_data = dst->get_data();
+        dst_data.resize(input_rows_count);
+        const auto* column = block.get_by_position(arguments[0]).column.get();
+        if (const auto* col_f64 = check_and_get_column<ColumnFloat64>(column)) {
+            execute_impl_with_type(col_f64, dst_data, input_rows_count);
+        } else if (const auto* col_f32 = check_and_get_column<ColumnFloat32>(column)) {
+            execute_impl_with_type(col_f32, dst_data, input_rows_count);
+        } else {
+            return Status::InvalidArgument("Unsupported column type  {} for function {}",
+                                           column->get_name(), get_name());
+        }
+        block.replace_by_position(result, std::move(dst));
+        return Status::OK();
+    }
+};
+
+using FunctionIsNan = FunctionFloatingPointNumberJudgment<ImplIsNan>;
+using FunctionIsInf = FunctionFloatingPointNumberJudgment<ImplIsInf>;
+
 void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAcosh>();
@@ -769,10 +812,11 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMathBinary<GcdImpl<TYPE_INT>>>();
     factory.register_function<FunctionMathBinary<GcdImpl<TYPE_BIGINT>>>();
     factory.register_function<FunctionMathBinary<GcdImpl<TYPE_LARGEINT>>>();
-    factory.register_function<FunctionMathBinary<LcmImpl<TYPE_TINYINT>>>();
     factory.register_function<FunctionMathBinary<LcmImpl<TYPE_SMALLINT>>>();
     factory.register_function<FunctionMathBinary<LcmImpl<TYPE_INT>>>();
     factory.register_function<FunctionMathBinary<LcmImpl<TYPE_BIGINT>>>();
     factory.register_function<FunctionMathBinary<LcmImpl<TYPE_LARGEINT>>>();
+    factory.register_function<FunctionIsNan>();
+    factory.register_function<FunctionIsInf>();
 }
 } // namespace doris::vectorized

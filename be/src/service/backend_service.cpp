@@ -451,7 +451,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         }
     } else {
         for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
-            if (tablet_schema->has_inverted_index()) {
+            if (tablet_schema->has_inverted_index() || tablet_schema->has_ann_index()) {
                 auto get_segment_index_file_size_url = fmt::format(
                         "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
                         "}",
@@ -613,8 +613,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         elapsed_time_map.emplace("load_segments", watch.elapsed_time_microseconds());
         if (segments.size() > 1) {
             // calculate delete bitmap between segments
-            status = local_tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
-                                                                       segments, delete_bitmap);
+            status = local_tablet->calc_delete_bitmap_between_segments(
+                    rowset->tablet_schema(), rowset->rowset_id(), segments, delete_bitmap);
             if (!status) {
                 LOG(WARNING) << "failed to calculate delete bitmap"
                              << ". tablet_id: " << local_tablet->tablet_id()
@@ -1086,10 +1086,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     p_load_id.set_lo(load_id.lo);
 
     {
-        // See RowsetBuilder::prepare_txn for details
-        std::shared_lock base_migration_lock(local_tablet->get_migration_lock());
-        auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id,
-                                                         p_load_id, is_ingrest);
+        // TODO: Before push_lock is not held, but I think it should hold.
+        auto status = local_tablet->prepare_txn(partition_id, txn_id, p_load_id, is_ingrest);
         if (!status.ok()) {
             LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                          << ", status=" << status.to_string();

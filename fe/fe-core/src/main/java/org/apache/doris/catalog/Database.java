@@ -411,17 +411,22 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 result = setIfNotExist;
                 isTableExist = true;
             } else {
-                registerTable(table);
-                if (table.isTemporary()) {
-                    Env.getCurrentEnv().registerTempTableAndSession(table);
-                }
-                if (table instanceof MTMV) {
-                    Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
-                }
-                if (!isReplay) {
-                    // Write edit log
-                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
-                    Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                table.writeLock();
+                try {
+                    registerTable(table);
+                    if (table.isTemporary()) {
+                        Env.getCurrentEnv().registerTempTableAndSession(table);
+                    }
+                    if (table instanceof MTMV) {
+                        Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
+                    }
+                    if (!isReplay) {
+                        // Write edit log
+                        CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
+                        Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                    }
+                } finally {
+                    table.writeUnlock();
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
@@ -462,17 +467,26 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
+        if (table == null) {
+            return;
+        }
+        unregisterTable(table.getId());
+    }
+
+    public void unregisterTable(Long tableId) {
+        Table table = getTableNullable(tableId);
         if (table != null) {
-            if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().unregisterMTMV((MTMV) table);
-            }
-            this.nameToTable.remove(tableName);
-            this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            this.nameToTable.remove(table.getName());
+            this.lowerCaseToTableName.remove(table.getName().toLowerCase());
             this.idToTable.remove(table.getId());
             if (table.isTemporary()) {
                 Env.getCurrentEnv().unregisterTempTable(table);
             }
             table.markDropped();
+            // will check mtmv if exist by markDrop, so unregisterMTMV() need after markDropped()
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().unregisterMTMV((MTMV) table);
+            }
         }
     }
 

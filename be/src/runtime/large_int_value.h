@@ -24,7 +24,6 @@
 #include <iostream>
 #include <string>
 
-#include "olap/olap_common.h"
 namespace doris {
 #include "common/compile_check_begin.h"
 

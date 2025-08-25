@@ -582,6 +582,12 @@ private:
                 return Status::InvalidArgument("Json path error: Invalid Json Path for value: {}",
                                                r_raw_ref.to_string());
             }
+
+            if (const_path.is_wildcard()) {
+                return Status::InvalidJsonPath(
+                        "In this situation, path expressions may not contain the * and ** tokens "
+                        "or an array range.");
+            }
         }
         const auto& ldata = col_from_string.get_chars();
         const auto& loffsets = col_from_string.get_offsets();
@@ -629,6 +635,13 @@ private:
                                 "Json path error: Invalid Json Path for value: {}",
                                 std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                                  rdata.size()));
+                    }
+
+                    if (path.is_wildcard()) {
+                        return Status::InvalidJsonPath(
+                                "In this situation, path expressions may not contain the * and ** "
+                                "tokens "
+                                "or an array range.");
                     }
                     find_result = doc->getValue()->findValue(path);
                 } else {
@@ -2036,6 +2049,7 @@ public:
                     replace = true;
                     if (!build_parents_by_path(json_documents[row_idx]->getValue(),
                                                json_path[path_index], parents)) {
+                        DCHECK(false);
                         continue;
                     }
                 } else {
@@ -2051,6 +2065,7 @@ public:
 
                     if (!build_parents_by_path(json_documents[row_idx]->getValue(), new_path,
                                                parents)) {
+                        DCHECK(false);
                         continue;
                     }
                 }
@@ -2113,9 +2128,11 @@ public:
             std::string path_string;
             current.to_string(&path_string);
             return false;
+        } else if (find_result.value == root) {
+            return true;
+        } else {
+            parents.emplace_back(find_result.value);
         }
-
-        parents.emplace_back(find_result.value);
 
         return build_parents_by_path(find_result.value, path, parents);
     }
@@ -2225,8 +2242,7 @@ public:
                 writer.writeEndObject();
 
             } else {
-                writer.writeValue(root);
-                return Status::OK();
+                return Status::InvalidArgument("Cannot insert value into this type");
             }
         }
 
@@ -2256,60 +2272,39 @@ public:
             json_paths[index].resize(json_path_constant[index] ? 1 : input_rows_count);
             json_values[index].resize(json_value_constant[index] ? 1 : input_rows_count, nullptr);
 
-            for (size_t row_idx = 0; row_idx != input_rows_count; ++row_idx) {
-                if (json_path_constant[index] || row_idx == 0) {
-                    if ((json_path_null_maps[index]) && (*json_path_null_maps[index])[0]) {
-                        continue;
-                    }
-
-                    auto path_string = json_path_column->get_data_at(0);
-                    if (!json_paths[index][0].seek(path_string.data, path_string.size)) {
-                        return Status::InvalidArgument(
-                                "Json path error: Invalid Json Path for constant value: "
-                                "{}, "
-                                "argument "
-                                "index: {}",
-                                std::string_view(path_string.data, path_string.size), i);
-                    }
-                } else if (!json_path_constant[index]) {
-                    if (json_path_null_maps[index] && (*json_path_null_maps[index])[row_idx]) {
-                        continue;
-                    }
-
-                    auto path_string = json_path_column->get_data_at(row_idx);
-                    if (!json_paths[index][row_idx].seek(path_string.data, path_string.size)) {
-                        return Status::InvalidArgument(
-                                "Json path error: Invalid Json Path for value: {}, "
-                                "argument "
-                                "index: {}, row index: {}",
-                                std::string_view(path_string.data, path_string.size), i, row_idx);
-                    }
+            for (size_t row_idx = 0; row_idx != json_paths[index].size(); ++row_idx) {
+                if (json_path_null_maps[index] && (*json_path_null_maps[index])[row_idx]) {
+                    continue;
                 }
 
-                if (json_value_constant[index] || row_idx == 0) {
-                    if ((json_value_null_maps[index]) && (*json_value_null_maps[index])[0]) {
-                        continue;
-                    }
+                auto path_string = json_path_column->get_data_at(row_idx);
+                if (!json_paths[index][row_idx].seek(path_string.data, path_string.size)) {
+                    return Status::InvalidArgument(
+                            "Json path error: Invalid Json Path for value: {}, "
+                            "argument "
+                            "index: {}, row index: {}",
+                            std::string_view(path_string.data, path_string.size), i, row_idx);
+                }
 
-                    auto value_string = value_column->get_data_at(0);
-                    JsonbDocument* doc = nullptr;
-                    RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(value_string.data,
-                                                                          value_string.size, &doc));
-                    if (doc) {
-                        json_values[index][0] = doc->getValue();
-                    }
-                } else if (!json_value_constant[index]) {
-                    if (json_value_null_maps[index] && (*json_value_null_maps[index])[row_idx]) {
-                        continue;
-                    }
+                if (json_paths[index][row_idx].is_wildcard()) {
+                    return Status::InvalidArgument(
+                            "In this situation, path expressions may not contain the * and ** "
+                            "tokens, argument index: {}, row index: {}",
+                            i, row_idx);
+                }
+            }
 
-                    auto value_string = value_column->get_data_at(row_idx);
-                    JsonbDocument* doc = nullptr;
-                    RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(value_string.data,
-                                                                          value_string.size, &doc));
-                    if (doc) {
-                        json_values[index][row_idx] = doc->getValue();
-                    }
+            for (size_t row_idx = 0; row_idx != json_values[index].size(); ++row_idx) {
+                if (json_value_null_maps[index] && (*json_value_null_maps[index])[row_idx]) {
+                    continue;
+                }
+
+                auto value_string = value_column->get_data_at(row_idx);
+                JsonbDocument* doc = nullptr;
+                RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(value_string.data,
+                                                                      value_string.size, &doc));
+                if (doc) {
+                    json_values[index][row_idx] = doc->getValue();
                 }
             }
         }

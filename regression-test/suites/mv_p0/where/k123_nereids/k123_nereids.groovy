@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite ("k123p_nereids") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """set enable_nereids_planner=true"""
-    // Virtual column will make mv rewrite fail, so we disable the rule
-    sql "set disable_nereids_rules='CONSTANT_PROPAGATION,PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN'"
+
     sql """
             create table d_table(
                 k1 int null,
@@ -38,10 +37,10 @@ suite ("k123p_nereids") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("""create materialized view k123p1w as select k1,k2+k3 from d_table where k1 = 1;""")
-    createMV ("""create materialized view k123p4w as select k1,k2+k3 from d_table where k4 = "b";""")
-    createMV ("""create materialized view kwh1 as select k2, k1 from d_table where k1=1;""")
-    createMV ("""create materialized view kwh2 as select k2, k1 from d_table where k1>1;""")
+    createMV ("""create materialized view k123p1w as select k1 as a1,k2+k3  as a2 from d_table where k1 = 1;""")
+    createMV ("""create materialized view k123p4w as select k1 as a3 ,k2+k3 as a4 from d_table where k4 = "b";""")
+    createMV ("""create materialized view kwh1 as select k2 as b1, k1 as b2 from d_table where k1=1;""")
+    createMV ("""create materialized view kwh2 as select k2 as b3, k1 as b4 from d_table where k1>1;""")
 
 
     sql "insert into d_table select 1,1,1,'a';"
@@ -51,12 +50,13 @@ suite ("k123p_nereids") {
     qt_select_star "select * from d_table order by k1;"
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='6');"""
 
     mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;", ["k123p1w", "k123p4w", "kwh1", "kwh2"])
     
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = 1 order by k1;",
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k1 = 1 order by k1;",
         "k123p1w")
     
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 1 order by k1;"
@@ -65,11 +65,11 @@ suite ("k123p_nereids") {
     
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 2 order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k1 = '1' order by k1;", "k123p1w")
 
     qt_select_mv "select k1,k2+k3 from d_table where k1 = '1' order by k1;"
 
-    mv_rewrite_success("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
+    mv_rewrite_success_without_check_chosen("select k1,k2+k3 from d_table where k4 = 'b' order by k1;", "k123p4w")
         
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'b' order by k1;"
 
@@ -77,29 +77,29 @@ suite ("k123p_nereids") {
         
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
 
-    mv_rewrite_success("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
+    mv_rewrite_success_without_check_chosen("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""", "k123p4w")
 
     qt_select_mv """select k1,k2+k3 from d_table where k1 = 2 and k4 = "b" order by k1;"""
 
     qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
 
-    mv_rewrite_success("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;", "kwh1")
+    mv_rewrite_success_without_check_chosen("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;", "kwh1")
     
     qt_select_mv "select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;"
 
-    mv_rewrite_success("select k2 from d_table where k1>10 order by k2;", "kwh2")
+    mv_rewrite_success_without_check_chosen("select k2 from d_table where k1>10 order by k2;", "kwh2")
 
     mv_rewrite_all_fail("select k2 from d_table where k1>10 or k2 = 0 order by k2;", ["k123p1w", "k123p4w", "kwh1", "kwh2"])
 
-    mv_rewrite_success("select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;", "kwh1")
+    mv_rewrite_success_without_check_chosen("select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;", "kwh1")
     
     qt_select_mv "select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;"
 
-    mv_rewrite_success("select k2,k1=1 from d_table where k1=1 order by k2;", "kwh1")
+    mv_rewrite_success_without_check_chosen("select k2,k1=1 from d_table where k1=1 order by k2;", "kwh1")
     
     qt_select_mv "select k2,k1=1 from d_table where k1=1 order by k2;"
 
-    mv_rewrite_success("select k2,k1=2 from d_table where k1=1 order by k2;", "kwh1")
+    mv_rewrite_success_without_check_chosen("select k2,k1=2 from d_table where k1=1 order by k2;", "kwh1")
     
     qt_select_mv "select k2,k1=2 from d_table where k1=1 order by k2;"
 

@@ -51,7 +51,6 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
@@ -83,6 +82,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -160,18 +160,16 @@ public abstract class ExternalCatalog
     @SerializedName(value = "comment")
     private String comment;
 
+    // Save the error info if initialization fails.
+    // can be seen in `show catalogs` result.
+    // no need to persist this field.
+    private String errorMsg = "";
+
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
-
-    private ExternalSchemaCache schemaCache;
-    // A cached and being converted properties for external catalog.
-    // generated from catalog properties.
-    private byte[] propLock = new byte[0];
-    private Map<String, String> convertedProperties = null;
-
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected ExecutionAuthenticator executionAuthenticator;
@@ -335,7 +333,12 @@ public abstract class ExternalCatalog
                     init();
                 }
                 initialized = true;
+                this.errorMsg = "";
             }
+        } catch (Exception e) {
+            this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
+            throw new RuntimeException("Failed to init catalog: " + name + ", error: "
+                    + this.errorMsg + " You can use 'SHOW CATALOGS' to find the root cause", e);
         } finally {
             isInitializing = false;
         }
@@ -572,10 +575,6 @@ public abstract class ExternalCatalog
     public synchronized void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
-        synchronized (this.propLock) {
-            this.convertedProperties = null;
-        }
-
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
@@ -641,6 +640,11 @@ public abstract class ExternalCatalog
         this.comment = comment;
     }
 
+    @Override
+    public String getErrorMsg() {
+        return errorMsg;
+    }
+
     /**
      * Different from 'listDatabases()', this method will return dbnames from cache.
      * while 'listDatabases()' will return dbnames from remote datasource.
@@ -675,11 +679,6 @@ public abstract class ExternalCatalog
     public TableName getTableNameByTableId(Long tableId) {
         throw new UnsupportedOperationException("External catalog does not support getTableNameByTableId() method."
                 + ", table id: " + tableId);
-    }
-
-    @Override
-    public String getResource() {
-        return catalogProperty.getResource();
     }
 
     @Nullable
@@ -745,17 +744,7 @@ public abstract class ExternalCatalog
 
     @Override
     public Map<String, String> getProperties() {
-        // convert properties may be a heavy operation, so we cache the result.
-        if (convertedProperties != null) {
-            return convertedProperties;
-        }
-        synchronized (propLock) {
-            if (convertedProperties != null) {
-                return convertedProperties;
-            }
-            convertedProperties = PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
-            return convertedProperties;
-        }
+        return catalogProperty.getProperties();
     }
 
     @Override
@@ -1032,7 +1021,6 @@ public abstract class ExternalCatalog
                 }
             }
         }
-        this.propLock = new byte[0];
         this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
