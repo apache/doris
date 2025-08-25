@@ -4827,9 +4827,11 @@ TEST(CheckerTest, meta_rowset_key_check_normal) {
     txn2->put(rowset_key, rowset_pb.SerializeAsString());
     ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_OK);
 
-    std::string start_key = meta_rowset_key({instance_id, 0, 0});
-    std::string end_key = meta_rowset_key({instance_id, INT64_MAX, 0});
-    ASSERT_EQ(checker.check_meta_rowset_key(start_key, end_key), 0);
+    std::string key = meta_rowset_key({instance_id, tablet_id, version});
+    std::string val;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_rowset_key(key, val), 0);
 }
 
 TEST(CheckerTest, meta_rowset_key_check_abnormal) {
@@ -4859,9 +4861,12 @@ TEST(CheckerTest, meta_rowset_key_check_abnormal) {
     txn->put(rowset_key, rowset_pb.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
-    std::string start_key = meta_rowset_key({instance_id, 0, 0});
-    std::string end_key = meta_rowset_key({instance_id, INT64_MAX, 0});
-    ASSERT_EQ(checker.check_meta_rowset_key(start_key, end_key), 1);
+    std::string key = meta_rowset_key({instance_id, non_existent_tablet_id, version});
+    std::string val;
+    std::unique_ptr<Transaction> txn1;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn1->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_rowset_key(key, val), 1);
 }
 
 TEST(CheckerTest, meta_tmp_rowset_key_check_normal) {
@@ -4907,9 +4912,12 @@ TEST(CheckerTest, meta_tmp_rowset_key_check_normal) {
     txn3->put(meta_tmp_rowset_key_str, rowset_pb.SerializeAsString());
     ASSERT_EQ(txn3->commit(), TxnErrorCode::TXN_OK);
 
-    std::string start_key = txn_info_key({instance_id, 0, 0});
-    std::string end_key = txn_info_key({instance_id, INT64_MAX, 0});
-    ASSERT_EQ(checker.check_meta_tmp_rowset_key(start_key, end_key), 0);
+    std::string key = txn_info_key({instance_id, db_id, txn_id});
+    std::string val;
+    std::unique_ptr<Transaction> txn4;
+    ASSERT_EQ(txn_kv->create_txn(&txn4), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn4->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_tmp_rowset_key(key, val), 0);
 }
 
 TEST(CheckerTest, meta_tmp_rowset_key_check_abnormal) {
@@ -4955,9 +4963,12 @@ TEST(CheckerTest, meta_tmp_rowset_key_check_abnormal) {
     txn3->put(meta_tmp_rowset_key_str, rowset_pb.SerializeAsString());
     ASSERT_EQ(txn3->commit(), TxnErrorCode::TXN_OK);
 
-    std::string start_key = txn_info_key({instance_id, 0, 0});
-    std::string end_key = txn_info_key({instance_id, INT64_MAX, 0});
-    ASSERT_EQ(checker.check_meta_tmp_rowset_key(start_key, end_key), 1);
+    std::string key = txn_info_key({instance_id, db_id, txn_id});
+    std::string val;
+    std::unique_ptr<Transaction> txn4;
+    ASSERT_EQ(txn_kv->create_txn(&txn4), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn4->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_tmp_rowset_key(key, val), 1);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {

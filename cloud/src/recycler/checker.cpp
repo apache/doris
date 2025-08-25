@@ -1772,7 +1772,7 @@ int InstanceChecker::do_mow_job_key_check() {
     } while (it->more() && !stopped());
     return 0;
 }
-      
+
 int InstanceChecker::check_meta_rowset_key(std::string_view key, std::string_view value) {
     RowsetMetaCloudPB meta_rowset_pb;
     if (!meta_rowset_pb.ParseFromArray(value.data(), value.size())) {
@@ -1931,7 +1931,7 @@ int InstanceChecker::scan_and_handle_kv(
     } while (it->more() && !stopped());
     return ret;
 }
-      
+
 int InstanceChecker::do_restore_job_check() {
     int64_t num_prepared = 0;
     int64_t num_committed = 0;
